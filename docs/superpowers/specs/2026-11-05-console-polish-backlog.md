@@ -4175,6 +4175,34 @@ being drawn in a layout that cannot honour it.**
    the slot's own `margin: var(--sp-1) 0 0`. Mutation: the subtitle put back beside the title → "the subtitle sits
    inside the same block as the title".)*
 
+## P0 — the ninety-seventh list (opened 2026-11-11, one page of seven draws a SENTENCE where the others draw the shape)
+
+The ninety-sixth list is closed. This list is rule 19's LOADING half, measured the only way it can be: every read
+parked, so what each page draws IS its loading state.
+
+Measured 2026-11-11, holding `/fleet` and `/api/**` for 90 s and reading each page:
+
+     page       surface   what it draws while the read is held
+     Home       console   `.skeleton-list` — 3 rows, `role="status"`, label "Reading the machine list"   (195 px)
+     Memory     panel     `.skeleton-list` — 3 rows, `role="status"`, label "Reading the memory list"    (193 px)
+     Plugins    panel     `.skeleton-list` — 3 rows, `role="status"`, label "Reading the plugin inventory" (193 px)
+     **Device** **console** **`p.hint` — the sentence "Reading the machine list…", in a 52 px card**        **0 skeletons**
+     Activity   console   nothing (the record keeps its last read and says so)
+     Terminal   panel     nothing (the terminal is a live stream, not a read)
+
+**SIX of the seven pages draw the atom; ONE draws a sentence.** And it is the same sentence — "Reading the machine
+list…" — that Home's own skeleton carries as its `aria-label`, so the product says one thing in two shapes on two
+pages of the same console, from the same read state.
+
+**And the panel had the same hole and it was fixed by this program** (the eightieth list: "a loading state reserves
+the shape, not a sentence"). **The console's Device page was never fixed with it**, which is what a list that names
+one occurrence always leaves behind.
+
+1. **The Device page draws a sentence where every other page draws the atom.** **Fix:** the picker's reading branch
+   reserves the shape its rows will take, in the contract's `loading` atom. **M.**
+2. **No gate counts the pages that draw the atom.** `role="status"` is checked where it exists; nothing asserts
+   that a page which draws nothing yet draws the SHAPE. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
