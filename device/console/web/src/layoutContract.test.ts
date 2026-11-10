@@ -1115,6 +1115,37 @@ describe("the layout contract", () => {
     expect(countRule![0], "the count is not a filter column any more").not.toContain("align-self: center");
   });
 
+  it("separates two LIKE things ONE way, with the family's `line`", () => {
+    // **MEASURED 2026-11-11 ACROSS EVERY LIST THE PRODUCT DRAWS**, the first four rows of each:
+    //
+    //     list                 rows  container gap      rule on the row     rule colour
+    //     `.attention-list`     2     **0px**           **1 of 2**           `soft` (.05)
+    //     `.fleet-table tbody`  4     **0 (leading)**   **0**                —
+    //     `.timeline-rows`      4     **0 (leading)**   **0**                —
+    //     `.mem-list`           3     **8px**           **3 of 3**           `line` (.08)
+    //     `.plug-rows`          4     **8px**           **3 of 3**           `line` (.08)
+    //
+    // **Five lists, four separators.** The `row` atom answers the question twice — a list of LINES separates by its
+    // own leading (`gapLines: 0`), a list of BOXES by the scale's 8 (`gapBoxes: 8`) — and the `hairline` atom says
+    // what a separating line takes: *"a hairline separates two regions and takes `line`"*.
+    const sheet = css();
+    const rule = ruleFor(sheet, ".attention-row");
+    expect(rule, "the attention row is declared").toBeTruthy();
+    expect(rule, "its separator is the family's `line`").toContain("border-top: 1px solid var(--line)");
+    // `--line-soft` is for an edge that is almost not there; a separator every other list draws at `.08` may not be
+    // the one this list draws at `.05`.
+    expect(rule, "and not the `soft` member").not.toContain("var(--line-soft)");
+    // **THE TWO LISTS THAT SEPARATE BY A RULE AGREE ON THAT RULE** — one family, one member.
+    expect(sheet, "the panel's lists separate at `line` too").toContain("border-top: 1px solid var(--line)");
+    // And the atom's own numbers, so this reads the contract rather than taste.
+    expect(contract.hairline.line, "the separating line is the family's").toBe("rgba(0, 0, 0, 0.08)");
+    expect(contract.hairline.soft, "and `soft` is a different number, for a different job").toBe(
+      "rgba(0, 0, 0, 0.05)",
+    );
+    expect(contract.row.gapLines, "a list of LINES separates by its leading").toBe(0);
+    expect(contract.row.gapBoxes, "a list of BOXES by the scale's 8").toBe(8);
+  });
+
   it("is a page that RESERVES THE SHAPE while a read is held, not a sentence", () => {
     // **RULE 19's LOADING HALF, MEASURED WITH EVERY READ PARKED 90 SECONDS (the ninety-seventh list).** What
     // each page draws while a read is held:

@@ -3635,9 +3635,14 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
    `row.insetX: 8` says 8, and the block's own first line (the attention heading) sits at the card's 16. **A row of
    LINES still insets**: the atom's `gapLines: 0` is about the space BETWEEN rows, not about the inset that makes
    them belong to the card. */
+/* **A SEPARATOR IS `line`, NOT `soft` (the hundred-and-third list).** Measured 2026-11-11 across every list the
+   product draws: four separators in five lists — leading only, a gap only, a gap plus a `line` rule, and THIS one, a
+   gap plus a **`soft`** rule where every other separator in the product is `--line`. The `hairline` atom's own
+   sentence says what each member is for: *"a hairline separates two regions and takes `line`"*; `soft` is for an edge
+   that is almost not there. Two lists that both separate by a rule must separate by the same rule. */
 .attention-row {
   display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap;
-  padding: var(--sp-2-5) var(--sp-2); border-top: 1px solid var(--line-soft);
+  padding: var(--sp-2-5) var(--sp-2); border-top: 1px solid var(--line);
 }
 .attention-row:first-child { padding-top: 0; border-top: 0; }
 .attention-row:last-child { padding-bottom: 0; }
