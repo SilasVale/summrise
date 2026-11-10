@@ -3234,7 +3234,9 @@ Measured 2026-11-10 on the built panel at 1360, walking every page the rail can 
 
 ## P0 — the seventy-second list (opened 2026-11-10, the empty state is one card on one surface and a line of text on the other)
 
-The seventy-first list is closed: every page of the panel draws one head. This list is rule 19 — *"every
+The seventy-first list is closed: every page of the panel draws one head. **This list is closed
+(2026-11-10): both items shipped — panel `3d33e938`, console `942e49a` — and `empty.wayBack` is a contract
+line in both repos.** This list was rule 19 — *"every
 surface has an empty, a loading and a failed state that tell the truth"* — asked of the state the contract
 already names most precisely: the EMPTY.
 
@@ -3254,9 +3256,15 @@ The contract's `empty` atom: **one card** — `radius 14, pad 16, gap 12, textAl
    `text-align: center`, so the card is **48 px tall** around one 18 px line, and the line is centred in
    1,042 px. The atom says start-aligned and padded 16. **Fix:** the empty state is the atom: the card's
    inset, start-aligned, and a control that undoes the filter. **M.**
+   *(**Done, panel `3d33e938`**: `.plug-empty-card` is the atom (measured on the served build — 108 px tall,
+   pad 16, radius 14, gap 12, `text-align: start`) with a `Clear search` beside the sentence, where it had
+   been one 18 px CENTRED line in a card that padded 0 and offered nothing.)*
 2. **The console's filtered empty is not a card at all** — no corner, no inset, a bare `p.hint` and a
    button on the page's grid. It keeps the way back (which the atom does not require and which is right);
    what it lacks is the box the atom says an empty state is. **Fix:** the same card, keeping the button. **S.**
+   *(**Done, console `942e49a`, live `ux180`**: measured on the served page — 1072 x 106, radius 14, pad 16,
+   start-aligned, no shadow, and the `Clear search` still inside it. The atom's gap is `--empty-gap`, the
+   same custom property `.empty-state` reads, so the two empty shapes cannot drift.)*
 
 ## How a round goes
 
