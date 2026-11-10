@@ -78,7 +78,21 @@ type Contract = {
   };
   ground: { light: string; dark: string; gradients: number };
   elevation: { flat: string; pane: string; raised: string };
-  palette: { washAlpha: number; ink: string; muted: string; faint: string; accent: string; semantic: string[] };
+  palette: {
+    washAlpha: number;
+    ink: string;
+    muted: string;
+    faint: string;
+    accent: string;
+    semantic: string[];
+    accentFamily: {
+      jobs: string[];
+      names: Record<"console" | "panel", string[]>;
+      note: string;
+      maxDeltaE: number;
+    };
+    extraHues: { name: string; ink: string; reason: string }[];
+  };
   leading: { body: number; tight: number; mark: number };
   measure: { prose: string; codeExempt: boolean };
   space: {
