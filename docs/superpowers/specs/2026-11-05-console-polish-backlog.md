@@ -2866,6 +2866,36 @@ has been careful about it for a long time. And the panel's **`--lh-body` 1.5** i
    measure breaks a copy-paste or the shape of what the console reports. Both tests assert BOTH halves: the
    prose blocks opt in AND the exempt ones do not.)*
 
+## P0 — the sixty-second list (opened 2026-11-10, the Device page has two heads stacked and none of them is the contract's)
+
+The sixty-first list is closed: prose measures, and code does not. This list came from rule 5 and rule 20
+applied to the atom the contract calls `head` — measured by asking every page the same THREE questions:
+does it have a head, what is in it, and where does it start.
+
+Two reads were clean and are recorded as clean: **Home and Activity both carry `.page-head` with the
+contract's shape** (a `<div>` holding an `h1` and a subtitle, then `.page-actions` with two controls),
+and both start at the **same y=76** — the contract's `page.pad 24` under the rail's top bar.
+
+1. **The Device page draws TWO heads stacked: `.page-head.device-head` at y=76 (33 px tall, an `h1` and
+   two control groups) and then `.overview-head` at y=133 (48 px, an `h2` and the machine's start). Two
+   headers on one page, 57 px apart, with the second's `h2` reading as a page title. Measured:
+
+       Home      `.page-head`         y=76, 68 px, h1 + verdict + 2 actions
+       Activity  `.page-head`         y=76, 68 px, h1 + subtitle + 2 actions
+       Device    `.page-head.device-head`  y=76, 33 px, h1 + tabs + 1 action
+                 `.overview-head`           y=133, 48 px, h2 + start
+
+   The Device page's head is the ONLY one at 33 px, because it carries tabs instead of a subtitle; and
+   the block under it is a card pretending to be a second header. **A page has one head, and what sits
+   under it is a card** — that is what `head` and `card` mean in the contract, and this page is the one
+   place the two are confused. **Fix:** the machine's name and start move into the card grammar, and the
+   Device head keeps the page's title. **M.**
+
+2. **The head's height is three values across three pages** (68 / 68 / 33) and the contract names only
+   its `gap` and `align`. A head is a row whose height is its contents, so this is not a defect in
+   itself — but nothing says so, and the next page will pick a fourth. **Fix:** the contract records that
+   a head is content-sized and that its second line is the subtitle slot. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
