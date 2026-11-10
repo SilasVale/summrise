@@ -3382,7 +3382,8 @@ the *inherited default plus an opt-in* is: the same 12 px sentence is set twice 
 
 ## P0 — the seventy-sixth list (opened 2026-11-10, the console sizes its buttons for a thumb and the panel does not)
 
-The seventy-fifth list is closed across four builds. This list is the ONE measurement the twenty rules never
+The seventy-fifth list is closed across four builds. **This list is closed (2026-11-10): both items shipped as
+panel `4fd468bc`.** This list was the ONE measurement the twenty rules never
 asked for, and the two surfaces answer it in opposite directions: **the touch target.**
 
 Measured 2026-11-10 at 390 px wide, counting every reachable control inside the page body:
@@ -3406,9 +3407,15 @@ to 390 on a phone-sized screen is the same thumb the console already plans for.
 1. **The panel's controls are 22–32 px at 390**, where every one of them is a thumb's target. **Fix:** the
    console's rule, in the panel's own band: `button, a[href], summary, input, select` inside the page body at
    the contract's 44 where the window is a phone's. **M.**
+   *(**Done, panel `4fd468bc`**: one block in the panel's phone band names `.page button, a[href], summary,
+   input, select` at `min-height: 44px`. Measured after at 390: **Memory 0 of 8 under 44, Plugins 0 of 3**;
+   at 1,440 the same controls still measure 22 / 22 / 27, so the floor never reaches a desktop.)*
 2. **`space.target: 24` in the contract does not say which size it describes** — the console proves 44 is
    what a phone needs, and 24 is what a desktop's control can be hit at with a mouse. Two numbers, one name.
    **Fix:** the atom records both, and which band each belongs to. **S.**
+   *(**Done, panel `4fd468bc`**: `space.target` 24 stays the mouse's; `space.targetTouch: 44` and
+   `space.targetBand: "phone"` are recorded beside it (pin `8d90a192…`), because one name for both is how the
+   thinner surface went unnoticed through four lists of phone work.)*
 
 ## How a round goes
 
