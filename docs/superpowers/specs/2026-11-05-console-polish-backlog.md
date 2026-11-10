@@ -4026,7 +4026,15 @@ day's SPAN appears, so a reader of a short day cannot tell whether they are look
 
 1. **A day's count and span are drawn only when it is long enough to be cut.** **Fix:** the day's line is part of
    the day, not of its door — every day says what it holds. **M.**
+   *(**Done in the tree, MERGED, NOT DEPLOYED** — the deployment hold applies. Every day's head is
+   `div.timeline-day-head` carrying the heading and its facts on one baseline:
+   **`Today   22 calls · 15:27 → 15:32`** — heading 17/600, facts 12/400 `--ink-muted`, tabular numerals.
+   The facts are the heading's SIBLING so a reader who jumps by heading still hears the day's NAME; the suite's
+   own `getByRole("heading", { name: "Today" })` caught that when they were a child. What sticks is the head.)*
 2. **Nothing measures a day's head at all**: the gates read the timeline's rows and its separations. **S.**
+   *(**Done in the tree, MERGED**: `is a DAY that says what it holds, and its heading says only what it is called`
+   reads the markup and the sheet together — and its mutation (the facts back inside the heading) turns THREE
+   tests red, including the accessible-name check.)*
 
 ## How a round goes
 
