@@ -636,7 +636,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 }
 
 .summary { color: var(--ink-muted); font-size: var(--fs-sm); margin: 0 0 var(--sp-2); }
-.hint, .summary, .lede { max-width: 66ch; }
+.hint, .summary, .lede { max-width: var(--measure); }
 .enroll {
   display: grid; gap: var(--sp-2); padding: var(--sp-3);
   margin: 0 0 var(--sp-3); border: 1px solid var(--line); border-radius: var(--radius-xs);

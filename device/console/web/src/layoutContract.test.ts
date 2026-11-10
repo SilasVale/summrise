@@ -1142,6 +1142,43 @@ describe("the layout contract", () => {
     expect(countRule![0], "the count is not a filter column any more").not.toContain("align-self: center");
   });
 
+  it("measures a line with ONE token, in `ch`, on every block of prose", () => {
+    // **MEASURED 2026-11-11 AT 1,600, EVERY BLOCK OF PROSE, IN `ch`:**
+    //
+    //     surface/page   block                width  max-width as written   takes the token?
+    //     console Home   `.hint`              **68ch**  `var(--measure)`      **yes**
+    //     console Home   `.attention-release`  68ch    `416px`               no — a PIXEL literal
+    //     console Act.   `.hint`              **78ch**  `477px`               no — a PIXEL literal
+    //
+    // **A pixel lands on 66 characters at ONE font size and drifts at any other**, which is why the atom's measure
+    // is `ch` and never px. The atom also says a measure is not a taste: 66ch is where the block that already reads
+    // well sits, inside the 45–75 band a line is followed back along.
+    const sheet = stripComments(css());
+    // The token exists and is the atom's number.
+    expect(stripComments(tokens()), "the measure is a token").toContain(`--measure:${contract.measure.prose}`);
+    expect(contract.measure.prose, "and the atom's number is `ch`").toMatch(/^\d+ch$/);
+    // **NO PROSE RULE WRITES A PIXEL MEASURE.** A `max-width` of 3–7 hundred px on a prose block is a measure in
+    // the wrong unit. **A MEDIA QUERY IS NOT A MEASURE**: the first scan caught `@container token-list
+    // (max-width: 639px)` because a lookbehind cannot see a query that started 40 characters earlier — so split
+    // the sheet into top-level blocks instead, which is the only reliable way to ask "declaration or condition?".
+    const blocks: string[] = [];
+    let depth = 0;
+    let start0 = 0;
+    for (let i = 0; i < sheet.length; i++) {
+      if (sheet[i] === "{") depth++;
+      else if (sheet[i] === "}") {
+        depth--;
+        if (depth === 0) { blocks.push(sheet.slice(start0, i + 1)); start0 = i + 1; }
+      }
+    }
+    const prosePx = blocks
+      .filter((b) => !b.trimStart().startsWith("@"))
+      .flatMap((b) => [...b.matchAll(/max-width:\s*([3-7]\d\d(?:\.\d+)?px)/g)].map((m) => m[1]));
+    expect(prosePx, "no prose rule writes its measure in pixels").toEqual([]);
+    // And no rule spells the measure itself.
+    expect(sheet, "and none spells `66ch` by hand").not.toMatch(/max-width:\s*66ch/);
+  });
+
   it("draws the subtitle slot ONCE per page, at ONE treatment", () => {
     // **MEASURED 2026-11-11, EVERY `.page-sub` INSIDE A PAGE HEAD:**
     //
