@@ -52,6 +52,7 @@ type Contract = {
   elevation: { flat: string; pane: string; raised: string };
   palette: { ink: string; muted: string; faint: string; accent: string; semantic: string[] };
   leading: { body: number; tight: number; mark: number };
+  measure: { prose: string; codeExempt: boolean };
   space: {
     scale: number[];
     controlH: number;
@@ -140,7 +141,7 @@ describe("the layout contract", () => {
     // `agent/resources/panel-react/src/lib/layoutContract.test.ts`. If the two disagree, the two
     // frontends are drawn to different page systems and one of them is wrong.
     expect(createHash("sha256").update(contractText()).digest("hex")).toBe(
-      "14fa128cffc71b2d7bd6dc72a2a9689b2a37bff7039f5acc5123674f8acc8dd6"
+      "6f090346733c60d4af442a3e861b8533e4150f327b4414ad82051b4559fae199"
     );
   });
 
@@ -156,6 +157,27 @@ describe("the layout contract", () => {
     expect(page, "the page's rhythm comes from the scale").toContain(`gap: var(--${gap})`);
     expect(tokenPx(tokens(), pad)).toBe(contract.page.pad);
     expect(tokenPx(tokens(), gap)).toBe(contract.page.gap);
+  });
+
+  it("is a MEASURE for prose, and a transcript is exempt", () => {
+    // **THIS SURFACE'S PROSE STOOD AT 46 ch AND STILL HAD NO RULE (the sixty-first list).** Measured, the
+    // widest line here was `.hint installer-missing` at 46 characters — inside the band a line is followed
+    // back along — because the sentences happened to be short. The blocks that would take the card's
+    // 1,072 px had never been asked. A token makes the NEXT sentence take the measure.
+    const tk = tokens();
+    expect(tk, "the measure is a token").toMatch(/--measure: *66ch/);
+    expect(contract.measure.prose).toBe("66ch");
+    // **THE PROSE CLASS TAKES IT**, and so does each block that carries a sentence.
+    for (const selector of [".hint", ".attention-problems li", ".activity-status"]) {
+      const body = ruleFor(css(), selector);
+      expect(body, selector + " must have a rule").not.toBeNull();
+      expect(body!, selector + " takes the measure").toMatch(/max-width: *var\(--measure\)/);
+    }
+    // **AND A TRANSCRIPT IS EXEMPT.** `.evidence-output` is a log: scanned token by token, and wrapping it
+    // to a prose measure would break the shape of the output the console prints. The contract says so.
+    expect(contract.measure.codeExempt).toBe(true);
+    const transcript = ruleFor(css(), ".evidence-output");
+    expect(transcript!, "a transcript keeps its width").not.toMatch(/max-width: *var\(--measure\)/);
   });
 
   it("is THREE line-height ratios, and the mark belongs to a glyph", () => {
