@@ -48,6 +48,7 @@ type Contract = {
   head: { gap: number; align: string };
   motion: { reducedMotion: string; cap: string; namedAnimationsStop: boolean };
   cardTitle: { size: number; weight: number };
+  ground: { light: string; dark: string; gradients: number };
   section: {
     h2: { size: number; weight: number };
     h3: { size: number; weight: number };
@@ -117,7 +118,7 @@ describe("the layout contract", () => {
     // `agent/resources/panel-react/src/lib/layoutContract.test.ts`. If the two disagree, the two
     // frontends are drawn to different page systems and one of them is wrong.
     expect(createHash("sha256").update(contractText()).digest("hex")).toBe(
-      "23e0de0ccefe0bb21fdc3a662660db40e2ca5890ff9bcdf41e114d7ae495eab9"
+      "e93101e9201ccc6cfa4133dc264d425194965afd777b1fea32ccb4a14caafd63"
     );
   });
 
@@ -133,6 +134,34 @@ describe("the layout contract", () => {
     expect(page, "the page's rhythm comes from the scale").toContain(`gap: var(--${gap})`);
     expect(tokenPx(tokens(), pad)).toBe(contract.page.pad);
     expect(tokenPx(tokens(), gap)).toBe(contract.page.gap);
+  });
+
+  it("is the ground, and it is ONE colour rather than a wash", () => {
+    // **THE SURFACE EVERY PAGE SITS ON HAD NO LINE IN THE CONTRACT (the fifty-fourth list).** Measured:
+    // the panel's ground was three decorative gradients behind a fixed overlay plus a fourth on its
+    // canvas, in six hand-written colours, while this surface painted ONE colour and drew no overlay at
+    // all. Rule 17 refuses a gradient as DECORATION, and the console was already right — so this test is
+    // the line that keeps it right, and the number the other surface is now held to.
+    const source = css();
+    // **`ruleFor` IS NOT THE RIGHT TOOL FOR `body`.** It reads the LAST match of `body { … \n}`, and
+    // there are twelve `body`-containing rules whose bodies run to the next newline-brace — the last
+    // one it finds is not the ground's. Asserting through it would have been a test that passed for a
+    // reason unrelated to what it claims (found by mutation: the gradient went in and the test stayed
+    // green). The ground's own declaration is read directly.
+    const body = source.match(/\nbody\s*\{\s*\n\s*margin: 0;\s*\n([^}]*)\n\}/)?.[1];
+    expect(body, "the ground is declared on body").toBeTruthy();
+    // The light ground is a color-mix over the panel token; the assertion is that it is ONE declaration
+    // with no image layer, not that it is a literal.
+    expect(body!, "the ground carries no image").not.toMatch(/background-image/);
+    expect(body!, "the ground is a colour").toMatch(/background:\s*(color-mix|var\(--)/);
+    // **AND NO PAGE-LEVEL DECORATIVE GRADIENT.** The fades that DO exist are the table's edge fades —
+    // they explain that a horizontally scrolling table continues past its edge, which is a STATE — and
+    // they are the only ones. A third would be decoration, and this count is where it would show up.
+    const imageRules = [
+      ...source.matchAll(/\.[\w-]+[^{]*\{[^}]*background-image:\s*(?:linear|radial)-gradient/g),
+    ].map((m) => m[0].split("{")[0].trim());
+    expect(imageRules.length, "no page-level decorative gradient").toBeLessThanOrEqual(2);
+    expect(contract.ground.gradients, "the contract records zero decorative gradients").toBe(0);
   });
 
   it("is the card title, and a card header is not styled by accident", () => {
