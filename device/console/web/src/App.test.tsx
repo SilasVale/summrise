@@ -1777,7 +1777,10 @@ describe("App", () => {
       "aria-pressed",
       "true"
     );
-    expect(screen.getByText("Listed the attic")).toBeInTheDocument();
+    // **THE FIRST READ OF A NEW SCOPE NOW DRAWS THE SHAPE (the eightieth list).** Until it answered, the
+    // page drew rows from the window that was already in hand — an answer from another scope — and this
+    // assertion could read them synchronously. It waits for the answer now, which is what a reader does.
+    expect(await screen.findByText("Listed the attic")).toBeInTheDocument();
     expect(screen.queryByText("Read the workshop's notes")).not.toBeInTheDocument();
 
     // And the other way: a chip is the table's device filter when the views change back.
