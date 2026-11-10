@@ -3590,35 +3590,38 @@ page. The panel draws it on six of seven.
    `max-width` of its own, so the frame and the deliberate bleed are both recorded. Mutation: the head back to
    its strip → red.)*
 
-## P0 — the eighty-second list (opened 2026-11-10, the page's name is a 22/700 line on three pages and not on two)
+## P0 — the eighty-second list (opened 2026-11-10, the head's SUBTITLE is four answers where the atom names one slot)
 
-The eighty-first list is closed: the Terminal draws the page frame. This list is the HEAD, measured page by page
-on both surfaces — and it is the one part of the frame the contract deliberately does NOT number, which is exactly
-why it drifted.
+The eighty-first list is closed: the Terminal draws the page frame. This list is the head — the one part of the
+frame the contract deliberately does not number — and **my first measurement of it was wrong**, which is the
+finding this list now carries.
 
-Measured 2026-11-10, all seven pages, reading each head's height and what is inside it:
+Measured 2026-11-10, all seven pages, reading each head's `h1`, its size, and every line under it:
 
-     surface   page        head height   h1 present   `.page-sub` lines   actions
-     console   Home        68            yes (22/700)  1                  2 buttons
-     console   Activity    89            yes           2                  live state + pause
-     console   Device      33            yes (22/700)  0                  none
-     panel     Memory      33            yes           1                  none
-     panel     Plugins     43            yes           1                  none
-     panel     History     **33**        **NO h1**     1                  none
-     panel     Settings    33            yes           3                  none
+     surface   page        head h   h1             lines under it (size)
+     console   Home        68       Home 22/700    —
+     console   Activity    89       Activity 22/700 **17/500** (`.activity-today`) + 12/400 (`.activity-status`)
+     console   Device      33       Choose a machine 22/700   —
+     panel     Memory      33       Memory 22/700   13/400 (`.page-sub`)
+     panel     History     33       History 22/700   —
+     panel     Plugins     43       Plugins 22/700  13/400 (`.page-sub`)
+     panel     Settings    33       Settings 22/700  13/400 (`.page-sub`) + 12/400 (`.settings-meta`)
 
-**Two findings, and they are the same finding twice:**
+**The first probe said History drew no `h1`.** It read `head.children` and reported ONE `<div>` with 13 px type,
+which is what a Fantasy result looks like when the walk is off by a level: the `h1` is INSIDE that `div`, 22/700,
+and a second probe that asked for it directly found it on all seven pages. **A probe that reports a page's name
+missing is worth re-running before a list is written about it** — this list exists because the re-run disagreed.
 
-1. **History draws no page name at all.** Its head is one `<div>` holding a `.page-sub` — there is no `h1` in it —
-   while the other six pages put a 22/700 title in exactly that row. Measured: the head is 33 px, the same as
-   Memory's, but the row that should hold `History` at 22/700 holds a 13 px subtitle.
-2. **Plugins' head is 43 px where every other 33**, because its subtitle wraps to two lines inside a 1,120 px
-   column — which is not a head's defect but proof that the head's height is its contents, and the contract says
-   so: *"`height` is not a number. What IS recorded: the gap, the alignment, the subtitle SLOT."*
-   The number nobody wrote down is the one the pages disagree about.
+**What the re-run does show is the head's SECOND line.** The contract names ONE slot — `head.subtitleSlot:
+".page-sub"` — and the pages draw it at **13/400 on three of them and at 17/500 on Activity**, where the count
+sentence is set as a section title would be. The head's subtitle is a subtitle on every page or it is not the
+head's.
 
-**Fix:** History's head becomes the atom's — a 22/700 `h1.page-title` with its subtitle in the slot below — and
-the atom gains the one line it is missing: **a head's first child IS the page's name**, in both repos. **M.**
+1. **Activity's count line is 17/500 in a slot the atom draws at 13/400**, so the page under the title starts
+   at a size the other pages do not use for the same role. **Fix:** the subtitle's step is the atom's, and the
+   count keeps its tabular figures. **M.**
+2. **Nothing asserts the subtitle's size at all**: the console's gate checks that a page has one `.page-head`
+   and that the subtitle slot is NAMED, not what it draws. **S.**
 
 ## How a round goes
 
