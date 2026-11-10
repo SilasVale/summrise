@@ -2826,6 +2826,35 @@ and the semantic four).
    glyph's box to its own size, which is rule 13's floor and never a sentence's. The console's `0` went
    with it: a rule carrying text with no line box at all.)*
 
+## P0 — the sixty-first list (opened 2026-11-10, a line of text is 103 characters on one surface and 46 on the other)
+
+The sixtieth list is closed: line-height is three ratios. This list is rule 13's THIRD leg — *"readable
+text: measure, line-height, contrast"* — measured in `ch` against the element's own font, on both
+rendered surfaces.
+
+Two reads were clean and are recorded as clean: **the console's prose is 46 characters at its widest**
+(`.hint installer-missing` and `.timeline-empty`), well inside any comfortable measure — this surface
+has been careful about it for a long time. And the panel's **`--lh-body` 1.5** is the contract's.
+
+1. **The panel's prose runs to 103 characters on History and 109–119 on Settings, while Memory's
+   entries stop at 66.** Measured, `getComputedStyle` and a `ch` probe on each element:
+
+       panel Memory    `.mem-content`         66 ch   517 px
+       panel Settings  `.connect-where`      109 ch  1,086 px
+                       `.connect-snippet`    119 ch  1,086 px  (monospace)
+       panel History   `.archive-row-item`   103 ch  1,120 px
+       console Home    `.hint`               46 ch   454 px
+
+   Memory caps its prose; Settings and History do not, so the same product asks a reader to move their
+   eye 1,120 px on one page and 517 on another. **A measure that only some rules respect is the same
+   failure as a scale that only some rules use** — and 103 characters is past the point where a line
+   is hard to follow back. **Fix:** the contract names a measure, and the surfaces' prose blocks cap
+   to it. **M.**
+
+2. **Neither surface's sheet states a measure anywhere**, so the 66 on Memory is an accident of
+   `max-width: 380px` rather than a rule — and the next block added will pick its own. **Fix:**
+   `measure` joins the contract, and each repo's test reads it. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
