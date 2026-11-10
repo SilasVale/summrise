@@ -3514,7 +3514,8 @@ same `in_comment` state the spacing scan already had, so the fix is in the SCAN 
 
 ## P0 — the eightieth list (opened 2026-11-10, the loading state is a WORD on four of the six pages that read)
 
-The seventy-ninth list is closed. This list is rule 19's LOADING half, measured page by page with every read
+The seventy-ninth list is closed. **This list is closed (2026-11-10), shipped on both surfaces — console
+`d0d9ea7` / `7d0d0dd` (live `ux186`), panel `62664f54`.** This list was rule 19's LOADING half, measured page by page with every read
 held 3.5 s, so the reader's view is the one *while* the answer is out:
 
      page            what is drawn while the read is out            skeleton rows   role=status
@@ -3539,9 +3540,19 @@ result, and the count line is drawn only when it has a count."*
 1. **Four pages reserve a sentence where they should reserve the shape**, and three of them say nothing to a
    screen reader (no `role`, no live region). **Fix:** the four draw the atom — three rows, the card's corner
    and padding, the read's own label in a live region — and the sentence goes. **M.**
+   *(**Done**: console `d0d9ea7` + `7d0d0dd` (live `ux186`), panel `62664f54`. Measured after, every read held
+   3.5 s: **console Activity 3 rows / status / labelled, Home 3 rows; panel History 3 / status / labelled,
+   Plugins 3 / status / labelled** — six of the seven pages now draw the atom. The seventh, the console's
+   Device page, states the read in a `role="status"` line above its own picker and is left as it is, recorded
+   rather than fixed: that page's body IS a picker, and a skeleton of a list the reader has not chosen is a
+   shape for a result that may be empty.)*
 2. **`rows: 3` is the atom's number and the console's Home draws two** — it passes on the panel and not on the
    console, so the atom describes one surface's habit. **Fix:** the number is enforced by a gate in each repo
    rather than by two people reading it. **S.**
+   *(**Done**: `is the LOADING atom, drawn where a read is out` (console) and `is the LOADING atom, on every
+   page that reserves a shape` (panel) both assert `[0, 1, 2]` on every component that draws
+   `.skeleton-list`, plus `role="status"` and a label. Mutations: Home back to two rows, History back to two
+   rows — both red.)*
 
 ## How a round goes
 
