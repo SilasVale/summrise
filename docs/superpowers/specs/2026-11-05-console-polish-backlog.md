@@ -3554,6 +3554,33 @@ result, and the count line is drawn only when it has a count."*
    `.skeleton-list`, plus `role="status"` and a label. Mutations: Home back to two rows, History back to two
    rows — both red.)*
 
+## P0 — the eighty-first list (opened 2026-11-10, the panel's first page does not sit on the page frame)
+
+The eightieth list is closed: six of the seven reading pages reserve the loading shape. This list is the page
+FRAME, measured on the surface whose own numbers were never compared page to page.
+
+Measured 2026-11-10 at 1,360 on the panel, walking its four pages and reading where each one's content lands:
+
+     page        `.page` element   column left   width   padding   title left   first card left
+     Terminal    **ABSENT**        69            1,308   —         85           —
+     Memory      present           146           1,120   24        170          170
+     Plugins     present           146           1,120   24        170          170
+     Settings    present           146           1,120   24        170          169
+
+**The Terminal is the page the app OPENS on, and it is the one page that draws no frame.** Its head starts at
+**69** and its title at **85** — 85 px left of every other page's 170 — because `.terminal-head` is a strip
+padded `12px 16px 0` with a border under it, inside `.desktop-canvas`'s own `14px 16px 16px`, while the other
+six pages get the frame's 24 px inset and 1,120 px column. So the product's first screen has a title 85 px left
+of the title on the next screen, and the reader sees the page move sideways when they navigate.
+
+The contract says one frame for both surfaces: `page {max 1120, pad 24, gap 24}`. The console draws it on every
+page. The panel draws it on six of seven.
+
+1. **The Terminal's body joins the frame.** Its title and its shell sit on the page's column at the page's
+   inset, so navigating from Terminal to Memory does not move the title 85 px. **M.**
+2. **Nothing detects this today** — the panel's own contract test asserts `.page`'s rule, and `.page` is the
+   element the Terminal does not have. **Fix:** the gate asks every page, not the rule. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
