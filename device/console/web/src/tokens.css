@@ -41,6 +41,12 @@
      was never a design choice. Three meanings: a PARAGRAPH (1.5), a HEADING or a display line whose size
      already carries the hierarchy (1.3), and a GLYPH IN A BOX (1). */
   --lh-body:1.5; --lh-tight:1.3; --lh-mark:1;
+  /* **A PROSE BLOCK HAS A MEASURE (the sixty-first list).** This surface's prose already sits at 46 ch —
+     measured, the widest in the product and well inside the band a line is followed back along. What it did
+     NOT have is a rule: the blocks that ran long did so because their text happened to be short. A token
+     makes the next sentence take the measure instead of the card's 1,072 px.
+     A CODE SNIPPET IS EXEMPT (scanned token by token, and wrapping breaks a copy-paste). */
+  --measure:66ch;
   --sp-3:12px; --sp-3-5:14px; --sp-4:16px; --sp-5:24px; --sp-6:32px;
 
   /* The terminal is a canvas that follows the page, the way summrise-legacy's does (`--term-canvas-bg`).

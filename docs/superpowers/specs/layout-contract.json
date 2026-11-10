@@ -47,6 +47,11 @@
     "tight": 1.3,
     "mark": 1
   },
+  "measure": {
+    "$comment": "How wide a line of PROSE runs (the sixty-first list). Measured before: the panel's `.archive-row-item` ran to 103 characters and `.connect-where` to 109 while Memory's entries stopped at 66 and the console's prose at 46 \u2014 the same product asking a reader to move their eye 1,120 px on one page and 517 on another. A measure is not a taste: 66ch is where the block that already reads well sits, and it is inside the 45-75 band a line is followed back along. A CODE SNIPPET IS EXEMPT \u2014 scanned token by token, and wrapping it would break copy-paste \u2014 so this is a TOKEN a rule opts into, never a blanket.",
+    "prose": "66ch",
+    "codeExempt": true
+  },
   "hairline": {
     "$comment": "The one family of SEPARATING lines, and the rule about state marks (the fifty-seventh list). A hairline separates two regions and takes `line`; a STATE MARK declares a state and takes its own colour (a pill's edge is its ink, so greyscale keeps its shape and its word). Measured before: the panel had THREE names for the first family \u2014 `--line` and `--chrome-line` were the same `rgba(0,0,0,.08)` written twice, and `--glass-hairline` was a COOL `rgba(24,32,54,.07)` for the same job on the same page.",
     "line": "rgba(0, 0, 0, 0.08)",

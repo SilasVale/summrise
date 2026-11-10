@@ -14,7 +14,15 @@ p { margin: var(--sp-1-5) 0; }
 .mono { font-family: var(--font-mono); font-size: var(--fs-xs); overflow-wrap: anywhere; }
 .muted { color: var(--ink-muted); }
 .ok { color: var(--ok); }
-.hint { color: var(--ink-muted); font-size: var(--fs-sm); }
+/* **`.hint` IS THIS SURFACE'S PROSE CLASS, AND PROSE MEASURES (the sixty-first list).** Measured, it stood
+   at 46 ch — inside the band already — because the sentences were short. The token makes the NEXT one take
+   the measure instead of the card's width. The monospace blocks (`.code`, `.evidence-output`, `pre`) are
+   NOT hints and keep their width: a command and a transcript are scanned, not read as a sentence. */
+.hint {
+  color: var(--ink-muted);
+  font-size: var(--fs-sm);
+  max-width: var(--measure);
+}
 
 /* The first tab stop is the page, not seven rail buttons. The link is invisible until focused. */
 .skip-link {
@@ -3100,7 +3108,16 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
   font-size: var(--fs-lg); line-height: var(--lh-body); font-weight: var(--fw-medium);
   color: var(--ink); font-variant-numeric: tabular-nums; text-wrap: pretty;
 }
-.activity-status { margin-top: 4px; font-size: var(--fs-sm); color: var(--ink-muted); }
+/* **A PROSE BLOCK HAS A MEASURE (the sixty-first list).** This surface's prose already measured 46 ch, so
+   nothing here is broken — what was missing is a RULE, and `.activity-status` is a sentence about whether
+   the stream is live that would take the page's full width if the state were explained at length. The
+   evidence transcript below it is NOT capped: a log is scanned token by token, like a command. */
+.activity-status {
+  margin-top: 4px;
+  font-size: var(--fs-sm);
+  color: var(--ink-muted);
+  max-width: var(--measure);
+}
 .activity-panel.is-record {
   background: transparent; border: 0; border-radius: 0; box-shadow: none; padding: 0;
 }
@@ -3462,7 +3479,7 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
   overflow-wrap: anywhere;
 }
 .attention-problems { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-0-5); }
-.attention-problems li { font-size: var(--fs-md); line-height: var(--lh-body); color: var(--ink-muted); }
+.attention-problems li { font-size: var(--fs-md); line-height: var(--lh-body); color: var(--ink-muted); max-width: var(--measure); }
 /* The dot marks the machine's NAME, not the middle of a row that now holds its problems: the
    row's rule centers items, and a centered dot sat beside the first problem instead. */
 .attention-row .dot { width: 8px; height: 8px; align-self: flex-start; margin-top: var(--sp-1-5); }
