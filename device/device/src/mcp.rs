@@ -1256,6 +1256,7 @@ impl DeviceServer {
                     &arguments.listen,
                     &arguments.target,
                     &arguments.via,
+                    arguments.auth,
                 )
                 .map_err(|message| refused(name, forward::ForwardError::Refused { message }))?;
                 let rule = self
@@ -2327,9 +2328,20 @@ fn input_schema(definition: &ToolDef) -> Value {
                 "via": {
                     "type": "string",
                     "description": "user@host:port of the SSH connection that MAKES the connection, e.g. zss@100.64.0.9:22. The far host therefore gains no listening port."
+                },
+                "auth": {
+                    "type": "object",
+                    "description": "How the `via` connection authenticates: {kind: \"password\", password} or {kind: \"key\", path} with an ABSOLUTE key path. It is stored with the rule, because the rule outlives the caller and its executor must reach `via` at boot.",
+                    "properties": {
+                        "kind": { "type": "string", "enum": ["password", "key"] },
+                        "password": { "type": "string" },
+                        "path": { "type": "string" }
+                    },
+                    "required": ["kind"],
+                    "additionalProperties": false
                 }
             },
-            "required": ["name", "listen", "target", "via"],
+            "required": ["name", "listen", "target", "via", "auth"],
             "additionalProperties": false
         }),
         "forward.remove" => json!({
@@ -3021,6 +3033,9 @@ struct ForwardAddArgs {
     listen: String,
     target: String,
     via: String,
+    /// How the `via` connection authenticates. A rule outlives the caller, so the credential is
+    /// stored with it — there is no session to inherit one from.
+    auth: ssh::Auth,
 }
 
 /// The arguments `forward.remove` takes.
@@ -3929,7 +3944,8 @@ mod tests {
                     "name": "wire",
                     "listen": "127.0.0.1:18899",
                     "target": "127.0.0.1:18898",
-                    "via": "zss@127.0.0.1:22"
+                    "via": "zss@127.0.0.1:22",
+                    "auth": { "kind": "password", "password": "wire-test" }
                 }),
             )
             .await;

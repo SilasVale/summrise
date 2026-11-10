@@ -51,6 +51,11 @@ pub const BIND_RETRY_MS: [u64; 4] = [0, 1_000, 5_000, 15_000];
 const OPEN_TIMEOUT_MS: u64 = 30_000;
 
 /// One rule, as it is stored and as it is read back.
+///
+/// **THE CREDENTIAL IS PART OF THE ROW, NOT A SIDE TABLE.** `terminal.create` takes its credential
+/// from a caller and keeps it for that session; a rule OUTLIVES the caller and its executor must reach
+/// `via` at boot with nobody present. A side table keyed by `via` would also mean two rules to one host
+/// silently sharing one credential, which is a decision nobody made.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Rule {
     /// The name a panel and the log identify it by; also its identity when a rule is edited.
@@ -61,6 +66,8 @@ pub struct Rule {
     pub target: String,
     /// The `user@host:port` of the SSH connection that carries it.
     pub via: String,
+    /// How that connection authenticates.
+    pub auth: Auth,
 }
 
 /// A rule that has been through [`RuleSpec::parse`]: the executor's inputs must come from something
@@ -71,6 +78,7 @@ pub struct RuleSpec {
     listen: (String, u16),
     target: (String, u16),
     via: ViaSpec,
+    auth: Auth,
 }
 
 /// A parsed `via`: the SSH connection's three values.
@@ -176,12 +184,19 @@ impl RuleSpec {
             listen: format!("{}:{}", self.listen.0, self.listen.1),
             target: format!("{}:{}", self.target.0, self.target.1),
             via: self.via.to_string(),
+            auth: self.auth.clone(),
         }
     }
 
     /// Validate a rule. The refusals are ordered so the sentence a caller reads is about the FIRST
     /// thing that is wrong, not the last one a loop happened to reach.
-    pub fn parse(name: &str, listen: &str, target: &str, via: &str) -> Result<RuleSpec, String> {
+    pub fn parse(
+        name: &str,
+        listen: &str,
+        target: &str,
+        via: &str,
+        auth: Auth,
+    ) -> Result<RuleSpec, String> {
         if name.trim().is_empty() {
             return Err("a rule needs a name: it is how the panel and the log identify it".into());
         }
@@ -209,6 +224,7 @@ impl RuleSpec {
             listen: listen_parts,
             target: target_parts,
             via: ViaSpec::parse(via)?,
+            auth,
         })
     }
 }
@@ -355,8 +371,14 @@ mod tests {
         }
     }
 
+    fn password() -> Auth {
+        Auth::Password {
+            password: "unused-by-these-tests".to_owned(),
+        }
+    }
+
     fn spec(name: &str, listen: &str, target: &str, via: &str) -> RuleSpec {
-        RuleSpec::parse(name, listen, target, via).expect("a valid rule")
+        RuleSpec::parse(name, listen, target, via, password()).expect("a valid rule")
     }
 
     /// `host:port` splits on the LAST colon, and every malformed shape is refused rather than guessed.
@@ -382,24 +404,36 @@ mod tests {
     /// The four refusals, each with the sentence a caller reads.
     #[test]
     fn every_malformed_rule_is_refused_with_its_reason() {
-        assert!(RuleSpec::parse("", "1.2.3.4:1", "5.6.7.8:2", "u@h:22")
-            .unwrap_err()
-            .contains("name"));
-        assert!(RuleSpec::parse("r", "nope", "5.6.7.8:2", "u@h:22")
-            .unwrap_err()
-            .contains("host:port"));
-        assert!(RuleSpec::parse("r", "1.2.3.4:1", "nope", "u@h:22")
-            .unwrap_err()
-            .contains("host:port"));
-        assert!(RuleSpec::parse("r", "1.2.3.4:1", "5.6.7.8:2", "")
-            .unwrap_err()
-            .contains("via"));
-        assert!(RuleSpec::parse("r", "1.2.3.4:1", "5.6.7.8:2", "no-at-sign")
-            .unwrap_err()
-            .contains("user@host:port"));
-        assert!(RuleSpec::parse("r", "1.2.3.4:1", "5.6.7.8:2", "@h:22")
-            .unwrap_err()
-            .contains("no user"));
+        assert!(
+            RuleSpec::parse("", "1.2.3.4:1", "5.6.7.8:2", "u@h:22", password())
+                .unwrap_err()
+                .contains("name")
+        );
+        assert!(
+            RuleSpec::parse("r", "nope", "5.6.7.8:2", "u@h:22", password())
+                .unwrap_err()
+                .contains("host:port")
+        );
+        assert!(
+            RuleSpec::parse("r", "1.2.3.4:1", "nope", "u@h:22", password())
+                .unwrap_err()
+                .contains("host:port")
+        );
+        assert!(
+            RuleSpec::parse("r", "1.2.3.4:1", "5.6.7.8:2", "", password())
+                .unwrap_err()
+                .contains("via")
+        );
+        assert!(
+            RuleSpec::parse("r", "1.2.3.4:1", "5.6.7.8:2", "no-at-sign", password())
+                .unwrap_err()
+                .contains("user@host:port")
+        );
+        assert!(
+            RuleSpec::parse("r", "1.2.3.4:1", "5.6.7.8:2", "@h:22", password())
+                .unwrap_err()
+                .contains("no user")
+        );
     }
 
     /// **A WILDCARD LISTEN IS REFUSED.** A rule that silently widens its own audience is the failure
@@ -409,7 +443,7 @@ mod tests {
     #[test]
     fn a_wildcard_listen_is_refused() {
         for wild in ["0.0.0.0:443", "[::]:80", "*:8080"] {
-            let error = RuleSpec::parse("r", wild, "10.0.0.5:80", "u@h:22")
+            let error = RuleSpec::parse("r", wild, "10.0.0.5:80", "u@h:22", password())
                 .expect_err(&format!("{wild} must be refused"));
             assert!(error.contains("wildcard"), "{wild}: {error}");
         }
@@ -726,16 +760,6 @@ struct Inner {
     tasks: HashMap<String, tokio::task::JoinHandle<()>>,
     /// Rules whose executor no longer matches their row.
     needs_rebuild: HashMap<String, bool>,
-    /// The credential each `via` is reached with, keyed by [`rule_key`].
-    credentials: HashMap<String, Auth>,
-}
-
-/// The key a rule's credential is stored under: the connection's own three values.
-///
-/// The same triple `terminal.create` names, so a rule and a terminal session against one host speak
-/// the same key and an operator reads one identity rather than two.
-fn rule_key(via: &ViaSpec) -> String {
-    format!("ssh:{}@{}:{}", via.user, via.host, via.port)
 }
 
 fn state_of(rule: &Rule, state: Option<&ForwardState>) -> ForwardState {
@@ -929,15 +953,7 @@ impl ForwardRegistry {
                 return;
             }
         };
-        let Some(auth) = self.credential(&via) else {
-            let message = format!(
-                "no credential for {via}: save a connection for this host or pass a key with \
-                 forward.add; a rule with no credential cannot reach the far side"
-            );
-            self.update(&rule.name, |st| st.last_error = Some(message.clone()));
-            self.audit_refusal(rule, peer, &message);
-            return;
-        };
+        let auth = self.credential(rule);
         let opened = tokio::time::timeout(
             Duration::from_millis(OPEN_TIMEOUT_MS),
             ssh::open(
@@ -998,9 +1014,8 @@ impl ForwardRegistry {
     /// file is `<data>/forwards.json`, protected by whatever protects `<data>` (the install's own
     /// ACL, which already holds this device's registration token). A host that needs a credential
     /// store of its own is a different design, and this one does not pretend to be it.
-    fn credential(&self, via: &ViaSpec) -> Option<Auth> {
-        let inner = lock(&self.inner);
-        inner.credentials.get(&rule_key(via)).cloned()
+    fn credential(&self, rule: &Rule) -> Auth {
+        rule.auth.clone()
     }
 
     /// Record a connection that did not work: who arrived, which rule, and why.
