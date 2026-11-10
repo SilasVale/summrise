@@ -4445,6 +4445,36 @@ answers to the same question.
    memory draws **8 between cards**; the fleet table draws its own 1 px separators — three answers to the question the
    atom already answers twice.)*
 
+## P0 — the hundred-and-third list (opened 2026-11-11, five lists, and FOUR ways to separate two like things)
+
+The hundred-and-second list's first item is closed; its second — *"nothing distinguishes a list of LINES from a list
+of BOXES"* — is this list, measured on every list the product draws.
+
+The `row` atom answers the question twice and says so: **a list of LINES separates by its own leading
+(`gapLines: 0`); a list of BOXES separates by the scale's 8 (`gapBoxes: 8`).** The `hairline` atom adds the one family
+of separating lines (`line` `rgba(0,0,0,.08)`, `strong` `.14`, `soft` `.05`).
+
+Measured 2026-11-11 at 1,360, the first four rows of each list:
+
+     list                 rows  container gap      rule on the row        rule colour
+     `.attention-list`     2     **0px**           **1 of 2**             `soft` (.05)
+     `.fleet-table tbody`  4     **0 (leading)**   **0**                  —
+     `.timeline-rows`      4     **0 (leading)**   **0**                  —
+     `.mem-list`           3     **8px**           **3 of 3**             `line` (.08)
+     `.plug-rows`          4     **8px**           **3 of 3**             `line` (.08)
+
+**Five lists, four separators: leading only, gap only, gap + a `line` rule, and gap + a `soft` rule** — and the
+attention list draws **one** rule for two rows, because the rule is `border-top` and the first row cancels it.
+
+**And one of the four uses the wrong member of the hairline family.** The attention list's separator is `--line-soft`
+(`.05`) where every other separator in the product is `--line` (`.08`) — and the `hairline` atom's own sentence says
+what `soft` is for: *"a hairline separates two regions and takes `line`"*.
+
+1. **Two lists that separate by a rule take it from two different members of the family.** **Fix:** `line` for a
+   separator, everywhere. **S.**
+2. **No page declares which kind of list it is, and no gate reads it.** **Fix:** the row atom's two arms become
+   measurable: a list draws EITHER the leading OR the scale's 8, never both and never neither. **M.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
