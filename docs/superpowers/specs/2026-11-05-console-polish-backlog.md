@@ -3299,6 +3299,38 @@ lapsed, "Failed to fetch" is all a reader would ever see.
    only a throw that names no subject becomes the page's sentence, which takes no prefix. The status read
    had the same hole and takes the same rule.)*
 
+## P0 — the seventy-fourth list (opened 2026-11-10, the fleet table loses its right half for 274 px of window)
+
+The seventy-third list is closed: a failure names its subject on every page. This list is the predicted gap
+from round 60, measured this time, and it is the one band of the window where the console's RAIL rule is
+overridden by a rule declared 1,300 lines later.
+
+Measured 2026-11-10 on the live console, walking the window from the phone's bottom bar to the wide desktop:
+
+     vw 639  rail 639 wide (the phone's bottom bar), rows are CARDS, no column lost   ← correct
+     vw 640  rail **232** wide, table wraps at 360, min-content 635 → 4 of 5 columns GONE
+     vw 767  rail 232 wide, table wraps at 487, min-content 635 → **Status / Version /
+             Started / Actions all clipped**, `overflow-x: hidden`, nothing to scroll
+     vw 900  wrap 620 → `Actions` clipped (+15 px, the row's `⋯` menu is off the card)
+     vw 914  the first width where the 635 px min-content fits
+     vw 1088 everything fits with room
+
+**`layout-contract.json` records the console's rail as `consoleCollapsesAt: 767`** — "the CONSOLE collapses at
+`tablet` (767): below it the rail becomes the top bar, so the page's left is 0 — measured at 380/480/639".
+That was true when the sentence was written and it is not true now: the 56 px icon rail declared at
+`@media (min-width: 640px) and (max-width: 767px)` is **overridden by a later `@media (min-width: 640px)` that
+repaints `.shell` with a 232 px column**, so from 640 up the labelled sidebar is back, the page is 408 px
+wide at 640, and the fleet table — a 5-column grid in a `overflow: hidden` wrapper — loses four of its five
+columns with no way to reach them.
+
+1. **The contract's one rail number is wrong for 128 px of window.** It says the console has a labelled rail
+   at ≥768 and an icon rail below; measured, the labelled rail runs from **640**. `layoutContract.test.ts`
+   asserts 767 and both surfaces agree on the number, so the number has to be re-measured and either the
+   rule or the CSS fixed. **M.**
+2. **The fleet table clips 4 of 5 columns in the band**, and the phone's card form — which already exists,
+   already draws the labels, and is already tested — starts only at ≤639. The table does not fit its
+   min-content again until the window is **914**, so the card form is what the band needs. **M.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
