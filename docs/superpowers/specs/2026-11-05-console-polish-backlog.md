@@ -4839,7 +4839,7 @@ console's `--shadow-lg`.
    (`.alert-banner` is a notice in the frame, `.sheet` is a drawer whose corners belong to the edge it slides from).
    Mutation: `.machine-pop` back to `--radius-sm`.)*
 
-## P0 — the hundred-and-twelfth list (opened 2026-11-11, the three STATE atoms are drawn by ONE surface and reached by none)
+## P0 — the hundred-and-twelfth list (opened 2026-11-11, the EMPTY state is reachable on one page of five)
 
 The hundred-and-eleventh list is closed. This list is rule 19 — *"every surface has an empty, a loading and a failed
 state that tell the truth"* — measured by **reaching** the states, not by reading the atoms: every read was aborted, a
@@ -4855,21 +4855,28 @@ Measured 2026-11-11 at 1,360:
                                                                                 pad `8px 101px`, tint warn-soft
      LOADING    (the atoms record rows 3, rowRadius 10, rowPad 12, bar 6)        —
 
-**The console never said the reads failed.** With every API call aborted it drew the machine menu, the brand and the
-nav, and then rows that looked like data: the menu kept its four machines from the **last good answer** and nothing on
-the page distinguished "this is now" from "this is what I last read". **That is the one thing rule 19 forbids** —
-*a failed state that tells the truth* — and it is the state a person is most likely to meet.
+**THE FIRST MEASUREMENT WAS WRONG, AND IT WAS MY PROBE'S FAULT.** It looked for a `role`, a class or an alarm tint on
+the element that CARRIES its own text — and the console's failure sentence is a `<span>` INSIDE `.notice`, so the probe
+found nothing and the first draft of this list said *"nothing on the page says so"*. **Re-measured with every API
+call aborted, the console DOES say it**, and in the atom's own shape:
 
-**And the panel's `approval-banner` is the state atom's opposite number drawn at radius 0 with a 101 px side padding**:
-a full-bleed strip across the frame where the atom says a failure is a **card** (radius 8, pad 12) with one retry.
+     `.notice`  role="status"  radius **8**  pad **12**  tint warn-soft  **one** "Retry"  **rows 0**
 
-1. **A read that fails leaves the page looking exactly like a read that succeeded.** **Fix:** the page says it once,
-   names the subject, offers one retry, and never leaves fresh-looking rows over a dead read. **L.**
-2. **The empty state is reachable on one page of five on the panel and none of five on the console**, and the panel's
-   Memory page has a search field whose no-match state draws nothing at all. **Fix:** every list that can be filtered
-   has the atom's card, with the way back. **M.**
-3. **The failed state is drawn as a full-bleed strip on the panel and a card on the console.** The atom says card
-   (radius 8, pad 12, ink, alarm tint, `role="status"`, **one** retry). **S.**
+**Which is the `failed` atom exactly** (radius 8, pad 12, ink, alarm tint, `status`, retries 1). The console's failure
+state is the one the atom describes; **the list that said otherwise is corrected here** — a probe that reports a state
+missing is worth re-running before a list is written about it, which is the fifth time this program has paid for that
+lesson.
+
+**What IS still wrong is the REACH, not the shape**: the EMPTY state is drawn on **one page of five on the panel**
+(Plugins) and **none of five on the console**, and the panel's Memory page has a search field whose no-match draws
+nothing at all.
+
+1. **The EMPTY state is reachable on one page of five on the panel and none of five on the console**, and the panel's
+   Memory page has a search field whose no-match draws nothing at all. **Fix:** every list that can be filtered has
+   the atom's card, with the way back. **M.**
+2. **Nothing measures REACH.** The atoms are recorded and the shims that draw them are tested, but **no gate asks
+   whether a page can REACH its empty state** — a page whose filter has no empty branch passes every gate in both
+   repos, because a gate that reads a stylesheet cannot know which branches a component has. **S.**
 
 ## How a round goes
 
