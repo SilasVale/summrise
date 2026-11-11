@@ -4337,6 +4337,13 @@ atom does not name.
 2. **The console paints accent text on the wash with `--accent` (4.93:1) where the panel uses a sixth member
    (6.2:1).** The atom already says the job exists and gives the console `(none)`. **Fix:** the console takes the
    atom's `on-soft` member. **M.**
+   *(**Done, MERGED, NOT DEPLOYED** — `2e99af7`. `--accent-on-soft` is declared in **both blocks of the canonical
+   sheet** (`device/ui/src/lib.rs`, then `generate-tokens.sh` — **not the generated file**, which is the trap this
+   series already paid for once), and it **inverts after dark**: the wash is a dark brown where the light value
+   measures **1.4:1** and the dark accent **7.07:1** — *a member is a JOB; its value is the theme's.*
+   **And FIVE sites took the brand member, not the two I first grepped for** — `.seg`'s pressed segment, the
+   chip-tag hover, and **three `.timeline-*` chips** a single-line grep missed. `palette.accentFamily.names.console`
+   no longer says `(none)`.)*
 3. **Settings paints `#52525b` and `#a51d1d`, which the palette atom does not name**, on one page. **Fix:** name them
    or replace them with the atom's. **S.**
 

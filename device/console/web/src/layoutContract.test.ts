@@ -227,7 +227,7 @@ describe("the layout contract", () => {
     // The literal below is the sha256 of BOTH copies, and it is the same literal the panel's test carries.
     const ours = createHash("sha256").update(contractText()).digest("hex");
     expect(ours).toBe(
-      "57875ecdd4ce0e9207ffee534ae4d1d514ce45993e65db820b80d6c867055d01"
+      "09c4e1a1ee00c99f74fe5224db2e3d41b48fbd4f858bdddcedf0082247352099"
     );
     const sibling = path.join(here, "..", "..", "..", "..", "..", "summrise", "docs",
       "superpowers", "specs", "layout-contract.json");
