@@ -4822,9 +4822,22 @@ console's `--shadow-lg`.
 1. **The `pane` level is declared once and drawn three ways (`--shadow-lg`, `--shadow-pop`, `--glass-shadow`), and
    the two surfaces' popovers are visibly different objects.** **Fix:** one pane token, both sheets, one radius and
    one edge. **M.**
+   *(**Done on both sides, MERGED, NOT DEPLOYED** — contract `92e4c800`, console `0097cda`, panel `5a92c470f`. **The
+   pane is one object**: the atom's three-layer cool shadow, `radius.dialog` (14 — the step LARGER than a card's), and
+   the page's own hairline, on both sheets. The console's seven floating rules had the **row's** 10 px and a `.14` edge.
+   **AND THE PANEL'S SECOND LAYER WAS A BORDER**: `--shadow-pop` appended `0 0 0 1px rgba(0,0,0,.06)` — **a border
+   drawn by a shadow**, beside the `1px` border the element already had: the same edge twice, once drawn and once
+   shadowed. **Rule 8 says fewer borders; this one was hiding in a shadow.**
+   **The gate taught me a limit of the atom**: my first version compared the shadow as TEXT, and
+   `rgba(24,32,54,.04)` vs `rgba(24,32,54,0.04)` is the same colour spelled two ways. **An atom can record a value; it
+   cannot dictate a spelling** — the gate normalises whitespace and the alpha spelling is aligned in both sheets.)*
 2. **Nothing measures the LEVEL.** The card gates say a card has no shadow; **nothing asks whether the thing that
    floats is the same object on both surfaces** — a popover that is a soft drop on one and a drawn ring on the other
    passes every gate in both repos. **S.**
+   *(**Done on both sides**: each repo's `floats ONE pane object`. The console's walks every rule that carries the
+   pane's shadow and requires the pane's radius and the page's line — **naming the two floats that are NOT panes**
+   (`.alert-banner` is a notice in the frame, `.sheet` is a drawer whose corners belong to the edge it slides from).
+   Mutation: `.machine-pop` back to `--radius-sm`.)*
 
 ## How a round goes
 
