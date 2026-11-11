@@ -2578,6 +2578,8 @@ mod refusal_tests {
         #[derive(serde::Deserialize, Debug)]
         #[serde(deny_unknown_fields)]
         struct Exec {
+            // Both fields are the SCHEMA this refusal is measured against; neither value is read.
+            #[allow(dead_code)]
             command: String,
             #[allow(dead_code)]
             timeout_ms: Option<u64>,

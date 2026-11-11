@@ -695,7 +695,8 @@ mod shared_table {
     }
 
     fn is_console_read(line: &Value) -> bool {
-        !is_channel_boundary(line) && !is_poll(line)
+        !is_channel_boundary(line)
+            && !is_poll(line)
             && line.get("caller").and_then(Value::as_str) == Some("console")
     }
 
@@ -712,7 +713,11 @@ mod shared_table {
                 case["boundary"].as_bool().unwrap(),
                 "{why}: boundary"
             );
-            assert_eq!(is_poll(line), case["poll"].as_bool().unwrap(), "{why}: poll");
+            assert_eq!(
+                is_poll(line),
+                case["poll"].as_bool().unwrap(),
+                "{why}: poll"
+            );
             assert_eq!(
                 is_client_call(line),
                 case["client"].as_bool().unwrap(),
@@ -747,7 +752,11 @@ mod shared_table {
             let count = usize::from(is_poll(line))
                 + usize::from(is_client_call(line))
                 + usize::from(is_console_read(line));
-            assert!(count <= 1, "a line is in at most one bucket: {}", case["why"]);
+            assert!(
+                count <= 1,
+                "a line is in at most one bucket: {}",
+                case["why"]
+            );
             if count == 0 {
                 unattributed += 1;
             }

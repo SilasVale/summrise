@@ -1564,7 +1564,9 @@ async fn the_day_scan_covers_exactly_the_rows_at_or_after_its_cut() {
     assert_eq!(status, StatusCode::OK, "the day read: {day}");
 
     // THE ANSWER'S OWN CUT decides which rows are the day; anything else is a second convention.
-    let cut = day["day_start_ms"].as_u64().expect("the answer names its cut");
+    let cut = day["day_start_ms"]
+        .as_u64()
+        .expect("the answer names its cut");
     let inside: Vec<_> = lines
         .iter()
         .filter(|line| line["ts_ms"].as_u64().unwrap_or(0) >= cut)
@@ -1597,6 +1599,7 @@ async fn the_day_scan_covers_exactly_the_rows_at_or_after_its_cut() {
     );
 }
 
+#[tokio::test]
 async fn the_day_route_counts_the_pages_four_buckets_from_midnight() {
     let fixture = Fixture::new("day-buckets");
     let session = fixture.authenticate().await;

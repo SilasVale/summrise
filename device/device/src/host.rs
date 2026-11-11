@@ -73,14 +73,14 @@ pub fn facts(data: &std::path::Path) -> serde_json::Value {
         document["repair_task"] = task;
     }
     /* **THE INSTALL ROOT IS NOT THE EXECUTABLE'S DIRECTORY ON A VERSIONED INSTALL (measured 2026-11-10).**
-       Every machine this product ships runs `<install>/versions/<name>/summrise-device.exe`, so
-       `current_exe().parent()` is `…/versions/0.3.292` — and the four facts that join the install root
-       (`summrise-shell.exe`, `baseline/`, `swap.result.json`) all came back absent on a machine where
-       every one of them exists. Measured on DESKTOP-9VH92BJ: `C:\Program Files\Summrise\summrise-shell.exe`
-       is there (1,514,496 bytes) while `/api/host` said `shell.present: false`, and that false fact is
-       what makes "is the tray installed?" unanswerable from the console. `updater::install_root_of`
-       already makes that decision (the launcher's `--stage` mode uses it); the facts were the one caller
-       still reading the raw directory. */
+    Every machine this product ships runs `<install>/versions/<name>/summrise-device.exe`, so
+    `current_exe().parent()` is `…/versions/0.3.292` — and the four facts that join the install root
+    (`summrise-shell.exe`, `baseline/`, `swap.result.json`) all came back absent on a machine where
+    every one of them exists. Measured on DESKTOP-9VH92BJ: `C:\Program Files\Summrise\summrise-shell.exe`
+    is there (1,514,496 bytes) while `/api/host` said `shell.present: false`, and that false fact is
+    what makes "is the tray installed?" unanswerable from the console. `updater::install_root_of`
+    already makes that decision (the launcher's `--stage` mode uses it); the facts were the one caller
+    still reading the raw directory. */
     let install = std::env::current_exe()
         .ok()
         .and_then(|exe| exe.parent().map(install_root_of_dir));
@@ -872,7 +872,8 @@ mod tests {
     /// The reader is `updater::install_root_of`, and this test is the shape it has to get right.
     #[test]
     fn a_versioned_installs_facts_read_the_root_not_the_version_directory() {
-        let dir = std::env::temp_dir().join(format!("summrise-versioned-facts-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("summrise-versioned-facts-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let install = dir.join("install");
         let version = install.join("versions").join("1.2.3");

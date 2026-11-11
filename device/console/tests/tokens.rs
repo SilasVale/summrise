@@ -32,7 +32,9 @@ fn declared<'a>(css: &'a str, name: &str) -> Option<&'a str> {
 /// Only the forms the sheet actually uses are admitted: two named colours and a percentage. Anything else is still
 /// an error, so a future `color-mix` in another colour space cannot slip through as "no pair to measure".
 fn blend(sheet: &str, value: &str) -> Option<(f64, f64, f64)> {
-    let inner = value.strip_prefix("color-mix(in srgb, ").and_then(|v| v.strip_suffix(')'))?;
+    let inner = value
+        .strip_prefix("color-mix(in srgb, ")
+        .and_then(|v| v.strip_suffix(')'))?;
     let (first, second) = inner.split_once(',')?;
     let parts: Vec<&str> = first.split_whitespace().collect();
     let (name, percent) = match parts.as_slice() {
@@ -369,12 +371,10 @@ fn no_colour_literal_sits_in_a_colour_property() {
             }
             let value = value.trim();
             // A colour that is a token, a keyword or a function of tokens is not a literal.
-            let has_hex = value
-                .split(|c: char| c == ' ' || c == '(' || c == ')' || c == ',')
-                .any(|word| {
-                    let word = word.trim();
-                    word.starts_with('#') && word.len() >= 4
-                });
+            let has_hex = value.split([' ', '(', ')', ',']).any(|word| {
+                let word = word.trim();
+                word.starts_with('#') && word.len() >= 4
+            });
             if !has_hex {
                 continue;
             }
@@ -681,7 +681,9 @@ fn spacing_is_the_rhythm_or_a_documented_exception() {
     // A gate that fails is worse than no gate — it teaches the next reader that red means noise.
     // The measured clearance is 36 px because the disclosure ends at 29 px and the clock's text
     // starts at 36; `--sp-6` would leave 3 px and the chevron would touch the time.
-    let allowed = ["0.05rem", "0.1rem", "1.1rem", "1.2rem", "2rem", "2.25rem", "2.6rem"];
+    let allowed = [
+        "0.05rem", "0.1rem", "1.1rem", "1.2rem", "2rem", "2.25rem", "2.6rem",
+    ];
     // The px exceptions, each measured rather than rounded: the timeline row's own 15/8 padding (a
     // 74 px row, so the clock, the dot and the sentence share one baseline), the 18 px gap the page
     // and the stretches use (it is between --sp-4 and --sp-5 and the sheet has no step there), the
