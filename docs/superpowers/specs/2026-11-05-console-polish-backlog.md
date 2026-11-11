@@ -4308,7 +4308,7 @@ defect by count.
    and no band of this atom can decide a form. **Recorded here so the next round argues with it instead of
    rediscovering it.** **S.**
 
-## P0 — the hundred-and-twenty-fourth list (opened 2026-11-11, rule 2: the accent family is TWO families)
+## P0 — the hundred-and-twenty-fourth list (closed 2026-11-11: one wash, one on-soft member, and two named colours)
 
 The hundred-and-twenty-third list is closed. **This list is rule 2 — *"a limited palette: greys plus ONE accent plus
 semantic"* — measured as a census of every colour actually painted**, at 1,440 on four pages, rather than of the tokens
@@ -4334,6 +4334,10 @@ atom does not name.
 
 1. **The wash is two values one level apart, and the atom records neither.** **Fix:** both sheets share the atom's
    wash, or the difference is recorded with its reason. **S.**
+   *(**Done, MERGED, NOT PUSHED (panel)** — panel's `tokens.css` `#ffefe5` → **`#fff0e6`**, the canonical sheet's
+   value, and the atom now records **`accentFamily.washValue: "#fff0e6"`** — *a job whose value each sheet picks is a
+   job that drifts by a level nobody can see.* Both repos' contract tests refuse a wash that is not that literal.
+   **The gate was proven by mutation**: `#ffefe5` back → red.)*
 2. **The console paints accent text on the wash with `--accent` (4.93:1) where the panel uses a sixth member
    (6.2:1).** The atom already says the job exists and gives the console `(none)`. **Fix:** the console takes the
    atom's `on-soft` member. **M.**
@@ -4345,7 +4349,10 @@ atom does not name.
    chip-tag hover, and **three `.timeline-*` chips** a single-line grep missed. `palette.accentFamily.names.console`
    no longer says `(none)`.)*
 3. **Settings paints `#52525b` and `#a51d1d`, which the palette atom does not name**, on one page. **Fix:** name them
-   or replace them with the atom's. **S.** *(**Measured, and the item was half wrong**: both are TOKENS on the panel —
+   or replace them with the atom's. **S.**
+   *(**Done, MERGED, NOT DEPLOYED** — `0d283f5`. **And the item was half wrong**: both ARE tokens on the panel
+   (`--chrome-ink-dim` / `--ds-neutral-600` and `--danger-on-soft`), each declared with its own contrast note. **What
+   the atom lacked was not their values — it is their NAMES on this surface's palette**, which it has now.)* *(**Measured, and the item was half wrong**: both are TOKENS on the panel —
    `#52525b` is `--chrome-ink-dim` / `--ds-neutral-600` and `#a51d1d` is `--danger-on-soft`, declared in
    `tokens.css` with its own contrast notes. **What the atom lacks is not their values: it is their NAMES on this
    surface's palette.** The console has neither, so a reader comparing the sheets sees the panel painting two colours
