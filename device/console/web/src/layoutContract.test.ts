@@ -132,6 +132,8 @@ type Contract = {
     target: number;
   };
   hairline: {
+    rowRule: string;
+    box: string;
     line: string;
     strong: string;
     soft: string;
@@ -224,7 +226,7 @@ describe("the layout contract", () => {
     // The literal below is the sha256 of BOTH copies, and it is the same literal the panel's test carries.
     const ours = createHash("sha256").update(contractText()).digest("hex");
     expect(ours).toBe(
-      "7ab3c1e3122d6d4fdc9e59e253934b702ceefeb1b79aa5a72de8de7950693a7f"
+      "fbef2ce8832f0011cf47a937659a6704aef490dbb8bb6517a9e155d087cbb965"
     );
     const sibling = path.join(here, "..", "..", "..", "..", "..", "summrise", "docs",
       "superpowers", "specs", "layout-contract.json");
@@ -402,6 +404,13 @@ describe("the layout contract", () => {
     // **THE DEVICE PAGE DREW TWO HEADERS 57 px APART (the sixty-second list).** Measured: `.page-head`
     // at y=76 and `.overview-head` — a `<header>` — at y=133, whose `h2` read as a second page title. A
     // page has ONE head; anything under it is a card, which is what `card` means in the contract.
+    // **A CENSUS MUST COUNT RULES, NOT ELEMENTS (the hundred-and-twenty-third list).** Measured 2026-11-11: a
+    // border census inside `.page` gave Home **32** against Activity's **4** — an 8x drift — and **25 of Home's 32
+    // were `td`/`th` bottom edges from ONE shared rule**, a table's row rule doing its grouping. **Counting an element
+    // and counting a rule are different questions**, so the atom names the kinds, and this test refuses an atom that
+    // does not: a `rowRule` is one per table, a `box` is a border on a region or a control.
+    expect(contract.hairline.rowRule, "the atom names a table's row rule").toContain("ONE rule");
+    expect(contract.hairline.box, "and a border on a region or a control").toContain("region");
     // The overview's block is a `<section className="card">` now, and this test refuses the old shape.
     expect(contract.head.maxHeadsPerPage, "one head per page").toBe(1);
     expect(contract.head.subtitleSlot.class, "the context slot is named").toBe(".page-sub");
