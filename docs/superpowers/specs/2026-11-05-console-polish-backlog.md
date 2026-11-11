@@ -4345,7 +4345,11 @@ atom does not name.
    chip-tag hover, and **three `.timeline-*` chips** a single-line grep missed. `palette.accentFamily.names.console`
    no longer says `(none)`.)*
 3. **Settings paints `#52525b` and `#a51d1d`, which the palette atom does not name**, on one page. **Fix:** name them
-   or replace them with the atom's. **S.**
+   or replace them with the atom's. **S.** *(**Measured, and the item was half wrong**: both are TOKENS on the panel —
+   `#52525b` is `--chrome-ink-dim` / `--ds-neutral-600` and `#a51d1d` is `--danger-on-soft`, declared in
+   `tokens.css` with its own contrast notes. **What the atom lacks is not their values: it is their NAMES on this
+   surface's palette.** The console has neither, so a reader comparing the sheets sees the panel painting two colours
+   the atom's list does not mention.)*
 
 ## How a round goes
 
