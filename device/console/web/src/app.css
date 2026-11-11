@@ -4,7 +4,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--ink);
-  font: var(--fs-base) / 1.55 var(--font);
+  font: var(--fs-base) var(--font);
   -webkit-font-smoothing: antialiased;
 }
 h1, h2 { letter-spacing: var(--tracking-display); margin: 0; }

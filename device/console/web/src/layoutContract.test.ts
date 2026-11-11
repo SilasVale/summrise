@@ -504,6 +504,16 @@ describe("the layout contract", () => {
     // before the token: `(?! *var(--lh` refuses both spellings and still catches a literal like 1.4.
     const literals = [...css().matchAll(/line-height: *(?! *var\(--lh)[^;}]+/g)].map((m) => m[0]);
     expect(literals, "no bare line-height survives").toEqual([]);
+    // **AND THE `font:` SHORTHAND IS THE SAME HOLE** (the hundred-and-twenty-eighth list). A rule that writes
+    // `font: 12px/1.6 …` declares a leading a `line-height:` census cannot see — the panel had NINE such ratios,
+    // in four values the atom never named. This sheet writes none today; the gate keeps it that way and reads the
+    // atom's three rather than a copy of them.
+    const ratios = Object.values(contract.leading);
+    const shorthand = [...stripComments(css()).matchAll(/font:[^;{}]*?\/\s*(\d+(?:\.\d+)?)[^;{}]*;/g)];
+    const off = shorthand
+      .filter((m) => !ratios.some((r) => Math.abs(r - Number(m[1])) < 1e-9))
+      .map((m) => m[0]);
+    expect(off, "font: shorthand leadings").toEqual([]);
     // **AND THE MARK IS NOT A SENTENCE'S RATIO.** 1 sets a glyph's box to its own size, which is rule
     // 13's floor; the contract says so, and body is looser than tight so the three cannot collapse.
     expect(contract.leading.mark).toBe(1);
