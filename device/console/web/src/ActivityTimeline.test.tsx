@@ -709,6 +709,19 @@ describe("ActivityTimeline", () => {
     expect(document.querySelector(".timeline-day-label.is-sticky")).toBeNull();
   });
 
+  it("says the day's calls are a subset when the window reaches past the cut", () => {
+    // **THE ONE FACT THAT RECONCILES TWO COUNTS (the hundred-and-twentieth list).** Measured live on
+    // `0.3.273-ux192`: `Today: 543 client calls` over `939 client calls in this window · from 09:40, spanning
+    // 19 h 32 m`. A reader has to subtract to learn that 09:40 + 19 h 32 m reaches past midnight; the page can
+    // state the conclusion in one clause, and it does — but ONLY when the answer published the cut.
+    const cut = Date.UTC(2026, 10, 5, 0, 0, 0);
+    const before = line({ ts_ms: cut - 30 * 60_000, device_id: alpha, tool: "runs.exec", token_id: tokenA });
+    const inside = line({ ts_ms: cut + 60 * 60_000, device_id: alpha, tool: "runs.exec", token_id: tokenA });
+    render(<ActivityTimeline lines={[inside, before]} devices={devices} dayStartMs={cut} />);
+    const chip = screen.getByRole("button", { name: "Clients only" });
+    expect(chip).toHaveAccessibleDescription(/the day's calls are a subset of these/);
+  });
+
   it("freezes the age column at nowMs so a paused page stops ageing", () => {
     vi.useFakeTimers();
     try {
@@ -823,6 +836,11 @@ describe("ActivityTimeline", () => {
     const chip = screen.getByRole("button", { name: "Clients only" });
     expect(chip).toHaveAttribute("aria-pressed", "false");
     expect(chip).toHaveAccessibleDescription("2 client calls in this window · from 09:00, spanning 3 m");
+    // **AND IT SAYS NOTHING ABOUT A CUT IT WAS NOT TOLD ABOUT (the hundred-and-twentieth list).** The clause
+    // `— the day's calls are a subset of these` appears only when the answer PUBLISHED a cut the window reaches
+    // past; with no `dayStartMs` the page does not invent one. A gate that always fires would be worse than
+    // silence, which is why this assertion sits beside the one above.
+    expect(chip).not.toHaveAccessibleDescription(/subset of these/i);
     // Unpressed the whole record is drawn: two of these rows are not the AI's calls.
     expect(document.querySelectorAll(".timeline-row")).toHaveLength(4);
 

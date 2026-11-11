@@ -816,6 +816,12 @@ export function ActivityTimeline(props: {
   const windowSpan = useMemo(() => auditWindowSpan(props.lines), [props.lines]);
   const windowSpanMs =
     windowSpan === null ? 0 : windowSpan.newest_ts_ms - windowSpan.oldest_ts_ms;
+  // **WHETHER THE READ CROSSES THE DAY'S CUT** — the fact that makes a window count larger than the day's.
+  const crossesCut =
+    windowSpan !== null &&
+    props.dayStartMs !== undefined &&
+    props.dayStartMs !== null &&
+    windowSpan.oldest_ts_ms < props.dayStartMs;
   // The active scope is never hidden: a filter the page is applying but not showing is a trap.
   const shownMachines = phone
     ? machines.filter((machine) => machine.known || machine.id === scope)
@@ -1002,6 +1008,15 @@ export function ActivityTimeline(props: {
                           ? ` · from ${clockTime(windowSpan.oldest_ts_ms)}` +
                             (windowSpanMs > 0 ? `, spanning ${spanText(windowSpanMs)}` : "")
                           : ""}
+                        {/* **AND IT SAYS WHETHER IT CROSSES THE DAY'S CUT, WHICH IS THE ONLY FACT THAT
+                            RECONCILES THE TWO COUNTS (the hundred-and-twentieth list).** Measured live on
+                            `0.3.273-ux192`: `Today: 543 client calls` over `939 client calls in this
+                            window · from 09:40, spanning 19 h 32 m`. Both true, and **939 > 543** for a
+                            reason the page left the reader to subtract: 09:40 + 19 h 32 m reaches PAST
+                            midnight, so the day's calls are a subset of the window's. The forty-third
+                            list added the START for exactly this, and the start alone still asks the
+                            reader to do the arithmetic. One clause states the conclusion. */}
+                        {crossesCut ? " — the day's calls are a subset of these" : ""}
                       </>
                     )}
                 </span>
