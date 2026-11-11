@@ -156,10 +156,15 @@ the registry's sense and why `forward.add` and `forward.remove` are the operator
   the panel is the device's own page, served on loopback with no login, and a rule's values say who
   can reach what — broadcasting them on the page a person reaches with no credential is the wrong
   trade for a list nobody edits there. `forward.list` is the wire surface both would read.
-- **How many rules one device may carry** — `RULES_MAX` is 4 today, and a fifth NAME is refused while
-  an EDIT of an existing name is not (a full device has to stay maintainable). Whether 4 is the right
-  number is the open part; the audit and the console's rule list read better with a stated small
-  maximum.
-  **WHAT WOULD SETTLE IT:** the cap exists so a device's forward table stays a list somebody can read
-  and revoke. Four is chosen, not derived; a deployment that needs six has to edit rather than add,
-  which is the friction the number is for.
+- ~~**How many rules one device may carry**~~ — **ANSWERED as the sentence above it was written:
+  four is CHOSEN, for LEGIBILITY, and no resource measurement can move it.**
+  `rules-max-is-a-legibility-cap-2026-11-11.md` measured what the cap actually bounds: **+1 descriptor
+  per idle rule** (11 → 15 over four rules, and it stays +1), so four is nowhere near a resource
+  limit — 8 or 40 would cost the same. What the cap does NOT bound is connections: one rule took **64
+  at once at +2.0 descriptors each** (a client socket and an SSH session, held up to the 30 s open
+  timeout), so the real wall on load is the far sshd's `MaxStartups`, not this number. The number is
+  therefore the surface's capacity to show a rule (the console's Machine tab draws ~90 px per rule,
+  four of which are a section a person reads without scrolling) rather than the device's capacity to
+  carry one — and that is a decision about the SURFACE, which is why it cannot be derived here.
+  **A fifth NAME is still refused while an EDIT of an existing name is not** (measured: an edit at the
+  cap answered `refused: False`), which is what keeps a full device maintainable.
