@@ -4978,6 +4978,40 @@ unknown, so there is nothing to reserve the shape OF. It is the connect state an
    the terminal's composition. **The console's two skeletons are still asserted by NAME in its browser gate** — that
    leg reads `.skeleton-list` exists, not that its rows carry the atom's radius/pad/gap/bar. **S**, open.)*
 
+## P0 — the hundred-and-fifteenth list (opened 2026-11-11, the loading atom's six numbers are gated only by the SHEET)
+
+The hundred-and-fourteenth list closed its item 1 and left item 2 open: *the console's browser leg still asserts its
+skeletons by NAME*. This list finishes that — and the first thing it measured is that **no browser leg on either
+surface holds a read at all**.
+
+Measured 2026-11-11:
+
+     the loading atom's six numbers
+       rows 3 · rowRadius 10 · rowPad 12 · rowGap 8 · barRadius 6 · role "status"
+
+     where each half is held today
+       the SHEET        console `layoutContract` reads radius/pad/bar off `.skeleton-row`/`.skeleton`  **held**
+                        panel   `layoutContract` the same                                    **held**
+       the RENDERED     console browser-gate: **no leg holds a read** — it has `delayMs` for ONE offline route
+                        and never uses it on a skeleton                                   **NOT held**
+                        panel: no browser leg at all                                          **NOT held**
+       the SHAPE        console `HomePage` + `ActivityTimeline` + `DevicePicker` draw it; **3 pages**
+                        panel `Memory` + `Plugins` + `Terminal` (last round) draw it; **3 pages**
+                        — and **the two surfaces agree to the pixel**, measured:
+                        console Home `role="status"` "Reading the machine list", 3 rows, 10/12/8/6
+                        panel  Memory `role="status"` "Reading the memory list", 3 rows, 10/12/8/6
+
+**So the atom is DRAWN right on six pages of eight and MEASURED right on none of them.** A `gap` can be right in the
+rule and overridden by a later block (the hundred-and-thirteenth list paid for exactly that); a `role` can be on the
+element and the rows can be absent. The gates read the sheet, and the sheet is not what a reader sees.
+
+1. **The rendered loading state is measured nowhere.** **Fix:** a browser leg on each surface that HOLDS a read,
+   waits, and reads the live region's label, its role, its row count and the atom's four numbers off the rendered
+   elements. **M.**
+2. **The two surfaces' skeletons have never been compared side by side.** They agree today — measured above, six
+   numbers each — but nothing says they must, and the next page that draws one can invent a seventh. **Fix:** the
+   comparison is one gate with the atom's numbers, not two habits that happen to match. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
