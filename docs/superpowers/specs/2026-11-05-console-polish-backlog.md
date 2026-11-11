@@ -4666,6 +4666,39 @@ next reader should not go looking for a hub that serves `[]`. What the fixture D
 degraded path is otherwise complete (the amber notice, the Retry, the empty-window line), which is why one guard
 was the whole fix.
 
+## P0 — the hundred-and-thirty-second list (CLOSED 2026-11-11 — one surface, three ways to say when)
+
+Rule 12's sibling — *one vocabulary* — measured on the rendered panel, one page apart, 2026-11-11:
+
+    History row      `2026-11-11 13:05:35`        absolute, fixed width, the console's shape
+    Memory entry     `8/28/2025, 4:53:20 PM`      THE BROWSER'S LOCALE
+
+One panel, one kind of fact — when something happened — two spellings, and the second is not a decision: en-US
+renders `8/28/2025, 4:53:20 PM`, a Chinese browser `2025/8/28 16:53:20`, and neither can be told from the other
+without knowing which locale drew the page. **The console had already recorded exactly this defect for its own
+token sheet** (`format.ts`: *"`toLocaleDateString()` put the browser's order in the token sheet — `11/4/2026` in
+en-US, and a different order in every other locale, so a CN operator could not tell the day from the month"*), and
+its one absolute date is ISO. The panel never got that decision.
+
+1. **Nine files formatted their own moments** — the Memory meta line (`toLocaleString`), the run strip's axis, two
+   update titles, three browser-evidence times, the plugin log's prefix, the trajectory's round time, the restart
+   list's HH:MM and the approval's retirement clock (`toLocaleTimeString` in six of those, one hand-built HH:MM).
+   **Fix:** `src/lib/clock.ts` — `isoDay` / `clockTime` / `clockMinute` / `stamp` / `stampSeconds`, absolute, local,
+   padded — and every site reads it. `lib/archive.ts` keeps its `archiveClock` name and delegates, so a session row
+   and a memory entry cannot diverge again. **Done — panel `bcf08a4ac` (not pushed).** Measured after, same probe:
+   Memory reads `2025-08-28 16:53:20`; the History rows are unchanged because they already had the shape.
+2. **No gate held the vocabulary.** **Fix:** `src/lib/__tests__/clock.test.ts` pins the five shapes (built from LOCAL
+   components, so the test renders the same in every timezone) and then walks all **240 files** under `src/` and
+   fails on any `.toLocaleString|toLocaleDateString|toLocaleTimeString` outside `lib/clock.ts` and the tests. It also
+   fails if the walk reads fewer than 50 sources — a scan over nothing must not pass. **Done — same commit.**
+   **Mutation:** `RunStrip`'s clock back to `new Date(ms).toLocaleTimeString()` fails the scan naming
+   `components/RunStrip.tsx`; restored green.
+
+**WHY NOT A SMALLER FIX.** Patching only the Memory line would have left six other sites taking the browser's
+locale and no rule against the seventh; the console's own history shows the cost of that (its sheet drifted while
+every stylesheet test was green). The scan is the artefact that keeps the decision, and the twelve edits are the
+price of having a decision at all.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
