@@ -140,8 +140,13 @@ the registry's sense and why `forward.add` and `forward.remove` are the operator
 ## 6. Open
 
 - **Which TLS front end** (D4) — bundle, embed, or HTTP/1.1 with a stated cap. Settle it by measuring
-  the same six-connection starvation under each. **NOT MEASURED, and that sentence is here so
-  nobody reads this line as a finding.** The three fronts differ in one case this branch never
+  the same six-connection starvation under each. **STILL NOT ANSWERED, but the baseline now exists:**
+  `a-forward-carries-one-handshake-per-connection-2026-11-11.md` measured this build at **~160 ms of
+  SSH handshake per carried connection** (0 ms for the same request with no forward in it), and found
+  the first wall at 24-at-once is the sshd's `MaxStartups 10:30:100` and not the device. A front end
+  that reused one connection would remove that ~160 ms from every one of a browser's six pipes,
+  which is the comparison a TLS design should now be argued on. **The three fronts themselves are
+  still built by nobody.** The three fronts differ in one case this branch never
   built: a client that speaks plaintext to `listen` while the far side is TLS, or the reverse.
   Until one of them is built and the starvation measured, "which front end" stays a question with
   no evidence behind either answer.
