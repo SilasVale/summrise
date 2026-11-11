@@ -4170,6 +4170,36 @@ Both sentences sit **52 px apart** in the same column, and neither says the othe
    no cut was published, because **a gate that always fires is worse than silence**. The measured page's window
    reached midnight by 19 h 32 m from 09:40; the page now says the conclusion instead of asking the reader to subtract.)*
 
+## P0 — the hundred-and-twenty-first list (opened 2026-11-11, the verdict is LIGHTER than the title it sits under)
+
+The hundred-and-twentieth list is closed. This list is rule 5 — *"hierarchy from size, weight and colour"* — measured
+on the rendered pages, and the first thing it finds is that **the two surfaces disagree about what the product's
+biggest sentence is**.
+
+Measured 2026-11-11 at 1,440, rendered (`font-size / font-weight` per drawn element, deduped by class):
+
+     console Home      `.page-head h1` **22 / 700**   then   `.home-verdict` **22 / 600**
+     console Activity  `.page-head h1` **22 / 700**   then   `.activity-today` **17 / 600**
+     panel  Settings   `.page-title`   **22 / 700**   then   `.page-sub` **13 / 400**
+     panel  Plugins    `.page-title`   **22 / 700**   then   `.page-sub` **13 / 400**
+
+**On Home the verdict is the same size as the title and LIGHTER** — 22/600 under 22/700. It is the sentence the
+operator's direction is about (*"what needs attention, and what to do"*), and the page gives it **less weight than the
+word "Home"**. On Activity the day's count is **17/600** — a whole step DOWN from the title — while on the panel it is
+**13/400**, a plain subtitle.
+
+**Three treatments for the product's second sentence**, and on the console the one that matters most is the faintest.
+
+**And neither surface has a step between 22 and 17**: the sheet's seven sizes are `10/11/12/13/14/17/22`
+(`seven_type_sizes_and_a_thirteen_pixel_body`), so the title-to-second-line drop is either **0** (Home, same size) or
+**5** (Activity) or **9** (the panel) — three answers from one scale.
+
+1. **The verdict and the day's count are the product's SECOND sentence and get one treatment on both surfaces.**
+   **Fix:** one step, one weight, named in the atom. **M.**
+2. **The type scale has no step between the title and the body's largest.** `22 → 17 → 14` skips the one a page's
+   second sentence needs, so each surface picked a different existing step. **Fix:** state which step a second line
+   takes, or record that the scale cannot carry one. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
