@@ -4300,7 +4300,12 @@ box — which is rule 8's actual subject: not "many borders" but **borders on th
    border can be — `rowRule`, a `box` on a **region**, a `box` on a **control** — because **my first census counted
    elements and called a table's one rule 25 borders**. *A page's border count is only meaningful when it says which
    it is counting.* **The band itself is not recorded yet**, and the next round's numbers are the corrected ones:
-   Home **7**, Activity **4**, Settings **23**, Plugins **7**.)*
+   Home **7**, Activity **4**, Settings **23**, Plugins **7**. **AND THE 23 BREAK DOWN INTO THE TWO KINDS, measured
+   2026-11-11**: **regions 3–8 on all four pages** (Home 6, Activity 3, Settings 8, Plugins 6 — **one band already**)
+   against **controls 1, 1, 15, 1** — so the frame is not drifting and **the open question is narrower than the item
+   said**: Settings draws a control edge on **16 controls** (15 edges, ratio 0.94) where its siblings draw one.
+   **A control's edge is its affordance**, so 15 is not a defect by itself; **what is unmeasured is whether the
+   PRODUCT wants 15**, and that is the band still missing.)*
 2. **Six classes carry Settings' boxes and four are CONTROLS** — `settings-input-narrow` 4, `BUTTON` 3,
    `connect-tab` 2, `INPUT` 2. **A control's edge is its affordance; three controls in a row is a form drawn as
    boxes.** **Fix:** the control grammar is the atom's, or the count is recorded as the page's decision. **M.**
