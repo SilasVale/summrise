@@ -190,7 +190,12 @@ export function App() {
     try {
       const [lines, day, source] = await Promise.all([
         device === null ? api.audit(AUDIT_WINDOW) : api.audit(AUDIT_WINDOW, device),
-        api.auditDay(device ?? undefined),
+        // **THE DAY IS A COMPANION FACT TOO (the hundred-and-thirty-first list).** It was read inside
+        // the same `Promise.all` without a catch, so an answer the client refuses — a 200 that carries
+        // no counts — took the WINDOW with it: a thousand readable rows vanished and the page said
+        // `this timeline shows only calls that arrive live`. Rows without a day's count are what the
+        // page already draws while a scope is being replaced; no rows because a copy failed is not.
+        api.auditDay(device ?? undefined).catch(() => null),
         // The source line is a companion fact, not the window: a failed read here must not fail the
         // rows, and the page then says nothing about the file rather than guessing.
         api.auditSource().catch(() => null)
@@ -200,7 +205,7 @@ export function App() {
         auditAnsweredDevice.current = device;
         setAudit(lines);
         setAuditDevice(device);
-        setDaySummary({ device, day });
+        setDaySummary(day === null ? null : { device, day });
         setAuditSource(source);
         setAuditRead({ state: "ready" });
       }

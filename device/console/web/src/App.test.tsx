@@ -640,6 +640,36 @@ describe("App", () => {
     expect(mocks.audit).toHaveBeenCalledWith(1000);
   });
 
+  it("keeps the window's rows when the day's own read is refused, and claims no count", async () => {
+    // **THE DAY IS A COMPANION FACT (the hundred-and-thirty-first list).** It was read inside the
+    // same `Promise.all` without a catch, so a day answer the client refuses (a 200 with no counts)
+    // took the WINDOW with it: a thousand readable rows vanished and the page said `this timeline
+    // shows only calls that arrive live`. Rows without a count are what the header already draws
+    // while a scope is being replaced; no rows because a copy failed is not.
+    const midnight = new Date();
+    midnight.setHours(0, 0, 0, 0);
+    mocks.audit.mockResolvedValue([
+      {
+        ts_ms: midnight.getTime() + 120_000,
+        kind: "mcp",
+        device_id: workshop.id,
+        token_id: null,
+        tool: "files.read",
+        detail: null,
+        status: 200,
+        caller: "client",
+        sentence: "Read a file"
+      }
+    ]);
+    mocks.auditDay.mockRejectedValue(new Error("no answer"));
+    await bootAndSignIn();
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    // The row the window carried is still the record.
+    expect(await screen.findByText("Read a file")).toBeInTheDocument();
+    // And the header invents nothing in the day's place.
+    expect(screen.queryByText(/^Today:/)).toBeNull();
+  });
+
   it("carries both counts' intervals as data, so a gate can compare numbers", async () => {
     // **THE INTERVALS ARE DATA, NOT ADJECTIVES (the forty-fifth list).** `Today` is a word; the only
     // check a gate can make of it is a regular expression over prose, and three lists in a row ended
