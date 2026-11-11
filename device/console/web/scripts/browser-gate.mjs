@@ -483,6 +483,11 @@ const state = {
   installerRequests: 0,
   /** Whether `/fleet` answers 500: the failed read whose one statement the last leg measures. */
   failFleet: false,
+  /**
+   * How long `/fleet` is HELD, in ms. Zero answers immediately; a hold is the only way to see the loading atom
+   * rendered, because a skeleton exists for exactly as long as a read is out.
+   */
+  fleetDelayMs: 0,
   /** Whether `POST /enroll` answers 500: the action failure that draws the shell banner. */
   failEnroll: false
 };
@@ -613,12 +618,15 @@ function apiReply(request, url) {
     return json({ error: 'enrollment_unavailable' }, 500);
   }
   if (method === 'GET' && pathname === '/fleet') {
-    if (state.failFleet) return json({ error: 'console_unavailable' }, 500);
+    const held = state.fleetDelayMs
+      ? { delayMs: state.fleetDelayMs }
+      : {};
+    if (state.failFleet) return { ...json({ error: 'console_unavailable' }, 500), ...held };
     // A FLEET OF ZERO IS A STATE THE GATE MUST BE ABLE TO DRAW (the fortieth list). It is the page
     // a new operator meets, and it had no leg at all — which is why the installer could be the
     // page's smallest, last block for two lists without a test noticing.
-    if (state.emptyFleet) return json([]);
-    return json([DEVICE, OFFLINE_DEVICE, QUIET_DEVICE, BIG_DEVICE]);
+    if (state.emptyFleet) return { ...json([]), ...held };
+    return { ...json([DEVICE, OFFLINE_DEVICE, QUIET_DEVICE, BIG_DEVICE]), ...held };
   }
   // THE INSTALLER READ. One answer per fleet render; the page must not poll it, and the gate
   // counts the requests so a poll would show up here.
@@ -1175,6 +1183,60 @@ try {
   // recent wins, so the zero-fleet leg asked `/installer`, got this leg's 500, and drew the FAILED
   // card — measured as `heading: "Add your first machine", hasDoor: false`. Detach it first; the
   // measurement above is already taken.
+  // **A READ IN FLIGHT RESERVES THE SHAPE IT WILL DRAW — MEASURED ON THE RENDERED PAGE (the hundred-and-fifteenth
+  // list).** Every gate that asked about this atom read the SHEET: `.skeleton-row`'s radius is a token, the bar's
+  // corner is the contract's. **The sheet is not what a reader sees** — a `gap` can be right in the rule and
+  // overridden by a later block, and a `role` can sit on an element whose rows are missing.
+  // The read is held on the ANSWER (`delayMs`), the page is reloaded, and the live region is read off the DOM.
+  const HELD_MS = 2_500;
+  state.fleetDelayMs = HELD_MS;
+  await page.unroute('**/installer');
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  // The skeleton exists for exactly as long as the read is out, so it is waited FOR, not waited out.
+  // **AND `domcontentloaded` IS BEFORE THE FIRST RENDER**: the first draft read the DOM the instant the reload
+  // resolved and concluded "no skeleton drawn" — a probe measuring its own timing.
+  await page.locator('.skeleton-list').first().waitFor({ state: 'visible', timeout: 5_000 });
+  const skeleton = await page.evaluate(() => {
+    const list = document.querySelector('.skeleton-list');
+    if (!list) return null;
+    const rows = [...list.children].filter((c) => /skeleton-row/.test(c.className));
+    const firstRow = rows[0] ?? null;
+    const bar = firstRow?.querySelector('.skeleton') ?? null;
+    const rowStyle = firstRow ? getComputedStyle(firstRow) : null;
+    return {
+      role: list.getAttribute('role'),
+      label: list.getAttribute('aria-label'),
+      w: Math.round(list.getBoundingClientRect().width),
+      h: Math.round(list.getBoundingClientRect().height),
+      rows: rows.length,
+      gap: parseFloat(getComputedStyle(list).rowGap) || 0,
+      rowRadius: rowStyle ? parseFloat(rowStyle.borderTopLeftRadius) : 0,
+      rowPad: rowStyle ? parseFloat(rowStyle.paddingTop) : 0,
+      barRadius: bar ? parseFloat(getComputedStyle(bar).borderTopLeftRadius) : 0
+    };
+  });
+  if (skeleton === null) {
+    throw new Error(`a read held ${HELD_MS} ms drew no skeleton — the loading state is not rendered`);
+  }
+  const LOADING = { rows: 3, rowRadius: 10, rowPad: 12, gap: 8, barRadius: 6 };
+  for (const [key, want] of Object.entries(LOADING)) {
+    if (skeleton[key] !== want) {
+      throw new Error(`the rendered skeleton's ${key} is ${skeleton[key]}, the atom says ${want}`);
+    }
+  }
+  if (skeleton.role !== 'status') {
+    throw new Error(`the rendered skeleton's role is ${JSON.stringify(skeleton.role)}, not a live region`);
+  }
+  if (!skeleton.label) {
+    throw new Error('the rendered skeleton names no read; a shimmer is not a statement');
+  }
+  step(
+    `a fleet read held ${HELD_MS} ms drew a RENDERED skeleton ${skeleton.w}x${skeleton.h}: ` +
+      `role="${skeleton.role}" aria-label=${JSON.stringify(skeleton.label)}, ${skeleton.rows} rows, ` +
+      `radius ${skeleton.rowRadius}, pad ${skeleton.rowPad}, gap ${skeleton.gap}, bar ${skeleton.barRadius}`
+  );
+  // Release the hold and let the real fleet arrive; the zero-fleet leg below starts from a clean state.
+  state.fleetDelayMs = 0;
   await page.unroute('**/installer');
   state.emptyFleet = true;
   await page.reload({ waitUntil: 'domcontentloaded' });

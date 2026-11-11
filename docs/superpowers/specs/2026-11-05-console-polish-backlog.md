@@ -5008,9 +5008,25 @@ element and the rows can be absent. The gates read the sheet, and the sheet is n
 1. **The rendered loading state is measured nowhere.** **Fix:** a browser leg on each surface that HOLDS a read,
    waits, and reads the live region's label, its role, its row count and the atom's four numbers off the rendered
    elements. **M.**
+   *(**Done on both surfaces, MERGED, NOT DEPLOYED** — console `browser-gate` step 104, panel `scripts/loading-gate.mjs`
+   (commit `d5b79194c`). Console: `/fleet` is HELD 2 500 ms on the ANSWER (`delayMs`, a hook the gate already had for
+   one offline route and had never used on a skeleton), then the live region is read: *"a fleet read held 2500 ms
+   drew a RENDERED skeleton 1000x195: role=\"status\" aria-label=\"Reading the machine list\", 3 rows, radius 10,
+   pad 12, gap 8, bar 6"*. Panel: a new leg with its own mock, `MOCK_HOLD_MS` — *"Memory RENDERED 1072x193
+   role=\"status\" … 3 rows · radius 10 · pad 12 · gap 8 · bar 6"*.
+   **MUTATIONS, both proved on the RENDERED number while every sheet gate passed**: the console's skeleton gap moved
+   to `--sp-3` → *"the rendered skeleton's gap is 12, the atom says 8"*; the panel's the same → *"Memory's rendered gap
+   is 12, the atom says 8"*. **Two hooks the test devices did not have were added to make this measurable**
+   (`MOCK_HOLD_MS`, `PORT`); **nothing in the product changed to make itself measurable.**
+   **AND `domcontentloaded` IS BEFORE THE FIRST RENDER** — the console's first draft read the DOM the instant the
+   reload resolved and concluded "no skeleton drawn". A probe measuring its own timing, again.)*
 2. **The two surfaces' skeletons have never been compared side by side.** They agree today — measured above, six
    numbers each — but nothing says they must, and the next page that draws one can invent a seventh. **Fix:** the
    comparison is one gate with the atom's numbers, not two habits that happen to match. **S.**
+   *(**Done, and it is the atom's numbers on both sides**: the console's leg and the panel's leg each compare the
+   RENDERED six against `loading` in `layout-contract.json`, and the panel's leg reads that file by WALKING to the
+   repo root rather than guessing a `../..` — which is what its first draft did, and it opened the wrong repo's path.
+   **They agree because both read the contract, not because they happen to match.**)*
 
 ## How a round goes
 
