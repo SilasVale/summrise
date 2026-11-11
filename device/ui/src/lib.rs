@@ -26,8 +26,24 @@ pub const TOKENS: &str = r#":root {
   --danger:#b3261e; --danger-soft:#fdecea; --focus-ring:#bf3a0a;
   --rail:#17181c; --rail-line:rgba(255,255,255,.08); --rail-ink:#9a9ba4;
   --rail-ink-hover:#f4f4f5; --rail-focus:#ffb86b;
+  /* **THE PRODUCT'S ONE INTERACTION DURATION (the hundred-and-fourth list).** The contract's
+     `motion.interactionMs` is 120; the React sheet wrote `0.12s` nine times and `0.15s` six — the
+     same hover, two speeds, in one file.
+     **AND IT LIVES HERE NOW.** It was added to `device/console/web/src/tokens.css` — the file
+     `scripts/generate-tokens.sh` WRITES — so the next run of that script would have deleted it, and
+     the gate that compares the two files said so: `generated_tokens_match_the_canonical_sheet` was
+     RED on `hub/v1` from 2026-11-11 00:22 until this commit. A token the generator cannot see is a
+     token the generator will remove. */
+  --dur-interaction:120ms;
   --shadow:0 1px 3px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04);
-  --shadow-lg:0 12px 32px rgba(0,0,0,.12);
+  /* **THE PANE LEVEL IS ONE OBJECT ON BOTH SURFACES (the hundred-and-eleventh list).** Measured
+     2026-11-11 with a popover OPEN on each surface: the console's `.machine-pop`, `.account-pop` and
+     four `.row-menu-pop` floated on a **one-layer** `0 12px 32px` drop at a **10 px** radius, while
+     the panel's floated on a **two-layer** shadow at **14 px** — two popovers, two objects. This is
+     the contract's `elevation.paneShadow` now: three COOL, layered shadows. **A pane sits ON the
+     page, so its edge is the page's own hairline** — the radius is `radius.dialog` (14), which the
+     atom records as the pane's step. */
+  --shadow-lg:0 1px 1px rgba(24,32,54,0.04),0 4px 10px -4px rgba(24,32,54,0.06),0 18px 40px -24px rgba(24,32,54,0.2);
   --shadow-1:var(--shadow);
   --shadow-2:0 6px 24px -18px rgba(16,23,33,.45);
   --radius:14px; --radius-sm:10px; --radius-sm2:8px; --radius-xs:6px;
@@ -46,6 +62,11 @@ pub const TOKENS: &str = r#":root {
      display line itself. */
   --tracking-display:-0.011em; --tracking-tight:-0.02em;
   --tracking-label:0.05em; --tracking-eyebrow:0.08em;
+  /* **"NONE" IS A STEP TOO, AND IT NEEDS A NAME (the hundred-and-tenth list).** The atom's `bySize`
+     says body text takes `none` — and a rule that says `none` by INHERITING it is not saying
+     anything: measured, `13 px / 600` was `-0.26px` on one element and `normal` on its neighbour, and
+     neither rule had chosen. A caller that wants the body's step reads this. */
+  --tracking-none:normal;
   --sp-0-5:2px; --sp-1:4px; --sp-1-5:6px; --sp-2:8px; --sp-2-5:10px;
   --sp-3:12px; --sp-3-5:14px; --sp-4:16px; --sp-5:24px; --sp-6:32px;
   /* **A CONTROL'S HEIGHT AND THE PADDING THAT REACHES IT (the fifty-ninth list).** The rhythm is
@@ -101,7 +122,9 @@ pub const TOKENS: &str = r#":root {
     --rail:#0b0c0e; --rail-line:rgba(255,255,255,.07); --rail-ink:#8f9099;
     --rail-ink-hover:#ffffff; --rail-focus:#ffb86b;
     --shadow:0 1px 2px rgba(0,0,0,.4);
-    --shadow-lg:0 12px 32px rgba(0,0,0,.45);
+    /* The pane after dark: a plain shadow is a colour, and the light theme's cool drop is invisible
+       on a near-black ground — the same computed-value trap this block's other shadows document. */
+    --shadow-lg:0 1px 1px rgba(0,0,0,.5),0 6px 14px -6px rgba(0,0,0,.5),0 22px 48px -28px rgba(0,0,0,.8);
     --shadow-1:var(--shadow);
     --shadow-2:0 8px 24px -18px rgba(0,0,0,.8);
     --hover:#2a2b32;
