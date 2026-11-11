@@ -4501,16 +4501,18 @@ restating it (`CONTRACT.elevation.pane`), proves the token is drawn by a rule, a
 Rule 13 — *"keep text readable: measure, line-height, contrast"* — measured where a leading is written and where it
 lands. The atom names **three ratios**: `1.5` body, `1.3` tight, `1` mark.
 
-    console   `font:` shorthands with a `/ratio`   0
+    console   `font:` shorthands with a `/ratio`   **1** — `body`'s `font: var(--fs-base) / 1.55`, which a later
+              `body { line-height: var(--lh-body) }` overrides, so it is **dead**
               `line-height:` declarations          45, all `var(--lh-*)`
     panel     `font:` shorthands with a `/ratio`   16, in **seven** ratios:
                        **1.6 ×6 · 1.5 ×5 · 1.55 ×1 · 1.4 ×1 · 1.3 ×1 · 1.25 ×1 · 1 ×1**
               `line-height:` declarations          28, all `var(--lh-*)`
 
-**Nine of the panel's sixteen shorthand leadings are ratios the atom never named** — 1.6 (six sites: the mono/code
-blocks, `.gs-lead`, `.gs-click`), 1.55 (`.gs-body p`), 1.4 (`.history-hint`), 1.25 (`.gs-head h2`). **The console
-writes none of its leading in the shorthand**, which is why no gate has ever seen this: a `line-height:` census
-passes both sheets.
+**Ten of the product's seventeen shorthand leadings are ratios the atom never named** — the panel's 1.6 (six sites:
+the mono/code blocks, `.gs-lead`, `.gs-click`), 1.55 (`.gs-body p`), 1.4 (`.history-hint`), 1.25 (`.gs-head h2`), and
+the console's dead 1.55 on `body`. **My first census said the console wrote none — it missed the SPACE in
+`var(--fs-base) / 1.55`, which is exactly how a census lies.** A `line-height:` census passes both sheets because the
+number lives in the shorthand.
 
 **AND A RENDERED CENSUS AT 1,440 (both surfaces, six pages) FOUND ELEVEN STYLES WITH NO DECLARED LEADING AT ALL** —
 `line-height: normal`, the user agent's: five on panel Settings (`button`, `.connect-tab`, `.btn`, `.notify-state`)
@@ -4519,9 +4521,10 @@ Activity and Device**. For the controls built to `--control-h` that *is* the 18 
 documents (`5 + 5 + 18 = 28`); for `.notify-state`, `.approval-left` and `.view-switch-btn` nothing names it. That is
 the next list's subject, recorded here because the same probe found it.
 
-1. **Nine shorthand leadings are off the atom's three ratios**, and the shorthand is where a `line-height:` census
+1. **Ten shorthand leadings are off the atom's three ratios**, and the shorthand is where a `line-height:` census
    cannot look. **Fix:** the code/guide blocks take `1.5` (the console's own evidence output is `--lh-body`), the
-   heading takes `1.3`; no pixel of text changes size, only the space between lines. **M.**
+   heading takes `1.3`, and the console's dead `/ 1.55` is removed from `body`'s shorthand (the later
+   `line-height: var(--lh-body)` is the rule that actually sets it, so **no pixel moves there**). **M.**
 2. **No gate reads the `/ratio` inside a `font:` shorthand** — on either surface. **Fix:** a gate per repo that fails
    on a shorthand ratio that is not one of the atom's three, and reads the atom rather than a copy. **M.**
 
