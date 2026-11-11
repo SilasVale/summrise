@@ -4040,7 +4040,12 @@ repeated for surfaces.
    `themeContrast` composite the chain and refuse a card whose tint falls below the stated floor, in both themes.
    **M.**
 2. **A RECESSED block is worth only 1.027 however it is spelled, because the scale has no step between the card
-   and the ground.** Measured 2026-11-11: `.settings-fold` **1.027** tint, **1.117** edge; the console's `--panel-3`
+   and the ground.** *(**Done on both surfaces, MERGED, NOT DEPLOYED** — console `743a78e`, panel `0f6d0b77e`. The
+   token is a DERIVATION now on both sheets: `color-mix(in srgb, var(--ink) 7%, …)` in light, toward the ground after
+   dark. Measured after: panel `.settings-fold` **1.074** (was 1.027); the console's ten readers land at **1.15 inside
+   a card**, where they were **1.044** and, on the page, **1.000**. **The atom records both numbers**
+   (`cardTint 1.072`, `recessTint 1.074`) and the derivation, because the next person to "just pick a token" will
+   find the same 3–8 level scale.)* Measured 2026-11-11: `.settings-fold` **1.027** tint, **1.117** edge; the console's `--panel-3`
    `#f4f4f5` is **1.027** against the pane; `#fafafa` on `#fafafa` is **1.000**. **The scale's own steps are 3-8
    levels apart (`#fafafa`/`#f4f4f5`/`#ffffff`) and a usable recess needs ~8 below the pane** (`grey 239` = **1.073**, the
    card's own 1.071 with the sign reversed). So the fix is NOT "pick a token" — **the scale has no such token, and
