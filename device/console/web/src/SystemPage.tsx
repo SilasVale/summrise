@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import type { Device } from "./DeviceCard";
 import { spanText } from "./age";
 import { clockTime, grouped, isoDate, lastHeardMs, message, seenAgo } from "./format";
+import { ForwardRules } from "./ForwardRules";
 import { HostFactsBlock } from "./HostFacts";
 import { Modal } from "./Modal";
 import { useRequestGate } from "./requests";
@@ -928,6 +929,8 @@ export function SystemPage({
           </section>
         )}
       </section>
+
+      <ForwardRules grant={grant} deviceOnline={deviceOnline} />
 
       {restartOpen && (
         <Modal

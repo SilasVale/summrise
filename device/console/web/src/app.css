@@ -2051,6 +2051,34 @@ span.files-name {
 }
 .plugin-error { margin: 0; color: var(--error); font-size: var(--fs-sm); }
 .plugin-actions { display: flex; align-items: flex-start; gap: var(--sp-1); flex: none; }
+
+/* ── Forward rules: the machine's own listening ports ──────────────────────────────────────────────
+   A row is the RULE read left to right — what is bound here, what it reaches, and the connection that
+   carries it — with its live state beside the name it belongs to. It borrows the plugin row's shape
+   because they are the same object: one thing the machine is running, with a state and one action. */
+.forward-list { display: grid; gap: var(--sp-2); min-width: 0; }
+.forward-row {
+  display: flex; align-items: flex-start; gap: var(--sp-3);
+  padding: var(--sp-3); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: var(--surface); min-width: 0;
+}
+.forward-main { flex: 1; min-width: 0; display: grid; gap: var(--sp-1); }
+.forward-head { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.forward-name { font-size: var(--fs-base); font-weight: var(--fw-semi); }
+.forward-route { margin: 0; color: var(--ink); font-size: var(--fs-sm); overflow-wrap: anywhere; }
+.forward-meta { margin: 0; color: var(--ink-muted); font-size: var(--fs-sm); }
+.forward-actions { display: flex; align-items: flex-start; gap: var(--sp-1); flex: none; }
+
+/* The form is a sheet's body: one column, the scale's own gap, and the credential's fieldset above
+   the field it governs so the radio pair reads as the question it is. */
+.forward-form { display: grid; gap: var(--sp-3); min-width: 0; }
+.forward-auth { display: flex; gap: var(--sp-3); align-items: center; flex-wrap: wrap; margin: 0; padding: 0; border: 0; }
+.forward-auth > legend { padding: 0; color: var(--ink-muted); font-size: var(--fs-xs); font-weight: var(--fw-medium); }
+.forward-auth > label { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-sm); }
+@media (max-width: 639px) {
+  .forward-row { flex-direction: column; }
+  .forward-actions { align-self: stretch; justify-content: flex-end; }
+}
 .trust {
   margin: 0; padding: var(--sp-3); border-radius: var(--radius-sm);
   background: var(--panel-2); font-size: var(--fs-base); font-weight: var(--fw-medium);
