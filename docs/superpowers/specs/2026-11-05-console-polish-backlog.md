@@ -4358,6 +4358,33 @@ atom does not name.
    surface's palette.** The console has neither, so a reader comparing the sheets sees the panel painting two colours
    the atom's list does not mention.)*
 
+## P0 — the hundred-and-twenty-fifth list (opened 2026-11-11, rule 20: ten spacing values off the rhythm)
+
+The hundred-and-twenty-fourth list is closed. **This list is rule 20 — *"alignment and rhythm fixed by a grid, not by
+nudging"* — measured on the SHEETS**, because that is where a nudge is written down.
+
+**And my first probe measured the wrong thing, twice.** A rendered-box census asked whether an element's left edge was
+a multiple of 4 px from the PAGE's edge; it reported 12 off-grid elements on every page and **none of them was a
+nudge** — a cell 25 px in is the card's 16 px inset plus a 1 px border plus an 8 px pad, all three on the atom. **A
+census of rendered boxes cannot separate a border from a nudge.**
+
+**The measurable question is the LITERAL.** The atom's rhythm is `2/4/6/8/10/12/14/16/24`, and it names the two ways
+a value off it can still be right (*a control's height, or the padding inside a fixed target*). Measured 2026-11-11:
+
+    console  `.panel` padding **18** · `.sheet-body` padding **18** · `.terminal-start` padding **18**
+             `.terminal-session` padding **18** (line 2967) · `.path-row` padding **15** top and bottom
+    panel    `.path-empty` padding **26** 20 · a settings block padding **22** … **18**
+
+**Ten values, and not one of them is a control's height or a fixed target's padding** — so by the atom's own words
+they are nudges: **18 is 4·4+2, 15 is 4·3+3, 22 is 4·5+2, 26 is 4·6+2.**
+
+1. **The four 18 px paddings are the same nudge written four times**, on both surfaces and in two repos. **Fix:** they
+   take the nearest rhythm step, or the atom records a reason. **M.**
+2. **The 15 px and 22/26 px paddings are three different answers to "a block's inset"**, where the atom has `--sp-4`
+   (16) and `--sp-5` (24). **Fix:** the same. **S.**
+3. **No gate counts these**, so a nudge is a number nobody measures. **Fix:** a sheet census that fails on a spacing
+   literal off the rhythm without a named reason. **M.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
