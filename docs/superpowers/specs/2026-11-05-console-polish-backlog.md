@@ -4733,6 +4733,35 @@ Measured 2026-11-11, sheet and rendered page:
 screenshot can show it. What this round buys is the atom being TRUE and the gate no longer protecting a lie — and the
 next reader of `layoutContract.test.ts` cannot re-derive a fourth name without failing it.
 
+## P0 — the hundred-and-thirty-fourth list (CLOSED 2026-11-11 — on the phone the record began below the fold)
+
+The operator's own line — *"Activity is the record"* — measured at 390 x 844 on the built page, 2026-11-11:
+
+    the three filter blocks (Machines · Callers · Search)   320 px
+    the first timeline row                                   y = 676   (two rows above the bottom bar)
+
+The record's page opened with 320 px of controls and two rows of its subject. The forty-third list (audit-40 F5) had
+already dropped the retired machine ids from the phone's chips and said "the record starts above the fold" — it did
+not; the chips were trimmed, the block was not.
+
+1. **The filters are one button on the phone.** **Fix:** a `Filters` button that states how many narrowings are on
+   (`1 active`), carries `aria-expanded` / `aria-controls`, and — the part that matters — **the block is not rendered
+   when collapsed**, because a hidden control that still filters is the trap this list must not create. The media
+   query decides, not a stored preference: `!phone || filtersOpen` means a widened window shows the block again.
+   **Done — console `8edfc6b` (pushed; NOT deployed — the console deploy waits on the operator's word).**
+
+       first timeline row at 390      676 -> 428 px   (two rows -> five)
+       the filters                    320 px of blocks -> one 32 px button
+
+2. **The window's sentence is the RECORD's line, not a filter's.** `44 client calls in this window · from 13:27,
+   spanning 26 h 5 m` stays on the page whether the block is open or not; the button is block-level because an
+   inline-flex one left that sentence starting beside it and wrapping under it — measured, one ragged line.
+3. **The suite's two phone cases reached into the chips directly.** **Fix:** they open the block first (their subject
+   — the retired ids are not chips — survives), and a new case pins the collapse: `aria-expanded=false`, no
+   `Search activity` in the document, click opens it, and `Clients only` makes the button read `1 active`.
+   **Mutation:** the phone condition reverted to `{filterable && (` fails at
+   `expect(screen.queryByRole("searchbox", …)).toBeNull()` — the search is on the page while collapsed.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
