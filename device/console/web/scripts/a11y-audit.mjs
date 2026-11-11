@@ -23,6 +23,7 @@
 
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import http from 'node:http';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -1131,12 +1132,113 @@ function collectInPage(regionSelector) {
 // ---------------------------------------------------------------------------------------------
 
 const results = [];
+const cardLevels = [];
 const pageFailures = [];
 const measuredPages = new Set();
 const allowedStops = [];
 
+/**
+ * A card's LEVEL: its TINT (fill against the fill actually behind it) and its EDGE (its hairline against its fill).
+ *
+ * WHY THIS IS NOT A TOKEN CHECK. `elevation.flat` says a card is *"a hairline and a tint, no shadow"* — two channels.
+ * Measured 2026-11-11: every contrast gate in both repos compared a pair of TOKENS (text against a surface), and
+ * **no gate anywhere asked what a card's fill measured against the thing behind it**, so a pane that composited
+ * LIGHTER than its own page could erase the level above it with nothing going red (the hundred-and-sixteenth list).
+ * `body` is not the backing: the ancestor chain is, and only the browser can compose it.
+ *
+ * The floor is the atom's own `cardTint` — the number the shipped card measures — not a new number.
+ */
+function collectCardLevels(floor) {
+  const lin = (v) => {
+    v /= 255;
+    return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
+  const lum = (c) => 0.2126 * lin(c[0]) + 0.7152 * lin(c[1]) + 0.0722 * lin(c[2]);
+  const ratio = (a, c) => {
+    const la = lum(a);
+    const lc = lum(c);
+    const hi = Math.max(la, lc);
+    const lo = Math.min(la, lc);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+  const parse = (s) => {
+    if (!s) return null;
+    // **THREE FORMS, AND `color-mix` PRODUCES THE THIRD.** A sheet that derives a surface with `color-mix` computes to
+    // `color(srgb 0.936588 …)`, which a regex for `rgba()` alone reads as NO FILL — and a gate that reads "no fill"
+    // then compares the backing against itself and reports **1.000**. Measured: that false finding is exactly what
+    // `.files-list` produced before this branch existed.
+    const rgb = s.match(/rgba?\(([^)]+)\)/);
+    if (rgb) {
+      const q = rgb[1].split(/[ ,/]+/).filter(Boolean).map(Number);
+      return { c: q.slice(0, 3), a: q.length > 3 ? q[3] : 1 };
+    }
+    const srgb = s.match(/color\(srgb ([^)]+)\)/);
+    if (srgb) {
+      const q = srgb[1].split(/[ ,/]+/).filter(Boolean).map(Number);
+      return { c: [q[0] * 255, q[1] * 255, q[2] * 255], a: q.length > 3 ? q[3] : 1 };
+    }
+    return null;
+  };
+  const mix = (top, bottom, a) => top.map((v, i) => v * a + bottom[i] * (1 - a));
+  const findings = [];
+  const measured = [];
+  // **A CARD CARRIES THE PAGE'S COLUMN; a row and a list frame do not.** The atom's card is the page body's width
+  // (1,072 of a 1,120 column, measured). The first draft used a 300 px threshold and flagged six rows and list
+  // FRAMES — `.endpoint-row` (559 wide), `.files-list` (91 tall), `.runs-history` (78 tall) — which are the `row`
+  // atom's members, not cards. **The distinction is measurable: a card spans the page's own column.**
+  const pageEl = document.querySelector('.page') ?? document.querySelector('main');
+  const column = pageEl ? pageEl.getBoundingClientRect().width : 0;
+  for (const el of document.querySelectorAll('*')) {
+    const r = el.getBoundingClientRect();
+    if (r.height < 40) continue;
+    if (column > 0 && r.width < column * 0.85) continue;
+    const st = getComputedStyle(el);
+    if (parseFloat(st.borderTopLeftRadius) < 8) continue;
+    // **A PANE IS NOT A CARD.** The `/floats ONE pane object/` atom owns what floats: it carries a shadow.
+    if (st.boxShadow !== 'none') continue;
+    const fillP = parse(st.backgroundColor);
+    if (!fillP || fillP.a === 0) continue;
+    if (parseFloat(st.borderTopWidth) === 0) continue;
+    let node = el.parentElement;
+    const stack = [];
+    while (node) {
+      const q = parse(getComputedStyle(node).backgroundColor);
+      if (q && q.a > 0) stack.push(q);
+      node = node.parentElement;
+    }
+    let backing = [255, 255, 255];
+    for (let i = stack.length - 1; i >= 0; i -= 1) backing = mix(stack[i].c, backing, stack[i].a);
+    const fill = mix(fillP.c, backing, fillP.a);
+    const tint = ratio(fill, backing);
+    const cls = el.className.toString().split(' ').slice(0, 2).join('.') || el.tagName;
+    measured.push({ selector: cls, width: Math.round(r.width), tint: Number(tint.toFixed(3)) });
+    if (tint < floor) {
+      findings.push({
+        kind: 'card-level',
+        selector: cls,
+        detail:
+          `${Math.round(r.width)}x${Math.round(r.height)} card measures ${tint.toFixed(3)}:1 against what is ` +
+          `behind it (${backing.map(Math.round).join(',')}), the atom's floor is ${floor}`
+      });
+    }
+  }
+  return { findings, measured };
+}
+
+/**
+ * The atom's floor. Read from the contract, not copied — a number in two places is two numbers.
+ */
+const CONTRACT = JSON.parse(
+  readFileSync(path.resolve(WEB, '..', '..', '..', 'docs', 'superpowers', 'specs', 'layout-contract.json'), 'utf8')
+);
+const CARD_TINT_FLOOR = CONTRACT.elevation.cardTint;
+
 async function measure(page, label, region = 'main') {
   const result = await page.evaluate(collectInPage, region);
+  // **AND THE CARDS' LEVEL, ON THE SAME RENDERED PAGE** (the hundred-and-seventeenth list).
+  const levels = await page.evaluate(collectCardLevels, CARD_TINT_FLOOR);
+  for (const finding of levels.findings) results.push({ page: label, region, ...finding });
+  for (const one of levels.measured) cardLevels.push({ page: label, ...one });
   measuredPages.add(label);
   for (const finding of result.findings) {
     results.push({ page: label, ...finding });
@@ -1172,6 +1274,20 @@ function report() {
     byKind.set(finding.kind, (byKind.get(finding.kind) ?? 0) + 1);
   }
   console.log('');
+  // **THE CARDS' LEVEL IS REPORTED, not just refused**: a gate that only fails is a gate nobody reads the numbers of.
+  if (cardLevels.length > 0) {
+    const byClass = new Map();
+    for (const one of cardLevels) {
+      const key = `${one.selector}`;
+      const prior = byClass.get(key);
+      if (!prior || one.tint < prior.tint) byClass.set(key, one);
+    }
+    const list = [...byClass.values()].sort((a, b) => a.tint - b.tint);
+    console.log(
+      `a11y-audit: ${list.length} distinct card(s), lowest tint first: ` +
+        list.map((c) => `${c.selector} ${c.tint}`).join(', ')
+    );
+  }
   console.log(
     `a11y-audit: ${sorted.length} finding(s) across ${measuredPages.size} page state(s)` +
       (byKind.size > 0

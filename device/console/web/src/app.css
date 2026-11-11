@@ -1042,7 +1042,10 @@ tr:last-child td { border-bottom: 0; }
    not an <img> stretched to whatever width the panel happens to have. */
 .browser-view {
   overflow: auto; max-height: 72vh; border: 1px solid var(--line);
-  border-radius: var(--radius); background: var(--bg);
+  border-radius: var(--radius);
+  /* **THE VIEWPORT INSIDE THE CARD IS RECESSED** (the hundred-and-seventeenth list): `--bg` inside a `#fff` card
+     measured **1.044**, close enough to the card that its frame read as decoration. */
+  background: var(--surface-recessed);
 }
 .browser-view img { display: block; cursor: crosshair; border: 0; border-radius: 0; }
 .browser-view.fit img { width: 100%; height: auto; }
@@ -2952,8 +2955,11 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 .files-filter input { min-height: 28px; width: 16rem; max-width: 100%; }
 .files-filter-empty { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
 .files-filter-empty .hint { margin: 0; }
+/* **A LIST INSIDE A CARD IS RECESSED, NOT RE-PAINTED WITH THE CARD (the hundred-and-seventeenth list).** Measured:
+   this rule painted `--panel` inside a `--panel` card — **1.000**, a hairline around nothing. The card grammar's
+   in-card surface is `--surface-recessed`, the card's step with the sign reversed (1.15 against a `#fff` card). */
 .files-list {
-  background: var(--panel); border: 1px solid var(--hairline);
+  background: var(--surface-recessed); border: 1px solid var(--hairline);
   border-radius: var(--radius); overflow: hidden; margin: 0;
 }
 .files-list .files-row {
@@ -3010,7 +3016,9 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 .field-help { font-size: var(--fs-2xs); color: var(--ink-muted); max-width: 20rem; line-height: var(--lh-body); }
 .runs-shell { align-self: flex-end; padding-bottom: var(--sp-2); gap: var(--sp-1-5); font-size: var(--fs-sm); }
 .runs-shell input { accent-color: var(--accent); }
-.runs-history { background: var(--panel); border: 1px solid var(--hairline); border-radius: var(--radius); overflow: hidden; }
+/* **AND THE RUNS HISTORY, WHICH HAD NO FILL AT ALL** (the same list): measured 1.000, its hairline drawn over its
+   own card. A list inside a card is recessed. */
+.runs-history { background: var(--surface-recessed); border: 1px solid var(--hairline); border-radius: var(--radius); overflow: hidden; }
 .runs-history th {
   text-transform: none; font-size: var(--fs-2xs);
   font-weight: var(--fw-medium); color: var(--ink-muted);
@@ -3519,7 +3527,9 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .evidence {
   display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
   border: 1px solid var(--hairline); border-radius: var(--radius-sm); margin: 0 0 var(--sp-3) 22px;
-  overflow: hidden; background: var(--panel);
+  /* **AND THE EVIDENCE BLOCK: A BLOCK INSIDE A CARD IS RECESSED** (the hundred-and-seventeenth list). Measured:
+     `--panel` inside a `--panel` panel was **1.044** — the event's evidence drew a frame with no fill of its own. */
+  overflow: hidden; background: var(--surface-recessed);
 }
 .evidence-main { min-width: 0; padding: var(--sp-3) var(--sp-3-5); display: grid; gap: var(--sp-1-5); align-content: start; }
 .evidence-side { padding: 12px 14px; border-left: 1px solid var(--hairline); }
