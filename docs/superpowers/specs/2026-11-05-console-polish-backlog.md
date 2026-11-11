@@ -4272,33 +4272,35 @@ recorded last round are `22` and `17`, and **neither is free**: 22 belongs to th
    second sentence needs, so each surface picked a different existing step. **Fix:** state which step a second line
    takes, or record that the scale cannot carry one. **S.**
 
-## P0 — the hundred-and-twenty-third list (opened 2026-11-11, rule 8: the same frame draws 32 borders on one page and 4 on another)
+## P0 — the hundred-and-twenty-third list (opened 2026-11-11, rule 8: Settings draws 23 boxes, Plugins 7)
 
-The hundred-and-twenty-second list is closed. **This list is rule 8 — *"fewer borders"* — counted instead of
-admired**, and the count is the finding: **two pages of one product, sharing one page frame, differ by 8x.**
+The hundred-and-twenty-second list is closed. **This list is rule 8 — *"fewer borders"* — counted instead of admired.**
 
-Measured 2026-11-11 at 1,440, counting every element inside `.page` that draws a visible border
-(`width >= 30`, `height >= 12`, border alpha > 0):
+**THE FIRST COUNT WAS WRONG, AND THE CORRECTION IS THE POINT.** A census of "elements inside `.page` that draw a
+visible border" gave Home **32**, Activity **4**, Settings **23**, Plugins **7** — and read like a frame that had
+drifted 8x. **25 of Home's 32 are `td`/`th` bottom edges from ONE shared rule** (`th, td { border-bottom: 1px solid
+var(--line) }`): a table's ROW RULE doing its grouping, which rule 7 and the `hairline` atom both allow. **Counting an
+element and counting a RULE are different questions**, and the first census answered the wrong one.
 
-    console Home       **32 borders**   | 4 shadows | 16 filled  | radii 6/8/14/pill
-    console Activity   ** 4 borders**   | 0 shadows |  7 filled  | radii 6/pill
-    panel  Settings    **23 borders**   | 0 shadows | 19 filled  | radii 6/8/10/14/pill
-    panel  Plugins     ** 7 borders**   | 0 shadows | 17 filled  | radii 6/8/14/pill
+**Corrected, 2026-11-11 at 1,440 — borders on boxes, with table cells excluded:**
 
-**Home draws eight times Activity's borders and sits at the top of the page that is supposed to be the simplest to
-read at a glance.** Settings draws three times its sibling Plugins. **And the border count is not the only drift:**
-Settings alone paints **five** radius steps (`6/8/10/14/pill`) while Activity paints **two**, and the atom assigns
-`6/8/10/14` to mark/control/row/card — so Settings' five are the atom's four plus a pill, which is the atom's own
-answer, while Activity's two are a page that draws almost nothing.
+    console Home       ** 7 boxes**   | 25 row rules (one shared rule) | 4 shadows | 16 filled
+    console Activity   ** 4 boxes**   |  0 row rules                   | 0 shadows |  7 filled
+    panel  Settings    **23 boxes**   |  0 row rules                   | 0 shadows | 19 filled
+    panel  Plugins     ** 7 boxes**   |  0 row rules                   | 0 shadows | 17 filled
 
-1. **A page's border count is a number nothing records, so one page can carry 8x another's.** **Fix:** the atom
-   records a band per page kind — a verdict page may draw more than a record — or the pages are brought into one
-   band. **M.**
-2. **`settings-input-narrow` alone draws 4 borders, and `settings-section` 3** — the panel's Settings page is built
-   from boxes inside boxes while Plugins uses rows. **Fix:** the same block grammar on both, or the difference is
-   recorded. **M.**
-3. **Activity draws 4 borders on a page of ~500 rows** — so the record's separation is *not* a border (correct by
-   rule 7) — **but nothing measures that either.** A page could return to 32 and no gate would notice. **S.**
+**The frame is not the problem. Settings is:** 23 boxes against its sibling Plugins' 7, and the boxes are
+`settings-input-narrow` **4**, `BUTTON` **3**, `settings-section` **3**, `settings-fold` **2**, `connect-tab` **2**,
+`INPUT` **2**. **Four of those six classes are CONTROLS** — an input, a button and a segmented tab each draw their own
+box — which is rule 8's actual subject: not "many borders" but **borders on things that are not regions**.
+
+1. **Settings draws 23 boxes and Plugins 7, on one surface, and no gate records a page's border count.** **Fix:** the
+   count is measured and a page kind's band is recorded, or the boxes are brought into one band. **M.**
+2. **Six classes carry Settings' boxes and four are CONTROLS** — `settings-input-narrow` 4, `BUTTON` 3,
+   `connect-tab` 2, `INPUT` 2. **A control's edge is its affordance; three controls in a row is a form drawn as
+   boxes.** **Fix:** the control grammar is the atom's, or the count is recorded as the page's decision. **M.**
+3. **Activity draws 4 boxes on a page of ~500 rows** — correct by rule 7 (a record separates by RHYTHM) — **and
+   nothing measures that either**, so a page could return to 23 and no gate would notice. **S.**
 
 ## How a round goes
 
