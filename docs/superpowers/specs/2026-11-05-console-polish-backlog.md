@@ -4010,6 +4010,34 @@ product.
    dark restatement and each card's surface. **The measured TINT itself is still ungated** — the numbers above come
    from a probe that composites the chain, and no gate owns that probe. **S**, open.)*
 
+## P0 — the hundred-and-seventeenth list (opened 2026-11-11, a card's LEVEL is measured on neither surface)
+
+The hundred-and-sixteenth list shipped item 1 and left item 2 open: *the card's tint is measured by a probe, and no
+gate owns that probe*. This list is that item, taken seriously — and it starts by asking how many cards have a
+measurable level at all.
+
+Measured 2026-11-11 (the shipped build, `0.3.273-ux192` live; the panel at its built sheet):
+
+     a card's level = the TINT (its fill vs its backing) and the EDGE (its hairline vs its fill)
+     the gate that should own it: `themeContrast` (panel) / `a11y-audit` (console)
+     what each actually measures: TEXT pairs. **No card's fill against its backing, anywhere.**
+
+     console `.card`          1.071 / 1.188        panel `.plug-card`   1.071 / 1.196
+     console `.empty-state`   1.071 / 1.188        panel `.empty-card`  1.071 / 1.196
+     console `.notice`        1.0?  / alarm        panel `.skeleton-row` 1.071 / 1.196
+
+**Both surfaces now agree on the tint (1.071) and the edge (≈1.19)** — the hundred-and-sixteenth list bought that. **What
+neither surface has is a gate that says so**: the number is a probe's output, retyped in chat, and the next round
+that repaints a card can move it without anything going red. That is the exact defect `contrast-probe.mjs` was
+written to end for TEXT — *"the defect was that it was a STRING inside one audit script, so nothing could test it"* —
+repeated for surfaces.
+
+1. **A card's LEVEL is a measured number that no gate owns.** **Fix:** the console's `a11y-audit` and the panel's
+   `themeContrast` composite the chain and refuse a card whose tint falls below the stated floor, in both themes.
+   **M.**
+2. **The floor itself is unstated.** `elevation.flat` says "a hairline and a tint" and gives neither a minimum
+   contrast nor a word for what the tint is FOR. **Fix:** the atom records the floor and the reason. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
