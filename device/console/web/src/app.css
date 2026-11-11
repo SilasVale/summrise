@@ -2285,7 +2285,7 @@ span.files-name {
    the page held; a day now opens on its newest 60 and this row states the rest. It is a muted
    control on the table's own rhythm, not a second button style: the same `timeline-more` grammar the
    page next door uses, so a reader who has met one door has met both. */
-.audit-more-row td { padding: 0; border-bottom: 1px solid var(--hairline); }
+.audit-more-row td { padding: 0; border-bottom: 1px solid var(--line); }
 .audit-more {
   display: flex; align-items: baseline; gap: var(--sp-2); width: 100%;
   padding: var(--sp-2) var(--sp-3); border: 0; border-radius: 0; background: transparent;
@@ -2352,7 +2352,7 @@ span.files-name {
     /* The disclosure is the card's own chevron, centred on its left edge: in the first line it made
        every card 24 px tall before the sentence was drawn (the measured row was 71 px). */
     padding: var(--sp-1-5) var(--sp-2-5) var(--sp-1-5) 2.25rem;
-    border: 1px solid var(--hairline);
+    border: 1px solid var(--line);
     border-radius: var(--radius-sm2);
     background: var(--panel);
   }
@@ -2472,7 +2472,6 @@ span.files-name {
      tokens rather than restated: a hardcoded #f5f5f7 here would be a second palette. */
   --canvas: color-mix(in srgb, var(--ink) 3.5%, var(--panel));
   --sidebar: color-mix(in srgb, var(--ink) 4.5%, var(--panel));
-  --hairline: color-mix(in srgb, var(--ink) 8.5%, transparent);
   --row-hover: color-mix(in srgb, var(--ink) 4.5%, transparent);
   --row-current: color-mix(in srgb, var(--ink) 7%, transparent);
   --control-bg: color-mix(in srgb, var(--ink) 6%, transparent);
@@ -2495,7 +2494,6 @@ span.files-name {
   :root {
     --canvas: color-mix(in srgb, #000 34%, var(--panel));
     --sidebar: color-mix(in srgb, #000 52%, var(--panel));
-    --hairline: color-mix(in srgb, #fff 9%, transparent);
     --row-hover: color-mix(in srgb, #fff 6%, transparent);
     --row-current: color-mix(in srgb, #fff 9%, transparent);
     --control-bg: color-mix(in srgb, #fff 8%, transparent);
@@ -2522,7 +2520,7 @@ h2 { letter-spacing: var(--tracking-tight); }
 
 /* ── The window ───────────────────────────────────────────────────────────────────────────────── */
 
-.topbar { background: var(--panel); border-bottom: 1px solid var(--hairline); }
+.topbar { background: var(--panel); border-bottom: 1px solid var(--line); }
 /* Desktop geometry lives in a query of its own: the phone layout is declared earlier in this sheet,
    and an unqualified rule here would outrank it on source order alone. */
 /* **AND THE ICON RAIL'S BAND IS THE ONE WINDOW THIS RULE MUST NOT TOUCH (the seventy-fourth list).**
@@ -2559,7 +2557,7 @@ h2 { letter-spacing: var(--tracking-tight); }
 /* A selected destination is a filled row and a tinted glyph — the Finder's shape, not an accent bar
    that competes with the page's primary button. */
 
-.rail { background: var(--sidebar); border-right: 1px solid var(--hairline); }
+.rail { background: var(--sidebar); border-right: 1px solid var(--line); }
 /* **THE LABELLED SIDEBAR'S OWN NUMBERS ARE THE 768 BAND'S TOO (the seventy-fourth list).** This query
    repainted the rail's width and its button's height at `min-width: 640px`, which is the ICON rail's band —
    the band whose whole job is `width: 56px; align-items: center; justify-content: center` four hundred lines
@@ -2676,22 +2674,22 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 /* ── Surfaces ────────────────────────────────────────────────────────────────────────────────── */
 
 .panel, .card, .workspace-head {
-  background: var(--panel); border: 1px solid var(--hairline);
+  background: var(--panel); border: 1px solid var(--line);
   border-radius: var(--radius); box-shadow: none;
 }
 .panel { padding: var(--sp-4); }
 .endpoint-row {
-  background: var(--panel); border: 1px solid var(--hairline); border-radius: var(--radius-sm2);
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-sm2);
 }
 
 /* The fleet is one grouped list, not a stack of bordered cards: the rows share the card and the
    separators are hairlines, which is what makes a list read as a list. */
 .fleet-list {
   gap: 0; background: var(--panel);
-  border: 1px solid var(--hairline); border-radius: var(--radius); overflow: hidden;
+  border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden;
 }
 .fleet-row {
-  border: 0; border-bottom: 1px solid var(--hairline); border-radius: 0;
+  border: 0; border-bottom: 1px solid var(--line); border-radius: 0;
   background: transparent; transition: background var(--dur-interaction) var(--ease);
 }
 .fleet-row:last-child { border-bottom: 0; }
@@ -2705,14 +2703,14 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 
 .sheet-scrim { background: var(--scrim); backdrop-filter: blur(3px); }
 .sheet {
-  background: var(--panel); border-left: 1px solid var(--hairline); box-shadow: var(--elev-2);
+  background: var(--panel); border-left: 1px solid var(--line); box-shadow: var(--elev-2);
   /* An ANIMATION that explains a state change (a sheet arriving) is not an interaction; rule 18 asks it to explain
      the change, not to match a hover. It keeps its own 180 ms. */
   animation: sheet-in 180ms var(--ease);
 }
-.sheet-head { padding: var(--sp-4) var(--sp-5) var(--sp-3); border-bottom: 1px solid var(--hairline); }
+.sheet-head { padding: var(--sp-4) var(--sp-5) var(--sp-3); border-bottom: 1px solid var(--line); }
 .sheet-body { padding: var(--sp-4) var(--sp-5); }
-.sheet-foot { padding: var(--sp-3) var(--sp-5); border-top: 1px solid var(--hairline); background: var(--panel); }
+.sheet-foot { padding: var(--sp-3) var(--sp-5); border-top: 1px solid var(--line); background: var(--panel); }
 .sheet-close { width: 28px; height: 28px; border-radius: var(--radius-xs); }
 .sheet-close:hover { background: var(--control-bg); border-color: transparent; }
 @keyframes sheet-in {
@@ -2721,7 +2719,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 }
 .scrim { background: var(--scrim); backdrop-filter: blur(3px); }
 .modal {
-  background: var(--panel); border: 1px solid var(--hairline);
+  background: var(--panel); border: 1px solid var(--line);
   border-radius: var(--radius-lg); box-shadow: var(--elev-2);
 }
 
@@ -2731,10 +2729,10 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 .audit-table th {
   position: sticky; top: 0; z-index: 1;
   background: var(--panel); color: var(--ink-muted);
-  border-bottom: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--line);
   text-transform: none; font-weight: var(--fw-medium);
 }
-.audit-row td { border-bottom: 1px solid var(--hairline); }
+.audit-row td { border-bottom: 1px solid var(--line); }
 .audit-record-row td { background: var(--canvas); }
 
 /* ── Motion ──────────────────────────────────────────────────────────────────────────────────── */
@@ -2752,7 +2750,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 .terminal-bar {
   display: flex; align-items: center; gap: var(--sp-2);
   padding: var(--sp-1-5) var(--sp-2-5); min-width: 0;
-  border-bottom: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--line);
 }
 .terminal-actions { margin-left: auto; display: flex; align-items: center; gap: var(--sp-1-5); flex: none; }
 .terminal-actions .session-tools {
@@ -2772,14 +2770,14 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 .tab-close:hover { color: var(--error); background: transparent; }
 .tab-session { color: var(--ink-faint); }
 .find-bar {
-  border: 0; border-bottom: 1px solid var(--hairline); border-radius: 0;
+  border: 0; border-bottom: 1px solid var(--line); border-radius: 0;
   background: var(--canvas); padding: var(--sp-1-5) var(--sp-2-5);
 }
 .find-bar input { min-height: 26px; }
 
 /* The card the terminal lives in: the bar owns the top edge, the screen owns the rest. */
 .terminal-panel {
-  background: var(--panel); border: 1px solid var(--hairline); border-radius: var(--radius);
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
   overflow: hidden;
 }
 .terminal-panel .term-host,
@@ -2789,7 +2787,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
    step instead of drawing a box around 700 px of empty screen. */
 .terminal-panel .term-host:focus-within { outline: none; box-shadow: none; }
 .terminal-panel:has(.term-host:focus-within) {
-  border-color: color-mix(in srgb, var(--focus-ring) 20%, var(--hairline));
+  border-color: color-mix(in srgb, var(--focus-ring) 20%, var(--line));
 }
 .terminal-workspace { gap: 0; }
 .terminal-workspace > .terminal-start { padding: var(--sp-4); }
@@ -2835,7 +2833,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
   text-overflow: ellipsis;
   white-space: nowrap;
   padding: var(--sp-0-5) var(--sp-2);
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--line);
   border-radius: var(--radius-xs);
   background: var(--panel-2);
   color: var(--ink);
@@ -2884,7 +2882,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 .audit-toolbar {
   display: flex; align-items: flex-end; flex-wrap: wrap; gap: var(--sp-2);
   margin: 0 0 var(--sp-3); padding-bottom: var(--sp-3);
-  border-bottom: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--line);
 }
 .audit-filter-fold { flex: 1 1 auto; min-width: 0; }
 /* The fold is a phone control only: above 640 its summary is absent and the fields are the band. */
@@ -2948,7 +2946,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 .facts > div {
   display: flex; flex-wrap: wrap; justify-content: space-between;
   gap: var(--sp-1) var(--sp-4); min-width: 0;
-  padding: var(--sp-2) var(--sp-0-5); border-bottom: 1px solid var(--hairline);
+  padding: var(--sp-2) var(--sp-0-5); border-bottom: 1px solid var(--line);
 }
 .facts > div:last-child { border-bottom: 0; }
 .facts dt { color: var(--ink-muted); font-size: var(--fs-sm); }
@@ -2963,7 +2961,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 .tab-body { display: grid; gap: var(--sp-4); min-width: 0; }
 .system-page { gap: var(--sp-4); }
 .system-section {
-  background: var(--panel); border: 1px solid var(--hairline);
+  background: var(--panel); border: 1px solid var(--line);
   border-radius: var(--radius); padding: var(--sp-4); gap: var(--sp-2-5);
 }
 .system-section > h3 { margin: 0; font-size: var(--fs-md); font-weight: var(--fw-semi); letter-spacing: var(--tracking-tight); }
@@ -2983,7 +2981,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 .files-crumbs {
   display: flex; align-items: center; gap: var(--sp-1-5); flex-wrap: wrap;
   padding: var(--sp-1-5) var(--sp-0-5); font-size: var(--fs-sm); color: var(--ink-muted);
-  border-bottom: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--line);
 }
 .files-crumb { border: 0; background: transparent; padding: 0; color: var(--ink-muted); text-decoration: none; }
 .files-crumb:hover { background: transparent; color: var(--ink); }
@@ -3000,12 +2998,12 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
    this rule painted `--panel` inside a `--panel` card — **1.000**, a hairline around nothing. The card grammar's
    in-card surface is `--surface-recessed`, the card's step with the sign reversed (1.15 against a `#fff` card). */
 .files-list {
-  background: var(--surface-recessed); border: 1px solid var(--hairline);
+  background: var(--surface-recessed); border: 1px solid var(--line);
   border-radius: var(--radius); overflow: hidden; margin: 0;
 }
 .files-list .files-row {
   display: flex; align-items: center; gap: var(--sp-2); min-width: 0;
-  padding: var(--sp-2) var(--sp-3-5); border-bottom: 1px solid var(--hairline);
+  padding: var(--sp-2) var(--sp-3-5); border-bottom: 1px solid var(--line);
   transition: background var(--dur-interaction) var(--ease);
 }
 .files-list .files-row:last-child { border-bottom: 0; }
@@ -3013,7 +3011,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 .files-name { flex: 1; min-width: 0; }
 .files-kind { color: var(--ink-muted); font-size: var(--fs-xs); text-transform: none; }
 .files-size { color: var(--ink-faint); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
-.files-viewer { border: 1px solid var(--hairline); border-radius: var(--radius); background: var(--panel); }
+.files-viewer { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
 
 /* The hub's counts line is a navigation capsule, not orphan text between two cards. */
 .counts-line {
@@ -3034,7 +3032,7 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 /* The path bar: breadcrumbs left, root picker and Refresh right, one hairline under both. */
 .files-bar {
   display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap;
-  padding-bottom: var(--sp-2); border-bottom: 1px solid var(--hairline);
+  padding-bottom: var(--sp-2); border-bottom: 1px solid var(--line);
 }
 .files-bar .files-crumbs { flex: 1; min-width: 10rem; border-bottom: 0; padding: 0; }
 .files-actions { display: flex; align-items: center; gap: var(--sp-2); flex: none; }
@@ -3059,13 +3057,13 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 .runs-shell input { accent-color: var(--accent); }
 /* **AND THE RUNS HISTORY, WHICH HAD NO FILL AT ALL** (the same list): measured 1.000, its hairline drawn over its
    own card. A list inside a card is recessed. */
-.runs-history { background: var(--surface-recessed); border: 1px solid var(--hairline); border-radius: var(--radius); overflow: hidden; }
+.runs-history { background: var(--surface-recessed); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
 .runs-history th {
   text-transform: none; font-size: var(--fs-2xs);
   font-weight: var(--fw-medium); color: var(--ink-muted);
-  border-bottom: 1px solid var(--hairline); padding: var(--sp-2) var(--sp-3); text-align: left;
+  border-bottom: 1px solid var(--line); padding: var(--sp-2) var(--sp-3); text-align: left;
 }
-.runs-history td { padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--hairline); }
+.runs-history td { padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--line); }
 .runs-history tr:last-child td { border-bottom: 0; }
 .runs-row-active td { background: color-mix(in srgb, var(--accent) 8%, transparent); }
 /* ONE MOMENT, ONE VALUE CELL (audit-43 F8). The clock and its age share this wrapper so the phone's
@@ -3103,7 +3101,7 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
     gap: var(--sp-1);
     padding: var(--sp-3);
     background: var(--panel-2);
-    border: 1px solid var(--hairline);
+    border: 1px solid var(--line);
     border-radius: var(--radius-sm2);
   }
   .runs-history td {
@@ -3118,7 +3116,7 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
   .runs-history td.runs-command-cell {
     display: block;
     padding-bottom: var(--sp-2);
-    border-bottom: 1px solid var(--hairline);
+    border-bottom: 1px solid var(--line);
   }
   .runs-history button.runs-open {
     display: block;
@@ -3143,7 +3141,7 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
   .runs-row-active td { background: transparent; }
   .runs-history tr.runs-row-active {
     background: var(--accent-soft);
-    border-color: color-mix(in srgb, var(--accent) 24%, var(--hairline));
+    border-color: color-mix(in srgb, var(--accent) 24%, var(--line));
   }
 }
 
@@ -3153,10 +3151,10 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 
 .plugin-list {
   gap: 0; background: var(--panel);
-  border: 1px solid var(--hairline); border-radius: var(--radius); overflow: hidden;
+  border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden;
 }
 .plugin-row {
-  border: 0; border-bottom: 1px solid var(--hairline); border-radius: 0;
+  border: 0; border-bottom: 1px solid var(--line); border-radius: 0;
   padding: var(--sp-3-5) var(--sp-4); background: transparent;
 }
 .plugin-row:last-child { border-bottom: 0; }
@@ -3206,7 +3204,7 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 
 .live-now {
   margin: 0 0 var(--sp-4); padding: var(--sp-3-5) var(--sp-4);
-  background: var(--panel); border: 1px solid var(--hairline); border-radius: var(--radius);
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
 }
 .live-now-head { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; }
 .live-now-head h2 { margin: 0; font-size: var(--fs-md); font-weight: var(--fw-semi); letter-spacing: var(--tracking-tight); }
@@ -3217,11 +3215,11 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 .live-rate { font-size: var(--fs-xs); color: var(--ink-muted); }
 .live-spark { display: block; width: 100%; height: 30px; margin: var(--sp-2-5) 0 var(--sp-1); }
 .live-spark .spark-on { fill: var(--accent-solid); opacity: 0.8; }
-.live-spark .spark-off { fill: var(--hairline); }
+.live-spark .spark-off { fill: var(--line); }
 .live-list { list-style: none; margin: 0; padding: 0; }
 .live-entry {
   display: flex; align-items: baseline; gap: var(--sp-2);
-  padding: var(--sp-2) 0; border-bottom: 1px solid var(--hairline);
+  padding: var(--sp-2) 0; border-bottom: 1px solid var(--line);
   font-size: var(--fs-sm); animation: live-in 160ms var(--ease) both;
 }
 .live-entry:last-child { border-bottom: 0; }
@@ -3567,17 +3565,17 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 /* The evidence panel: what the call carried, and what it returned. */
 .evidence {
   display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
-  border: 1px solid var(--hairline); border-radius: var(--radius-sm); margin: 0 0 var(--sp-3) var(--sp-5);
+  border: 1px solid var(--line); border-radius: var(--radius-sm); margin: 0 0 var(--sp-3) var(--sp-5);
   /* **AND THE EVIDENCE BLOCK: A BLOCK INSIDE A CARD IS RECESSED** (the hundred-and-seventeenth list). Measured:
      `--panel` inside a `--panel` panel was **1.044** — the event's evidence drew a frame with no fill of its own. */
   overflow: hidden; background: var(--surface-recessed);
 }
 .evidence-main { min-width: 0; padding: var(--sp-3) var(--sp-3-5); display: grid; gap: var(--sp-1-5); align-content: start; }
-.evidence-side { padding: 12px 14px; border-left: 1px solid var(--hairline); }
+.evidence-side { padding: 12px 14px; border-left: 1px solid var(--line); }
 .evidence-label { margin: 0; color: var(--ink-faint); }
 .evidence-command {
   margin: 0; font-family: var(--mono); font-size: var(--fs-2xs);
-  background: var(--panel-2); border: 1px solid var(--hairline); border-radius: var(--radius-sm2);
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius-sm2);
   padding: var(--sp-2) var(--sp-2-5); white-space: pre-wrap; word-break: break-word;
 }
 .evidence-output {
@@ -3590,7 +3588,7 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .evidence-shot { margin: 0; display: grid; gap: var(--sp-1-5); }
 .evidence-shot img {
   display: block; max-width: 100%; height: auto;
-  border: 1px solid var(--hairline); border-radius: var(--radius-sm2);
+  border: 1px solid var(--line); border-radius: var(--radius-sm2);
 }
 .evidence-shot figcaption {
   display: grid; gap: var(--sp-0-5); font-size: var(--fs-2xs); color: var(--ink-faint);
@@ -3599,7 +3597,7 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .evidence-facts { margin: 6px 0 0; }
 .evidence-facts div {
   display: flex; justify-content: space-between; gap: var(--sp-3);
-  padding: var(--sp-1) 0; border-bottom: 1px solid var(--hairline);
+  padding: var(--sp-1) 0; border-bottom: 1px solid var(--line);
 }
 .evidence-facts div:last-child { border-bottom: 0; }
 .evidence-facts dt { color: var(--ink-faint); font-size: var(--fs-2xs); }
@@ -3615,7 +3613,7 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 }
 @media (max-width: 767px) {
   .evidence { grid-template-columns: 1fr; margin-left: 0; }
-  .evidence-side { border-left: 0; border-top: 1px solid var(--hairline); }
+  .evidence-side { border-left: 0; border-top: 1px solid var(--line); }
 }
 @media (prefers-reduced-motion: reduce) { .timeline-chev { transition: none; } }
 
@@ -3625,7 +3623,7 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
    the words so the header reads at the start of the work rather than after it. */
 .timeline-stretch { display: flex; align-items: center; gap: var(--sp-2); margin: var(--sp-1) 0; }
 .timeline-stretch::before, .timeline-stretch::after {
-  content: ""; height: 1px; background: var(--hairline); flex: 1;
+  content: ""; height: 1px; background: var(--line); flex: 1;
 }
 /* **THE HEADER FORM IS THE ONE THAT MOST NEEDS THE LEVEL (the ninety-second list).** A footer closes a
    stretch the reader has already scrolled through; a HEADER opens twelve rows they have not seen yet, and it
@@ -3665,7 +3663,7 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .timeline-more {
   display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-1) var(--sp-2);
   width: 100%; margin: var(--sp-2) 0 0; padding: var(--sp-2) var(--sp-0-5); text-align: left;
-  border: 0; border-top: 1px solid var(--hairline); border-radius: 0;
+  border: 0; border-top: 1px solid var(--line); border-radius: 0;
   background: transparent; color: var(--ink-muted);
   font-size: var(--fs-xs); font-weight: var(--fw-regular); line-height: var(--lh-body);
 }
@@ -4023,7 +4021,7 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
   .fleet-table .fleet-row {
     position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto;
     gap: var(--sp-2) var(--sp-3); margin: 0 0 var(--sp-2); padding: var(--sp-3) var(--sp-3-5);
-    background: var(--panel); border: 1px solid var(--hairline); border-radius: var(--radius-sm);
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-sm);
   }
   .fleet-table tbody td { padding: 0; border: 0; }
   .fleet-table tbody td.fleet-actions { padding: 0; }

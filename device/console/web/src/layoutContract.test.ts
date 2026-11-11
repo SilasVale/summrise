@@ -576,12 +576,16 @@ describe("the layout contract", () => {
     expect(tk, "the line is the contract's").toMatch(/--line:rgba\(0,0,0,\.08\);|--line:rgba\(0, 0, 0, 0\.08\);/);
     expect(tk, "the strong step").toContain("--line-strong:rgba(0,0,0,.14)");
     expect(tk, "the soft step").toContain("--line-soft:rgba(0,0,0,.05)");
-    // **AND THE CHROME'S LINE IS NOT A FOURTH NAME** — it is the same `--line`, so a change to the
-    // hairline cannot leave the chrome behind.
+    // **AND THE FOURTH NAME WAS THE DEFECT THIS TEST USED TO PIN (the hundred-and-thirty-third list).**
+    // The expectation here was `/--hairline:\s*color-mix\(in srgb, var\(--ink\)/` — a test insisting on a
+    // second name while the line below asserted the atom says ONE. Its reason was "derived, not restated",
+    // and the derivation had drifted to 8.5% of the ink: a fourth alpha the atom does not have. Measured
+    // 2026-11-11: `--line` 62 uses, `--hairline` 47 uses, and the card's edge painted
+    // `color(srgb 0.0941177 … / 0.085)` against the atom's 0.08 — the most-seen edge on Home.
     const sheet = css();
-    expect(sheet, "the chrome line is derived from the ink").toMatch(
-      /--hairline:\s*color-mix\(in srgb, var\(--ink\)/);
+    expect(sheet, "the family has no fourth name").not.toMatch(/--hairline\s*:/);
     expect(contract.hairline.names, "one family, three steps").toBe(1);
+    expect(sheet, "and the page draws the family").toMatch(/var\(--line\)/);
   });
 
   it("is the OTHER half of a state mark: the word, and this surface already carried it", () => {
