@@ -4541,6 +4541,34 @@ Home, Activity and Device**. For the controls built to `--control-h` that is the
 documents (`5 + 5 + 18 = 28`); for `.notify-state`, `.approval-left` and `.view-switch-btn` nothing names it —
 measured, recorded here, and not invented.
 
+## P0 — the hundred-and-twenty-ninth list (opened 2026-11-11, rule 13: eleven controls have no leading of their own)
+
+Rule 13 measured on the RENDERED page, not the sheet: for every visible element that renders text, what box does its
+glyph sit in? The atom names three ratios (1.5 / 1.3 / 1); a control's height is `5 + 5 + an 18 px line box = 28`,
+and **18 is 12 × 1.5** — the ratio, not a user-agent accident.
+
+    console  visible styles with `line-height: normal`   0 on Home, Activity, Device
+             its buttons carry `font: inherit`, so the body's 1.5 ratio reaches a 12 px control as **18 px**
+    panel    **11** distinct styles with `line-height: normal` —
+             Settings 5 (a 12 px button, `.connect-tab`, a 13 px `.btn`, `.notify-state`),
+             Memory 6 (`.btn-new`, `.view-switch-btn`, `.approval-left`, two `.approval-*` buttons, a 12 px button)
+             and their heights: **19 · 22 · 22 · 22 · 24 · 24 · 26 · 29** — no two kinds share a line box
+
+**The panel's controls never inherit the ratio** because the UA stylesheet sets `line-height: normal` on form
+controls — the base rule inherits the FAMILY and stops there. So every control's height is whatever the platform
+font's `normal` gives: on this Linux headless it is 12–17 px, and this app ships to Windows, where the system font's
+metrics are different. **The 18 px line box the atom names is an assumption here, not a rule.**
+
+1. **The base control rule declares no leading.** **Fix:** `line-height: var(--lh-body)` on
+   `button, input, select, textarea` — the ratio the console's `font: inherit` already carries — so a 12 px control
+   gets 18 px and the atom's 28 px arithmetic holds on any platform. Re-measure the three pages' control heights.
+   **M.**
+2. **Two text spans render `normal`** (`.notify-state`, `.approval-left`) — text, not boxes. **Fix:** they name their
+   ratio too. **S.**
+3. **Nothing measures the rendered leading.** **Fix:** a browser gate (`scripts/leading-gate.mjs`) over the panel's
+   four pages that fails on any visible text or control whose computed leading is `normal`, with xterm's own DOM
+   excluded by name. **M.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
