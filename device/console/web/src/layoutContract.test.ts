@@ -1450,6 +1450,31 @@ describe("the layout contract", () => {
     ]);
   });
 
+  it("fills the on-soft job with ONE member on both surfaces", () => {
+    // **THE JOB THE CONSOLE HAD AND NO TOKEN FOR (the hundred-and-twenty-fourth list).** Measured 2026-11-11:
+    //
+    //     console   `--accent #bf3a0a` on `--accent-soft #fff0e6`   **4.93:1**   the atom's member: `(none)`
+    //     panel     `--accent-on-soft #9c3a0a` on the same wash     **6.2:1**
+    //
+    // **Both pass AA, so nothing was broken** — the defect is **two answers to one job**, which is exactly what a
+    // palette rule forbids, and `palette.accentFamily.names.console` recorded this surface's member as `(none)`.
+    // The sheet declares it now, both blocks, because the mix that a light value paints on a DARK wash is 1.4:1.
+    const sheet = stripComments(tokens());
+    const light = sheet.slice(0, sheet.indexOf("@media"));
+    const dark = sheet.slice(sheet.indexOf("@media"));
+    expect(light, "the light block declares the member").toContain("--accent-on-soft:#9c3a0a;");
+    expect(dark, "and after dark the member INVERTS, because the wash is dark").toMatch(
+      /--accent-on-soft:#[0-9a-f]{6};/,
+    );
+    // **AND NO RULE FILLS THE JOB WITH `--accent` ANY MORE.** The two sites that did (`.seg`'s pressed segment and
+    // the chip-tag hover) take the member; a third would be a fourth answer.
+    const rules = stripComments(css());
+    expect(rules, "no rule paints accent text on the wash with the brand member").not.toMatch(
+      /background: var\(--accent-soft\);\s*color: var\(--accent\)/,
+    );
+    expect(rules, "the two sites take the atom's member").toContain("var(--accent-on-soft)");
+  });
+
   it("paints the accent family the contract declares, and no sixth member as a literal", () => {
     // **MEASURED 2026-11-11 AS A HUE CENSUS.** The palette atom declares ONE accent and the pages painted NINE warm
     // colours; the members sit so close a reader cannot name them apart:

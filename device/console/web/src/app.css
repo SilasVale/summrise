@@ -619,7 +619,10 @@ button.link:hover { background: transparent; color: var(--accent); border-color:
    it is a view of the same device surface, not a destination. */
 .seg { display: inline-flex; gap: var(--sp-0-5); padding: var(--sp-0-5); border: 1px solid var(--line); border-radius: var(--radius-sm2); }
 .seg button { border: 0; background: transparent; padding: var(--sp-1) var(--sp-2); }
-.seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+/* **ACCENT TEXT ON THE WASH IS THE `on-soft` JOB, NOT `--accent` (the hundred-and-twenty-fourth list).** Measured:
+   `--accent #bf3a0a` on `--accent-soft #fff0e6` is **4.93:1**; the atom's `on-soft` member measures **6.24:1**. Both
+   pass AA — **the defect is two answers to one job**, and the atom recorded this surface's member as `(none)`. */
+.seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-on-soft); }
 
 /* Screen's two views are a choice made before the content, not a control tucked into a corner. */
 .screen-view-head { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
@@ -1396,7 +1399,8 @@ button.chip-tag {
 button.chip-tag:hover {
   border-color: transparent;
   background: var(--accent-soft);
-  color: var(--accent);
+  /* The same job, the same member — see `.seg`'s own note. */
+  color: var(--accent-on-soft);
 }
 .memory-edit {
   display: grid;
@@ -3367,16 +3371,16 @@ th,
 .filter-count { font-size: var(--fs-xs); color: var(--ink-muted); }
 .timeline-machines { align-items: center; flex: 0 1 auto; }
 .timeline-machines .chip { border: 0; cursor: pointer; }
-.timeline-machines .chip[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+.timeline-machines .chip[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-on-soft); }
 /* One caller control beside the machine chips: the AI's calls, with its own window count. */
 .timeline-callers { align-items: center; }
 .timeline-callers .chip { border: 0; cursor: pointer; }
-.timeline-callers .chip[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+.timeline-callers .chip[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-on-soft); }
 /* The hub's one counted fold. It is a chip, not a filter bar: the Console reads row is in the
    record and this adds it to the AI's list only when the reader asks. */
 .timeline-console-reads { align-items: center; margin: 0 0 var(--sp-2); }
 .timeline-console-reads .chip { border: 0; cursor: pointer; }
-.timeline-console-reads .chip[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+.timeline-console-reads .chip[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-on-soft); }
 /* The search label and field share the field's left edge: the label is the field's own name, so it
    sits on the same column start the input does (`display: grid` with one column). */
 .timeline-search { display: grid; gap: var(--sp-1-5); min-width: 0; margin-left: auto; }

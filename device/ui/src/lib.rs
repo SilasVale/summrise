@@ -22,6 +22,12 @@ pub const TOKENS: &str = r#":root {
   --line:rgba(0,0,0,.08); --line-strong:rgba(0,0,0,.14); --line-soft:rgba(0,0,0,.05);
   --accent:#bf3a0a; --accent-solid:#b03a0a; --accent-hover:#963008;
   --accent-soft:#fff0e6; --accent-fg:#ffffff;
+  /* **THE JOB THE PANEL HAD AND THIS SHEET DID NOT (the hundred-and-twenty-fourth list).** Accent-coloured TEXT that
+     sits ON the wash is its own member: the panel declares `--accent-on-soft #9c3a0a` and measures **6.2:1**, while
+     this sheet filled the job with `--accent` and measured **4.93:1**. Both pass AA, so nothing was broken — **two
+     answers to one job** is what a palette rule forbids, and the atom's `accentFamily` recorded this side as
+     `(none)`. The same value as the panel's, because the wash is the same job. */
+  --accent-on-soft:#9c3a0a;
   /* **`--warn` IS ONE STEP DARKER SINCE THE RECESS BECAME REAL (the hundred-and-seventeenth list).** The recess is
      `color-mix(ink 7%, panel)` = #efefef now, and `#a05d08` on it measured **4.49:1 — 0.01 under AA**, which
      `every_text_pair_reads_on_the_surface_it_sits_on` caught the moment the derived surface was composited instead
@@ -132,6 +138,10 @@ pub const TOKENS: &str = r#":root {
     --line:rgba(255,255,255,.08); --line-strong:rgba(255,255,255,.14); --line-soft:rgba(255,255,255,.05);
     --accent:#ffa36b; --accent-solid:#b03a0a; --accent-hover:#c2410c;
     --accent-soft:#3d2817; --accent-fg:#ffffff;
+    /* **AND AFTER DARK THE MEMBER INVERTS.** The wash is a dark brown; `#9c3a0a` on it measures **1.4:1**. The dark
+       accent `#ffa36b` measures **7.07:1** on the same wash, so that is the member here — the same JOB, the value
+       this theme's colours need. */
+    --accent-on-soft:#ffa36b;
     --ok:#6edc8b; --warn:#e0a44a; --ok-soft:rgba(46,160,73,.16);
     --warn-soft:#3a2a14; --danger:#ff8b84; --danger-soft:#2a1512;
     --focus-ring:#ffa36b;
