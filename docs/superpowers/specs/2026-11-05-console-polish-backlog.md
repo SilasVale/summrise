@@ -4635,14 +4635,25 @@ the console's response to it is the defect: nothing between the wire and `activi
 the answer was an answer.
 
 1. **A day answer with no counts is not an answer.** **Fix:** `api.auditDay` throws `NoAnswer` when the body has no
-   numeric `client_calls`, so the read fails the way a 502 does. **Done — console `d415aa6` (pushed; NOT deployed —
-   the console deploy waits on the operator's word).** The same body now renders
+   numeric `client_calls`, so the read fails. **Done — console `d415aa6` + `ab03d27` (pushed; NOT deployed — the
+   console deploy waits on the operator's word).** A malformed day + a good window now draws **the rows, the
+   window's own count, and no `Today:` line**:
 
-       The console could not read the audit; this timeline shows only calls that arrive live.   [Retry]
+       44 client calls in this window · from 13:27, spanning 26 h 5 m
+       Tuesday, 11/10   22 lines
 
-   and no `Today:` line at all. A counted day still reads `Today: 44 client calls, 3 failed — 1 console failure;
-   1 unattributed.` Both after-shots are in `.superpowers/sdd/2026-11-05-console-polish-backlog/list131/`
-   (`after-malformed.png`, `after-counted.png`) beside `before-undefined.png`.
+   A counted day still reads `Today: 44 client calls, 3 failed — 1 console failure; 1 unattributed.` The
+   after-shots are in `.superpowers/sdd/2026-11-05-console-polish-backlog/list131/`
+   (`after-malformed-rows-kept.png`, `after-counted.png`) beside `before-undefined.png`.
+**AND THE FIRST FIX WAS COUPLED THE WRONG WAY, measured on the same page.** Refusing the day inside the
+read's `Promise.all` without a catch failed the WHOLE read: with `/audit/day` answering `[]` the record drew **no
+rows and no count**, where the same body before the fix had drawn the rows and one broken sentence — a thousand
+readable lines traded for a sentence that is not the record. **Fixed in `ab03d27`:** the day reads like the source
+line beside it, `.catch(() => null)`, and `setDaySummary` keeps the page's no-answer-no-claim rule. The window is
+the record; the day's count is the header's. A companion fact that fails must cost its own sentence and nothing
+else. **Mutation:** the day read re-coupled to the window fails the new `App.test.tsx` case *keeps the window's
+rows when the day's own read is refused, and claims no count*.
+
 2. **The suite pinned no shape for this route.** **Fix:** three cases in `api.test.ts` — `[]`, `{}`, `null` and an
    empty body each reject as `NoAnswer`, a non-numeric count rejects, and a counted day is taken with its scope
    on the path. **Done — same commit.** **Mutation:** deleting the guard fails **2 failed | 34 passed**, naming
