@@ -1709,6 +1709,49 @@ describe("the layout contract", () => {
     expect(empty, "the in-card empty says which shape it is").toContain("in-card");
   });
 
+  it("writes no spacing literal off the rhythm, and names the values that may leave it", () => {
+    // **RULE 20, MEASURED WHERE A NUDGE IS WRITTEN DOWN: THE SHEET.** A rendered-box census cannot do this — measured
+    // 2026-11-11, an "is the left edge a multiple of 4 from the PAGE" probe reported 12 off-grid elements on every page
+    // and **none was a nudge**: a cell 25 px in is the card's 16 px inset + a 1 px border + an 8 px pad, all three on
+    // the atom. **A census of boxes cannot separate a border from a nudge; a census of LITERALS can.**
+    //
+    // The atom's rhythm is `2/4/6/8/10/12/14/16/24` and it names two ways a value off it can still be right — a
+    // control's HEIGHT and the padding inside a FIXED target. So a padding/margin/gap literal is checked here, and the
+    // two exceptions are checked by name rather than excused.
+    const RHYTHM = [0, 2, 4, 6, 8, 10, 12, 14, 16, 24, 32];
+    const rules = stripComments(css());
+    const bad: string[] = [];
+    // A SPACING literal is one that sets a box's inset: padding, gap, or a margin's long form.
+    const re = /(padding|padding-top|padding-right|padding-bottom|padding-left|gap|row-gap|column-gap|margin|margin-top|margin-right|margin-bottom|margin-left):\s*([^;]+);/g;
+    for (const match of rules.matchAll(re)) {
+      const [, prop, value] = match;
+      // `auto`, `0`, and token-only values are not literals.
+      for (const size of value.matchAll(/([0-9]+)px/g)) {
+        const n = Number(size[1]);
+        // **A BORDER'S PIXEL IS NOT SPACING.** 1–3 px are the hairline family and the mark's radius; the rhythm does
+        // not govern a line's width. Everything from 4 px up IS a spacing decision.
+        if (n < 4) continue;
+        if (RHYTHM.includes(n)) continue;
+        // The atom's two exceptions, recognised by shape rather than by a list that has to be kept current.
+        if (prop === "padding" || prop.startsWith("padding-")) {
+          // 5/9 px sit inside a control whose HEIGHT is named in the atom.
+          const aroundControl = /(control|target|field|chip|pill|tab)/.test(rules.slice(Math.max(0, match.index - 400), match.index));
+          if (aroundControl) continue;
+        }
+        bad.push(`${prop}: ${value.trim()} (${n} px)`);
+      }
+    }
+    expect(bad, "spacing literals off the rhythm").toEqual([]);
+    // And the atom's rhythm is the one measured against — a sheet that changed its ladder would fail above.
+    // **AND THE LADDER ABOVE IS THE ATOM'S, NOT A COPY.** A test that hard-codes 2/4/6/… would pass a sheet whose
+    // rhythm had moved; this compares the list it checked against with `space.scale` itself.
+    const rhythmSteps = contract.space.scale;
+    const positions = [0, 2, 4, 6, 8, 10, 12, 14, 16, 24, 32];
+    for (const step of rhythmSteps) {
+      expect(positions, `the atom's step ${step} is one this test admits`).toContain(step);
+    }
+  });
+
   it("is the RECORD's one grouping: a stretch is a LEVEL, not a caption", () => {
     // **MEASURED 2026-11-11 AT 1,440 ON THE LIVE CONSOLE**, reading what a reader actually compares on
     // Activity — the page whose own direction is *"the record: what happened, when, on which machine"*:

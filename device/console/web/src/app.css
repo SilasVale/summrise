@@ -2539,7 +2539,7 @@ h2 { letter-spacing: var(--tracking-tight); }
   .shell { grid-template-columns: 232px minmax(0, 1fr); grid-template-rows: 52px auto minmax(0, 1fr); }
 }
 @media (min-width: 640px) {
-  .topbar-inner { height: 52px; padding: 0 20px; gap: var(--sp-2-5); }
+  .topbar-inner { height: 52px; padding: 0 var(--sp-5); gap: var(--sp-2-5); }
 }
 .brand { padding: 4px 6px; border-radius: var(--radius-xs); }
 .brand-name { font-size: var(--fs-base); font-weight: var(--fw-semi); letter-spacing: var(--tracking-tight); }
@@ -2679,7 +2679,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
   background: var(--panel); border: 1px solid var(--hairline);
   border-radius: var(--radius); box-shadow: none;
 }
-.panel { padding: 18px; }
+.panel { padding: var(--sp-4); }
 .endpoint-row {
   background: var(--panel); border: 1px solid var(--hairline); border-radius: var(--radius-sm2);
 }
@@ -2710,9 +2710,9 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
      the change, not to match a hover. It keeps its own 180 ms. */
   animation: sheet-in 180ms var(--ease);
 }
-.sheet-head { padding: 16px 20px 12px; border-bottom: 1px solid var(--hairline); }
-.sheet-body { padding: 18px 20px; }
-.sheet-foot { padding: 12px 20px; border-top: 1px solid var(--hairline); background: var(--panel); }
+.sheet-head { padding: var(--sp-4) var(--sp-5) var(--sp-3); border-bottom: 1px solid var(--hairline); }
+.sheet-body { padding: var(--sp-4) var(--sp-5); }
+.sheet-foot { padding: var(--sp-3) var(--sp-5); border-top: 1px solid var(--hairline); background: var(--panel); }
 .sheet-close { width: 28px; height: 28px; border-radius: var(--radius-xs); }
 .sheet-close:hover { background: var(--control-bg); border-color: transparent; }
 @keyframes sheet-in {
@@ -2792,7 +2792,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
   border-color: color-mix(in srgb, var(--focus-ring) 20%, var(--hairline));
 }
 .terminal-workspace { gap: 0; }
-.terminal-workspace > .terminal-start { padding: 18px; }
+.terminal-workspace > .terminal-start { padding: var(--sp-4); }
 
 /* The session card is the Terminal page's first impression: the machine, the attached session, its
    age and the last keystroke the console saw reach it. It is a block above the toolbar and the
@@ -2948,7 +2948,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 .facts > div {
   display: flex; flex-wrap: wrap; justify-content: space-between;
   gap: var(--sp-1) var(--sp-4); min-width: 0;
-  padding: 7px var(--sp-0-5); border-bottom: 1px solid var(--hairline);
+  padding: var(--sp-2) var(--sp-0-5); border-bottom: 1px solid var(--hairline);
 }
 .facts > div:last-child { border-bottom: 0; }
 .facts dt { color: var(--ink-muted); font-size: var(--fs-sm); }
@@ -2964,7 +2964,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 .system-page { gap: var(--sp-4); }
 .system-section {
   background: var(--panel); border: 1px solid var(--hairline);
-  border-radius: var(--radius); padding: 18px; gap: var(--sp-2-5);
+  border-radius: var(--radius); padding: var(--sp-4); gap: var(--sp-2-5);
 }
 .system-section > h3 { margin: 0; font-size: var(--fs-md); font-weight: var(--fw-semi); letter-spacing: var(--tracking-tight); }
 .system-section > .hint { max-width: 68ch; }
@@ -3078,7 +3078,7 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 .runs-history-head { display: flex; align-items: center; gap: var(--sp-2); }
 .runs-history-head .hint { margin: 0; }
 .runs-history-head button { margin-left: auto; }
-.runs-form > button.primary { align-self: flex-start; margin-top: 19px; }
+.runs-form > button.primary { align-self: flex-start; margin-top: var(--sp-4); }
 
 /* THE PHONE'S RUN HISTORY IS A CARD LIST, NOT A 320 PX TABLE. The measured 390 page put the
    command in an 80 px cell and broke `powershell.exe -NoProfile …` every few characters, with the
@@ -3221,7 +3221,7 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 .live-list { list-style: none; margin: 0; padding: 0; }
 .live-entry {
   display: flex; align-items: baseline; gap: var(--sp-2);
-  padding: 7px 0; border-bottom: 1px solid var(--hairline);
+  padding: var(--sp-2) 0; border-bottom: 1px solid var(--hairline);
   font-size: var(--fs-sm); animation: live-in 160ms var(--ease) both;
 }
 .live-entry:last-child { border-bottom: 0; }
@@ -3413,7 +3413,7 @@ th,
 /* ── The timeline: time on the left, one dot per action, one sentence each ─────────────────────────
    Outside: one line per action. Click: the evidence for that one call. */
 
-.timeline { display: grid; gap: 30px; }
+.timeline { display: grid; gap: var(--sp-6); }
 /* **THE CAP SENTENCE SITS WHERE ITS COUNT IS.** It counts the rows the first day label introduces,
    so it is drawn above that label; measured on the 888-row page it used to land 70,000 px down the
    record, after the rows it was qualifying. */
@@ -3475,13 +3475,13 @@ th,
 .timeline-row.is-stretch { border-top: 0; margin-top: var(--sp-4); }
 .timeline-line {
   display: grid; grid-template-columns: 68px 20px minmax(0, 1fr) 18px;
-  gap: var(--sp-3); align-items: start; padding: 15px var(--sp-2) 15px var(--sp-0-5); min-height: 64px;
+  gap: var(--sp-3); align-items: start; padding: var(--sp-4) var(--sp-2) var(--sp-4) var(--sp-0-5); min-height: 64px;
   border-radius: var(--radius-xs);
 }
 /* A row that opens is a real button, reset to the line so the grid and the type stay the page's. */
 button.timeline-line {
   width: 100%; min-height: 64px; text-align: left; background: none; border: 0;
-  font: inherit; padding: 15px var(--sp-2) 15px var(--sp-0-5); color: inherit; cursor: pointer;
+  font: inherit; padding: var(--sp-4) var(--sp-2) var(--sp-4) var(--sp-0-5); color: inherit; cursor: pointer;
 }
 button.timeline-line:hover { background: var(--row-hover); }
 /* `--ring` is already a shadow; wrapping it in a second one drew the wrong box. */
@@ -3504,12 +3504,12 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 }
 .timeline-dot[data-tone="bad"] { background: var(--error); }
 .timeline-dot[data-tone="warn"] { background: var(--warn); }
-.timeline-words { min-width: 0; display: grid; gap: 5px; }
+.timeline-words { min-width: 0; display: grid; gap: var(--sp-2); }
 .timeline-sentence {
   font-size: var(--fs-md); line-height: var(--lh-body); font-weight: var(--fw-medium); color: var(--ink);
   overflow: visible; text-overflow: clip; white-space: normal;
 }
-.timeline-facts { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; }
+.timeline-facts { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; }
 .timeline-machine, .timeline-ms, .timeline-age, .timeline-outcome {
   font-size: var(--fs-sm); color: var(--ink-faint);
 }
@@ -3567,7 +3567,7 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 /* The evidence panel: what the call carried, and what it returned. */
 .evidence {
   display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
-  border: 1px solid var(--hairline); border-radius: var(--radius-sm); margin: 0 0 var(--sp-3) 22px;
+  border: 1px solid var(--hairline); border-radius: var(--radius-sm); margin: 0 0 var(--sp-3) var(--sp-5);
   /* **AND THE EVIDENCE BLOCK: A BLOCK INSIDE A CARD IS RECESSED** (the hundred-and-seventeenth list). Measured:
      `--panel` inside a `--panel` panel was **1.044** — the event's evidence drew a frame with no fill of its own. */
   overflow: hidden; background: var(--surface-recessed);
@@ -3683,7 +3683,7 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
    because it is a fact to consult after the record, not a banner over it. */
 .timeline-footer {
   display: grid; gap: var(--sp-1);
-  margin-top: 30px; padding-top: var(--sp-3-5); border-top: 1px solid var(--line);
+  margin-top: var(--sp-6); padding-top: var(--sp-3-5); border-top: 1px solid var(--line);
 }
 .timeline-footer .timeline-capped,
 .timeline-footer .audit-source {
@@ -3778,9 +3778,9 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
    row's rule centers items, and a centered dot sat beside the first problem instead. */
 .attention-row .dot { width: 8px; height: 8px; align-self: flex-start; margin-top: var(--sp-1-5); }
 .attention-open { flex: none; }
-.attention-clear { border-left-color: var(--ok); padding: var(--sp-3) 18px; }
+.attention-clear { border-left-color: var(--ok); padding: var(--sp-3) var(--sp-4); }
 .attention-clear-line {
-  display: flex; align-items: center; gap: 9px; margin: 0;
+  display: flex; align-items: center; gap: var(--sp-2); margin: 0;
   font-size: var(--fs-md); font-weight: var(--fw-medium);
 }
 .attention-clear-line .hint { margin: 0; font-weight: var(--fw-regular); }
@@ -4022,7 +4022,7 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
   .fleet-table thead { display: none; }
   .fleet-table .fleet-row {
     position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto;
-    gap: 7px var(--sp-3); margin: 0 0 var(--sp-2); padding: var(--sp-3) var(--sp-3-5);
+    gap: var(--sp-2) var(--sp-3); margin: 0 0 var(--sp-2); padding: var(--sp-3) var(--sp-3-5);
     background: var(--panel); border: 1px solid var(--hairline); border-radius: var(--radius-sm);
   }
   .fleet-table tbody td { padding: 0; border: 0; }
