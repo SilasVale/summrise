@@ -66,6 +66,31 @@ export function toolFailure(cause: unknown): string {
  */
 export type CallOptions = { poll?: boolean };
 
+/**
+ * **THE EDGE'S ANSWER IS NOT A SENTENCE WE PRINT (the hundred-and-thirty-fifth list).** A non-JSON
+ * answer used to be sliced to 200 characters and put straight into the operator's sentence: an
+ * Access login page (or any proxy error page) made the Terminal read
+ * `Could not read this device's sessions: <!doctype html> <html lang="en"> <head> <meta charset="utf-8"> …`.
+ * The sixty-third list settled this for the console's own routes — a failure's sentence names the
+ * subject, not the transport — and `api.call` already answers a non-JSON 200 with `NoAnswer`. This
+ * route kept the body. Three shapes, three sentences:
+ *
+ *   - a web page (starts with `<`): who answered, and the status. The page is NOT quoted; nobody
+ *     reads markup as a sentence, and the console's job is not to show the proxy's HTML.
+ *   - one short line of text (<= 80 characters, no second line): the proxy's own sentence, kept —
+ *     it is the only text that names what the proxy objects to.
+ *   - anything else: the status, and that the answer was not JSON.
+ */
+function notJson(text: string, status: number): string {
+  const trimmed = text.trim();
+  if (trimmed.startsWith("<")) {
+    return `the edge answered this call with a web page, not the console (HTTP ${status})`;
+  }
+  const firstLine = trimmed.split("\n")[0].trim();
+  if (firstLine !== "" && trimmed.length <= 80) return firstLine;
+  return `the answer was not JSON (HTTP ${status})`;
+}
+
 export async function callTool(
   grant: Grant,
   name: string,
@@ -92,12 +117,12 @@ export async function callTool(
     throw new ToolError(cause instanceof Error ? cause.message : String(cause), 0);
   }
   const text = await response.text();
-  // A proxy failure comes back as text, not JSON. Say what came back instead of "Unexpected token F".
+  // A proxy failure comes back as text, not JSON.
   let body: any = null;
   try {
     body = text ? JSON.parse(text) : null;
   } catch {
-    throw new ToolError(text.slice(0, 200) || `HTTP ${response.status}`, response.status);
+    throw new ToolError(notJson(text, response.status), response.status);
   }
   const content = body?.result?.content;
   const first = content?.[0]?.text;
