@@ -148,9 +148,11 @@ pub(crate) fn describe(tool: &str, arguments: &Value) -> String {
         "browser.cast" => "Took a frame of a live browser page".to_owned(),
         "browser.close" => "Closed a browser page".to_owned(),
         "browser.shutdown" => "Stopped the browser".to_owned(),
-        // A forward rule is the console's own subject: a panel shows these rows, so the sentence
-        // names the RULE, not the mechanism. The reader of an activity line wants to know which
-        // rule changed, and `quoted("name", …)` is what carries that when the arguments have it.
+        // A forward rule is the console's own subject, so the sentence names the RULE, not the
+        // mechanism. The reader of an activity line wants to know which rule changed, and
+        // `quoted("name", …)` is what carries that when the arguments have it. **THE PANEL DOES NOT
+        // DRAW THESE ROWS** — this comment used to say it did, and the console's Machine tab
+        // (`ForwardRules.tsx`) is where they actually are.
         "forward.add" => match quoted("name", arguments) {
             Some(name) => format!("Forwarded a route as `{name}`"),
             None => "Added a forward rule".to_owned(),
