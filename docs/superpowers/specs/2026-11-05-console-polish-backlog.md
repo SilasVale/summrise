@@ -4897,7 +4897,8 @@ console's five pages reach their empty state at all" cannot be answered from the
 
 ## P0 — the hundred-and-thirteenth list (opened 2026-11-11, the empty atom has a THIRD shape nobody recorded)
 
-The hundred-and-twelfth list left item 2 open: **no gate measures a RENDERED empty card**. This list starts by doing
+The hundred-and-thirteenth list's item 1 is shipped (contract `39b6413e`, console `df15e6c`, panel `84abe65f0`);
+**item 2 is done on the console and stays open on the panel.** The hundred-and-twelfth list left item 2 open: **no gate measures a RENDERED empty card**. This list starts by doing
 what that item asked, and the measurement immediately found a third shape.
 
 Measured 2026-11-11 at 1,360, the console's Activity page driven to a filter that matches nothing
@@ -4920,9 +4921,22 @@ shapes, one atom — the third is right in principle and was never written down.
 
 1. **An empty state inside a card draws the atom's GAP at its own scale, and says so.** **Fix:** `.audit-empty` takes
    the atom's 12, and the atom records the second shape. **S.**
+   *(**Done, MERGED, NOT DEPLOYED** — contract `39b6413e`, console `df15e6c`, panel `84abe65f0`. `.audit-empty` takes the
+   atom's 12; measured after: `gap: 12px`, radius 0, pad `12px 0`, no background, no shadow, one `Clear filters`.
+   **`empty.shapes` records both shapes** — `standalone` (a card of its own at 14/16/12) and `inCard` (no surface, the
+   card's inset, the atom's gap). Two surfaces had three shapes and one atom that said nothing about which was which.)*
 2. **The item the last list left open: a RENDERED empty card is now measured.** **Fix:** a browser leg that drives a
    filter to zero on each surface and reads the card's radius, inset, gap and way-back off the rendered element.
    **M.**
+   *(**Done on the console, open on the panel.** The browser leg measures the rendered element and prints it in the
+   step: *"RENDERED it is 324x128 with a 12px gap, no surface of its own and a "Clear filters" way back"*. **The
+   panel has no browser gate that can drive a filter to zero** — its `screenshot.mjs` and `motion-gate.mjs` both read
+   what the page draws at rest, and `mock-agent.mjs` answers the same list for every query. A rendered-measure leg for
+   the panel needs the mock to honour a search, which is a change to a test device, not to the product; recorded
+   **open** rather than ticked.)**
+   **AND THE GATE TOOK THREE DRAFTS, all of the same mistake**: it read a rule whose own COMMENT said "inside a card";
+   then `ruleFor` was handed an **unescaped selector**, so `.audit-empty` as a regex could match a longer block. **The
+   rendered measurement is the only one that could have answered either way.**
 
 ## How a round goes
 
