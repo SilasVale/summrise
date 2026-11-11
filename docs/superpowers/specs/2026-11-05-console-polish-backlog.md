@@ -4135,6 +4135,29 @@ written down in the file the whole program is built on.
    reds above were on `hub/v1` for hours while two rounds reported green. **It is also the honest boundary**: the
    Windows lifecycle suite CI runs only on Windows is still not in the loop, and this round does not claim it.)*
 
+## P0 — the hundred-and-twentieth list (opened 2026-11-11, three counts of one day, on one page, in three units)
+
+The hundred-and-nineteenth list is closed. This list is rule 6's shadow — *"never colour alone"* applied to the other
+ambiguous signifier, a NUMBER — measured on the live console (`0.3.273-ux192`):
+
+     Today: 543 client calls, 17 failed.              the DAY's client calls
+     939 client calls in this window · from 09:40…   the WINDOW's client calls (spans 19 h 32 m, not the day)
+     547 calls · 16:00 → 05:14                       **the ROWS this page drew for today**
+
+**Three statements, three units, all true — and the first and the third are four apart with nothing between them
+saying why.** 547 is `dayText(day.lines)` (`ActivityTimeline.tsx:412`), and `callsText` spells it *"calls"*: the word
+the header reserves for **client calls**. A reader who subtracts gets `4`, and the true answer is *"four console reads
+and polls, which the header's word deliberately excludes"* — a distinction the product draws elsewhere (the hub keeps
+its own repeats sentence) and does not draw here.
+
+**And the middle one is a different day**: 939 covers 19 h 32 m from 09:40, while the header's day began at midnight.
+Both sentences sit **52 px apart** in the same column, and neither says the other is a different interval.
+
+1. **`callsText` spells drawn LINES "calls", the word the header reserves for client calls.** **Fix:** the day block
+   and the stretch labels name what they count, in the unit that count is in. **M.**
+2. **The window line and the day line state contradictory intervals without saying so.** **Fix:** one of them names
+   the other explicitly, where they meet. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
