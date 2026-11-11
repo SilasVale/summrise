@@ -4039,6 +4039,18 @@ repeated for surfaces.
 1. **A card's LEVEL is a measured number that no gate owns.** **Fix:** the console's `a11y-audit` and the panel's
    `themeContrast` composite the chain and refuse a card whose tint falls below the stated floor, in both themes.
    **M.**
+   *(**Done on both surfaces, MERGED, NOT DEPLOYED** — console `39e0d92` (`a11y-audit`'s `card-level` pass, every page
+   state), panel `b34eb8baf` (`scripts/card-level-gate.mjs`, both themes). **Both composite the ancestor chain** — a
+   card's tint is measured against what is actually behind it, `body` is not the answer — and refuse a card below the
+   atom's own `elevation.cardTint`. **The gate found FOUR blocks on the console and THREE on the panel before it could
+   pass**, and every one was *a block INSIDE a card painted the card's own colour*: console `.files-list` and
+   `.runs-history` at **1.000**, `.evidence` and `.browser-view.fit` at **1.044**; panel `.connect-snippet` at
+   **1.000** inside a `.settings-fold` that was painted the same token. Measured after: console **1.072 → 1.103/1.151**,
+   panel **1.072 → 1.075/1.076/1.151**.
+   **And two limits of the gate itself, both found by its own first run**: **the pane is not a card** (`.desktop-content`
+   at 1.027 is exactly right for the level cards sit ON, and the first scope flagged it), and **`color-mix` computes to
+   `color(srgb …)`** — a parser that only knows `rgba()` reads it as NO FILL and then compares the backing against
+   itself, reporting **1.000**. *A gate that cannot parse the value it was built to check will happily pass it.*)*
 2. **A RECESSED block is worth only 1.027 however it is spelled, because the scale has no step between the card
    and the ground.** *(**Done on both surfaces, MERGED, NOT DEPLOYED** — console `743a78e`, panel `0f6d0b77e`. The
    token is a DERIVATION now on both sheets: `color-mix(in srgb, var(--ink) 7%, …)` in light, toward the ground after
@@ -4051,7 +4063,8 @@ repeated for surfaces.
    card's own 1.071 with the sign reversed). So the fix is NOT "pick a token" — **the scale has no such token, and
    adding one invents a colour.** **Fix:** the atom records that a recessed block is the CARD's step with the sign
    reversed, and the two surfaces take the same value. **M.**
-3. **The floor itself is unstated.** `elevation.flat` says "a hairline and a tint" and gives neither a minimum
+3. **(done in the same round) The floor is `elevation.cardTint` — the number the SHIPPED card measures, not a new
+   one, and both gates read it from the atom rather than carrying their own copy.** **The original item read:** **The floor itself is unstated.** `elevation.flat` says "a hairline and a tint" and gives neither a minimum
    contrast nor a word for what the tint is FOR. **Fix:** the atom records the floor and the reason. **S.**
 
 ## How a round goes
