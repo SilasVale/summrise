@@ -66,6 +66,57 @@ jobs:
       - name: the device workspace is clippy-clean
         run: cargo clippy --manifest-path device/Cargo.toml -p summrise-core -p summrise-device -p summrise-launch -p summrise-mesh -p summrise-release -p summrise-console -p summrise-winsec -p summrise-winsys -p summrise-shell --all-targets -- -D warnings
 
+      # **A FORWARD IS A RULE, AND THE ONLY HONEST PROOF OF A FORWARDED CHANNEL IS A REAL sshd.**
+      # `capabilities::forward`'s unit tests drive an IN-PROCESS SSH server, and that fixture cannot
+      # be the authority for a forwarded channel's byte order (measured: with the fixture dialling
+      # nothing and replying nothing, a client still read its own bytes back, which a real sshd does
+      # not do). This step starts the runner's own sshd on a throwaway port with its own host key and
+      # its own authorized_keys, and drives `device/tests/forward_wire.rs` against it — the rule
+      # binds, `forward.list` reports it listening, an HTTP answer crosses the SSH connection byte for
+      # byte, and `forward.remove` closes the listener.
+      #
+      # IT IS `--ignored`, NOT CONDITIONALLY SKIPPED (I8): the test needs an sshd it did not start,
+      # and this step is what satisfies that. Deleting this step turns the test into a silent skip
+      # instead of a red, which is why the step exists rather than a `#[ignore]` nothing runs.
+      - name: a forward rule carries a real answer through a real sshd
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/forward"
+          rm -rf "$work"
+          mkdir -p "$work/keys"
+          ssh-keygen -q -t ed25519 -N '' -f "$work/hostkey"
+          ssh-keygen -q -t ed25519 -N '' -f "$work/client"
+          cp "$work/client.pub" "$work/keys/authorized_keys"
+          chmod 700 "$work/keys"
+          chmod 600 "$work/keys/authorized_keys"
+          port=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')
+          cat > "$work/sshd_config" <<CONF
+          Port $port
+          ListenAddress 127.0.0.1
+          HostKey $work/hostkey
+          PidFile $work/sshd.pid
+          AuthorizedKeysFile $work/keys/authorized_keys
+          PubkeyAuthentication yes
+          PasswordAuthentication no
+          AllowTcpForwarding yes
+          StrictModes no
+          UsePAM no
+          CONF
+          /usr/sbin/sshd -f "$work/sshd_config" -E "$work/sshd.log"
+          trap 'kill "$(cat "$work/sshd.pid" 2>/dev/null)" 2>/dev/null || true' EXIT
+          SUMMRISE_FORWARD_VIA="$(whoami)@127.0.0.1:$port" \
+            SUMMRISE_FORWARD_KEY="$work/client" \
+            cargo test --manifest-path device/Cargo.toml -p summrise-device --test forward_wire \
+              -- --ignored --nocapture
+
+      # **EVERY `#[ignore]` IS EITHER NAMED BY A STEP HERE OR SAYS `manual`.** The convention (I8) is
+      # that a test which needs something this workspace cannot provide is `#[ignore]`d AND run by
+      # exact name, "so deleting the CI step turns the proof red instead of silently green" — but
+      # nothing checked the two halves against each other. A `#[ignore]` with a reason nobody wired is
+      # a test that never runs and never complains, and this gate reads the tree for them.
+      - name: every ignored test has a runner
+        run: cargo test --manifest-path device/Cargo.toml -p summrise-device --test ignored_tests_have_a_runner
+
       # The panel is the device's own page, and it is the only surface a person sees without the
       # console; it gets the same measurement.
       - name: the device panel fits the window
@@ -173,6 +224,20 @@ jobs:
       - name: the Windows-specific crates
         timeout-minutes: 20
         run: cargo test --manifest-path device/Cargo.toml -p summrise-device -p summrise-winsec -p summrise-winsys -p summrise-shell
+      # **THE LINUX JOB CANNOT SEE A TEST THAT DOES NOT COMPILE ON WINDOWS.** `device`'s tests are
+      # `cfg(unix)` in places and plain elsewhere, and the code paths are shared: a
+      # `use std::os::unix::…` written without the gate compiles on Linux, refuses on Windows, and
+      # turns THIS job red for a file the Linux job called green. That is what found the two in
+      # `capabilities::forward` before the first Windows run would have.
+      #
+      # **IT RUNS ON THIS RUNNER, NATIVELY — NOT AS A LINUX CROSS-BUILD.** The command it replaces was
+      # `cargo check --target x86_64-pc-windows-msvc`, which cannot work from Linux without
+      # `cargo-xwin` (ring's cc build), and that is why the cross-check was done by hand here and not
+      # in CI. On `windows-latest` no target is needed at all: `--all-targets` on the host IS the
+      # check the Linux job cannot perform. `device` declares no `[[bench]]` or `[[example]]`, so this
+      # adds nothing to the `cargo test` above it beyond the honest label.
+      - name: the device crate's tests are compiled on Windows too
+        run: cargo check --manifest-path device/Cargo.toml -p summrise-device --all-targets
       # **THE LAUNCHER'S UNIT TESTS RUN UNKEYED, AT THE END.** They sign their fixtures with a
       # fixed seed and verify against the key this build embedded; in a keyed build the fixture
       # signature cannot match that key, so they belong to the placeholder build beside the

@@ -331,6 +331,33 @@ pub const CAPABILITIES: &[Capability] = &[
         }],
     },
     Capability {
+        name: "forward",
+        tools: &[
+            // A rule's values decide who can reach what and which host is trusted to carry it, so
+            // `forward.add` and `forward.remove` are the operator's own act and are DESTRUCTIVE in
+            // this registry's sense: they change a listening socket and persist a credential, and a
+            // later read cannot undo that. `forward.list` only observes.
+            ToolDef {
+                name: "forward.add",
+                destructive: true,
+                description:
+                    "Add or replace a forward rule: `listen` is bound on THIS machine, `via` makes the SSH connection, and that host's sshd dials `target`. The far host therefore gains NO listening port. `host_key` optionally pins the fingerprint `via`'s key must match — a rule runs with nobody present, so it is the one object here that should not decide a host's identity by itself. Nothing is created until the rule is persisted; a rule that cannot bind stays visible with its error rather than retrying forever.",
+            },
+            ToolDef {
+                name: "forward.remove",
+                destructive: true,
+                description:
+                    "Remove a rule and stop its executor; `removed` says whether one was configured. The listener is closed with it, so the address becomes bindable again.",
+            },
+            ToolDef {
+                name: "forward.list",
+                destructive: false,
+                description:
+                    "List every rule with its live state: whether the listener is bound, since when, how many connections it has carried, how many bind attempts it has made, and what its last failure said. An unbound rule reports its error rather than a plausible-looking zero.",
+            },
+        ],
+    },
+    Capability {
         name: "state",
         tools: &[ToolDef {
             name: "state.get",
@@ -409,7 +436,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_registry_declares_the_whole_surface_and_eleven_capabilities() {
+    fn the_registry_declares_the_whole_surface_and_twelve_capabilities() {
         let tools: Vec<&str> = CAPABILITIES
             .iter()
             .flat_map(|capability| capability.tools)
@@ -418,10 +445,10 @@ mod tests {
 
         assert_eq!(
             CAPABILITIES.len(),
-            11,
-            "eleven capabilities declare the surface"
+            12,
+            "twelve capabilities declare the surface"
         );
-        assert_eq!(tools.len(), 46, "the surface is 46 tools");
+        assert_eq!(tools.len(), 49, "the surface is 49 tools");
         assert_eq!(
             tools,
             [
@@ -464,6 +491,9 @@ mod tests {
                 "host.facts",
                 "host.restart",
                 "screen.capture",
+                "forward.add",
+                "forward.remove",
+                "forward.list",
                 "state.get",
                 "plugins.list",
                 "plugins.inspect",
@@ -478,7 +508,15 @@ mod tests {
 
     #[test]
     fn the_destructive_flag_is_the_declared_value() {
-        for (name, destructive) in [
+        // **ONE TABLE, AND IT IS CHECKED AGAINST THE REGISTRY IN BOTH DIRECTIONS.** The list below is the
+        // EXPECTATION;  reads the DECLARATION. Two lists that agree only for the tools
+        // both of them name is a sample, not a check — measured: the table used to stop at
+        // `("plugins.logs", false)` and six real tools (`memory.export`, `memory.list`,
+        // `system.net_test`, `system.process_kill`, `system.process_list`, `terminal.screen`) had no
+        // row at all. **One of those, `system.process_kill`, is destructive** — a kill signal that
+        // anyone could send through a token that never consented, with the flag that authorizes it
+        // unasserted.
+        let expected: [(&str, bool); 49] = [
             ("files.read", false),
             ("files.write", true),
             ("files.mkdir", false),
@@ -487,12 +525,15 @@ mod tests {
             ("memory.update", true),
             ("memory.delete", true),
             ("memory.search", false),
+            ("memory.list", false),
+            ("memory.export", false),
             ("terminal.create", true),
             ("terminal.write", true),
             ("terminal.read", false),
             ("terminal.resize", false),
             ("terminal.close", false),
             ("terminal.list", false),
+            ("terminal.screen", false),
             ("browser.list", false),
             ("browser.open", true),
             ("browser.navigate", true),
@@ -501,6 +542,9 @@ mod tests {
             ("browser.cast", false),
             ("browser.close", false),
             ("browser.shutdown", false),
+            ("forward.add", true),
+            ("forward.remove", true),
+            ("forward.list", false),
             ("monitor.add", false),
             ("monitor.remove", false),
             ("monitor.list", false),
@@ -513,19 +557,55 @@ mod tests {
             ("host.restart", true),
             ("screen.capture", false),
             ("state.get", false),
+            ("system.net_test", false),
+            ("system.process_list", false),
+            ("system.process_kill", true),
             ("plugins.list", false),
             ("plugins.inspect", false),
             ("plugins.add", true),
             ("plugins.remove", true),
             ("plugins.restart", true),
             ("plugins.logs", false),
-        ] {
+        ];
+
+        for (name, destructive) in expected {
             assert_eq!(
                 is_destructive(name),
                 Some(destructive),
                 "{name}'s destructive flag is the fact authorize's Ask rule consults"
             );
         }
+
+        // **EVERY REGISTRY TOOL HAS A ROW, OR THE TABLE ABOVE IS A LIST OF SAMPLES.** A tool added to
+        // `CAPABILITIES` without a row here was never compared; deleting `("forward.list", false)`
+        // from the old table left this suite green.
+        let declared: Vec<&str> = CAPABILITIES
+            .iter()
+            .flat_map(|capability| capability.tools)
+            .map(|tool| tool.name)
+            .collect();
+        let mut missing: Vec<&str> = declared
+            .iter()
+            .copied()
+            .filter(|name| !expected.iter().any(|(row, _)| row == name))
+            .collect();
+        missing.sort_unstable();
+        assert!(
+        missing.is_empty(),
+        "a tool in CAPABILITIES has no row in the table above, so its destructive flag is          unasserted: {missing:?}"
+    );
+        // And the other direction: a row for a tool the registry no longer declares is a stale line that
+        // would keep passing after the tool was removed.
+        let mut stale: Vec<&str> = expected
+            .iter()
+            .map(|(row, _)| *row)
+            .filter(|name| !declared.contains(name))
+            .collect();
+        stale.sort_unstable();
+        assert!(
+            stale.is_empty(),
+            "a row names a tool the registry does not declare: {stale:?}"
+        );
     }
 
     #[test]

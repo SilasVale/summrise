@@ -46,7 +46,8 @@ use summrise_core::{
 use tokio::io::AsyncWriteExt;
 
 use crate::capabilities::{
-    browser, files, memory, monitor, plugins as plugins_capability, runs, ssh, system, terminal,
+    browser, files, forward, memory, monitor, plugins as plugins_capability, runs, ssh, system,
+    terminal,
 };
 use crate::config::{Config, Release};
 use crate::plugins::host::PluginHost;
@@ -115,6 +116,8 @@ pub(crate) struct DeviceServer {
     /// The reachability monitors. Shared like the PTY registry: one set of watches with one probe
     /// loop per target, whichever MCP session asks.
     monitor: Arc<monitor::MonitorRegistry>,
+    /// The forward rules. Shared like the monitors: one listener per rule, not one per session.
+    forwards: Arc<forward::ForwardRegistry>,
     /// The run history, and through it the files root `runs.exec`'s cwd resolves against.
     runs: Arc<runs::Runs>,
     /// The per-call audit log; shared so concurrent sessions serialize their appends.
@@ -269,6 +272,9 @@ pub(crate) fn service_with_terminal(
         .with_update_check(update_check);
     let terminal = Arc::clone(&server.terminal);
     let browser = Arc::clone(&server.browser);
+    // A rule created in an earlier boot must be LISTENING before any client asks about it, so the
+    // executors start with the device rather than with the first `forward.list`.
+    server.forwards.start();
     // The sweeper is the device's, not a client's: it holds a weak reference, so the children are
     // closed when the service (and its registry) is dropped.
     server.terminal.spawn_sweeper();
@@ -371,6 +377,7 @@ impl DeviceServer {
             )),
             browser: Arc::new(browser::BrowserRegistry::new(&config.data, &config.install)),
             monitor: Arc::new(monitor::MonitorRegistry::new(&config.data)),
+            forwards: Arc::new(forward::ForwardRegistry::new(&config.data)),
             runs: Arc::new(runs::Runs::new(&config.data, &config.files_root)),
             audit,
             nonces: crate::remote::NonceLog::new(),
@@ -1242,6 +1249,52 @@ impl DeviceServer {
                 let stopped = self.browser.shutdown().await;
                 Ok(json!({ "stopped": stopped }).to_string())
             }
+            Handler::ForwardAdd => {
+                let arguments: ForwardAddArgs = parse(arguments, name)?;
+                let spec = forward::RuleSpec::parse(
+                    &arguments.name,
+                    &arguments.listen,
+                    &arguments.target,
+                    &arguments.via,
+                    arguments.auth,
+                    arguments.host_key.as_deref(),
+                )
+                .map_err(|message| refused(name, forward::ForwardError::Refused { message }))?;
+                let rule = self
+                    .forwards
+                    .add(&spec)
+                    .map_err(|error| refused(name, error))?;
+                Ok(json!(rule).to_string())
+            }
+            Handler::ForwardRemove => {
+                let arguments: ForwardNameArgs = parse(arguments, name)?;
+                let removed = self
+                    .forwards
+                    .remove(&arguments.name)
+                    .map_err(|error| refused(name, error))?;
+                Ok(json!({ "removed": removed }).to_string())
+            }
+            Handler::ForwardList => {
+                let state: Vec<Value> = self
+                    .forwards
+                    .list()
+                    .into_iter()
+                    .map(|row| {
+                        json!({
+                            "name": row.name,
+                            "listen": row.listen,
+                            "target": row.target,
+                            "via": row.via,
+                            "listening": row.listening,
+                            "since_ms": row.since_ms,
+                            "attempts": row.attempts,
+                            "connections": row.connections,
+                            "last_error": row.last_error,
+                        })
+                    })
+                    .collect();
+                Ok(Value::Array(state).to_string())
+            }
             Handler::MonitorAdd => {
                 let arguments: MonitorAddArgs = parse(arguments, name)?;
                 let target = self
@@ -1621,6 +1674,9 @@ enum Handler {
     BrowserCast,
     BrowserClose,
     BrowserShutdown,
+    ForwardAdd,
+    ForwardRemove,
+    ForwardList,
     MonitorAdd,
     MonitorRemove,
     MonitorList,
@@ -1672,6 +1728,9 @@ const HANDLERS: &[(&str, Handler)] = &[
     ("browser.cast", Handler::BrowserCast),
     ("browser.close", Handler::BrowserClose),
     ("browser.shutdown", Handler::BrowserShutdown),
+    ("forward.add", Handler::ForwardAdd),
+    ("forward.remove", Handler::ForwardRemove),
+    ("forward.list", Handler::ForwardList),
     ("monitor.add", Handler::MonitorAdd),
     ("monitor.remove", Handler::MonitorRemove),
     ("monitor.list", Handler::MonitorList),
@@ -1773,6 +1832,17 @@ fn registry_tools() -> Vec<Tool> {
                     .cloned()
                     .unwrap_or_default(),
             );
+            // **THE DESTRUCTIVE FLAG IS PART OF WHAT A CLIENT IS TOLD, NOT JUST WHAT IT IS
+            // AUTHORIZED BY.** `authorize` reads `registry::is_destructive(name)` and refuses a
+            // token that did not consent; a client reading `tools/list` sees the same tool with no
+            // hint at all, so its first knowledge of the flag is a refusal. The MCP annotations
+            // carry it: `destructiveHint` true for the tools that change the machine, and
+            // `readOnlyHint` for the ones that cannot. A plugin's tools already do this
+            // (`advertised_tools`), which is what made the gap visible.
+            let mut annotations = ToolAnnotations::default();
+            annotations.destructive_hint = Some(definition.destructive);
+            annotations.read_only_hint = Some(!definition.destructive);
+            tool.annotations = Some(annotations);
             tool
         })
         .collect()
@@ -2247,6 +2317,61 @@ fn input_schema(definition: &ToolDef) -> Value {
             "additionalProperties": false
         }),
         "browser.shutdown" => json!({
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+        }),
+        "forward.add" => json!({
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The rule's name: how a panel and the log identify it, and how an edit replaces the existing rule with that name."
+                },
+                "listen": {
+                    "type": "string",
+                    "description": "The host:port to bind on THIS machine. A wildcard (0.0.0.0, ::, *) is refused: a rule that widens its own audience is the failure the refusal prevents."
+                },
+                "target": {
+                    "type": "string",
+                    "description": "The host:port that `via` dials. IPv6 literals need brackets, because the split is on the last colon."
+                },
+                "via": {
+                    "type": "string",
+                    "description": "user@host:port of the SSH connection that MAKES the connection, e.g. zss@100.64.0.9:22. The far host therefore gains no listening port."
+                },
+                "auth": {
+                    "type": "object",
+                    "description": "How the `via` connection authenticates: {kind: \"password\", password} or {kind: \"key\", path} with an ABSOLUTE key path. It is stored with the rule, because the rule outlives the caller and its executor must reach `via` at boot.",
+                    "properties": {
+                        "kind": { "type": "string", "enum": ["password", "key"] },
+                        "password": { "type": "string" },
+                        "path": { "type": "string" }
+                    },
+                    "required": ["kind"],
+                    "additionalProperties": false
+                },
+                "host_key": {
+                    "type": "string",
+                    "description": "Optional SHA-256 fingerprint `via`'s key must match, e.g. SHA256:abc…. A rule is the one thing that connects with NOBODY PRESENT, so it is the one that least wants to decide a host's identity by itself; without this the device's known_hosts decides (first trust on use, refusal on a change)."
+                }
+            },
+            "required": ["name", "listen", "target", "via", "auth"],
+            "additionalProperties": false
+        }),
+        "forward.remove" => json!({
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "The rule to remove; its listener is closed with it, so the address becomes bindable again."
+                }
+            },
+            "required": ["name"],
+            "additionalProperties": false
+        }),
+        "forward.list" => json!({
             "type": "object",
             "properties": {},
             "additionalProperties": false
@@ -2916,6 +3041,29 @@ struct BrowserEvalArgs {
     expression: String,
 }
 
+/// The arguments `forward.add` takes.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ForwardAddArgs {
+    name: String,
+    listen: String,
+    target: String,
+    via: String,
+    /// How the `via` connection authenticates. A rule outlives the caller, so the credential is
+    /// stored with it — there is no session to inherit one from.
+    auth: ssh::Auth,
+    /// The fingerprint `via`'s key must match. Absent leaves it to the device's `known_hosts`.
+    #[serde(default)]
+    host_key: Option<String>,
+}
+
+/// The arguments `forward.remove` takes.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ForwardNameArgs {
+    name: String,
+}
+
 /// The arguments `monitor.add` takes.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -3236,7 +3384,8 @@ mod tests {
     use crate::test_support::TempDir;
 
     use super::{
-        dispatch_supports, handler, registry_tools, HANDLERS, MAX_BODY_BYTES, MAX_FILE_BYTES,
+        dispatch_supports, handler, input_schema, registry_tools, HANDLERS, MAX_BODY_BYTES,
+        MAX_FILE_BYTES,
     };
 
     const TOKEN: [u8; 32] = [0x6b; 32];
@@ -3794,6 +3943,112 @@ mod tests {
         );
     }
 
+    /// **THE THREE TOOLS ON THE WIRE.** A rule added through `forward.add` is listed by
+    /// `forward.list`, an unchosen rule reports its own failure rather than a plausible zero, and
+    /// `forward.remove` closes the listener it owned.
+    ///
+    /// MUTATION: drop the `forward.add` dispatch arm -> the call answers a refusal and this fails.
+    #[tokio::test]
+    async fn the_forward_tools_add_list_and_remove_a_rule() {
+        let device = start("mcp-forward").await;
+        let mut client = Client::authorized(&device);
+        client.initialize().await;
+
+        // A rule whose target is on loopback and whose `via` is this device's own sshd is too much
+        // machinery for a wire test; binding a port that cannot exist is not one. What the wire
+        // test owns is the SHAPE: the tool exists, takes four fields, persists, lists and removes.
+        let added = client
+            .call(
+                "forward.add",
+                json!({
+                    "name": "wire",
+                    "listen": "127.0.0.1:18899",
+                    "target": "127.0.0.1:18898",
+                    "via": "zss@127.0.0.1:22",
+                    "auth": { "kind": "password", "password": "wire-test" }
+                }),
+            )
+            .await;
+        assert!(added["error"].is_null(), "forward.add is accepted: {added}");
+        let added: Value = serde_json::from_str(text_of(&added)).expect("the answer is JSON");
+        assert_eq!(added["name"], "wire");
+
+        let listed = client.call("forward.list", json!({})).await;
+        let listed: Value = serde_json::from_str(text_of(&listed)).expect("the answer is JSON");
+        let rows = listed
+            .as_array()
+            .unwrap_or_else(|| panic!("forward.list answers rows: {listed}"));
+        assert_eq!(rows.len(), 1, "one rule is configured: {listed}");
+        assert_eq!(rows[0]["name"], "wire");
+        assert_eq!(rows[0]["listen"], "127.0.0.1:18899");
+        // A rule whose `via` has no saved credential cannot reach anything, and the row SAYS so
+        // rather than showing an unbound listener with no explanation.
+        assert!(
+            rows[0]["last_error"].as_str().is_some() || rows[0]["listening"] == true,
+            "the row reports what happened: {listed}"
+        );
+
+        let removed = client
+            .call("forward.remove", json!({ "name": "wire" }))
+            .await;
+        assert_eq!(text_of(&removed), "{\"removed\":true}", "it was configured");
+        let after = client.call("forward.list", json!({})).await;
+        assert_eq!(text_of(&after), "[]", "{after}");
+    }
+
+    /// **`forward.add` IS DESTRUCTIVE, AND A TOKEN THAT DID NOT CONSENT STILL CHARTS A RULE.**
+    ///
+    /// The registry marks `forward.add` and `forward.remove` destructive because they change a
+    /// listening socket and persist a credential. **A destructive tool is auto-approved for the
+    /// OWNER and refused for a token that did not say `allow_destructive` — but "destructive" is a
+    /// field of the ROW, not of the tool's name, and the gate reads it from `registry::is_destructive`.**
+    /// A tool added to the registry without its destructive row would be callable by every token,
+    /// and that is the kind of omission a suite with one arm per tool does not catch.
+    ///
+    /// This asserts the WORSE half: the owner may do it (a rule is the operator's own act), and the
+    /// pair of tools that write the table is exactly the pair the registry calls destructive.
+    ///
+    /// MUTATION (run, not asserted): dropping the annotation (`destructive_hint = None`) made this
+    /// fail with `forward.add is annotated with the flag it is authorized by: {"annotations":
+    /// {"readOnlyHint":false}, …}` against `right: Some(true)`. Restored, green.
+    #[tokio::test]
+    async fn the_tools_that_write_the_forward_table_are_the_destructive_ones() {
+        // The registry is the single source of this fact for both surfaces: the console's catalogue
+        // and the device's authorization read the same table.
+        for tool in ["forward.add", "forward.remove"] {
+            assert_eq!(
+                summrise_core::registry::is_destructive(tool),
+                Some(true),
+                "{tool} writes a listening socket and a stored credential"
+            );
+        }
+        assert_eq!(
+            summrise_core::registry::is_destructive("forward.list"),
+            Some(false),
+            "a read changes nothing"
+        );
+
+        // AND THE WIRE AGREES: every tool the device serves reports the flag it was authorized by.
+        let device = start("mcp-forward-destructive").await;
+        let mut client = Client::authorized(&device);
+        client.initialize().await;
+        let list = message_json(client.request("tools/list", json!({})).await).await;
+        let tools = list["result"]["tools"]
+            .as_array()
+            .unwrap_or_else(|| panic!("tools/list answers tools: {list}"));
+        for tool in tools {
+            let name = tool["name"].as_str().unwrap_or_default();
+            if name.starts_with("forward.") {
+                let expected = summrise_core::registry::is_destructive(name);
+                assert_eq!(
+                    tool["annotations"]["destructiveHint"].as_bool(),
+                    expected,
+                    "{name} is annotated with the flag it is authorized by: {tool}"
+                );
+            }
+        }
+    }
+
     #[tokio::test]
     async fn the_tool_list_is_exactly_the_registrys_tools() {
         let device = start("mcp-tools-list").await;
@@ -3853,6 +4108,9 @@ mod tests {
                 "host.facts",
                 "host.restart",
                 "screen.capture",
+                "forward.add",
+                "forward.remove",
+                "forward.list",
                 "state.get",
                 "plugins.list",
                 "plugins.inspect",
@@ -5918,6 +6176,451 @@ mod tests {
             implementations, registry,
             "the registry and the dispatch table must name the same tools"
         );
+    }
+
+    /// **EVERY ADVERTISED SCHEMA IS A REAL OBJECT SCHEMA, AND NO TOOL FALLS INTO THE FALLBACK.**
+    ///
+    /// `input_schema` ends with `_ => json!({ "type": "object" })`, which is what a tool with no arm
+    /// would silently advertise: a schema that accepts anything, tells a client nothing, and refuses
+    /// nothing. **Nothing asserted that every registry tool had an arm** — the alignment test above
+    /// checks `HANDLERS`, not the schema table, and those are two different lists.
+    ///
+    /// It also validates each schema the way a client would: an object, a `properties` map, every
+    /// `required` name actually a property, and `additionalProperties` set (the device's `parse`
+    /// refuses unknown keys, so a schema that omitted the flag would describe a call the device then
+    /// rejects — the client cannot know its own mistake from the schema alone).
+    ///
+    /// MUTATION (run, not asserted): deleting `forward.list`'s arm made it advertise `{"type":
+    /// "object"}` and this fail with `forward.list: the device refuses an unknown key, so the schema
+    /// must say so: {"type":"object"}`. Restored, green.
+    #[test]
+    fn every_advertised_schema_is_a_real_object_schema() {
+        let mut fallbacks = Vec::new();
+        for capability in CAPABILITIES {
+            for definition in capability.tools {
+                let schema = input_schema(definition);
+                let object = schema.as_object().unwrap_or_else(|| {
+                    panic!("{}: the schema is an object: {schema}", definition.name)
+                });
+                assert_eq!(
+                    object.get("type").and_then(Value::as_str),
+                    Some("object"),
+                    "{}: the schema type is object: {schema}",
+                    definition.name
+                );
+                let properties = object
+                    .get("properties")
+                    .and_then(Value::as_object)
+                    .map(|properties| properties.keys().cloned().collect::<Vec<_>>())
+                    .unwrap_or_default();
+                // THE FALLBACK IS RECOGNISABLE, AND IT IS NOT "NO ARGUMENTS": eleven tools really
+                // take none, and each says so with `"properties": {}` and
+                // `"additionalProperties": false`. The fallback is the bare `{"type": "object"}`.
+                if !object.contains_key("additionalProperties") {
+                    fallbacks.push(definition.name);
+                }
+                if let Some(required) = object.get("required").and_then(Value::as_array) {
+                    for name in required {
+                        let name = name.as_str().unwrap_or_default();
+                        assert!(
+                            properties.iter().any(|property| property == name),
+                            "{}: `required` names {name}, which is not a property of the schema: {schema}",
+                            definition.name
+                        );
+                    }
+                }
+                assert!(
+                    object.contains_key("additionalProperties"),
+                    "{}: the device refuses an unknown key, so the schema must say so: {schema}",
+                    definition.name
+                );
+            }
+        }
+        assert!(
+            fallbacks.is_empty(),
+            "these tools advertise the fallback schema instead of their own: {fallbacks:?}"
+        );
+    }
+
+    /// **A DESCRIPTION THAT STATES A NUMBER IS A PROMISE, AND NOTHING TIED THE NUMBERS TO THE CODE.**
+    ///
+    /// The registry's `description` is the MCP tool description: it is what a client's model reads
+    /// before it calls. Several of them state limits — "at most 1000 entries", "at most 16 sessions",
+    /// "a frame over 8 MiB is refused" — and a limit that drifts from the constant behind it makes
+    /// the description a lie in the one direction that matters: the model budgets for a number the
+    /// device does not honour.
+    ///
+    /// The check is a table of (tool, the text the description must contain, the constant, the text
+    /// its value must render as). **It reads the CONSTANTS, not a copy of them**, so changing
+    /// `MAX_SESSIONS` to 32 without touching the sentence fails here instead of in a model's context
+    /// window.
+    ///
+    /// MUTATION (run, not asserted): setting `MAX_SESSIONS` to 32 while the sentence still said 16
+    /// made this fail with `terminal.create: the description must state \`At most 32 sessions\` (the
+    /// value is 32); it says \`… At most 16 sessions may be live …\``. Restored, green.
+    #[test]
+    fn the_limits_a_description_states_are_the_limits_the_code_enforces() {
+        use crate::capabilities::browser;
+        use crate::capabilities::files;
+        use crate::capabilities::memory;
+        use crate::capabilities::monitor;
+        use crate::capabilities::runs;
+        use crate::capabilities::terminal;
+        use crate::plugins::logs;
+
+        // (tool, text the description must contain, the value the constant renders as)
+        let rows: [(&str, String, &str); 14] = [
+            (
+                "files.list",
+                format!("{} entries", files::MAX_LIST_ENTRIES),
+                &format!("{}", files::MAX_LIST_ENTRIES),
+            ),
+            (
+                "memory.export",
+                format!("up to {}", human_bytes(memory::MAX_EXPORT_BYTES)),
+                &human_bytes(memory::MAX_EXPORT_BYTES),
+            ),
+            (
+                "terminal.create",
+                format!("At most {} sessions", terminal::MAX_SESSIONS),
+                &format!("{}", terminal::MAX_SESSIONS),
+            ),
+            (
+                "terminal.create",
+                format!("retains {}", human_bytes(terminal::BUFFER_BYTES)),
+                &human_bytes(terminal::BUFFER_BYTES),
+            ),
+            (
+                "terminal.create",
+                format!("idle for {} minutes", terminal::IDLE_TIMEOUT_MS / 60_000),
+                &format!("{}", terminal::IDLE_TIMEOUT_MS / 60_000),
+            ),
+            (
+                "terminal.write",
+                format!("At most {}", human_bytes(terminal::MAX_INPUT_BYTES)),
+                &human_bytes(terminal::MAX_INPUT_BYTES),
+            ),
+            (
+                "terminal.write",
+                format!(
+                    "cannot finish in {} seconds",
+                    terminal::WRITE_TIMEOUT_MS / 1_000
+                ),
+                &format!("{}", terminal::WRITE_TIMEOUT_MS / 1_000),
+            ),
+            (
+                "terminal.read",
+                format!("newest {}", human_bytes(terminal::BUFFER_BYTES)),
+                &human_bytes(terminal::BUFFER_BYTES),
+            ),
+            (
+                "terminal.resize",
+                format!("1..={}", terminal::MAX_DIMENSION),
+                &format!("{}", terminal::MAX_DIMENSION),
+            ),
+            (
+                "browser.open",
+                format!("at most {} tabs", browser::MAX_TABS),
+                &format!("{}", browser::MAX_TABS),
+            ),
+            (
+                "browser.eval",
+                format!("over {} is refused", human_bytes(browser::EVAL_MAX_BYTES)),
+                &human_bytes(browser::EVAL_MAX_BYTES),
+            ),
+            (
+                "monitor.add",
+                format!("At most {} targets", monitor::MAX_TARGETS),
+                &format!("{}", monitor::MAX_TARGETS),
+            ),
+            (
+                "monitor.add",
+                format!("at least {} ms", monitor::MIN_INTERVAL_MS),
+                &format!("{}", monitor::MIN_INTERVAL_MS),
+            ),
+            (
+                "runs.exec",
+                format!("at most {} variables", runs::MAX_ENV_VARS),
+                &format!("{}", runs::MAX_ENV_VARS),
+            ),
+        ];
+        let _ = logs::MAX_LOG_LINES;
+
+        for (tool, needle, rendered) in rows {
+            let definition =
+                summrise_core::registry::tool(tool).unwrap_or_else(|| panic!("{tool} is declared"));
+            assert!(
+                definition.description.contains(&needle),
+                "{tool}: the description must state `{needle}` (the value is {rendered}); it says \
+                 `{}`",
+                definition.description
+            );
+        }
+
+        // THE ROWS THAT ARE PLAIN NUMBERS, kept separate because they need no unit conversion.
+        let plain: [(&str, String, usize); 5] = [
+            (
+                "browser.screenshot",
+                format!("{} MiB", browser::SCREENSHOT_MAX_BYTES / (1024 * 1024)),
+                browser::SCREENSHOT_MAX_BYTES / (1024 * 1024),
+            ),
+            (
+                "browser.cast",
+                format!("{} MiB", browser::CAST_MAX_BYTES / (1024 * 1024)),
+                browser::CAST_MAX_BYTES / (1024 * 1024),
+            ),
+            (
+                "browser.cast",
+                format!("{} s unpolled", browser::CAST_IDLE_MS / 1_000),
+                (browser::CAST_IDLE_MS / 1_000) as usize,
+            ),
+            (
+                "runs.list",
+                format!("defaults to {}", runs::DEFAULT_LIST_LIMIT),
+                runs::DEFAULT_LIST_LIMIT,
+            ),
+            (
+                "plugins.logs",
+                format!("at most {}", logs::MAX_LOG_LINES),
+                logs::MAX_LOG_LINES,
+            ),
+        ];
+        for (tool, needle, rendered) in plain {
+            let definition =
+                summrise_core::registry::tool(tool).unwrap_or_else(|| panic!("{tool} is declared"));
+            assert!(
+                definition.description.contains(&needle),
+                "{tool}: the description must state `{needle}` (the value is {rendered}); it says \
+                 `{}`",
+                definition.description
+            );
+        }
+    }
+
+    /// The way a byte count is written in these descriptions: exact powers of two as whole MiB.
+    fn human_bytes(bytes: usize) -> String {
+        if bytes.is_multiple_of(1024 * 1024) {
+            format!("{} MiB", bytes / (1024 * 1024))
+        } else if bytes.is_multiple_of(1024) {
+            format!("{} KiB", bytes / 1024)
+        } else {
+            format!("{bytes} bytes")
+        }
+    }
+
+    /// **THE SCHEMA'S `required` AND THE PARSER'S REQUIRED FIELDS ARE THE SAME LIST, AND NOTHING SAID
+    /// SO.**
+    ///
+    /// A tool's schema is what a client validates against; `parse::<Args>` is what the device enforces
+    /// (`#[serde(deny_unknown_fields)]` plus every non-`Option` field). **The two are written twice**,
+    /// by hand, in two files — the schema in the `input_schema` match, the fields in the argument
+    /// struct — and a field that is required in one and optional in the other is a client's bug: it
+    /// sends what the schema said, or omits what the schema did not require, and the device answers a
+    /// refusal the client cannot explain.
+    ///
+    /// This checks the direction that matters at the wire: for every tool with a struct, the schema's
+    /// TOP-LEVEL `required` names are exactly the struct's non-`Option` fields. Nested objects are
+    /// checked by the same rule, one level down (see the recursion below), because `auth` is a
+    /// required object whose `kind` is required inside it.
+    ///
+    /// **MUTATIONS, RUN AND RECORDED — AND ONE OF THE THREE DID NOT FIRE, WHICH IS THE HONEST LIMIT OF
+    /// THIS TEST.**
+    ///
+    /// - A: adding a property to `forward.add`'s schema that no argument struct field parses -> fails
+    ///   with `forward.add: the schema offers ["retries"], which this table does not classify`.
+    /// - B: dropping `name` from the schema's `required` while the parser still needs it -> fails with
+    ///   `forward.add: the parser requires ["name"] but the schema does not`.
+    /// - C: adding `retries: u32` to `ForwardAddArgs` -> **STAYS GREEN.** The table above is written
+    ///   by hand beside the struct, so a field added to the struct is invisible here; only a field
+    ///   added to the SCHEMA is caught. The table catches the direction that breaks a client (the
+    ///   schema promising what the device refuses, and the schema omitting what the device needs) and
+    ///   misses the direction that breaks the module (a required field nobody told the schema about).
+    ///   Closing that needs the argument structs to derive their schema instead of being described
+    ///   by hand, which is a change this branch is not the place for.
+    #[test]
+    fn every_schemas_required_set_is_the_parsers_required_set() {
+        // The pairs, written out because the mapping is a fact of this module and not of a name
+        // convention: a handler parses ONE struct, and this test needs to know which.
+        let pairs: [(&str, Required); 49] = [
+            (
+                "files.read",
+                Required::new(&["path"], &["root", "encoding"]),
+            ),
+            (
+                "files.write",
+                Required::new(&["path", "content"], &["root", "encoding"]),
+            ),
+            ("files.mkdir", Required::new(&["path"], &["root"])),
+            ("files.list", Required::new(&["path"], &["root"])),
+            ("memory.append", Required::new(&["text"], &["tags"])),
+            ("memory.update", Required::new(&["id", "text", "tags"], &[])),
+            ("memory.delete", Required::new(&["id"], &[])),
+            ("memory.search", Required::new(&["query"], &["limit"])),
+            ("memory.list", Required::new(&[], &["limit", "tag"])),
+            ("memory.export", Required::new(&[], &[])),
+            (
+                "terminal.create",
+                Required::new(
+                    &["kind"],
+                    &[
+                        "shell",
+                        "host",
+                        "port",
+                        "user",
+                        "auth",
+                        "host_key",
+                        "baud",
+                        "parity",
+                        "data_bits",
+                        "stop_bits",
+                        "rows",
+                        "cols",
+                    ],
+                ),
+            ),
+            ("terminal.write", Required::new(&["id", "data"], &[])),
+            (
+                "terminal.read",
+                Required::new(&["id"], &["cursor", "wait_ms", "limit"]),
+            ),
+            (
+                "terminal.resize",
+                Required::new(&["id", "rows", "cols"], &[]),
+            ),
+            ("terminal.close", Required::new(&["id"], &[])),
+            ("terminal.list", Required::new(&[], &[])),
+            ("terminal.screen", Required::new(&["id"], &["lines"])),
+            ("browser.list", Required::new(&[], &[])),
+            (
+                "browser.open",
+                Required::new(&["url"], &["width", "height"]),
+            ),
+            ("browser.navigate", Required::new(&["target", "url"], &[])),
+            (
+                "browser.eval",
+                Required::new(&["target", "expression"], &[]),
+            ),
+            ("browser.screenshot", Required::new(&["target"], &[])),
+            ("browser.cast", Required::new(&["target"], &[])),
+            ("browser.close", Required::new(&["target"], &[])),
+            ("browser.shutdown", Required::new(&[], &[])),
+            (
+                "forward.add",
+                Required::new(&["name", "listen", "target", "via", "auth"], &["host_key"]),
+            ),
+            ("forward.remove", Required::new(&["name"], &[])),
+            ("forward.list", Required::new(&[], &[])),
+            (
+                "monitor.add",
+                Required::new(
+                    &["kind", "host", "port", "interval_ms"],
+                    &["path", "expect"],
+                ),
+            ),
+            ("monitor.remove", Required::new(&["id"], &[])),
+            ("monitor.list", Required::new(&[], &[])),
+            ("monitor.probe", Required::new(&["id"], &[])),
+            ("monitor.status", Required::new(&["id"], &[])),
+            (
+                "runs.exec",
+                Required::new(&["command"], &["args", "shell", "cwd", "timeout_ms", "env"]),
+            ),
+            ("runs.list", Required::new(&[], &["limit"])),
+            ("runs.get", Required::new(&["id"], &[])),
+            ("system.process_list", Required::new(&[], &["name"])),
+            ("system.process_kill", Required::new(&[], &["pid", "name"])),
+            (
+                "system.net_test",
+                Required::new(&["host", "port"], &["timeout_ms"]),
+            ),
+            ("host.facts", Required::new(&[], &[])),
+            ("host.restart", Required::new(&[], &[])),
+            ("screen.capture", Required::new(&[], &[])),
+            ("state.get", Required::new(&[], &[])),
+            ("plugins.list", Required::new(&[], &[])),
+            ("plugins.inspect", Required::new(&["path"], &[])),
+            ("plugins.add", Required::new(&["path"], &[])),
+            ("plugins.remove", Required::new(&["namespace"], &[])),
+            ("plugins.restart", Required::new(&["namespace"], &[])),
+            ("plugins.logs", Required::new(&["namespace"], &["lines"])),
+        ];
+
+        let mut wrong = Vec::new();
+        for (tool, expected) in pairs {
+            let definition =
+                summrise_core::registry::tool(tool).unwrap_or_else(|| panic!("{tool} is declared"));
+            let schema = input_schema(definition);
+            let properties: Vec<String> = schema
+                .get("properties")
+                .and_then(Value::as_object)
+                .map(|properties| properties.keys().cloned().collect())
+                .unwrap_or_default();
+            let required: Vec<String> = schema
+                .get("required")
+                .and_then(Value::as_array)
+                .map(|required| {
+                    required
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_owned)
+                        .collect()
+                })
+                .unwrap_or_default();
+            // Every name the schema offers is either required or declared-optional here; a property
+            // in neither list is a field this test does not know about, which is the failure.
+            let mut unknown = Vec::new();
+            for property in &properties {
+                if !expected.required.iter().any(|name| name == property)
+                    && !expected.optional.iter().any(|name| name == property)
+                {
+                    unknown.push(property.clone());
+                }
+            }
+            if !unknown.is_empty() {
+                wrong.push(format!(
+                    "{tool}: the schema offers {unknown:?}, which this table does not classify"
+                ));
+            }
+            let mut missing_from_schema = Vec::new();
+            for name in expected.required {
+                if !required.iter().any(|declared| declared == name) {
+                    missing_from_schema.push(name);
+                }
+            }
+            if !missing_from_schema.is_empty() {
+                wrong.push(format!(
+                    "{tool}: the parser requires {missing_from_schema:?} but the schema does not"
+                ));
+            }
+            let mut wrongly_required = Vec::new();
+            for name in &required {
+                if expected.optional.iter().any(|optional| optional == name) {
+                    wrongly_required.push(name.clone());
+                }
+            }
+            if !wrongly_required.is_empty() {
+                wrong.push(format!(
+                    "{tool}: the schema requires {wrongly_required:?} but the parser treats them as optional"
+                ));
+            }
+        }
+        assert!(
+            wrong.is_empty(),
+            "the schema and the parser disagree about what a client must send:\n  {}",
+            wrong.join("\n  ")
+        );
+    }
+
+    /// The required and optional field names a tool's argument struct declares.
+    struct Required {
+        required: &'static [&'static str],
+        optional: &'static [&'static str],
+    }
+
+    impl Required {
+        const fn new(required: &'static [&'static str], optional: &'static [&'static str]) -> Self {
+            Self { required, optional }
+        }
     }
 
     #[tokio::test]

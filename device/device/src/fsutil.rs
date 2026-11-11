@@ -32,6 +32,41 @@ pub(crate) fn create_new_sibling_private(path: &Path) -> io::Result<(PathBuf, Fi
     create_new_sibling_with(path, true)
 }
 
+/// Create `directory` and, on Unix, make it owner-only.
+///
+/// **THIS IS THE UNIX HALF OF THE PROTECTION WINDOWS GETS FROM THE INSTALLER.** `launch/src/win.rs`
+/// calls `winsec::protect_dir` on `<data>` before any credential is written there, and its comment
+/// says why: on Windows a file's protection is its parent's inheritable ACEs, so the directory is
+/// what protects the files. Unix has the same fact with a different mechanism — a file created in a
+/// `0700` directory is still `0644` by umask, so a directory that others may TRAVERSE is not a
+/// directory that protects anything: `memory.jsonl`, `events.jsonl` and `state.json` are all
+/// world-readable there, and the first of those holds whatever a session asked the device to
+/// remember.
+///
+/// It is idempotent and it does not raise a mode: a directory the operator deliberately opened wider
+/// keeps that mode, because narrowing somebody else's decision is not this function's job — a mode of
+/// `0755` on a box with one user is a legitimate choice, and the only thing to fix is the state a
+/// fresh install starts in. `0700` is applied only when the directory is CREATED here.
+pub(crate) fn create_private_dir(directory: &Path) -> io::Result<()> {
+    if directory.is_dir() {
+        return Ok(());
+    }
+    fs::create_dir_all(directory)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        // Read back rather than assume: `create_dir_all` honours the umask, and a mode that was
+        // narrowed by it is still owner-only, but a mode the umask left at `0755` is what this call
+        // exists to prevent.
+        let mut permissions = fs::metadata(directory)?.permissions();
+        if permissions.mode() & 0o777 != 0o700 {
+            permissions.set_mode(0o700);
+            fs::set_permissions(directory, permissions)?;
+        }
+    }
+    Ok(())
+}
+
 /// Create a brand-new directory at a random sibling of `path`, returning its path.
 ///
 /// A version directory is built under a temporary name and renamed into place once both of its
