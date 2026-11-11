@@ -227,7 +227,7 @@ describe("the layout contract", () => {
     // The literal below is the sha256 of BOTH copies, and it is the same literal the panel's test carries.
     const ours = createHash("sha256").update(contractText()).digest("hex");
     expect(ours).toBe(
-      "bb56f7b35945c2921a12b4e64358bb9b85650ead71e758b46ab91b448066d6f7"
+      "14d7dc91bf261becc03dd1ef6ea47ee454beae32cabfba57e9b61b3348725b62"
     );
     const sibling = path.join(here, "..", "..", "..", "..", "..", "summrise", "docs",
       "superpowers", "specs", "layout-contract.json");
@@ -624,7 +624,7 @@ describe("the layout contract", () => {
     // **THE CONSOLE WAS THE SURFACE THE PANEL WAS MEASURED AGAINST (the fifty-fifth list).** Its card
     // measured `box-shadow: none` — a hairline on the ground — while the panel's carried a four-layer
     // float. So this test is the line being HELD rather than a fix: `elevation.flat` is `none`, a card
-    // is flat on the page, and `elevation.pane` (`--glass-shadow`) is the level that may float.
+    // is flat on the page, and `elevation.pane` (`--shadow-pop`) is the level that may float.
     const source = css();
     const card = ruleFor(source, ".card");
     expect(card, "the card must have a rule").not.toBeNull();
@@ -635,9 +635,9 @@ describe("the layout contract", () => {
       true
     );
     // **AND THE FLOAT IS STILL SOMEWHERE** — a modal or a drawer with no shadow would read as part of the
-    // page. This surface's `--shadow-lg` is that level, and it is used.
-    expect(source, "the pane level exists and is used").toContain("var(--shadow-lg)");
-    expect(contract.elevation.pane).toBe("--glass-shadow");
+    // page. This surface's pane token is `--shadow-pop` — the atom's name — and it is used.
+    expect(source, "the pane level exists and is used").toContain("var(--shadow-pop)");
+    expect(contract.elevation.pane).toBe("--shadow-pop");
   });
 
   it("is the ground, and it is ONE colour rather than a wash", () => {
@@ -1300,14 +1300,14 @@ describe("the layout contract", () => {
     const declOf = (src: string, name: string) =>
       new RegExp(`--${name}\\s*:\\s*([^;]+);`).exec(src)?.[1].replace(/\\s+/g, "") ?? "";
     const norm = (v: string) => v.replace(/\\s+/g, "");
-    expect(declOf(tokensSrc, "shadow-lg"), "the pane's shadow is the atom's (same value, any spelling)").toBe(
+    expect(declOf(tokensSrc, "shadow-pop"), "the pane's shadow is the atom's (same value, any spelling)").toBe(
       norm(contract.elevation.paneShadow),
     );
     expect(contract.elevation.paneRadius, "the pane's radius is the atom's").toBe(14);
     expect(contract.elevation.paneEdge, "and its edge weight").toBe(0.08);
     // **EVERY FLOAT IS THE SAME OBJECT.** A rule with the pane's shadow must take the pane's radius and the page's
     // line — the seven rules that float things here (three popovers, the sheet, the export menu, the alert banner).
-    const floaters = [...sheet.matchAll(/([^{}]+)\{([^}]*box-shadow: var\(--shadow-lg\)[^}]*)\}/g)];
+    const floaters = [...sheet.matchAll(/([^{}]+)\{([^}]*box-shadow: var\(--shadow-pop\)[^}]*)\}/g)];
     expect(floaters.length, "something floats").toBeGreaterThan(0);
     for (const [, sel, body] of floaters) {
       // **TWO THINGS THAT FLOAT ARE NOT POPOVERS.** `.alert-banner` is a NOTICE in the frame (it rides the layout's

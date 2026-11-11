@@ -94,7 +94,7 @@ p { margin: var(--sp-1-5) 0; }
   width: 20rem; max-width: calc(100vw - 2 * var(--sp-4));
   display: grid; gap: var(--sp-0-5); padding: var(--sp-1);
   background: var(--surface); border: 1px solid var(--line);
-  border-radius: var(--radius); box-shadow: var(--shadow-lg);
+  border-radius: var(--radius); box-shadow: var(--shadow-pop);
 }
 .machine-pop button {
   display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center;
@@ -192,7 +192,7 @@ p { margin: var(--sp-1-5) 0; }
   position: absolute; left: 0; bottom: calc(100% + var(--sp-2)); z-index: 40;
   width: 15rem; display: grid; gap: var(--sp-1); padding: var(--sp-2);
   background: var(--surface); color: var(--ink);
-  border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-lg);
+  border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-pop);
 }
 .account-pop button, .account-pop a {
   width: 100%; padding: var(--sp-1-5) var(--sp-2); border: 0; border-radius: var(--radius-xs);
@@ -480,7 +480,7 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
   position: absolute; right: 0; top: calc(100% + var(--sp-1)); z-index: 20;
   width: 12rem; display: grid; gap: var(--sp-0-5); padding: var(--sp-1);
   background: var(--surface); border: 1px solid var(--line);
-  border-radius: var(--radius); box-shadow: var(--shadow-lg);
+  border-radius: var(--radius); box-shadow: var(--shadow-pop);
 }
 .row-menu-pop button {
   border: 0; border-radius: var(--radius-xs); background: transparent;
@@ -738,7 +738,7 @@ a.btn.primary:hover { background: var(--accent-hover); border-color: var(--accen
   z-index: 60;
   display: flex; flex-direction: column; gap: var(--sp-2);
 }
-.alert-banner { box-shadow: var(--shadow-lg); }
+.alert-banner { box-shadow: var(--shadow-pop); }
 .alert-inline { margin: 0 0 var(--sp-3); }
 .alert-banner span,
 .alert-inline span { min-width: 0; overflow-wrap: anywhere; }
@@ -889,7 +889,7 @@ tr:last-child td { border-bottom: 0; }
 .sheet {
   width: 600px; max-width: 100%; height: 100%;
   display: flex; flex-direction: column;
-  background: var(--surface); border-left: 1px solid var(--line); box-shadow: var(--shadow-lg);
+  background: var(--surface); border-left: 1px solid var(--line); box-shadow: var(--shadow-pop);
   animation: sheet-in var(--dur-interaction) ease-out;
 }
 .sheet-head {
@@ -1194,7 +1194,7 @@ main.terminal-main:has(.terminal-workspace-empty) { grid-template-rows: auto aut
   min-width: 12rem; display: grid; gap: var(--sp-1);
   padding: var(--sp-2);
   background: var(--surface); border: 1px solid var(--line);
-  border-radius: var(--radius); box-shadow: var(--shadow-lg);
+  border-radius: var(--radius); box-shadow: var(--shadow-pop);
 }
 .session-menu-pop > button {
   width: 100%; padding: var(--sp-1) var(--sp-2);
@@ -2414,7 +2414,7 @@ span.files-name {
   position: absolute; right: 0; top: calc(100% + 4px); z-index: 30;
   display: grid; gap: var(--sp-0-5); min-width: 15rem; padding: var(--sp-1);
   background: var(--surface); border: 1px solid var(--line);
-  border-radius: var(--radius); box-shadow: var(--shadow-lg);
+  border-radius: var(--radius); box-shadow: var(--shadow-pop);
 }
 .audit-export-formats .audit-export {
   width: 100%; margin: 0; padding: var(--sp-1-5) var(--sp-2);
