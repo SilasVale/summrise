@@ -4098,7 +4098,7 @@ derivation found a real defect on its first run: **`--warn` on the recess measur
    which this program has never run as part of the round loop. **Fix:** the console's Rust token test joins the round's
    gate list, named, in `ci.yml`'s own matrix. **S.**
 
-## P0 — the hundred-and-nineteenth list (opened 2026-11-11, the round loop's gate list is not CI's)
+## P0 — the hundred-and-nineteenth list (closed 2026-11-11: `scripts/check.sh` was red on `hub/v1`, and now returns 0)
 
 The hundred-and-eighteenth list closed items 1 and 2 and left item 3 open: *the console's Rust token test is not in
 this program's round loop*. This list measured where the round loop actually reads its commands from — and the answer
@@ -4121,9 +4121,19 @@ written down in the file the whole program is built on.
 1. **The round loop's gate list is a memory, not a command.** `scripts/check.sh` reads CI's commands; **that is the
    instrument, and I ran my own list instead.** **Fix:** the round runs `scripts/check.sh` for the Rust half and keeps
    its own browser legs for the half CI cannot see. **S.**
+   *(**Done, MERGED, NOT DEPLOYED** — `861c35c`. `bash scripts/check.sh` now returns **EXIT=0**: **32 Rust suites
+   green**, `fmt` clean, `clippy -D warnings` clean. **First run in this loop, and it failed in three places that
+   predate the round**: `cargo fmt` red in eight spots across four files (oldest **2026-09**-era work, unformatted
+   since), clippy red on `tokens.rs`'s char comparison, and — **the red that mattered** — `console.rs` carried a test
+   function with **NO `#[tokio::test]` attribute**, left by `14c4331` when it renamed it. **A test without its
+   attribute is a gate that never runs**, and clippy's `dead_code` was the only thing that ever said so.)*
 2. **A gate's RED could not reach the round at all**: the token test failed on `hub/v1` for three hours while every
    round reported green. **Fix:** a push is preceded by the cheap Rust suite, so a red gate blocks the round that
    created it. **S.**
+   *(**Done as a rule, and the rule is now written where the round reads it**: `scripts/check.sh` is the round's Rust
+   command because it is CI's command, and the round's gate list gains it. **What that bought, measured**: the three
+   reds above were on `hub/v1` for hours while two rounds reported green. **It is also the honest boundary**: the
+   Windows lifecycle suite CI runs only on Windows is still not in the loop, and this round does not claim it.)*
 
 ## How a round goes
 
