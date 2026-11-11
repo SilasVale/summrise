@@ -4407,7 +4407,7 @@ the sheet must land in one commit or that commit is red on its own pin. Two olde
 `padding: 12px` now read the padding through `var(--sp-3)` and compare the **value**: *a gate resolves a value; it does
 not dictate a spelling.*
 
-## P0 — the hundred-and-twenty-sixth list (opened 2026-11-11, rule 4: four weights, and one surface writes 63 numbers)
+## P0 — the hundred-and-twenty-sixth list (CLOSED 2026-11-11 — four weights, and 63 numbers named)
 
 Rules 4 (*"use fewer font weights"*) and 5 (*"hierarchy comes from size, weight and colour"*), measured on the sheets
 because a weight is written in one:
@@ -4430,11 +4430,30 @@ only — it would pass a sheet that wrote `font: 650 …` all the way down.
 
 1. **`650` ×3 is off the four-step scale.** **Fix:** 600, the weight the atom gives a card title, and a gate that
    refuses a weight outside 400/500/600/700. **S.**
+   *(**Done — `ec06f2b21`, agent repo, not pushed.** `.path-summary-n`, `.gs-head h2` and `.gs-close` are
+   `var(--fw-semi)` now. **The only pixel this list moved**: −50 weight units on three elements.)*
 2. **The panel has no `--fw-regular`**, while the console has one and this surface writes `400` 36 times. **Fix:**
    declare it and use it. **M.**
+   *(**Done — same commit.** `--fw-regular: 400` joins the block, and 36 declarations name it. The comment that had
+   recorded "the panel's weight scale starts at 500" now records the four-weight family instead: the old note was the
+   reason the gap looked deliberate.)*
 3. **No gate reads the `font:` shorthand**, so 63 weights bypass the vocabulary entirely. **Fix:** a panel gate that
    requires every written weight — `font-weight:` or the shorthand — to be `var(--fw-*)`, and the four tokens to be
    exactly 400/500/600/700. **M.**
+   *(**Done — same commit.** `names every written weight, including the ones inside a `font:` shorthand`: comments
+   stripped, every sheet by `readdirSync`, the four tokens compared as an OBJECT (a fifth weight or a moved value
+   fails), every `font-weight:` read as exactly `var(--fw-*)`, and every `font:` shorthand read at its first token
+   after an optional `italic`/`small-caps` — a three-digit number or `bold|bolder|lighter` fails, an omitted weight
+   is admitted. **Mutation, twice**: `font: 600 …` back → red naming `components.css: font: 600 var(--fs-sm)
+   var(--font)`; a planted `font: 650 …` → red. 65 contract tests (was 64); `build-css` now 138 tokens because the
+   fourth weight is one.)*
+
+**The console half needed no change**: `every_weight_is_one_of_four_tokens` (`device/console/tests/tokens.rs`) names
+all four and reads every `font-weight:` line — the measurement found **0 literals and 0 numeric weights in `font:`**
+there. **And two adjacent rules were measured clean while this list was open**: rule 3 on the panel (0 `font-size`
+literals, seven `--fs-*` tokens, no size written in a `font:` shorthand on either surface) and rule 17 (six gradient
+sites in the product, all functional — four fade/hard-stop on the panel, two page-edge fades on the console — none
+decorative).
 
 ## How a round goes
 
