@@ -4455,6 +4455,32 @@ literals, seven `--fs-*` tokens, no size written in a `font:` shorthand on eithe
 sites in the product, all functional — four fade/hard-stop on the panel, two page-edge fades on the console — none
 decorative).
 
+## P0 — the hundred-and-twenty-seventh list (opened 2026-11-11, rule 10: a pane is one object, drawn three ways)
+
+Rule 10 — *"use consistent, limited shadows"* — measured where a shadow is written: the token block and the rules
+that use it.
+
+    console  pane = `--shadow-lg`   · 7 sites · value = the atom's `paneShadow` (three cool layers, both themes)
+             `--glass-shadow` 0 · `--shadow-pop` 0
+    panel    pane = `--shadow-pop`  · 5 sites (tab-menu, session-menu, mem-menu, gs-card, new-menu) · value = `paneShadow`
+             `--shadow-lg`   · 3 sites (`.modal-card`, `.app-crash-card`, `#conn-form`) · **a one-layer
+                             `0 12px 32px rgba(0,0,0,.12)`** — the drop the atom rejected for a pane
+             `--glass-shadow` · declared in BOTH themes · **used 0 times** — and it is the token the atom's
+                             `elevation.pane` names
+
+**So the level has three names and two values.** The console draws every pane on the atom's value under one name; the
+panel draws five of its eight floating surfaces on that value under a second name, three on a different value, and
+declares a third name it never draws.
+
+1. **A modal, a crash card and the login card float on a shadow every other pane refuses.** **Fix:** they take
+   `var(--shadow-pop)`, the atom's `paneShadow`; a pane is one object. **S.**
+2. **`--glass-shadow` is declared in both themes and used nowhere**, and it is the token the atom names for this
+   level. **Fix:** cut it — the value lives on `--shadow-pop`, and a token that draws nothing is a word that means
+   nothing. **S.**
+3. **The pane has two names across the product and the atom names a third.** **Fix:** one name, `--shadow-pop`; the
+   console's 7 pane sites and 2 token definitions rename, `elevation.pane` records it, and BOTH pin literals move in
+   the same commits. **M.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
