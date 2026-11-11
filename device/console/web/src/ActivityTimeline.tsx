@@ -1017,7 +1017,7 @@ export function ActivityTimeline(props: {
         props.unread ? null : filtering ? (
           // A filter that hides every row is not "nothing happened": the page names what narrowed
           // the list and keeps the way back next to it.
-          <div className="timeline-empty timeline-empty-filtered">
+          <div className="empty-state timeline-empty timeline-empty-filtered">
             <p className="hint">
               {clientsOnly
                 ? `No client calls${needle !== "" ? ` match “${query.trim()}”` : ""}${

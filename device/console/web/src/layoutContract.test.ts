@@ -754,9 +754,16 @@ describe("the layout contract", () => {
     // box the atom says an empty state is. Both shapes are the atom now.
     expect(contract.empty.wayBack, "an empty state keeps the way back").toBe(true);
     const sheet = css();
+    // **AND THE SECOND SHAPE IS NO LONGER A SECOND CARD (the hundred-and-twelfth list).** It restated the atom's six
+    // declarations verbatim, both of them reading a `--empty-gap` nothing set. **Two cards that happen to agree are two
+    // habits; one card declared once is the atom** — the filtered empty wears `.empty-state` in the component now, and
+    // this gate asks the atom's shape ONCE plus the composition that puts it on the second surface.
+    const timelineSrc = readFileSync(path.join(here, "ActivityTimeline.tsx"), "utf8");
+    expect(timelineSrc, "the filtered empty composes the atom").toContain(
+      'className="empty-state timeline-empty timeline-empty-filtered"',
+    );
     for (const [selector, why] of [
-      [".empty-state", "the page's own empty shape was already the card"],
-      [".timeline-empty-filtered", "the filtered empty is the same card now"],
+      [".empty-state", "the page's own empty shape IS the card"],
     ]) {
       const rule = ruleFor(sheet, selector.replace(/\./g, "\\."));
       expect(rule, `${why}: ${selector}`).toBeTruthy();

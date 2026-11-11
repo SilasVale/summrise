@@ -549,8 +549,13 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
    padding, start-aligned, no shadow. Measured on the panel at 1360 and the console at 1440, the console
    was ALREADY right for its first-run card (16 / 14 / none / start / full width); this is the other
    empty shape on the same surface, and it was not. */
+/* **THE EMPTY CARD'S GAP IS THE ATOM'S, NOT A FALLBACK (the hundred-and-twelfth list).** Measured 2026-11-11: this
+   read `var(--empty-gap, var(--sp-3))` and **`--empty-gap` is set NOWHERE** — the gap was 12 only because the scale's
+   `--sp-3` happens to be 12. *A fallback is not a value*: it is a number that survives the token it was meant to
+   read being deleted. The atom is `radius 14, pad 16, gap 12, textAlign start, shadow none`, and every one of those
+   is a token now. */
 .empty-state {
-  display: grid; gap: var(--empty-gap, var(--sp-3)); justify-items: start; align-content: start;
+  display: grid; gap: var(--sp-3); justify-items: start; align-content: start;
   padding: var(--sp-4); min-width: 0;
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
   box-shadow: none;
@@ -3483,13 +3488,12 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
    surface, while `.empty-state` next door (the page's other empty shape) drew the contract's card. The
    contract's `empty` atom is one card (radius 14, pad 16, gap 12, start-aligned, no shadow), and this
    surface had the reader's way back and not the box; the panel had the box and not the way back.
-   `--empty-gap` is the atom's 12, the same custom property `.empty-state` reads. */
-.timeline-empty-filtered {
-  display: grid; gap: var(--empty-gap, var(--sp-3)); justify-items: start; align-content: start;
-  padding: var(--sp-4); min-width: 0;
-  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
-  box-shadow: none;
-}
+   **AND IT IS NOT A SECOND COPY OF THE ATOM (the hundred-and-twelfth list).** This rule restated `.empty-state`'s
+   six declarations verbatim, both of them reading a `--empty-gap` nothing sets. **Two cards that happen to agree are
+   two habits; one card declared once is the atom.** It takes `.empty-state` now. */
+/* (the mechanism is the CLASS LIST — `ActivityTimeline` renders `.timeline-empty.timeline-empty-filtered`
+   together with `.empty-state`; see the component). */
+.timeline-empty { display: grid; }
 .timeline-empty-actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
 
 /* At phone width the clock keeps its seconds: a minute cannot separate two calls 8 s apart, and
