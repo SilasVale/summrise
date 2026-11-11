@@ -513,7 +513,7 @@ record, then the panel, then the smaller corrections.
    the fold; the operator scrolls base64 to read the exit. **Fix:** `shortCommand` in the record
    with a `Show full command` toggle, or facts above the command. **S/M.**
 
-4. **The panel's 200-row Timeline card buries Build, Updates and Connect.** *(Done 2026-11-06, 51c4465, live 0.3.286 on the 9VH: the cards are Console → Build → Updates → Connect → Timeline → Terminal → Diagnostics, and the Timeline draws its 20 newest rows with the rest in `<details class="timeline-rest">` (`Show the other 80 calls`, closed; all 100 rows in the DOM; the cut day reads `Today (continued)`). Live render of the 9VH's own 0.3.286 panel: Build y 427/561 (was 4,636/7,625), Updates 622/887, Connect 961/1,438, Timeline 1,239/1,848 (was 3,284/5,911) at 1440/390; screenshots /tmp/live-ux92-panel-1440.png and /tmp/live-ux92-panel-390.png. 617 unit tests, fmt/clippy, layout-gate 0 failures. The channel delivered 0.3.286 to the 9VH; the console door carries SummriseSetup-0.3.287.exe. The review render (100 calls) measures Build y 4,870→463 at 1440 and 7,908→598 at 390, Updates 5,065→658 / 8,234→924, the timeline 3,506→891 / 6,187→1,445, and the fold opens all 100 rows (nothing dropped). 617 unit tests, fmt/clippy, layout-gate 0 failures. The 9VH is still 0.3.285 (the channel's interval); the manual `--check-update` fetched 0.3.286 but the launcher refused: `staged artifact C:\Program Files\Summriseersions .3.286 is missing` — recorded as item 8 below.)* The panel's card order
+4. **The panel's 200-row Timeline card buries Build, Updates and Connect.** *(Done 2026-11-06, 51c4465, live 0.3.286 on the 9VH: the cards are Console → Build → Updates → Connect → Timeline → Terminal → Diagnostics, and the Timeline draws its 20 newest rows with the rest in `<details class="timeline-rest">` (`Show the other 80 calls`, closed; all 100 rows in the DOM; the cut day reads `Today (continued)`). Live render of the 9VH's own 0.3.286 panel: Build y 427/561 (was 4,636/7,625), Updates 622/887, Connect 961/1,438, Timeline 1,239/1,848 (was 3,284/5,911) at 1440/390; screenshots /tmp/live-ux92-panel-1440.png and /tmp/live-ux92-panel-390.png. 617 unit tests, fmt/clippy, layout-gate 0 failures. The channel delivered 0.3.286 to the 9VH; the console door carries SummriseSetup-0.3.287.exe. The review render (100 calls) measures Build y 4,870→463 at 1440 and 7,908→598 at 390, Updates 5,065→658 / 8,234→924, the timeline 3,506→891 / 6,187→1,445, and the fold opens all 100 rows (nothing dropped). 617 unit tests, fmt/clippy, layout-gate 0 failures. The 9VH is still 0.3.285 (the channel's interval); the manual `--check-update` fetched 0.3.286 but the launcher refused: `staged artifact C:\Program Files\Summrise\versions\0.3.286 is missing` — recorded as item 8 below.)* The panel's card order
    puts Build at y 4,636 (1440) / 7,625 (390) and Updates at 4,830/7,951; the timeline is
    3,284/5,911 px. **Cost:** the operator scrolls 4–8k px past the call log to see the build or the
    last check. **Fix:** fold the timeline after e.g. 20 rows, or move Build/Updates/Connect above
@@ -4541,33 +4541,43 @@ Home, Activity and Device**. For the controls built to `--control-h` that is the
 documents (`5 + 5 + 18 = 28`); for `.notify-state`, `.approval-left` and `.view-switch-btn` nothing names it —
 measured, recorded here, and not invented.
 
-## P0 — the hundred-and-twenty-ninth list (opened 2026-11-11, rule 13: eleven controls have no leading of their own)
+## P0 — the hundred-and-twenty-ninth list (CLOSED 2026-11-11 — the ratio is enforced, not inherited)
 
 Rule 13 measured on the RENDERED page, not the sheet: for every visible element that renders text, what box does its
 glyph sit in? The atom names three ratios (1.5 / 1.3 / 1); a control's height is `5 + 5 + an 18 px line box = 28`,
 and **18 is 12 × 1.5** — the ratio, not a user-agent accident.
 
-    console  visible styles with `line-height: normal`   0 on Home, Activity, Device
-             its buttons carry `font: inherit`, so the body's 1.5 ratio reaches a 12 px control as **18 px**
-    panel    **11** distinct styles with `line-height: normal` —
-             Settings 5 (a 12 px button, `.connect-tab`, a 13 px `.btn`, `.notify-state`),
-             Memory 6 (`.btn-new`, `.view-switch-btn`, `.approval-left`, two `.approval-*` buttons, a 12 px button)
-             and their heights: **19 · 22 · 22 · 22 · 24 · 24 · 26 · 29** — no two kinds share a line box
+    before, panel   11 distinct styles with `line-height: normal` — Settings 5, Memory 6 —
+                    heights 19 · 22 · 22 · 22 · 24 · 24 · 26 · 29: no two kinds shared a line box
+    before, console 0 on Home, Activity, Device; `font: inherit` already carried the body's 1.5
+    after, panel    0 styles with `normal`; the four pages paint 1 · 1.3 · 1.5 and nothing else
+    after, console  0 on the three pages; a 12 px control renders an 18 px line box (h 28)
 
-**The panel's controls never inherit the ratio** because the UA stylesheet sets `line-height: normal` on form
-controls — the base rule inherits the FAMILY and stops there. So every control's height is whatever the platform
-font's `normal` gives: on this Linux headless it is 12–17 px, and this app ships to Windows, where the system font's
-metrics are different. **The 18 px line box the atom names is an assumption here, not a rule.**
+**The panel's controls never inherited the ratio** because the UA stylesheet sets `line-height: normal` on form
+controls — the base rule inherited the FAMILY and stopped there. This app ships to Windows, whose system font's
+metrics are not this box's, so the atom's 18 px line box was an assumption there, not a rule.
 
-1. **The base control rule declares no leading.** **Fix:** `line-height: var(--lh-body)` on
-   `button, input, select, textarea` — the ratio the console's `font: inherit` already carries — so a 12 px control
-   gets 18 px and the atom's 28 px arithmetic holds on any platform. Re-measure the three pages' control heights.
-   **M.**
-2. **Two text spans render `normal`** (`.notify-state`, `.approval-left`) — text, not boxes. **Fix:** they name their
-   ratio too. **S.**
-3. **Nothing measures the rendered leading.** **Fix:** a browser gate (`scripts/leading-gate.mjs`) over the panel's
-   four pages that fails on any visible text or control whose computed leading is `normal`, with xterm's own DOM
-   excluded by name. **M.**
+1. **The base control rule declared no leading.** **Fix:** `line-height: var(--lh-body)` on
+   `button, input, select, textarea` — the ratio the console's `font: inherit` already carries. **Done — panel
+   `2cb2c65c7` (not pushed).** `.connect-tab` **24 → 28** px and the 12 px header button **19 → 22**; the five
+   controls that still depend on this rule are the mutation below.
+2. **Two text spans rendered `normal`** (`.notify-state`, `.approval-left`). **Fix:** they name their ratio too.
+   **Done — same commit.** At 11 px: `.notify-state` **16 → 20.5**, `.approval-left` **12 → 16.5**. **AND FOUR
+   CONTROLS RESET THE RATIO IN THEIR OWN `font:`**, which a `line-height:` census cannot see: `.btn`,
+   `.approval-actions button`, `.desktop-view-switch .view-switch-btn` and `.btn-new` now carry `/1.5` or
+   `--lh-mark` IN the shorthand — `.btn-new` **26 → 30**, the approval pair **22 → 26.5**.
+3. **Nothing measured the rendered leading.** **Fix:** `scripts/leading-gate.mjs` — four pages, fails on a computed
+   `normal` **and** on a ratio the atom does not name (the previous list found 1.6 / 1.55 / 1.4 / 1.25 in this
+   sheet's shorthands; `normal` is only the failure a stylesheet can hide). The three ratios are read from
+   `leading` in the contract, not copied; xterm is excluded by name. **Done — same commit.** **Mutation:** removing
+   the base rule fails naming the five controls that depend on it (Memory/Plugins/History `button "A−"` 12 px h=19,
+   Settings `"AI client"` h=22, `.connect-tab` h=24); `.btn` back to `/1.55` fails with *ratio 1.55 is in no atom*.
+
+**AND ONE PRE-EXISTING RED WAS FOUND BY RUNNING THE SHEET'S OWN GATES:** `stylesheet_hygiene` failed at HEAD on two
+`tokens.css` comments that quoted a declaration WITH its semicolon, which the ported Rust scanner reads as a value.
+The rebuild cannot ship a red sheet, so the two comments were reworded — no value, name or pixel moved — and the
+gate is green in `2cb2c65c7`. The same probe produced both numbers: the before-shot ran on the tree before the
+fix, the after-shot on the committed one.
 
 ## How a round goes
 
