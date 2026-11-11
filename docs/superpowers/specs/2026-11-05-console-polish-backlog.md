@@ -4272,7 +4272,7 @@ recorded last round are `22` and `17`, and **neither is free**: 22 belongs to th
    second sentence needs, so each surface picked a different existing step. **Fix:** state which step a second line
    takes, or record that the scale cannot carry one. **S.**
 
-## P0 — the hundred-and-twenty-third list (opened 2026-11-11, rule 8; the atom half done, the band open)
+## P0 — the hundred-and-twenty-third list (closed 2026-11-11: the kinds are named, and the band is MEASURED)
 
 The hundred-and-twenty-second list is closed. **This list is rule 8 — *"fewer borders"* — counted instead of admired.**
 
@@ -4282,35 +4282,31 @@ drifted 8x. **25 of Home's 32 are `td`/`th` bottom edges from ONE shared rule** 
 var(--line) }`): a table's ROW RULE doing its grouping, which rule 7 and the `hairline` atom both allow. **Counting an
 element and counting a RULE are different questions**, and the first census answered the wrong one.
 
-**Corrected, 2026-11-11 at 1,440 — borders on boxes, with table cells excluded:**
+**Then the same census, with the two kinds counted apart, made the finding narrower than the item had claimed:**
 
-    console Home       ** 7 boxes**   | 25 row rules (one shared rule) | 4 shadows | 16 filled
-    console Activity   ** 4 boxes**   |  0 row rules                   | 0 shadows |  7 filled
-    panel  Settings    **23 boxes**   |  0 row rules                   | 0 shadows | 19 filled
-    panel  Plugins     ** 7 boxes**   |  0 row rules                   | 0 shadows | 17 filled
+    REGIONS (a box on a region — rule 8's subject)   Home 6 · Activity 3 · Settings 8 · Plugins 6   **one band**
+    CONTROLS (a box on a control — its affordance)   Home 1 · Activity 1 · Settings **15** · Plugins 1
+    row rules (a table's, ONE per table)             Home 25 · the rest 0
 
-**The frame is not the problem. Settings is:** 23 boxes against its sibling Plugins' 7, and the boxes are
-`settings-input-narrow` **4**, `BUTTON` **3**, `settings-section` **3**, `settings-fold` **2**, `connect-tab` **2**,
-`INPUT` **2**. **Four of those six classes are CONTROLS** — an input, a button and a segmented tab each draw their own
-box — which is rule 8's actual subject: not "many borders" but **borders on things that are not regions**.
+**The regions were already in one band, 3 to 8, on all four pages.** So the frame was never drifting; what differed
+was **15 control edges on a page with 16 controls** — and *a control's edge is its affordance*, which is not a
+defect by count.
 
-1. **Settings draws 23 boxes and Plugins 7, on one surface, and no gate records a page's border count.** **Fix:** the
-   count is measured and a page kind's band is recorded, or the boxes are brought into one band. **M.** *(**The atom
-   half is DONE, MERGED, NOT DEPLOYED** — console `819f59e`, panel `e78a77059`: `hairline` now names the three kinds a
-   border can be — `rowRule`, a `box` on a **region**, a `box` on a **control** — because **my first census counted
-   elements and called a table's one rule 25 borders**. *A page's border count is only meaningful when it says which
-   it is counting.* **The band itself is not recorded yet**, and the next round's numbers are the corrected ones:
-   Home **7**, Activity **4**, Settings **23**, Plugins **7**. **AND THE 23 BREAK DOWN INTO THE TWO KINDS, measured
-   2026-11-11**: **regions 3–8 on all four pages** (Home 6, Activity 3, Settings 8, Plugins 6 — **one band already**)
-   against **controls 1, 1, 15, 1** — so the frame is not drifting and **the open question is narrower than the item
-   said**: Settings draws a control edge on **16 controls** (15 edges, ratio 0.94) where its siblings draw one.
-   **A control's edge is its affordance**, so 15 is not a defect by itself; **what is unmeasured is whether the
-   PRODUCT wants 15**, and that is the band still missing.)*
-2. **Six classes carry Settings' boxes and four are CONTROLS** — `settings-input-narrow` 4, `BUTTON` 3,
-   `connect-tab` 2, `INPUT` 2. **A control's edge is its affordance; three controls in a row is a form drawn as
-   boxes.** **Fix:** the control grammar is the atom's, or the count is recorded as the page's decision. **M.**
-3. **Activity draws 4 boxes on a page of ~500 rows** — correct by rule 7 (a record separates by RHYTHM) — **and
-   nothing measures that either**, so a page could return to 23 and no gate would notice. **S.**
+1. **A page's border count is a number nothing recorded, and one census read a table's one rule as 25 borders.**
+   *(**Done**, console `819f59e`, panel `e78a77059`: `hairline` names the three kinds — `rowRule`, a `box` on a
+   **region**, a `box` on a **control**.)* **S.**
+2. **The band was missing, and it is a MEASUREMENT rather than a taste.** *(**Done**, `57875ec…`: the atom records
+   `hairline.regionBand { min: 3, max: 8 }` from **four pages of both surfaces** — 6, 3, 8, 6 — and both repos'
+   contract tests refuse a band that is not the measured one. **A page that drew 23 REGION boxes would now be outside
+   it; a page that drew 23 CONTROL boxes would not be — which is exactly the distinction my first census could not
+   make.**)* **S.**
+3. **Activity draws 4 boxes on a page of ~500 rows** — correct by rule 7, and **now inside the band, so the number is
+   recorded rather than unmeasured.** *(**Done with item 2**: the band is what makes 4 a fact instead of a habit.)*
+   **S.**
+4. **The control count is NOT banded, and that is a recorded decision rather than an omission.** Measured: 1, 1, 15,
+   1. **A control's edge is its affordance; its count is the page's FORM** (Settings is a form, Plugins is a list),
+   and no band of this atom can decide a form. **Recorded here so the next round argues with it instead of
+   rediscovering it.** **S.**
 
 ## How a round goes
 

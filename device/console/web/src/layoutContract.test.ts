@@ -134,6 +134,7 @@ type Contract = {
   hairline: {
     rowRule: string;
     box: string;
+    regionBand: { min: number; max: number };
     line: string;
     strong: string;
     soft: string;
@@ -226,7 +227,7 @@ describe("the layout contract", () => {
     // The literal below is the sha256 of BOTH copies, and it is the same literal the panel's test carries.
     const ours = createHash("sha256").update(contractText()).digest("hex");
     expect(ours).toBe(
-      "fbef2ce8832f0011cf47a937659a6704aef490dbb8bb6517a9e155d087cbb965"
+      "57875ecdd4ce0e9207ffee534ae4d1d514ce45993e65db820b80d6c867055d01"
     );
     const sibling = path.join(here, "..", "..", "..", "..", "..", "summrise", "docs",
       "superpowers", "specs", "layout-contract.json");
@@ -411,6 +412,14 @@ describe("the layout contract", () => {
     // does not: a `rowRule` is one per table, a `box` is a border on a region or a control.
     expect(contract.hairline.rowRule, "the atom names a table's row rule").toContain("ONE rule");
     expect(contract.hairline.box, "and a border on a region or a control").toContain("region");
+    // **AND THE BAND IS A MEASUREMENT, NOT A TASTE (the hundred-and-twenty-third list).** The same census, with the
+    // two kinds counted apart, measured a page's REGION boxes at **3, 6, 6, 8** — one band on both surfaces — while
+    // the CONTROLS were 1, 1, 15, 1. **A control's edge is its affordance and its count is the page's form**, so the
+    // atom records only the region band: a page that drew 23 REGION boxes would be outside it, and one that drew 23
+    // CONTROL boxes would not be — which is exactly the distinction my first census could not make.
+    expect(contract.hairline.regionBand.min, "the band's floor is measured").toBe(3);
+    expect(contract.hairline.regionBand.max, "and its ceiling").toBe(8);
+    expect(contract.hairline.regionBand.min).toBeLessThan(contract.hairline.regionBand.max);
     // The overview's block is a `<section className="card">` now, and this test refuses the old shape.
     expect(contract.head.maxHeadsPerPage, "one head per page").toBe(1);
     expect(contract.head.subtitleSlot.class, "the context slot is named").toBe(".page-sub");

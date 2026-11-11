@@ -105,7 +105,12 @@
     "stateMarksCarryOwnColour": true,
     "stateMarksCarryWord": true,
     "rowRule": "a td/th edge: ONE rule per table, not one border per cell",
-    "box": "a border on a region (card, fold, section) or on a control (input, button, tab)"
+    "box": "a border on a region (card, fold, section) or on a control (input, button, tab)",
+    "regionBand": {
+      "min": 3,
+      "max": 8,
+      "$comment": "**A PAGE'S REGION BOXES MEASURED 3 TO 8 ON EVERY PAGE OF BOTH SURFACES (the hundred-and-twenty-third list).** Home 6 · Activity 3 · Settings 8 · Plugins 6 — 2026-11-11 at 1,440, boxes on REGIONS only (a table's row rule and a control's own edge excluded). **This is a measured band, not a taste:** a page that drew 23 REGION boxes would be outside it, and one that drew 23 CONTROL boxes would not be — because a control's edge is its affordance and its count is the page's form, which no scroll of this atom can decide."
+    }
   },
   "head": {
     "$comment": "The page's ONE head (the sixty-second list). Its height is its CONTENTS — the pages measured 68/68/33 px because one carries tabs and two carry a subtitle — so `height` is not a number. What IS recorded: the gap, the alignment, the subtitle SLOT (the second line of the title's block, `.page-sub`), and the rule that a page has ONE head — anything under it is a card. **AND THE TITLE'S BLOCK HAS TWO SLOTS, NOT ONE (the hundred-and-twenty-first list).** Measured 2026-11-11, rendered: a page under a title carries a **CLAIM** (the sentence the page exists to make — `3 of 4 online · 2 need attention`, `Today: 543 client calls`) and a **CONTEXT** (what the page is — `Connection, device limits and diagnostics for …`, `Following the console's audit as it is written.`). **The atom recorded only the context**, so each page put its claim wherever it liked: console Home **22/600**, console Activity **17/600**, and the panel **no claim at all** under a title that had one on Home. One page is not a layout; two slots are.",
