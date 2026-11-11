@@ -4155,6 +4155,13 @@ Both sentences sit **52 px apart** in the same column, and neither says the othe
 
 1. **`callsText` spells drawn LINES "calls", the word the header reserves for client calls.** **Fix:** the day block
    and the stretch labels name what they count, in the unit that count is in. **M.**
+   *(**Done, MERGED, NOT DEPLOYED** — `a73d2bf`. `dayText` and the stretch labels say **`lines`** — measured after:
+   `22 lines · 15:27 → 15:32`, `7 lines · 36 s`, `3 lines · 10 s`, `12 lines · 1 m 6 s` — and the header keeps
+   `client calls`, because that is its population. **`callsText` is DELETED**, not left beside `linesText`: both
+   callers moved and `tsc`'s `noUnusedLocals` named the leftover — **the same defect the hundred-and-nineteenth list
+   found in `console.rs`** (a declaration nothing runs), caught this time by a compiler instead of clippy. And the
+   day's doc comment was corrected with it: it still promised `692 calls · …` and named a helper that no longer
+   exists.)*
 2. **The window line and the day line state contradictory intervals without saying so.** **Fix:** one of them names
    the other explicitly, where they meet. **S.**
 
