@@ -4787,6 +4787,32 @@ goes. The console's own routes already answer a non-JSON 200 with `NoAnswer`; th
 received cannot tell an operator from a proxy. The before/after pair at 1440 is in
 `.superpowers/sdd/2026-11-05-console-polish-backlog/list135/`: 200 characters and one line.
 
+## P0 — the hundred-and-thirty-sixth list (CLOSED 2026-11-11 — the Table's filters and columns disagreed)
+
+Measured 2026-11-11 at 1440 on the built console's Activity → Table:
+
+    the toolbar's field labels     TIME · DEVICE · TOOL OR DETAIL · STATUS
+    the header row beneath them    When · Device · Token · What happened · Status
+
+Two words for one column, one screen apart — and the scope pair (`This machine` / `All machines`) carried only an
+accessible name in a row where every neighbour had a visible one, so it sat on the controls' baseline looking
+unlabelled while the four fields beside it had labels above them.
+
+1. **The fields take the columns' own words.** **Fix — console `5864148` (pushed; NOT deployed — the console deploy
+   waits on the operator's word).** `When`, `Device`, `What happened`, `Status`: every filter label is a header of the
+   table it filters, and no new word was invented. The scope pair gains a visible `Scope` label, and its group takes
+   its accessible name from that label (`aria-labelledby`), so there is one label row and no unlabelled control.
+2. **Nothing held the two halves together.** **Fix:** a new case in `AuditTable.test.tsx` reads the toolbar's field
+   labels and the table's own columns and fails if a label is not a column's word — with both of the measured words
+   excluded by name (`Time`, `Tool or detail`), and a second case holding `Scope` visible and the group named from it.
+   **Mutation:** the filter back to `Time` -> `the field labelled Time names a column: expected [ 'When', 'Device',
+   'Token', …(2) ] to include 'Time'`.
+
+**THE RENAME REACHED FURTHER THAN THE PAGE.** The tests that name the control (`App.test.tsx`, 7 sites) and the
+browser gate's own `getByLabel('Time')` followed it — a label is a contract with the gate as much as with the reader,
+and the gate caught the rename the moment the page changed (`FAIL — locator.waitFor: Timeout 5000 ms` waiting for
+`Time`). Before/after strip in `.superpowers/sdd/2026-11-05-console-polish-backlog/list136/`.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
