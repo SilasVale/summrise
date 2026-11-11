@@ -4938,6 +4938,37 @@ shapes, one atom — the third is right in principle and was never written down.
    then `ruleFor` was handed an **unescaped selector**, so `.audit-empty` as a regex could match a longer block. **The
    rendered measurement is the only one that could have answered either way.**
 
+## P0 — the hundred-and-fourteenth list (opened 2026-11-11, the LOADING atom reaches three pages of eight, and the fourth says a WORD)
+
+The hundred-and-thirteenth list is closed. This list is rule 19's LOADING half — measured by **holding every read
+4–8 s** and reading what the page reserves.
+
+Measured 2026-11-11 at 1,360, every read held:
+
+     surface/page        what the page draws while the read is out               shape?
+     console Activity    `.skeleton-list.timeline-skeleton` role="status"          **the atom**
+                         aria-label "Reading the fleet's window…"  3 rows, radius 10, pad 12, gap 8, bar 6
+     console Device      `.skeleton-list.picker-skeleton`     role="status"        **the atom**
+                         aria-label "Reading the machine list"    3 rows, same six numbers
+     panel Memory        `.skeleton-list`                     role="status"        **the atom**
+     panel Plugins       `.skeleton-list`                     role="status"        **the atom**
+     **panel Terminal**  **`p` "Sessions unavailable — reconnecting…"  **14 px, no role, no shape**  **a WORD**
+                         **`.desktop-status-msg` "connecting…"   12 px, no role**
+     **console Home**    a full-page card "Connecting to the console" — the CONNECT state, not a page read
+
+**The shape is the atom on four pages and the terminal says the same thing in prose.** The `loading` atom is
+`rows 3, rowRadius 10, rowPad 12, rowGap 8, barRadius 6, role "status"` and its own sentence is *"a read that has not
+answered reserves the SHAPE of what it will draw"* — measured, the terminal's read is out for eight seconds and the
+page shows **two lines of text and no reserved rows at all**.
+
+**And the console's `Connecting to the console` card is a different state**, honestly: the console's OWN state is
+unknown, so there is nothing to reserve the shape OF. It is the connect state and it is drawn as a card.
+
+1. **The panel's terminal draws a sentence where the atom says a shape, and its `role="status"` is absent.** **Fix:**
+   the terminal's first read reserves rows at the atom's six numbers, in a `role="status"` region. **M.**
+2. **Nothing gates this half of rule 19.** The browser gates assert the console's two skeletons by NAME; **the panel has
+   no gate that holds a read and reads what is reserved** — a page that says a word, or nothing, passes. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
