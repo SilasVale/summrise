@@ -4496,7 +4496,7 @@ restating it (`CONTRACT.elevation.pane`), proves the token is drawn by a rule, a
 **Mutation, twice on the panel and once on the console**: `.modal-card` back to `0 12px 32px rgba(0,0,0,.12)` → *`.modal-card` floats as the pane*; the atom's `pane` back to `--glass-shadow` → *expected \'--glass-shadow\' to be
 \'--shadow-pop\'*.
 
-## P0 — the hundred-and-twenty-eighth list (opened 2026-11-11, rule 13: the leading is written inside `font:`)
+## P0 — the hundred-and-twenty-eighth list (CLOSED 2026-11-11 — the leading is out of the shorthand)
 
 Rule 13 — *"keep text readable: measure, line-height, contrast"* — measured where a leading is written and where it
 lands. The atom names **three ratios**: `1.5` body, `1.3` tight, `1` mark.
@@ -4525,8 +4525,21 @@ the next list's subject, recorded here because the same probe found it.
    cannot look. **Fix:** the code/guide blocks take `1.5` (the console's own evidence output is `--lh-body`), the
    heading takes `1.3`, and the console's dead `/ 1.55` is removed from `body`'s shorthand (the later
    `line-height: var(--lh-body)` is the rule that actually sets it, so **no pixel moves there**). **M.**
+   *(**Done — panel `2b1ee5fc5`, console `dcf0d20`.** The panel's nine sites are `1.5` ×8 and `1.3` ×1; all **17**
+   shorthand leadings across the product are now `1.5` ×14, `1.3` ×2, `1` ×1. **The pixels that move**: 11 px text at
+   1.6 goes 17.6 → 16.5 px a line; the 17 px heading at 1.25 goes 21.25 → 22.1. The console's removal moves none —
+   its computed body leading was already the later rule's 1.5.)*
 2. **No gate reads the `/ratio` inside a `font:` shorthand** — on either surface. **Fix:** a gate per repo that fails
    on a shorthand ratio that is not one of the atom's three, and reads the atom rather than a copy. **M.**
+   *(**Done — same commits.** Both gates strip comments, scan every sheet, and tolerate `\s*` around the slash — the
+   whitespace that let the first census call the console "0". **Mutation, both repos**: a planted `/1.6` (and, on the
+   console, a SPACED `/ 1.6`) fails naming `file: declaration`; restored green.)*
+
+**And the rendered half is the next list.** The same probe found **eleven styles with no declared leading at all**
+(`line-height: normal`, the user agent's): five on panel Settings and six on panel Memory, **zero on the console's
+Home, Activity and Device**. For the controls built to `--control-h` that is the 18 px line box the `space` atom
+documents (`5 + 5 + 18 = 28`); for `.notify-state`, `.approval-left` and `.view-switch-btn` nothing names it —
+measured, recorded here, and not invented.
 
 ## How a round goes
 
