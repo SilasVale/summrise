@@ -5028,6 +5028,34 @@ element and the rows can be absent. The gates read the sheet, and the sheet is n
    repo root rather than guessing a `../..` — which is what its first draft did, and it opened the wrong repo's path.
    **They agree because both read the contract, not because they happen to match.**)*
 
+## P0 — the hundred-and-sixteenth list (opened 2026-11-11, the card's TINT is one token used for two levels)
+
+The hundred-and-fifteenth list is closed. This list is the directive's own words — *"the same **card grammar**"* —
+measured at `elevation.flat`, which says a card is **"a hairline and a tint, no shadow"**. **Two channels, and one of
+them is carrying nothing.**
+
+Measured 2026-11-11 at 1,360, compositing every ancestor fill down to the ground (a card's tint is measured against
+what is ACTUALLY behind it, not against `body`):
+
+     surface   card              fill                          backing                       TINT      EDGE
+     console   `.card`           `rgb(255,255,255)`            MAIN `(247,247,247)`          **1.071**  1.188
+     panel     `.plug-card`      `rgba(255,255,255,.8)`        `.desktop-content` `(254,254,254)` **1.007**  1.196
+                                   over `.desktop-content`       — which is **the same token**
+
+**The panel's pane and the panel's card are painted with ONE token**: `.desktop-content { background: var(--glass-tint) }`
+and `.plug-card { background: var(--glass-tint) }`, both `rgba(255,255,255,.8)`, so a card inside the pane composites to
+**the colour of the pane** — **1.007:1**, which is not a tint, it is the same colour. Its only visible separation is
+its hairline.
+
+**And the console is only better, not right**: **1.071:1** between the card and the page it sits on. The atom records
+two channels and both surfaces lean on one.
+
+1. **A card and the pane it sits in are the same material, so the card has no fill of its own.** **Fix:** the pane
+   keeps the translucent tint and the card takes the opaque surface — one token each, one level each. **M.**
+2. **The atom says "a hairline and a tint" and nothing measures the TINT.** `themeContrast` measures text pairs;
+   the card's fill against its backing was never asked. **Fix:** a rendered leg that composites the chain and refuses
+   a tint below a stated floor. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
