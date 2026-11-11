@@ -759,12 +759,21 @@ export function ActivityTimeline(props: {
   // rule as the header's day count. It is a view control, not a scope: the window stays the one the
   // machine chips read, and the control's own count is how many rows it would draw from that
   // window. The header's `client calls` number is the day's and never this one.
+  // **THE PHONE SHOWS THE RECORD FIRST (the hundred-and-thirty-fourth list).** Measured 2026-11-11 at
+  // 390 x 844: the three filter blocks stacked to 320 px and the first record began at **y = 676** —
+  // two rows above the bottom bar. Collapsed behind one button, the same page starts the record at
+  // **y = 428**: five rows. The control is the phone's only; the desktop keeps the row it had.
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [ownClientsOnly, setOwnClientsOnly] = useState(false);
   const clientsOnly = filterable && (props.clientsOnly ?? ownClientsOnly);
   const setClientsOnly = (next: boolean) => {
     if (props.onClientsOnly) props.onClientsOnly(next);
     else setOwnClientsOnly(next);
   };
+  // How many narrowings are on. The button states the number so a collapsed block cannot hide a filter
+  // the reader forgot — a hidden control that still filters is the defect this list must not create.
+  const activeFilterCount =
+    (scope ? 1 : 0) + (clientsOnly ? 1 : 0) + (query.trim() ? 1 : 0);
   // **THE ROWS ARE CALLS, NOT CHANNEL FACTS.** `device.left` / `device.joined` are in the audit so a
   // fleet row can measure an absence, but a person watching the machine's work must not read them
   // as work. They are dropped before the chips, the counts and the days are derived.
@@ -882,8 +891,22 @@ export function ActivityTimeline(props: {
           </button>
         </div>
       )}
-      {filterable && (
-        <div className="timeline-filters">
+      {filterable && phone && (
+        <button
+          type="button"
+          className="activity-filters-toggle"
+          aria-expanded={filtersOpen}
+          aria-controls="activity-filters"
+          onClick={() => setFiltersOpen((open) => !open)}
+        >
+          Filters
+          {activeFilterCount > 0 && (
+            <span className="activity-filters-count">{activeFilterCount} active</span>
+          )}
+        </button>
+      )}
+      {filterable && (!phone || filtersOpen) && (
+        <div className="timeline-filters" id="activity-filters">
           <div className="filter-block">
             <span className="filter-label" id="timeline-machines-label">
               Machines

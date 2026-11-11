@@ -1293,6 +1293,8 @@ describe("ActivityTimeline's labelled filter and record footer", () => {
  */
 describe("ActivityTimeline on a phone", () => {
   const matchMediaDescriptor = Object.getOwnPropertyDescriptor(window, "matchMedia");
+  /** The filters are behind one button on a phone (the hundred-and-thirty-fourth list). */
+  const openFilters = () => fireEvent.click(screen.getByRole("button", { name: /^Filters/ }));
 
   beforeEach(() => {
     Object.defineProperty(window, "matchMedia", {
@@ -1324,6 +1326,7 @@ describe("ActivityTimeline on a phone", () => {
       />
     );
 
+    openFilters();
     const group = screen.getByRole("group", { name: "Filter by machine" });
     expect(within(group).getByRole("button", { name: "All machines" })).toBeInTheDocument();
     expect(within(group).getByRole("button", { name: "Alpha" })).toBeInTheDocument();
@@ -1343,10 +1346,31 @@ describe("ActivityTimeline on a phone", () => {
       />
     );
 
+    openFilters();
     const group = screen.getByRole("group", { name: "Filter by machine" });
     const chip = within(group).getByRole("button", { name: "old id · fe209fc2c119…" });
     expect(chip).toHaveAttribute("aria-pressed", "true");
     expect(within(group).queryByRole("button", { name: "Alpha" })).toBeInTheDocument();
+  });
+
+  it("keeps the filters behind one button, and states how many narrowings are on", () => {
+    // **MEASURED 2026-11-11 AT 390 x 844:** the three blocks stacked to 320 px and the first record
+    // began at y=676 — two rows above the bottom bar. Behind the button it begins at **y=428**, five
+    // rows. A hidden control that still filters would be a trap, so the button states the count.
+    render(
+      <ActivityTimeline lines={[fromAlpha]} devices={devices} nowMs={Date.UTC(2026, 10, 5, 9, 10, 0)} />
+    );
+    const toggle = screen.getByRole("button", { name: /^Filters/ });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle).toHaveAttribute("aria-controls", "activity-filters");
+    expect(screen.queryByRole("searchbox", { name: "Search activity" })).toBeNull();
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("searchbox", { name: "Search activity" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clients only" }));
+    expect(screen.getByRole("button", { name: /^Filters/ })).toHaveTextContent("1 active");
   });
 });
 
