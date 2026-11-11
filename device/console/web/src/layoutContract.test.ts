@@ -142,6 +142,7 @@ type Contract = {
     h2: { size: number; weight: number };
     h3: { size: number; weight: number };
     eyebrow: { size: number; weight: number; tracking: number; transform: string };
+    sameSizeDifferentRoles: { marker: string; roles: string[] };
   };
   failed: { radius: number; pad: number; textTone: string; tint: string; role: string; retries: number };
   loading: {
@@ -217,7 +218,7 @@ describe("the layout contract", () => {
     // The literal below is the sha256 of BOTH copies, and it is the same literal the panel's test carries.
     const ours = createHash("sha256").update(contractText()).digest("hex");
     expect(ours).toBe(
-      "31b96cca44954849cee64a8d7b42f2ffacf1fc26d7851b9ce389f4d0afa11085"
+      "a3fb45b9523f160a09286a9c79f6890f78bf5a7505c0ab5c2fe815565c99c6dd"
     );
     const sibling = path.join(here, "..", "..", "..", "..", "..", "summrise", "docs",
       "superpowers", "specs", "layout-contract.json");
@@ -1391,6 +1392,19 @@ describe("the layout contract", () => {
     expect(contract.head.subtitleSlot.class, "the context slot the atom names").toBe(".page-sub");
     expect(contract.head.maxHeadsPerPage, "and one per page").toBe(1);
     expect(contract.section.h2.size, "the section rung the count now takes").toBe(17);
+    // **AND THE STEP CARRIES THREE ROLES, SO THE ATOM NAMES THE MARKER THAT SEPARATES THEM (the hundred-and-
+    // twenty-second list).** Measured 2026-11-11: **17/600** is the page's CLAIM on both surfaces, a DAY HEADING
+    // inside the record, and this atom's `h2` — on Activity the claim (`Today: 543 client calls`) and a day
+    // (`Tuesday, 11/10`) weigh the same and sit **217 px apart**. **There is no free step** between 22 and 17 to
+    // move the claim into, and the two lines' tracking differs by **0.34 px**, which the tracking atom's own comment
+    // calls invisible. **So the separator is the SLOT, not the size**, and an atom that only records the size leaves
+    // the next page free to put a claim in the body at a section heading's weight.
+    expect(contract.section.sameSizeDifferentRoles.marker, "the marker is POSITION").toBe("slot");
+    expect(contract.section.sameSizeDifferentRoles.roles, "three roles, named").toEqual([
+      "claim (head)",
+      "h2 (body)",
+      "day heading (body)",
+    ]);
   });
 
   it("paints the accent family the contract declares, and no sixth member as a literal", () => {

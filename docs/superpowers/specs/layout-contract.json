@@ -186,7 +186,7 @@
     "weight": 700
   },
   "section": {
-    "$comment": "The levels UNDER a page title (the forty-ninth list). A page has one title and the blocks below it are a LEVEL, not a size chosen per page: `h2` is a section, `h3` is the thing inside one, `eyebrow` is the small uppercase label above a block. Measured before: an h2 was 22, 17, 14 or 10 px depending on the page.",
+    "$comment": "The levels UNDER a page title (the forty-ninth list). A page has one title and the blocks below it are a LEVEL, not a size chosen per page: `h2` is a section, `h3` is the thing inside one, `eyebrow` is the small uppercase label above a block. Measured before: an h2 was 22, 17, 14 or 10 px depending on the page. **AND ONE SIZE CAN CARRY TWO ROLES, SO THE ATOM NAMES WHAT SEPARATES THEM (the hundred-and-twenty-second list).** Measured 2026-11-11: **17/600 is the page's CLAIM on both surfaces, a DAY HEADING inside the record, and this atom's `h2`** — three roles, one step, and on Activity the claim (`Today: 543 client calls`) and a day (`Tuesday, 11/10`) weigh the same, 217 px apart. **There is no free step** between 22 and 17 to move the claim into (item 2 of this list), and the tracking differs by **0.34 px** — a difference the tracking atom's own comment calls invisible. **So the separator is not size: it is the SLOT.** A claim is in the page's HEAD; a day heading and an `h2` are in its BODY. A reader who cannot weigh two lines apart can still see which block they are in.",
     "h2": {
       "size": 17,
       "weight": 600
@@ -200,6 +200,15 @@
       "weight": 600,
       "tracking": 0.05,
       "transform": "uppercase"
+    },
+    "sameSizeDifferentRoles": {
+      "marker": "slot",
+      "roles": [
+        "claim (head)",
+        "h2 (body)",
+        "day heading (body)"
+      ],
+      "$comment": "One step, three roles. The marker that separates the claim is POSITION, not size or tracking."
     }
   },
   "label": {
