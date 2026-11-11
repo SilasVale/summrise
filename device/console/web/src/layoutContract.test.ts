@@ -77,7 +77,14 @@ type Contract = {
     literals: number;
   };
   ground: { light: string; dark: string; gradients: number };
-  elevation: { flat: string; pane: string; raised: string };
+  elevation: {
+    flat: string;
+    pane: string;
+    raised: string;
+    paneShadow: string;
+    paneRadius: number;
+    paneEdge: number;
+  };
   palette: {
     washAlpha: number;
     ink: string;
@@ -199,7 +206,7 @@ describe("the layout contract", () => {
     // The literal below is the sha256 of BOTH copies, and it is the same literal the panel's test carries.
     const ours = createHash("sha256").update(contractText()).digest("hex");
     expect(ours).toBe(
-      "d8f36aa235388d7c87fe93c1708306608f9b30c2ec05752e6c41441368be608c"
+      "92e4c800bd1d8094262da49139d8750142fd2ad153d6a866fa286b7a7a5f15bf"
     );
     const sibling = path.join(here, "..", "..", "..", "..", "..", "summrise", "docs",
       "superpowers", "specs", "layout-contract.json");
@@ -1140,6 +1147,43 @@ describe("the layout contract", () => {
     const countRule = sheet.match(/\.filter-count \{\s[^}]*\}/);
     expect(countRule, "the count has a rule").toBeTruthy();
     expect(countRule![0], "the count is not a filter column any more").not.toContain("align-self: center");
+  });
+
+  it("floats ONE pane object: the atom's shadow, the atom's radius, the page's own edge", () => {
+    // **MEASURED 2026-11-11 WITH A POPOVER OPEN ON EACH SURFACE:**
+    //
+    //     surface   the thing that floats   shadow                                       radius   edge
+    //     console   `.machine-pop`          `rgba(0,0,0,.12) 0 12px 32px` (one layer)      **10**     `.14`
+    //     panel     `.session-menu`         **two layers**, incl. a drawn `0 0 0 1px` ring  **14**     `.08`
+    //
+    // **Two popovers, two objects** — and the token the atom named for the `pane` level was carried by NEITHER sheet.
+    // The pane is the one thing that FLOATS above a page, so it must be ONE object on both surfaces: the atom's
+    // shadow, `radius.dialog` (14 — the step larger than a card's), and **the page's own hairline**, because a pane
+    // sits ON the page rather than inside a box of its own.
+    const sheet = stripComments(css());
+    const tokensSrc = stripComments(tokens());
+    // The shadow is the atom's, in BOTH themes.
+    const declOf = (src: string, name: string) =>
+      new RegExp(`--${name}\\s*:\\s*([^;]+);`).exec(src)?.[1].replace(/\\s+/g, "") ?? "";
+    const norm = (v: string) => v.replace(/\\s+/g, "");
+    expect(declOf(tokensSrc, "shadow-lg"), "the pane's shadow is the atom's (same value, any spelling)").toBe(
+      norm(contract.elevation.paneShadow),
+    );
+    expect(contract.elevation.paneRadius, "the pane's radius is the atom's").toBe(14);
+    expect(contract.elevation.paneEdge, "and its edge weight").toBe(0.08);
+    // **EVERY FLOAT IS THE SAME OBJECT.** A rule with the pane's shadow must take the pane's radius and the page's
+    // line — the seven rules that float things here (three popovers, the sheet, the export menu, the alert banner).
+    const floaters = [...sheet.matchAll(/([^{}]+)\{([^}]*box-shadow: var\(--shadow-lg\)[^}]*)\}/g)];
+    expect(floaters.length, "something floats").toBeGreaterThan(0);
+    for (const [, sel, body] of floaters) {
+      // **TWO THINGS THAT FLOAT ARE NOT POPOVERS.** `.alert-banner` is a NOTICE in the frame (it rides the layout's
+      // own row, not over a page), and `.sheet` is a full-height DRAWER whose corners belong to the edge it slides
+      // from. Every floating BOX over a page — a menu, a popover, a formats list — is the pane.
+      if (sel.includes(".alert-banner") || sel.includes(".sheet")) continue;
+      expect(body, `${sel.trim()} takes the pane's radius`).toContain("border-radius: var(--radius)");
+      expect(body, `${sel.trim()} draws the page's own line`).toContain("border: 1px solid var(--line)");
+      expect(body, `${sel.trim()} draws no second edge`).not.toContain("--line-strong");
+    }
   });
 
   it("gives every (size, weight, kind) group ONE tracking, from the atom's four steps", () => {

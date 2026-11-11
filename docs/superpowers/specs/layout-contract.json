@@ -132,10 +132,13 @@
     "weight": 600
   },
   "elevation": {
-    "$comment": "The three LEVELS a shadow can mean, and which atoms may carry one (the fifty-fifth list). `flat` is a card ON the page — a hairline and a tint, no shadow. `pane` is a surface ABOVE it (a drawer, a modal, a popover) and is the only thing that floats. `raised` is a control lifted inside a pane (a segmented switch's active arm), a 1-2 px lift. Measured before: the panel's card carried a four-layer `--glass-shadow` while the console's carried `none`, so a card was two objects on the two surfaces.",
+    "$comment": "The three LEVELS a shadow can mean, and which atoms may carry one (the fifty-fifth list). `flat` is a card ON the page — a hairline and a tint, no shadow. `pane` is a surface ABOVE it (a drawer, a modal, a popover) and is the only thing that floats. `raised` is a control lifted inside a pane (a segmented switch's active arm), a 1-2 px lift. Measured before: the panel's card carried a four-layer `--glass-shadow` while the console's carried `none`, so a card was two objects on the two surfaces. **AND THE PANE LEVEL IS ONE OBJECT (the hundred-and-eleventh list).** Measured 2026-11-11 with a popover OPEN on each surface: the console's `.machine-pop` floated on `rgba(0,0,0,.12) 0 12px 32px` (a one-layer drop), a **10 px** radius and a `.14` edge; the panel's `.session-menu` floated on a **two-layer** shadow (a wide drop AND a drawn `0 0 0 1px` ring), a **14 px** radius and a `.08` edge. **Two popovers, two objects** — and the token the atom named for this level was carried by NEITHER sheet. The pane is now `paneShadow` + `paneRadius` + `paneEdge`, written once and read by both.",
     "flat": "none",
     "pane": "--glass-shadow",
-    "raised": "--shadow"
+    "raised": "--shadow",
+    "paneShadow": "0 1px 1px rgba(24,32,54,0.04),0 4px 10px -4px rgba(24,32,54,0.06),0 18px 40px -24px rgba(24,32,54,0.2)",
+    "paneRadius": 14,
+    "paneEdge": 0.08
   },
   "radius": {
     "$comment": "The corner scale, and WHAT EACH STEP IS FOR (the fifty-eighth list). The rule is not the count but the MEANING: a page nests card -> row -> control -> mark, and each is one step; an overlay is drawn LARGER than the pane it covers, which is why its steps are bigger. Measured: `--radius-lg: 20px` is painted on NO page a person browses — the console uses it inside three overlays and the panel on one dialog — so the largest step is an OVERLAY step and is recorded as one. `row` (10) was the step neither side assigned: the panel's own comment called it \"cards inside a pane\" while painting it on `.btn` and `.tab`, and the console paints it on `.fleet-row` and `.tool-list`. A 40 px TARGET and a 24 px control are the same proportion, so they cannot share one value: `target` is its own step.",

@@ -14,7 +14,13 @@
   --rail:#17181c; --rail-line:rgba(255,255,255,.08); --rail-ink:#9a9ba4;
   --rail-ink-hover:#f4f4f5; --rail-focus:#ffb86b;
   --shadow:0 1px 3px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04);
-  --shadow-lg:0 12px 32px rgba(0,0,0,.12);
+  /* **THE PANE LEVEL IS ONE OBJECT ON BOTH SURFACES (the hundred-and-eleventh list).** Measured 2026-11-11 with a
+     popover OPEN on each surface: this sheet's `.machine-pop`, `.account-pop` and four `.row-menu-pop` floated on a
+     **one-layer** `0 12px 32px` drop at a **10 px** radius, while the panel's floated on a **two-layer** shadow at
+     **14 px** — two popovers, two objects. `--shadow-lg` is the contract's `paneShadow` now: three COOL, layered
+     shadows. **A pane sits ON the page, so its edge is the page's own hairline** — the radius is `radius.dialog`
+     (14), which the atom records as the pane's step. */
+  --shadow-lg:0 1px 1px rgba(24,32,54,0.04),0 4px 10px -4px rgba(24,32,54,0.06),0 18px 40px -24px rgba(24,32,54,0.2);
   --shadow-1:var(--shadow);
   --shadow-2:0 6px 24px -18px rgba(16,23,33,.45);
   --radius:14px; --radius-sm:10px; --radius-sm2:8px; --radius-xs:6px;
@@ -93,7 +99,9 @@
     --rail:#0b0c0e; --rail-line:rgba(255,255,255,.07); --rail-ink:#8f9099;
     --rail-ink-hover:#ffffff; --rail-focus:#ffb86b;
     --shadow:0 1px 2px rgba(0,0,0,.4);
-    --shadow-lg:0 12px 32px rgba(0,0,0,.45);
+    /* The pane after dark: a plain shadow is a colour, and the light theme's cool drop is invisible on a near-black
+       ground — the same computed-value trap this block's other shadows document. */
+    --shadow-lg:0 1px 1px rgba(0,0,0,.5),0 6px 14px -6px rgba(0,0,0,.5),0 22px 48px -28px rgba(0,0,0,.8);
     --shadow-1:var(--shadow);
     --shadow-2:0 8px 24px -18px rgba(0,0,0,.8);
     --hover:#2a2b32;
