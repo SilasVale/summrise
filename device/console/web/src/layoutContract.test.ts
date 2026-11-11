@@ -91,6 +91,9 @@ type Contract = {
     paneShadow: string;
     paneRadius: number;
     paneEdge: number;
+    recess: string;
+    recessTint: number;
+    cardTint: number;
   };
   palette: {
     washAlpha: number;
@@ -213,7 +216,7 @@ describe("the layout contract", () => {
     // The literal below is the sha256 of BOTH copies, and it is the same literal the panel's test carries.
     const ours = createHash("sha256").update(contractText()).digest("hex");
     expect(ours).toBe(
-      "39b6413e169c6fd60519a2fb7f6b237c32e5fef2070e7aef9bfedae6d6317c5f"
+      "67aba34f1b4660a8d63f989208eb8367ee1daedf18153fd6804253065553fab8"
     );
     const sibling = path.join(here, "..", "..", "..", "..", "..", "summrise", "docs",
       "superpowers", "specs", "layout-contract.json");
@@ -1194,6 +1197,30 @@ describe("the layout contract", () => {
     expect(contract.empty.gap, "the gap both shapes share").toBe(12);
     expect(contract.empty.radius, "the card's corner").toBe(14);
     expect(contract.empty.pad, "the card's inset").toBe(16);
+  });
+
+  it("recesses a block by the CARD's step with the sign reversed, not by 'the ground, again'", () => {
+    // **MEASURED 2026-11-11, THREE SPELLINGS OF ONE IDEA — AND ALL THREE ARE WORTH NOTHING:**
+    //
+    //     `.settings-fold` (panel)   1.027 tint   ( #fafafa on a (247,247,247) pane )
+    //     `--panel-3` (this sheet)   1.027         ( #f4f4f5 on the same pane )
+    //     `#fafafa` on `#fafafa`     1.000         ( `--surface-recessed: var(--bg)`, the literal "the ground, again" )
+    //
+    // **A usable recess needs 8 levels BELOW the pane**, and the light scale's steps are 3–8 apart
+    // (`#fafafa` 250 / `#f4f4f5` 244 / `#ffffff` 255). **The scale has no step that can carry it, and inventing one is
+    // adding a colour.** So the atom states a DERIVATION: the card is `color-mix(ink 3.5%, surface)`; the recess is
+    // the same mix at 7%, which measures 1.074 — **the card's own 1.072 with the sign reversed**.
+    expect(contract.elevation.cardTint, "the card's own step").toBe(1.072);
+    expect(contract.elevation.recessTint, "the recess is that step, reversed").toBe(1.074);
+    expect(contract.elevation.recess, "and it is a DERIVATION, not a token").toContain("color-mix");
+    // **AND THE SHEET CARRIES IT**: one token, derived from the ink, at the atom's factor.
+    const decls = stripComments(tokens());
+    const recess = decls.match(/--surface-recessed:\s*([^;]+);/)?.[1] ?? "";
+    expect(recess, "the recess is derived, not `var(--bg)`").toContain("color-mix");
+    const factor = recess.match(/([\d.]+)%/)?.[1];
+    expect(Number(factor), "at the atom's factor").toBe(7);
+    // **AND `var(--bg)` IS NO LONGER A RECESS.** The old spelling is one step from nothing (1.000).
+    expect(recess, "the ground is not a recess").not.toBe("var(--bg)");
   });
 
   it("floats ONE pane object: the atom's shadow, the atom's radius, the page's own edge", () => {

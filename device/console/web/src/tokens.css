@@ -82,13 +82,22 @@
   /* ---- one vocabulary, two names ---- */
   /* The device's own panel was written against older names (`--surface`, `--ink-muted`, `--error`).
      They are aliases now rather than a second palette: a token defined twice is a token that drifts. */
-  --surface:var(--panel); --surface-recessed:var(--panel-2); --surface-chip:var(--panel-3);
+  --surface:var(--panel); --surface-chip:var(--panel-3);
+  /* **A RECESS IS THE CARD'S STEP WITH THE SIGN REVERSED (the hundred-and-seventeenth list).** Measured 2026-11-11:
+     this read `var(--panel-2)` = `#fafafa` — **the ground, again** — so a recessed block measured **1.000** against
+     the pane, and every other spelling in the light scale (`#f4f4f5`) landed at 1.027. **A usable recess needs 8
+     levels BELOW the pane** and the scale's steps are 3–8 apart, so there is no token to pick and inventing one would
+     be adding a colour. The card is `color-mix(ink 3.5%, panel)`; **the recess is the same mix at 7%** — measured
+     **1.074**, the card's 1.072 reversed. Restated after dark, where the direction reverses. */
+  --surface-recessed:color-mix(in srgb, var(--ink) 7%, var(--panel));
   --ink-muted:var(--muted); --ink-faint:var(--faint); --error:var(--danger);
   --error-soft:var(--danger-soft); --hover:var(--panel-2);
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg:#131418; --panel:#1c1d22; --panel-2:#16171b; --panel-3:#23242a;
+    /* After dark the card sits BELOW the pane, so a recess goes the other way: toward the GROUND, at the same step. */
+    --surface-recessed:color-mix(in srgb, var(--bg) 40%, var(--panel));
     --ink:#ecedef; --muted:#a2a3ac; --faint:#8e909a;
     --line:rgba(255,255,255,.08); --line-strong:rgba(255,255,255,.14); --line-soft:rgba(255,255,255,.05);
     --accent:#ffa36b; --accent-solid:#b03a0a; --accent-hover:#c2410c;
