@@ -4358,7 +4358,7 @@ atom does not name.
    surface's palette.** The console has neither, so a reader comparing the sheets sees the panel painting two colours
    the atom's list does not mention.)*
 
-## P0 — the hundred-and-twenty-fifth list (opened 2026-11-11, rule 20: ten spacing values off the rhythm)
+## P0 — the hundred-and-twenty-fifth list (CLOSED 2026-11-11 — 91 literals, two gates, and a ratchet moved)
 
 The hundred-and-twenty-fourth list is closed. **This list is rule 20 — *"alignment and rhythm fixed by a grid, not by
 nudging"* — measured on the SHEETS**, because that is where a nudge is written down.
@@ -4380,10 +4380,32 @@ they are nudges: **18 is 4·4+2, 15 is 4·3+3, 22 is 4·5+2, 26 is 4·6+2.**
 
 1. **The four 18 px paddings are the same nudge written four times**, on both surfaces and in two repos. **Fix:** they
    take the nearest rhythm step, or the atom records a reason. **M.**
+   *(**Done — console `2dafd2d`, panel `4bf51699f` (not pushed).** Console `.panel`/`.sheet-body`/`.terminal-start`/
+   `.system-section` 18 → **`--sp-4`, 16**. Panel `.modal-actions` 18 → 16, `.gs-card` 18 → 16, `#conn-form` 28 → 24,
+   `.app-crash-card` 28 → 24. **The four 18s were one nudge**, and neither sheet writes it any more.)*
 2. **The 15 px and 22/26 px paddings are three different answers to "a block's inset"**, where the atom has `--sp-4`
    (16) and `--sp-5` (24). **Fix:** the same. **S.**
+   *(**Done — same commits.** Console `.path-row` 15 → 16, `.evidence` 22 → 24, `.timeline` 30 → 32. Panel
+   `.path-empty` 26 → 24 and its horizontal 20 → **16** (the tie takes the smaller step), `.gs-card` 22 → 24,
+   `.modal-card` 28 → 24. The panel's `#conn-form` **32/40** and `.app-crash-card` **32/40** → **24**: this surface
+   has no 32 step, and writing one here would have been a lie about the shared ladder.)*
 3. **No gate counts these**, so a nudge is a number nobody measures. **Fix:** a sheet census that fails on a spacing
    literal off the rhythm without a named reason. **M.**
+   *(**Done — both gates.** Console `2dafd2d`: the ladder is read from `space.scale`, every `>= 4 px`
+   padding/gap/margin literal off it fails, `< 4 px` and the named control padding are admitted. Panel `4bf51699f`:
+   **every sheet in `src/styles/` is scanned by `readdirSync`** (so `base.css` and `dial.css` are not a list someone
+   must remember), **the old 400-character keyword look-back is deleted** — it excused exactly the sites it existed to
+   protect — and a second assertion requires the panel's `--sp-*` values to BE the atom's ladder, so the 32 step
+   cannot appear on one surface alone. **Panel: 77 literals across 71 declarations → 0. Console: 14 → 0.**)*
+
+**All ten values the census named were real, and the gates then found 81 more (14 console, 77 panel).** The panel half
+also moved its own ratchet (`agent/tests/spacing_scale.rs`, whose header says to re-read the baselines when they
+improve): token uses 475 → **565**, off-scale 253 → **153**; console 87 → **115** token, 132 → **127** off-scale; and
+the three on-scale literals that had sat there since round 220 are tokens now, so its on-scale ceiling stays at **0**.
+**The atom's wash mirror rides in `4bf51699f` because the panel's pin is a sha256 of the atom** — the atom, the pin and
+the sheet must land in one commit or that commit is red on its own pin. Two older gates that pinned the spelling
+`padding: 12px` now read the padding through `var(--sp-3)` and compare the **value**: *a gate resolves a value; it does
+not dictate a spelling.*
 
 ## How a round goes
 
