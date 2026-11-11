@@ -4228,7 +4228,7 @@ word "Home"**. On Activity the day's count is **17/600** — a whole step DOWN f
    second sentence needs, so each surface picked a different existing step. **Fix:** state which step a second line
    takes, or record that the scale cannot carry one. **S.**
 
-## P0 — the hundred-and-twenty-second list (opened 2026-11-11, one step carries three roles)
+## P0 — the hundred-and-twenty-second list (item 1 closed 2026-11-11: the marker is the SLOT; item 2 open)
 
 The hundred-and-twenty-first list is closed, and its own numbers open this one. **The atom's levels, measured**
 (`section.h2 17/600`, `title 22/700`), against what the pages draw:
@@ -4252,6 +4252,14 @@ recorded last round are `22` and `17`, and **neither is free**: 22 belongs to th
    between 22 and 17 (item 2 below), so the claim cannot be moved; what is missing is the record that the claim's
    separation is **measure and ink**, not size. **Fix:** the atom states each role's marker or records that the
    surface cannot carry one. **M.**
+   *(**Done on both surfaces, MERGED, NOT DEPLOYED** — console `9322322`, panel `cb92eefdb`. **And the answer was
+   neither measure nor ink**: the two 17 px lines were measured **property by property** and differ in **one** —
+   `letter-spacing`, `normal` on the claim and `--tracking-display` on the day heading, i.e. **0.34 px**, which the
+   tracking atom's own comment calls invisible (*"a reader cannot see .009 of an em"*). **The scale has no free step
+   between 22 and 17**, so the separator is **the SLOT**: a claim is in the page's HEAD; a day heading and an `h2`
+   are in its BODY. *A reader who cannot weigh two lines apart can still see which block they are in.* The atom
+   records `sameSizeDifferentRoles { marker: "slot", roles: [claim (head), h2 (body), day heading (body)] }`, and
+   both repos' contract tests refuse a marker that is anything but `slot`.)*
 2. **The type scale has no step between the title and the body's largest.** `22 → 17 → 14` skips the one a page's
    second sentence needs, so each surface picked a different existing step. **Fix:** state which step a second line
    takes, or record that the scale cannot carry one. **S.**
