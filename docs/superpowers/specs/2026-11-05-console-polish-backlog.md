@@ -4228,6 +4228,34 @@ word "Home"**. On Activity the day's count is **17/600** — a whole step DOWN f
    second sentence needs, so each surface picked a different existing step. **Fix:** state which step a second line
    takes, or record that the scale cannot carry one. **S.**
 
+## P0 — the hundred-and-twenty-second list (opened 2026-11-11, one step carries three roles)
+
+The hundred-and-twenty-first list is closed, and its own numbers open this one. **The atom's levels, measured**
+(`section.h2 17/600`, `title 22/700`), against what the pages draw:
+
+     console Activity   `Today: 543 client calls`   **17 / 600**   y=113   the page's CLAIM
+     console Activity   `Tuesday, 11/10`            **17 / 600**   y=330   a DAY HEADING in the record
+     console Activity   `Monday, 11/9`              **17 / 600**   y=2167  the same
+     panel  Plugins     `4 plugins · 4 enabled`     **17 / 600**   —       the page's CLAIM
+     panel  Plugins     `Playwright`                **17 / 600**   —       a CARD's title (`h2`)
+     console Home       `3 of 4 online …`           **22 / 600**   —       the page's CLAIM
+
+**One step, three roles, one screen.** On Activity the page's claim and a day's heading weigh exactly the same and
+sit 217 px apart. On Plugins the page's claim and a card's title weigh the same and sit on one screen. **Rule 12 —
+*"no ambiguous or too-similar colours"* — has a sibling in size**: two things that are not the same must not look the
+same, and here three are identical.
+
+**And Home's claim is 22/600 — a weight the title never uses at a size the title owns.** So the "two permitted steps"
+recorded last round are `22` and `17`, and **neither is free**: 22 belongs to the title, 17 to a section heading.
+
+1. **A step can carry more than one role, and the atom does not say what separates them.** The scale has no free step
+   between 22 and 17 (item 2 below), so the claim cannot be moved; what is missing is the record that the claim's
+   separation is **measure and ink**, not size. **Fix:** the atom states each role's marker or records that the
+   surface cannot carry one. **M.**
+2. **The type scale has no step between the title and the body's largest.** `22 → 17 → 14` skips the one a page's
+   second sentence needs, so each surface picked a different existing step. **Fix:** state which step a second line
+   takes, or record that the scale cannot carry one. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
