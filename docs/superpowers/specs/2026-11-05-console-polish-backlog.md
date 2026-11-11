@@ -4195,7 +4195,12 @@ word "Home"**. On Activity the day's count is **17/600** — a whole step DOWN f
 **5** (Activity) or **9** (the panel) — three answers from one scale.
 
 1. **The verdict and the day's count are the product's SECOND sentence and get one treatment on both surfaces.**
-   **Fix:** one step, one weight, named in the atom. **M.**
+   **Fix:** one step, one weight, named in the atom. **M.** *(**The measurement that settles it**: the page has
+   **two** slots under the title, not one — a **CLAIM** ("3 of 4 online · 2 need attention", "Today: 543 client
+   calls") and a **CONTEXT** ("Connection, device limits…", "Following the console's audit as it is written.").
+   The atom recorded only `subtitleSlot`, so each page put its claim wherever it liked: **22/600** Home,
+   **17/600** Activity, **nothing at all** on the panel. Activity's three levels — 22/700 title, 17/600 claim,
+   12/400 context — are the only coherent ones on either surface.)*
 2. **The type scale has no step between the title and the body's largest.** `22 → 17 → 14` skips the one a page's
    second sentence needs, so each surface picked a different existing step. **Fix:** state which step a second line
    takes, or record that the scale cannot carry one. **S.**

@@ -60,7 +60,8 @@ type Contract = {
   head: {
     gap: number;
     align: string;
-    subtitleSlot: string;
+    subtitleSlot: { class: string; size: string; weight: string; ink: string; measure: string };
+    claimSlot: { class: string; permittedSteps: string[]; weight: string; ink: string };
     maxHeadsPerPage: number;
   };
   // A ROW inside a list (the eighty-seventh list, read by a test for the first time in the eighty-ninth).
@@ -216,7 +217,7 @@ describe("the layout contract", () => {
     // The literal below is the sha256 of BOTH copies, and it is the same literal the panel's test carries.
     const ours = createHash("sha256").update(contractText()).digest("hex");
     expect(ours).toBe(
-      "67aba34f1b4660a8d63f989208eb8367ee1daedf18153fd6804253065553fab8"
+      "31b96cca44954849cee64a8d7b42f2ffacf1fc26d7851b9ce389f4d0afa11085"
     );
     const sibling = path.join(here, "..", "..", "..", "..", "..", "summrise", "docs",
       "superpowers", "specs", "layout-contract.json");
@@ -396,7 +397,22 @@ describe("the layout contract", () => {
     // page has ONE head; anything under it is a card, which is what `card` means in the contract.
     // The overview's block is a `<section className="card">` now, and this test refuses the old shape.
     expect(contract.head.maxHeadsPerPage, "one head per page").toBe(1);
-    expect(contract.head.subtitleSlot, "the subtitle slot is named").toBe(".page-sub");
+    expect(contract.head.subtitleSlot.class, "the context slot is named").toBe(".page-sub");
+    // **AND THE CLAIM SLOT IS THE ATOM'S, NOT EACH PAGE'S (the hundred-and-twenty-first list).** Measured 2026-11-11:
+    // the title's block carried a CLAIM on some pages and nothing on others — console Home put `3 of 4 online · 2
+    // need attention` at **22/600** (the title's own size, lighter), Activity at **17/600**, and the panel put no
+    // claim under its title at all. **Two slots, recorded once.**
+    // **THE CLAIM SLOT IS A POSITION WITH TWO PERMITTED STEPS (the hundred-and-twenty-first list).** It is NOT one
+    // value: Home's verdict takes the TITLE's rung and Activity's count takes the SECTION's, **and a gate below pins
+    // that they do not converge** — that is the operator's standing direction, recorded. What the atom was missing is
+    // that a claim belongs in the head's block at all: the panel's pages went straight from `Settings` to its fold.
+    expect(contract.head.claimSlot.class, "the claim slot is named").toBe(".page-claim");
+    expect(contract.head.claimSlot.permittedSteps, "two steps, not one").toEqual(["xl", "lg"]);
+    expect(contract.head.claimSlot.weight, "and the weight says it is a sentence, not a title").toBe("semi");
+    // **AND BOTH POSITIONS ARE IN USE, WHICH IS WHY TWO STEPS ARE PERMITTED.** A third would be a decision.
+    const sheet = stripComments(css());
+    expect(sheet, "Home's claim takes the title's rung").toContain("font-size: var(--fs-xl)");
+    expect(sheet, "Activity's claim takes the section's").toContain("font-size: var(--fs-lg)");
     // **NO PAGE MARKUP HAS TWO HEADERS.** The check is per page file: a `<header>` and a second one, or a
     // `<header>` wrapping a block that is a card elsewhere.
     const pages = ["OverviewPage.tsx", "HomePage.tsx", "ActivityTimeline.tsx"];
@@ -1090,7 +1106,7 @@ describe("the layout contract", () => {
     const gateSrc = readFileSync(path.join(here, "..", "scripts", "browser-gate.mjs"), "utf8");
     expect(gateSrc, "the browser leg reads the section's rung").toContain("activityDesign.sentence !== 17");
     // Every page's name is an `h1` at the contract's title step — the re-run's finding, recorded.
-    expect(contract.head.subtitleSlot, "one slot, named once").toBe(".page-sub");
+    expect(contract.head.subtitleSlot.class, "one context slot, named once").toBe(".page-sub");
     expect(contract.title.size, "and the name above it is the contract's").toBe(22);
   });
 
@@ -1372,7 +1388,7 @@ describe("the layout contract", () => {
     expect(count, "Activity's count is at the section's").toContain("font-size: var(--fs-lg)");
     expect(verdict, "which is not the count's").not.toBe(count);
     // The atom's own numbers.
-    expect(contract.head.subtitleSlot, "the slot the atom names").toBe(".page-sub");
+    expect(contract.head.subtitleSlot.class, "the context slot the atom names").toBe(".page-sub");
     expect(contract.head.maxHeadsPerPage, "and one per page").toBe(1);
     expect(contract.section.h2.size, "the section rung the count now takes").toBe(17);
   });
