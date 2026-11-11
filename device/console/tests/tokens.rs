@@ -20,6 +20,44 @@ fn declared<'a>(css: &'a str, name: &str) -> Option<&'a str> {
     Some(rest[..end].trim())
 }
 
+/// **A DERIVED SURFACE IS STILL A COLOUR, AND IT HAS TO BE MEASURABLE (the hundred-and-seventeenth list).**
+///
+/// `--surface-recessed` is no longer a token that points at another token: it is
+/// `color-mix(in srgb, var(--ink) 7%, var(--panel))`, because the light scale has no step that can carry a recess
+/// (the measured numbers are in `device/ui/src/lib.rs`). This test measures text pairs against surfaces, and a
+/// `color-mix` of two opaque hex tokens composites to a colour like any other — **one blend, the same arithmetic the
+/// browser does** — so the pair stays measurable instead of being skipped. Skipping it would leave `--warn` on an
+/// open row unmeasured, which is exactly how `--ink-faint` shipped at 2.46:1 (the header of this file).
+///
+/// Only the forms the sheet actually uses are admitted: two named colours and a percentage. Anything else is still
+/// an error, so a future `color-mix` in another colour space cannot slip through as "no pair to measure".
+fn blend(sheet: &str, value: &str) -> Option<(f64, f64, f64)> {
+    let inner = value.strip_prefix("color-mix(in srgb, ").and_then(|v| v.strip_suffix(')'))?;
+    let (first, second) = inner.split_once(',')?;
+    let parts: Vec<&str> = first.split_whitespace().collect();
+    let (name, percent) = match parts.as_slice() {
+        [name, percent] => (*name, *percent),
+        _ => return None,
+    };
+    let weight = percent.strip_suffix('%')?.parse::<f64>().ok()? / 100.0;
+    let a = hex_of(sheet, name)?;
+    let b = hex_of(sheet, second.trim())?;
+    // ONE BLEND, in srgb, the way the browser composites two opaque colours.
+    Some((
+        a.0 * weight + b.0 * (1.0 - weight),
+        a.1 * weight + b.1 * (1.0 - weight),
+        a.2 * weight + b.2 * (1.0 - weight),
+    ))
+}
+
+/// A colour named by `var(--x)`, resolved to channels through the sheet the theme restates.
+fn hex_of(sheet: &str, token: &str) -> Option<(f64, f64, f64)> {
+    let name = token.strip_prefix("var(--")?.strip_suffix(')')?;
+    let value = declared(sheet, name).or_else(|| declared(TOKENS, name))?;
+    let channels = rgb(value);
+    Some(channels)
+}
+
 /// The literal behind an alias (`--surface:var(--panel)` follows to `--panel`). One hop is enough:
 /// the sheet's aliases point at real values, not at each other.
 fn follows<'a>(sheet: &'a str, name: &str) -> Option<&'a str> {
@@ -160,8 +198,15 @@ fn luminance(value: (f64, f64, f64)) -> f64 {
 }
 
 fn contrast(ink: &str, surface: &str) -> f64 {
-    let a = luminance(rgb(ink));
-    let b = luminance(rgb(surface));
+    ratio_of(luminance(rgb(ink)), luminance(rgb(surface)))
+}
+
+/// The same ratio, from CHANNELS — for a surface that is DERIVED (`color-mix`) and has no hex text to parse.
+fn contrast_of(ink: (f64, f64, f64), surface: (f64, f64, f64)) -> f64 {
+    ratio_of(luminance(ink), luminance(surface))
+}
+
+fn ratio_of(a: f64, b: f64) -> f64 {
     let (light, dark) = if a >= b { (a, b) } else { (b, a) };
     (light + 0.05) / (dark + 0.05)
 }
@@ -213,7 +258,13 @@ fn every_text_pair_reads_on_the_surface_it_sits_on() {
             let ink_value = follows(sheet, ink).unwrap_or_else(|| panic!("--{ink} is missing"));
             let surface_value =
                 follows(sheet, surface).unwrap_or_else(|| panic!("--{surface} is missing"));
-            let measured = contrast(ink_value, surface_value);
+            // **A DERIVED SURFACE IS COMPOSITED, NOT SKIPPED** (the hundred-and-seventeenth list). `--warn` and
+            // `--error` sit on `--surface-recessed`, which is a `color-mix` now; skipping it would leave the pair
+            // that shipped unmeasured once already.
+            let measured = match blend(sheet, surface_value) {
+                Some(channels) => contrast_of(rgb(ink_value), channels),
+                None => contrast(ink_value, surface_value),
+            };
             assert!(
                 measured >= 4.5,
                 "{use_name}: --{ink} {ink_value} on --{surface} {surface_value} measures {measured:.2}:1 in {} (AA needs 4.5)",

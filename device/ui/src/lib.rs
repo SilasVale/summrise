@@ -22,7 +22,12 @@ pub const TOKENS: &str = r#":root {
   --line:rgba(0,0,0,.08); --line-strong:rgba(0,0,0,.14); --line-soft:rgba(0,0,0,.05);
   --accent:#bf3a0a; --accent-solid:#b03a0a; --accent-hover:#963008;
   --accent-soft:#fff0e6; --accent-fg:#ffffff;
-  --ok:#1d7a3c; --warn:#a05d08; --ok-soft:#e7f6ec; --warn-soft:#fff4e5;
+  /* **`--warn` IS ONE STEP DARKER SINCE THE RECESS BECAME REAL (the hundred-and-seventeenth list).** The recess is
+     `color-mix(ink 7%, panel)` = #efefef now, and `#a05d08` on it measured **4.49:1 — 0.01 under AA**, which
+     `every_text_pair_reads_on_the_surface_it_sits_on` caught the moment the derived surface was composited instead
+     of skipped. Lightening the recess back would lose the level it just bought; the token whose job is to be
+     readable is the one that moves. `#9c5a08`: **4.71 on the recess, 5.19 on the card.** */
+  --ok:#1d7a3c; --warn:#9c5a08; --ok-soft:#e7f6ec; --warn-soft:#fff4e5;
   --danger:#b3261e; --danger-soft:#fdecea; --focus-ring:#bf3a0a;
   --rail:#17181c; --rail-line:rgba(255,255,255,.08); --rail-ink:#9a9ba4;
   --rail-ink-hover:#f4f4f5; --rail-focus:#ffb86b;
@@ -105,13 +110,24 @@ pub const TOKENS: &str = r#":root {
   /* ---- one vocabulary, two names ---- */
   /* The device's own panel was written against older names (`--surface`, `--ink-muted`, `--error`).
      They are aliases now rather than a second palette: a token defined twice is a token that drifts. */
-  --surface:var(--panel); --surface-recessed:var(--panel-2); --surface-chip:var(--panel-3);
+  --surface:var(--panel); --surface-chip:var(--panel-3);
+  /* **A RECESS IS THE CARD'S STEP WITH THE SIGN REVERSED (the hundred-and-seventeenth list).** Measured 2026-11-11:
+     `var(--panel-2)` = `#fafafa` is **the ground, again** — a recessed block measured **1.000** against the pane, and
+     every other spelling in the light scale (`#f4f4f5`) landed at 1.027. **A usable recess needs 8 levels BELOW the
+     pane**; the scale's steps are 3–8 apart, so there is no token to pick and inventing one adds a colour.
+     The card is `color-mix(ink 3.5%, panel)`; the recess is the same mix at 7% — measured **1.074**.
+     **AND IT LIVES HERE, NOT IN THE GENERATED SHEET**: `tokens.css` is rewritten by `generate-tokens.sh`, so a token
+     added there is a token the next run deletes. */
+  --surface-recessed:color-mix(in srgb, var(--ink) 7%, var(--panel));
   --ink-muted:var(--muted); --ink-faint:var(--faint); --error:var(--danger);
   --error-soft:var(--danger-soft); --hover:var(--panel-2);
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg:#131418; --panel:#1c1d22; --panel-2:#16171b; --panel-3:#23242a;
+    /* **AND AFTER DARK THE RECESS GOES THE OTHER WAY** — the card sits BELOW the pane there, so a recess is a step
+       toward the GROUND at the same size. Restated in this block for the same reason every derived token is. */
+    --surface-recessed:color-mix(in srgb, var(--bg) 40%, var(--panel));
     --ink:#ecedef; --muted:#a2a3ac; --faint:#8e909a;
     --line:rgba(255,255,255,.08); --line-strong:rgba(255,255,255,.14); --line-soft:rgba(255,255,255,.05);
     --accent:#ffa36b; --accent-solid:#b03a0a; --accent-hover:#c2410c;
