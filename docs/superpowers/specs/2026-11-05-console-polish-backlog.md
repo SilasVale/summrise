@@ -4195,12 +4195,25 @@ word "Home"**. On Activity the day's count is **17/600** — a whole step DOWN f
 **5** (Activity) or **9** (the panel) — three answers from one scale.
 
 1. **The verdict and the day's count are the product's SECOND sentence and get one treatment on both surfaces.**
-   **Fix:** one step, one weight, named in the atom. **M.** *(**The measurement that settles it**: the page has
+   **Fix:** one step, one weight, named in the atom. **M.** *(**Done — but NOT as "one treatment", and the gate
+   refused the first attempt.** `911bbb1` (constraint) · `a580536b6` (panel). The atom now names the **CLAIM SLOT** as
+   a POSITION with **TWO permitted steps** (`xl`, `lg`), because Home's verdict taking the title's rung is a
+   **recorded decision with its own reason** (`app.css:3667`) and a gate pins it — *"the two pages must NOT
+   converge — that is the standing direction."* **A third step is a decision, not a choice.** What was actually
+   broken is not that the treatments differed; it is that **the atom recorded only `subtitleSlot`**, so a FOURTH
+   treatment — or none, which is what the panel drew — had nothing stopping it. **And my first attempt was the
+   defect this series has produced twice**: a single `lg/semi` treatment and a `.page-claim` class **no page
+   drew** — a declaration nothing runs. The gate failed against it, correctly. Both reverted.)*
+   **The claim on the panel's pages is item 3.** *(**The measurement that settles it**: the page has
    **two** slots under the title, not one — a **CLAIM** ("3 of 4 online · 2 need attention", "Today: 543 client
    calls") and a **CONTEXT** ("Connection, device limits…", "Following the console's audit as it is written.").
    The atom recorded only `subtitleSlot`, so each page put its claim wherever it liked: **22/600** Home,
    **17/600** Activity, **nothing at all** on the panel. Activity's three levels — 22/700 title, 17/600 claim,
    12/400 context — are the only coherent ones on either surface.)*
+3. **The panel's pages draw NO claim under their title.** `Settings` goes `title 22/700` → `context 13/400` →
+   fold; `Plugins` the same. **The atom permits a claim and no panel page takes it**, so the product's most direct
+   sentence ("3 of 4 online · 2 need attention") has a slot on one surface and none on the other. **Fix:** each panel
+   page states its claim in the slot the atom now names. **M.**
 2. **The type scale has no step between the title and the body's largest.** `22 → 17 → 14` skips the one a page's
    second sentence needs, so each surface picked a different existing step. **Fix:** state which step a second line
    takes, or record that the scale cannot carry one. **S.**
