@@ -4026,7 +4026,11 @@ Measured 2026-11-11 (the shipped build, `0.3.273-ux192` live; the panel at its b
      console `.empty-state`   1.071 / 1.188        panel `.empty-card`  1.071 / 1.196
      console `.notice`        1.0?  / alarm        panel `.skeleton-row` 1.071 / 1.196
 
-**Both surfaces now agree on the tint (1.071) and the edge (≈1.19)** — the hundred-and-sixteenth list bought that. **What
+**Both surfaces now agree on the CARD's tint (1.072) and the edge (≈1.19)** — the hundred-and-sixteenth list bought
+that. **And the first measurement after it finds a SECOND card the fix never reached**: the panel's `.settings-fold`
+draws `--surface-recessed` = `--bg` = `#fafafa` on a pane that is now `(247,247,247)`, so its tint is **1.027** and its
+edge **1.117** — an outline with almost no fill, on the one page whose whole body is folds. The console's recessed
+step is `--panel-2: #fafafa` on a `#fafafa` ground, which is **the same number by a different name**. **What
 neither surface has is a gate that says so**: the number is a probe's output, retyped in chat, and the next round
 that repaints a card can move it without anything going red. That is the exact defect `contrast-probe.mjs` was
 written to end for TEXT — *"the defect was that it was a STRING inside one audit script, so nothing could test it"* —
@@ -4035,7 +4039,11 @@ repeated for surfaces.
 1. **A card's LEVEL is a measured number that no gate owns.** **Fix:** the console's `a11y-audit` and the panel's
    `themeContrast` composite the chain and refuse a card whose tint falls below the stated floor, in both themes.
    **M.**
-2. **The floor itself is unstated.** `elevation.flat` says "a hairline and a tint" and gives neither a minimum
+2. **A RECESSED card is `--bg` painted on the page, so it has no tint at all.** `--surface-recessed: var(--bg)` on
+   both surfaces: the console's `--panel-2: #fafafa` on a `#fafafa` ground, the panel's `#fafafa` on a `(247,247,247)`
+   pane. Measured: `.settings-fold` **1.027** tint, **1.117** edge. **Fix:** a recessed block is a step DOWN from the
+   card, not the ground repeated; one token, both surfaces. **M.**
+3. **The floor itself is unstated.** `elevation.flat` says "a hairline and a tint" and gives neither a minimum
    contrast nor a word for what the tint is FOR. **Fix:** the atom records the floor and the reason. **S.**
 
 ## How a round goes
