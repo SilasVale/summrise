@@ -4895,6 +4895,35 @@ console's five pages reach their empty state at all" cannot be answered from the
    that puts it on the second surface. **The rendered measure is still absent** — a `gap` can be right in the sheet and
    overridden in a later block; only a probe catches that, and no gate owns one. **S**, open.)*
 
+## P0 — the hundred-and-thirteenth list (opened 2026-11-11, the empty atom has a THIRD shape nobody recorded)
+
+The hundred-and-twelfth list left item 2 open: **no gate measures a RENDERED empty card**. This list starts by doing
+what that item asked, and the measurement immediately found a third shape.
+
+Measured 2026-11-11 at 1,360, the console's Activity page driven to a filter that matches nothing
+(**Table** view, `Status = Failed`, 0 rows):
+
+     the empty shape            radius  pad        gap   box                       way back
+     `.empty-state` (the atom)   14      16         **12**  its own, no shadow        yes
+     `.empty-card` (the panel)   14      16         **12**  its own, no shadow        yes
+     `.audit-empty`              **0**  **`12px 0`**  **8**   NONE — it rides inside `.panel.activity-panel`
+                                                                 (radius 14, pad 18, a hairline)
+
+**The third one is legitimate in KIND and wrong in NUMBERS.** It is an empty state INSIDE a card, which is the
+`no card inside a card` rule the thirty-eighth list established — so it must NOT draw its own surface. But it draws
+`radius 0`, `padding: 12px 0` and `gap: 8`, and **the atom's numbers are 14/16/12**: the sentence and the `Clear
+filters` control sit **8 px** apart where every other empty in the product separates them by **12**.
+
+**And the atom does not SAY which of the two shapes a given empty is.** `empty` records one card and `wayBack`; it has
+no word for *"an empty inside an existing card, which takes the card's inset and the atom's GAP"*. Two surfaces, three
+shapes, one atom — the third is right in principle and was never written down.
+
+1. **An empty state inside a card draws the atom's GAP at its own scale, and says so.** **Fix:** `.audit-empty` takes
+   the atom's 12, and the atom records the second shape. **S.**
+2. **The item the last list left open: a RENDERED empty card is now measured.** **Fix:** a browser leg that drives a
+   filter to zero on each surface and reads the card's radius, inset, gap and way-back off the rendered element.
+   **M.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
