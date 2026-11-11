@@ -5226,10 +5226,41 @@ try {
   if (!/^No calls match /.test(filteredEmpty)) {
     throw new Error(`the filtered empty state read ${JSON.stringify(filteredEmpty)}`);
   }
+  // **AN EMPTY STATE'S NUMBERS COME OFF THE RENDERED ELEMENT, NOT OFF THE SHEET (the hundred-and-thirteenth list).**
+  // A `gap` can be right in the rule and overridden by a later block; a radius can be inherited from a parent. The
+  // atom says an empty INSIDE a card draws NO surface and the atom's GAP — measured here, because the sheet cannot
+  // answer it. This is the leg the previous list left open.
+  const emptyShape = await page.evaluate(() => {
+    const el = document.querySelector('.audit-empty');
+    if (!el) return null;
+    const s = getComputedStyle(el);
+    const r = el.getBoundingClientRect();
+    return { radius: s.borderTopLeftRadius, pad: s.padding, gap: s.rowGap,
+      bg: s.backgroundColor, shadow: s.boxShadow, border: s.borderTopWidth,
+      w: Math.round(r.width), h: Math.round(r.height),
+      wayBack: [...el.querySelectorAll('button')].map((b) => (b.textContent ?? '').trim()) };
+  });
+  if (emptyShape === null) throw new Error('the filtered table drew no empty state to measure');
+  const EMPTY_GAP = 12;
+  if (parseFloat(emptyShape.gap) !== EMPTY_GAP) {
+    throw new Error(`the in-card empty's rendered gap is ${emptyShape.gap}, the atom says ${EMPTY_GAP}px`);
+  }
+  if (emptyShape.bg !== 'rgba(0, 0, 0, 0)' || emptyShape.shadow !== 'none' || parseFloat(emptyShape.border) !== 0) {
+    throw new Error(
+      `the in-card empty draws a surface of its own: bg ${emptyShape.bg}, shadow ${emptyShape.shadow}, ` +
+        `border ${emptyShape.border}`
+    );
+  }
+  if (!emptyShape.wayBack.some((t) => /clear/i.test(t))) {
+    throw new Error(`the in-card empty has no way back; its controls are ${JSON.stringify(emptyShape.wayBack)}`);
+  }
   await page.screenshot({ path: path.join(OUT, '07e-filtered-range-390.png') });
   step(
     `at 390 the filtered range says ${JSON.stringify(filteredCap)} over 0 rows, and the empty ` +
-      'state names the filter'
+      `state names the filter; RENDERED it is ${emptyShape.w}x${emptyShape.h} with a ${emptyShape.gap} gap, ` +
+      'no surface of its own and a ' +
+      JSON.stringify(emptyShape.wayBack[0]) +
+      ' way back'
   );
   await page.getByLabel('Status').selectOption('all');
 

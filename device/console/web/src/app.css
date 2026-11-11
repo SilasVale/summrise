@@ -2344,7 +2344,14 @@ span.files-name {
   .audit-record { grid-template-columns: 5rem minmax(0, 1fr); gap: var(--sp-1) var(--sp-2); }
 }
 
-.audit-empty { display: grid; gap: var(--sp-2); justify-items: start; padding: var(--sp-3) 0; }
+/* **AN EMPTY STATE INSIDE A CARD TAKES THE ATOM'S GAP, NOT THE SCALE'S SMALLEST ONE (the hundred-and-thirteenth
+   list).** Measured 2026-11-11 at 1,360 with the Activity table filtered to zero rows: `.audit-empty` drew
+   `radius 0`, `padding: 12px 0` and **`gap: 8`** — and its SENTENCE and its `Clear filters` control sat 8 px apart
+   where every other empty in the product separates them by **12** (`empty.gap`). The inset is right and stays:
+   **this shape is INSIDE a card, so it must not draw its own surface** (the thirty-eighth list's `no card inside a
+   card`), and the `.panel.activity-panel` it rides in supplies the box. What it takes from the atom is the one number
+   the atom is FOR here — the distance between the sentence and the control that undoes it. */
+.audit-empty { display: grid; gap: var(--sp-3); justify-items: start; padding: var(--sp-3) 0; }
 /* THE EXPORT IS ONE CONTROL AT THE FILTER ROW'S END (audit-41 F4). It used to be two buttons in
    two rows — `Export JSONL` beside Time, `Export CSV` at the far end — so the row said "Export"
    twice and the formats lived in two places. The menu is the one control; its items are files. */

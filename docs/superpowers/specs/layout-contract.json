@@ -211,13 +211,18 @@
     }
   },
   "empty": {
-    "$comment": "The EMPTY state's atom, which both surfaces draw (the forty-sixth list). A page with nothing to list shows one card, on the page's own grid: the card's corner and padding, start-aligned text, no shadow, and the full width of the page's column. It is NOT a dialog — a 20px corner, a drop shadow and centred text on a 1120px column is a modal drawn where a page's empty state belongs. **AND THE STATE KEEPS THE WAY BACK, AND THE CARD'S INSET IS ON THE CARD (the seventy-second list):** measured 2026-11-10 after filtering a list into nothing — the panel's was one 18 px line CENTRED in 1,042 px inside a `.card` whose inset came from the child's `margin: 14px` (so the card stood 48 px tall around one line), with NO control; the console's had the `Clear search` and no card. A reader who filtered a list into nothing needs the control that undoes it beside the sentence that explains it.",
+    "$comment": "The EMPTY state's atom, which both surfaces draw (the forty-sixth list). A page with nothing to list shows one card, on the page's own grid: the card's corner and padding, start-aligned text, no shadow, and the full width of the page's column. It is NOT a dialog — a 20px corner, a drop shadow and centred text on a 1120px column is a modal drawn where a page's empty state belongs. **AND THE STATE KEEPS THE WAY BACK, AND THE CARD'S INSET IS ON THE CARD (the seventy-second list):** measured 2026-11-10 after filtering a list into nothing — the panel's was one 18 px line CENTRED in 1,042 px inside a `.card` whose inset came from the child's `margin: 14px` (so the card stood 48 px tall around one line), with NO control; the console's had the `Clear search` and no card. A reader who filtered a list into nothing needs the control that undoes it beside the sentence that explains it. **AND THERE ARE TWO SHAPES, NOT ONE (the hundred-and-thirteenth list).** A page whose whole body is empty draws `standalone`: a card of its own at the numbers above. An empty state INSIDE a card — a filtered table, a list panel — draws `inCard`: NO surface, NO radius, NO shadow (the thirty-eighth list's `no card inside a card`), the card's own inset, and **the atom's `gap`**, because the one thing the atom is FOR here is the distance between the sentence and the control that undoes it. Measured 2026-11-11: the console's `.audit-empty` drew `gap: 8` where every other empty in the product separates those two by **12**, and nothing in the atom said which shape it was.",
     "radius": 14,
     "pad": 16,
     "gap": 12,
     "textAlign": "start",
     "shadow": "none",
-    "wayBack": true
+    "wayBack": true,
+    "shapes": {
+      "standalone": "a card of its own: the numbers above",
+      "inCard": "no surface, no radius, no shadow; the card's inset and the atom's gap",
+      "measured": "2026-11-11, `.audit-empty` inside `.panel.activity-panel`: radius 0, pad `12px 0`, gap **8** -> 12"
+    }
   },
   "failed": {
     "$comment": "A failure's sentence NAMES THE SUBJECT, NOT THE TRANSPORT (the sixty-third list). Measured: the console's notice said \"The console could not read the machine list\" — the THING a person was waiting for — and the panel's said \"tool memory_list failed\", which names the RPC and leaves the reader to infer the page.",

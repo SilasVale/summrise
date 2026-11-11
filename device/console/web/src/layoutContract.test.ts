@@ -49,7 +49,14 @@ type Contract = {
   title: { size: number; weight: number };
   breakpoints: Record<string, number> & { queryForm: { below: string; at: string } };
   empty: {
-    wayBack: boolean; radius: number; pad: number; gap: number; textAlign: string; shadow: string };
+    wayBack: boolean;
+    radius: number;
+    pad: number;
+    gap: number;
+    textAlign: string;
+    shadow: string;
+    shapes: Record<"standalone" | "inCard" | "measured", string>;
+  };
   head: {
     gap: number;
     align: string;
@@ -206,7 +213,7 @@ describe("the layout contract", () => {
     // The literal below is the sha256 of BOTH copies, and it is the same literal the panel's test carries.
     const ours = createHash("sha256").update(contractText()).digest("hex");
     expect(ours).toBe(
-      "92e4c800bd1d8094262da49139d8750142fd2ad153d6a866fa286b7a7a5f15bf"
+      "39b6413e169c6fd60519a2fb7f6b237c32e5fef2070e7aef9bfedae6d6317c5f"
     );
     const sibling = path.join(here, "..", "..", "..", "..", "..", "summrise", "docs",
       "superpowers", "specs", "layout-contract.json");
@@ -1154,6 +1161,39 @@ describe("the layout contract", () => {
     const countRule = sheet.match(/\.filter-count \{\s[^}]*\}/);
     expect(countRule, "the count has a rule").toBeTruthy();
     expect(countRule![0], "the count is not a filter column any more").not.toContain("align-self: center");
+  });
+
+  it("draws an empty state in ONE of TWO shapes, and the in-card one keeps the atom's gap", () => {
+    // **MEASURED 2026-11-11 AT 1,360, the Activity table driven to a filter that matches nothing:**
+    //
+    //     the empty shape            radius  pad          gap   box                       way back
+    //     `.empty-state` (the atom)   14      16           **12**  its own, no shadow        yes
+    //     `.audit-empty`              **0**  **`12px 0`**  **8**   NONE — inside `.panel.activity-panel` (14/18)
+    //
+    // **The third shape is legitimate in KIND and wrong in NUMBERS.** It is an empty INSIDE a card — the thirty-eighth
+    // list's `no card inside a card` — so it must not draw its own surface. But **its sentence and its `Clear filters`
+    // control sat 8 px apart where every other empty in the product separates them by 12**, and the atom had no word
+    // for which shape a given empty was.
+    expect(contract.empty.shapes.standalone, "the atom names the card shape").toContain("card");
+    expect(contract.empty.shapes.inCard, "and the in-card one").toContain("no surface");
+    // The page-body empty IS the card, at the atom's numbers.
+    const card = ruleFor(stripComments(css()), ".empty-state")!;
+    const gap = card.match(/gap:\s*var\(--([\w-]+)\)/)?.[1];
+    expect(tokenPx(tokens(), gap!), "the card's gap is the atom's").toBe(contract.empty.gap);
+    // **AND THE IN-CARD ONE TAKES THE SAME GAP, WITH NO SURFACE.** That is the whole distinction: one number shared,
+    // one surface not drawn.
+    // **THE COMMENT IS NOT THE RULE** — this rule's own note explains the shape it does NOT take, and a scan for
+    // the substring finds the explanation. `ruleFor` returns the block; strip its comments before asking.
+    const sheet = stripComments(css());
+    const inCard = sheet.match(/\n\.audit-empty \{([^}]*)\}/)?.[1] ?? "";
+    expect(inCard, "the in-card empty declares its gap").toMatch(/gap:\s*var\(--sp-3\)/);
+    expect(inCard, "and draws NO surface of its own").not.toContain("border");
+    expect(inCard, "no radius either").not.toContain("border-radius");
+    expect(inCard, "and no shadow").not.toContain("box-shadow");
+    // The atom's own numbers.
+    expect(contract.empty.gap, "the gap both shapes share").toBe(12);
+    expect(contract.empty.radius, "the card's corner").toBe(14);
+    expect(contract.empty.pad, "the card's inset").toBe(16);
   });
 
   it("floats ONE pane object: the atom's shadow, the atom's radius, the page's own edge", () => {
