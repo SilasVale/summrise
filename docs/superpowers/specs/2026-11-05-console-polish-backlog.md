@@ -4407,6 +4407,35 @@ the sheet must land in one commit or that commit is red on its own pin. Two olde
 `padding: 12px` now read the padding through `var(--sp-3)` and compare the **value**: *a gate resolves a value; it does
 not dictate a spelling.*
 
+## P0 — the hundred-and-twenty-sixth list (opened 2026-11-11, rule 4: four weights, and one surface writes 63 numbers)
+
+Rules 4 (*"use fewer font weights"*) and 5 (*"hierarchy comes from size, weight and colour"*), measured on the sheets
+because a weight is written in one:
+
+    console  font-weight literals 0 · numeric weights in `font:` 0 · tokens 400/500/600/700
+    panel    font-weight literals 1 (400) · numeric weights in `font:` **63** (400×35, 500×2, 600×23, **650×3**)
+             tokens **500/600/700 — no `--fw-regular`**
+
+**`650` is not a step on either surface's scale.** It is fifty above semi and fifty below bold, and it was invented
+three times: `.path-summary-n` (the path summary's count), `.gs-head h2` (a card head) and `.gs-close` (a close
+button). **The atom records the card title at weight 600** (`cardTitle.weight`), so the head has a stated answer and
+the other two are the same "slightly more than semi" nobody named.
+
+**And the panel cannot name 400 at all.** Its token block declares three weights where the console declares four, so
+**36 declarations write `400` by hand** — 35 in the `font:` shorthand and one as `font-weight: 400` in `layout.css`.
+
+**A `font-weight` census cannot see any of it.** 63 of the panel's weights live in the `font:` shorthand, and the
+console's gate (`every_weight_is_one_of_four_tokens`, `device/console/tests/tokens.rs`) scans `font-weight:` lines
+only — it would pass a sheet that wrote `font: 650 …` all the way down.
+
+1. **`650` ×3 is off the four-step scale.** **Fix:** 600, the weight the atom gives a card title, and a gate that
+   refuses a weight outside 400/500/600/700. **S.**
+2. **The panel has no `--fw-regular`**, while the console has one and this surface writes `400` 36 times. **Fix:**
+   declare it and use it. **M.**
+3. **No gate reads the `font:` shorthand**, so 63 weights bypass the vocabulary entirely. **Fix:** a panel gate that
+   requires every written weight — `font-weight:` or the shorthand — to be `var(--fw-*)`, and the four tokens to be
+   exactly 400/500/600/700. **M.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
