@@ -1275,24 +1275,7 @@ impl DeviceServer {
                 Ok(json!({ "removed": removed }).to_string())
             }
             Handler::ForwardList => {
-                let state: Vec<Value> = self
-                    .forwards
-                    .list()
-                    .into_iter()
-                    .map(|row| {
-                        json!({
-                            "name": row.name,
-                            "listen": row.listen,
-                            "target": row.target,
-                            "via": row.via,
-                            "listening": row.listening,
-                            "since_ms": row.since_ms,
-                            "attempts": row.attempts,
-                            "connections": row.connections,
-                            "last_error": row.last_error,
-                        })
-                    })
-                    .collect();
+                let state: Vec<Value> = self.forwards.list().into_iter().map(forward_row).collect();
                 Ok(Value::Array(state).to_string())
             }
             Handler::MonitorAdd => {
@@ -1753,6 +1736,41 @@ const HANDLERS: &[(&str, Handler)] = &[
     ("plugins.restart", Handler::Plugins),
     ("plugins.logs", Handler::Plugins),
 ];
+
+/// **ONE PLACE BUILDS `forward.list`'s ROW, AND IT TAKES EVERY FIELD THE STATE HAS.**
+///
+/// This was a `json!` inline in the dispatch, which meant the answer's key set existed only as a
+/// literal — and a field added to [`forward::ForwardState`](crate::capabilities::forward::ForwardState)
+/// reached no client while every test in this workspace stayed green, because the device's own tests
+/// compare the STRUCT to itself. Naming the row here lets
+/// `the_forward_list_serves_every_field_the_row_state_has` compare the served keys to the state's
+/// fields, and to the console's own type, in one test.
+fn forward_row(row: crate::capabilities::forward::ForwardState) -> Value {
+    json!({
+        "name": row.name,
+        "listen": row.listen,
+        "target": row.target,
+        "via": row.via,
+        "listening": row.listening,
+        "since_ms": row.since_ms,
+        "attempts": row.attempts,
+        "connections": row.connections,
+        "last_error": row.last_error,
+    })
+}
+
+/// The keys [`forward_row`] serves, read from it rather than restated.
+///
+/// **THE TEST MUST NOT BUILD ITS OWN EXPECTED LIST.** A test that typed the nine names would go green
+/// on the day a tenth was added to the `json!` and nobody updated it — which is the failure the test
+/// exists to catch. Calling the same function means the answer and the assertion share one source.
+#[cfg(test)]
+fn forward_list_keys() -> Vec<String> {
+    forward_row(crate::capabilities::forward::ForwardState::default())
+        .as_object()
+        .map(|object| object.keys().cloned().collect())
+        .unwrap_or_default()
+}
 
 /// The handler for `name`, or `None` when the surface has no implementation.
 fn handler(name: &str) -> Option<Handler> {
@@ -3384,9 +3402,10 @@ mod tests {
     use crate::test_support::TempDir;
 
     use super::{
-        dispatch_supports, handler, input_schema, registry_tools, HANDLERS, MAX_BODY_BYTES,
-        MAX_FILE_BYTES,
+        dispatch_supports, forward_list_keys, handler, input_schema, registry_tools, HANDLERS,
+        MAX_BODY_BYTES, MAX_FILE_BYTES,
     };
+    use crate::capabilities::forward::ForwardState;
 
     const TOKEN: [u8; 32] = [0x6b; 32];
 
@@ -6239,6 +6258,88 @@ mod tests {
         assert!(
             fallbacks.is_empty(),
             "these tools advertise the fallback schema instead of their own: {fallbacks:?}"
+        );
+    }
+
+    /// **THE PAGE THAT DRAWS A RULE'S STATE MUST KNOW EVERY FIELD THE DEVICE PUTS IN IT.**
+    ///
+    /// `forward.list` is a hand-built `json!` in the dispatch below, and the console's
+    /// `ForwardRules.tsx` renders the nine fields it knows out of it. Neither side can see the
+    /// other's list: a field ADDED to the `json!` reaches no surface and a field REMOVED from it
+    /// reaches a page that shows a blank, and both are green on every test this repository runs —
+    /// the device's tests use `ForwardState`'s own serialization, which is the SOURCE the `json!`
+    /// duplicates, and the page's tests use a fixture copied from the `json!`.
+    ///
+    /// **THE SOURCE IS READ, NOT THE PAGE'S TYPESCRIPT PARSED.** `forwardApi.ts`'s `ForwardRow` is a
+    /// type; its members are what the page draws. The check is that the `json!` and this
+    /// `ForwardState` agree key for key, and that every one of those keys appears in the page's own
+    /// type — so a field the device serves and the page ignores is a deliberate decision that has
+    /// to be written in this test, not an accident nobody sees.
+    #[test]
+    fn the_forward_list_serves_every_field_the_row_state_has() {
+        // The `json!` in the dispatch, read back through serde so the comparison is between two
+        // serialized objects rather than between a literal and a list somebody typed.
+        let served: ForwardState = ForwardState {
+            name: "shape".to_owned(),
+            listen: "127.0.0.1:1".to_owned(),
+            target: "127.0.0.1:2".to_owned(),
+            via: "u@127.0.0.1:22".to_owned(),
+            listening: true,
+            since_ms: Some(1),
+            last_error: Some("x".to_owned()),
+            attempts: 1,
+            connections: 1,
+        };
+        let source = serde_json::to_value(&served).expect("ForwardState serializes");
+        let source_keys: Vec<String> = source
+            .as_object()
+            .map(|object| object.keys().cloned().collect())
+            .unwrap_or_default();
+        assert!(
+            !source_keys.is_empty(),
+            "ForwardState serialized to something that is not an object: {source}"
+        );
+
+        // THE DISPATCH'S OWN ANSWER, taken from the running handler rather than from a copy: the
+        // registry's list is built by the same `json!`, so a test that restated it would be the
+        // second copy this test exists to stop.
+        let served_keys = forward_list_keys();
+        let mut missing = Vec::new();
+        for key in &source_keys {
+            if !served_keys.iter().any(|served| served == key) {
+                missing.push(key.clone());
+            }
+        }
+        let mut invented = Vec::new();
+        for key in &served_keys {
+            if !source_keys.iter().any(|source| source == key) {
+                invented.push(key.clone());
+            }
+        }
+        assert!(
+            missing.is_empty(),
+            "ForwardState carries {missing:?}, and `forward.list` does not serve it — a field \
+             this row's state has and the wire does not"
+        );
+        assert!(
+            invented.is_empty(),
+            "`forward.list` serves {invented:?}, which is not a field of ForwardState — a key with \
+             no state behind it"
+        );
+
+        // AND THE PAGE DRAWS ALL OF THEM. `forwardApi.ts` is read as text because its `ForwardRow`
+        // is a type, and its members are the surface's contract with this answer.
+        let page = include_str!("../../console/web/src/forwardApi.ts");
+        let absent: Vec<&String> = source_keys
+            .iter()
+            .filter(|key| {
+                !page.contains(&format!("\n  {key}:")) && !page.contains(&format!("\n  {key}?:"))
+            })
+            .collect();
+        assert!(
+            absent.is_empty(),
+            "forward.list serves {absent:?}, and console/web/src/forwardApi.ts's ForwardRow has no \
+             member for it — the device sends a fact the page cannot draw"
         );
     }
 
