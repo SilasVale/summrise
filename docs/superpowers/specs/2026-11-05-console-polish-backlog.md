@@ -4762,6 +4762,31 @@ not; the chips were trimmed, the block was not.
    **Mutation:** the phone condition reverted to `{filterable && (` fails at
    `expect(screen.queryByRole("searchbox", …)).toBeNull()` — the search is on the page while collapsed.
 
+## P0 — the hundred-and-thirty-fifth list (CLOSED 2026-11-11 — a failed read printed the edge's HTML)
+
+The sixty-third list's rule — *a failure's sentence names the subject, not the transport* — broken by the transport
+itself. Measured 2026-11-11 with an **HTML 200 on `/mcp`** (an Access login page, or any proxy's error page):
+
+    Could not read this device's sessions: <!doctype html> <html lang="en"> <head> <meta charset="utf-8">
+    <meta name="viewport" content="width=devi…
+
+`callTool` caught the parse failure and threw `text.slice(0, 200)`: two hundred characters of markup where a sentence
+goes. The console's own routes already answer a non-JSON 200 with `NoAnswer`; this route kept the body.
+
+1. **Three shapes, three sentences.** **Fix — console `2d44496` (pushed; NOT deployed — the console deploy waits on
+   the operator's word).** A web page (starts with `<`) says *who answered* and the status, and quotes nothing; one
+   short line (≤ 80 characters, no second line) is the proxy's own sentence and is kept, because it is the only text
+   that names the objection; anything else is the status and *the answer was not JSON*. The device's own refusal still
+   passes through verbatim and a JSON-RPC error still reads its message — both pinned.
+2. **The transport had no test of its own.** **Fix:** `terminal.test.ts` — 5 cases over a stubbed `fetch`, one per
+   sentence plus the two pass-throughs. **Mutation:** the classifier replaced by `text.slice(0, 200)` -> **2 failed |
+   3 passed**, naming *does not put a web page in the operator's sentence* and *bounds anything else to the status*.
+
+**THE FIXTURE FOUND IT, THE RULE ALREADY EXISTED.** This session's probe server answers unknown routes with the SPA's
+`index.html`, which is what an edge page is; the defect is the console's — a transport that prints whatever bytes it
+received cannot tell an operator from a proxy. The before/after pair at 1440 is in
+`.superpowers/sdd/2026-11-05-console-polish-backlog/list135/`: 200 characters and one line.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
