@@ -510,8 +510,23 @@ export const api = {
   // The local calendar day, counted from the file rather than from the newest window. `device`
   // narrows it during the scan, like `/audit?device=`. The hub's `today` and this route are one
   // read; Activity's header uses this so a sliding window cannot shrink the day's number.
-  auditDay: (device?: string) =>
-    call<AuditDay>(`/audit/day${device ? `?device=${encodeURIComponent(device)}` : ""}`),
+  //
+  // **A 200 THAT CARRIES NO COUNTS IS NOT AN ANSWER (the hundred-and-thirty-first list).** The
+  // page's first sentence is built from `client_calls`, and a body without it rendered
+  // `Today: undefined client calls.` at the top of the record — a raw JavaScript value where the
+  // day's number goes. Measured 2026-11-11 with `/audit/day` answering `[]` (a body the route can
+  // produce through a proxy, a version skew or a truncated write): every other sentence on the
+  // page said what it could not read, and this one invented a word. The read fails instead, so
+  // the header makes no claim and the page's own notice names the failure.
+  auditDay: async (device?: string): Promise<AuditDay> => {
+    const day = await call<AuditDay>(
+      `/audit/day${device ? `?device=${encodeURIComponent(device)}` : ""}`
+    );
+    if (day === null || typeof day !== "object" || typeof day.client_calls !== "number") {
+      throw new NoAnswer("/audit/day");
+    }
+    return day;
+  },
   // **WHAT THE WINDOW READS.** The file's name, size, the moments its lines span and its one older
   // generation. A separate read from `/audit` because it is a fact about the reader, not a line.
   auditSource: () => call<AuditSource>("/audit/source"),

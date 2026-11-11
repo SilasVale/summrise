@@ -192,6 +192,40 @@ describe("the answers", () => {
   });
 });
 
+describe("the day's answer", () => {
+  // **A DAY THE HUB COULD NOT COUNT IS A FAILED READ, NOT A NUMBER (the hundred-and-thirty-first list).**
+  // Activity's first sentence is built from `client_calls`; a 200 whose body carried no counts made it
+  // read `Today: undefined client calls.` at the top of the record. The client now calls that answer
+  // what it is — no answer — so the header makes no claim and the page's notice names the failure.
+  it("refuses a 200 that carries no counts", async () => {
+    for (const text of ["[]", "{}", "null", ""]) {
+      fetchMock.mockResolvedValue(answer({ text }));
+      await expect(api.auditDay()).rejects.toBeInstanceOf(NoAnswer);
+    }
+  });
+
+  it("refuses a count that is not a number", async () => {
+    fetchMock.mockResolvedValue(answer({ json: { client_calls: null, failed: 0 } }));
+    await expect(api.auditDay()).rejects.toBeInstanceOf(NoAnswer);
+  });
+
+  it("takes the day the hub counted, and asks for the scope", async () => {
+    const day = {
+      client_calls: 3,
+      failed: 1,
+      console: 0,
+      console_failed: 0,
+      poll: 0,
+      poll_failed: 0,
+      unattributed: 0,
+      unattributed_failed: 0
+    };
+    fetchMock.mockResolvedValue(answer({ json: day }));
+    await expect(api.auditDay("dev one")).resolves.toEqual(day);
+    expect(lastRequest().path).toBe("/audit/day?device=dev%20one");
+  });
+});
+
 describe("the endpoints", () => {
   it("session GETs /session", async () => {
     await request(() => api.session(), "/session");
