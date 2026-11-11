@@ -42,11 +42,24 @@ function stateOf(rule: ForwardRow): { label: string; className: string } {
   return { label: "Starting", className: "chip chip-warn" };
 }
 
-function listenSentence(rule: ForwardRow): string {
+/**
+ * How long this rule has been bound, measured AGAINST THE MOMENT THE LIST WAS READ.
+ *
+ * **`since_ms` IS THE DEVICE'S CLOCK AND `Date.now()` IS THE BROWSER'S.** Subtracting one from the
+ * other is a number that looks like an age and is not one: a device two minutes ahead makes every
+ * rule read "bound 2 m" the instant it binds, and one two minutes behind makes it read "bound 0 s"
+ * for two minutes. The read's own moment — taken when the console asked, on the console's clock —
+ * removes the skew for every row of one read at once.
+ */
+function listenSentence(rule: ForwardRow, readAtMs: number): string {
   if (!rule.listening || rule.since_ms === null) {
     return rule.attempts === 0 ? "binding now" : `${rule.attempts} bind attempts`;
   }
-  return `bound ${spanText(Math.max(0, Date.now() - rule.since_ms))}`;
+  // A device clock AHEAD of the console's yields a negative age, and a negative span is not a
+  // measurement: it is the two clocks disagreeing, so the sentence says the one thing it knows.
+  const span = readAtMs - rule.since_ms;
+  if (span < 0) return "bound (this machine's clock is ahead of the console's)";
+  return `bound ${spanText(span)}`;
 }
 
 function carriedSentence(count: number): string {
@@ -175,6 +188,10 @@ export function ForwardRules({
   const toolListKnown = !live.loading && live.error === null;
   const supported = live.tools.some((tool) => tool.name === "forward.list");
   const [rows, setRows] = useState<ForwardRow[] | null>(null);
+  // **THE CLOCK EVERY ROW ON THIS PAGE IS MEASURED AGAINST.** Set by the read that brought the rows,
+  // so the ages cannot be computed from the browser's `now` drifting forward between renders — a
+  // section that re-rendered a minute later would otherwise report every rule a minute older.
+  const [readAtMs, setReadAtMs] = useState(0);
   const [reading, setReading] = useState(false);
   const [readError, setReadError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -201,7 +218,10 @@ export function ForwardRules({
     setReadError(null);
     try {
       const next = await listForwards(grant);
-      if (mounted.current) setRows(next);
+      if (mounted.current) {
+        setRows(next.rows);
+        setReadAtMs(next.readAtMs);
+      }
     } catch (cause) {
       if (mounted.current) setReadError(forwardFailure(cause));
     } finally {
@@ -286,7 +306,7 @@ export function ForwardRules({
                   {rule.listen} → {rule.target} via {rule.via}
                 </p>
                 <p className="forward-meta">
-                  {listenSentence(rule)} · {carriedSentence(rule.connections)}
+                  {listenSentence(rule, readAtMs)} · {carriedSentence(rule.connections)}
                 </p>
                 {rule.last_error !== null && <p className="error">{rule.last_error}</p>}
               </div>
