@@ -4135,7 +4135,7 @@ written down in the file the whole program is built on.
    reds above were on `hub/v1` for hours while two rounds reported green. **It is also the honest boundary**: the
    Windows lifecycle suite CI runs only on Windows is still not in the loop, and this round does not claim it.)*
 
-## P0 — the hundred-and-twentieth list (opened 2026-11-11, three counts of one day, on one page, in three units)
+## P0 — the hundred-and-twentieth list (closed 2026-11-11: two counts, two units, and one clause that reconciles them)
 
 The hundred-and-nineteenth list is closed. This list is rule 6's shadow — *"never colour alone"* applied to the other
 ambiguous signifier, a NUMBER — measured on the live console (`0.3.273-ux192`):
@@ -4164,6 +4164,11 @@ Both sentences sit **52 px apart** in the same column, and neither says the othe
    exists.)*
 2. **The window line and the day line state contradictory intervals without saying so.** **Fix:** one of them names
    the other explicitly, where they meet. **S.**
+   *(**Done, MERGED, NOT DEPLOYED** — `b766067`. The window line carries one clause, **`— the day's calls are a subset
+   of these`**, and it fires **only when the answer published a cut the window reaches past**
+   (`windowSpan.oldest_ts_ms < props.dayStartMs`). **Both directions are tested**: the clause present, and absent when
+   no cut was published, because **a gate that always fires is worse than silence**. The measured page's window
+   reached midnight by 19 h 32 m from 09:40; the page now says the conclusion instead of asking the reader to subtract.)*
 
 ## How a round goes
 
