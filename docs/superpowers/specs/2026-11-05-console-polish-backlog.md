@@ -4098,6 +4098,33 @@ derivation found a real defect on its first run: **`--warn` on the recess measur
    which this program has never run as part of the round loop. **Fix:** the console's Rust token test joins the round's
    gate list, named, in `ci.yml`'s own matrix. **S.**
 
+## P0 — the hundred-and-nineteenth list (opened 2026-11-11, the round loop's gate list is not CI's)
+
+The hundred-and-eighteenth list closed items 1 and 2 and left item 3 open: *the console's Rust token test is not in
+this program's round loop*. This list measured where the round loop actually reads its commands from — and the answer
+is a file whose own header says it does not copy them.
+
+Measured 2026-11-11:
+
+     the round loop's console gates        `tsc` · `npm test` · `npm run build` · `browser-gate` · `a11y-audit` · `motion`
+     what `ci.yml`'s device job runs       `scripts/check.sh` — **which reads its commands OUT of ci.yml**
+                                            (`awk` over the `device` job's `run:` lines), so it cannot drift
+     what the round loop skipped           **`cargo test -p summrise-console --test tokens`**,
+                                            which is in the `device` job on line 31
+     what that gate would have caught      `generated_tokens_match_the_canonical_sheet` — red for **3h42m**
+                                            on `hub/v1` (0eabcc0 03:44 → e66ea0b 07:26) while I shipped two lists
+
+**`scripts/check.sh` exists precisely so a local run is CI's run** — *"A change to CI cannot leave this script testing
+yesterday's commands"* — and **the 433-test Rust suite is not in my loop at all**. The gate was one command away and
+written down in the file the whole program is built on.
+
+1. **The round loop's gate list is a memory, not a command.** `scripts/check.sh` reads CI's commands; **that is the
+   instrument, and I ran my own list instead.** **Fix:** the round runs `scripts/check.sh` for the Rust half and keeps
+   its own browser legs for the half CI cannot see. **S.**
+2. **A gate's RED could not reach the round at all**: the token test failed on `hub/v1` for three hours while every
+   round reported green. **Fix:** a push is preceded by the cheap Rust suite, so a red gate blocks the round that
+   created it. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
