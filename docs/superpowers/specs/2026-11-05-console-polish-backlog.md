@@ -4867,16 +4867,25 @@ state is the one the atom describes; **the list that said otherwise is corrected
 missing is worth re-running before a list is written about it, which is the fifth time this program has paid for that
 lesson.
 
-**What IS still wrong is the REACH, not the shape**: the EMPTY state is drawn on **one page of five on the panel**
-(Plugins) and **none of five on the console**, and the panel's Memory page has a search field whose no-match draws
-nothing at all.
+**And the second measurement corrected the second half too.** The panel's Memory page DOES have a no-match branch
+(`No entries match “…”` + `Clear search`) — it is reachable only when the ANSWER is empty, and this fixture answers
+three matches for a nonsense query, so a probe that types text and waits will never see it. **Every empty branch this
+program can find keeps a way back**: nine branches across the two repos, every one with a `<button>` (measured from
+source, 2026-11-11).
 
-1. **The EMPTY state is reachable on one page of five on the panel and none of five on the console**, and the panel's
-   Memory page has a search field whose no-match draws nothing at all. **Fix:** every list that can be filtered has
-   the atom's card, with the way back. **M.**
-2. **Nothing measures REACH.** The atoms are recorded and the shims that draw them are tested, but **no gate asks
-   whether a page can REACH its empty state** — a page whose filter has no empty branch passes every gate in both
-   repos, because a gate that reads a stylesheet cannot know which branches a component has. **S.**
+**What IS still wrong is REACH, and it is narrower than the first draft said**: the console draws `.empty-state` on
+pages a reader browses only when a list is EMPTY, and this fixture's lists are never empty — so the question "can the
+console's five pages reach their empty state at all" cannot be answered from the fixture, only from the source
+(three pages have a branch: `PluginList`, `ToolCatalogue`, `DevicePageShell`).
+
+1. **The empty atom's `wayBack` is met by every branch, and its `gap` is NOT.** Measured from source: nine empty
+   branches, all with a control. Measured RENDERED at 1,360: the panel's `.empty-card` carries `padding: 16` from two
+   rule sets and **`rowGap` is absent** (the atom's `gap: 12`), while the console's `.empty-state` carries
+   `gap: var(--empty-gap, var(--sp-3))` — a variable nothing sets, so 12 by luck. **Fix:** the card's inset and the
+   card's gap are the atom's, in one declaration each. **S.**
+2. **Nothing measures an empty CARD's shape.** Every gate reads the stylesheet's rules; **none asks what a rendered
+   empty card measures**, so `gap` can be missing on one surface and a fallback on the other while both sheets
+   "declare" the atom. **S.**
 
 ## How a round goes
 
