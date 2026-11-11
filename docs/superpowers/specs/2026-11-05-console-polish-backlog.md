@@ -4573,11 +4573,50 @@ metrics are not this box's, so the atom's 18 px line box was an assumption there
    the base rule fails naming the five controls that depend on it (Memory/Plugins/History `button "A−"` 12 px h=19,
    Settings `"AI client"` h=22, `.connect-tab` h=24); `.btn` back to `/1.55` fails with *ratio 1.55 is in no atom*.
 
+**CORRECTED IN THE HUNDRED-AND-THIRTIETH LIST:** the gate this list added clicked
+`nav button:has-text("Memory")`, which matches no rail button (the rail is labelled by `aria-label`), so three of
+its four clicks missed and it measured the DEFAULT page four times while printing PASS. The four pages it claimed
+were not four pages; History's thirteen undeclared leadings are the next list.
+
 **AND ONE PRE-EXISTING RED WAS FOUND BY RUNNING THE SHEET'S OWN GATES:** `stylesheet_hygiene` failed at HEAD on two
 `tokens.css` comments that quoted a declaration WITH its semicolon, which the ported Rust scanner reads as a value.
 The rebuild cannot ship a red sheet, so the two comments were reworded — no value, name or pixel moved — and the
 gate is green in `2cb2c65c7`. The same probe produced both numbers: the before-shot ran on the tree before the
 fix, the after-shot on the committed one.
+
+## P0 — the hundred-and-thirtieth list (CLOSED 2026-11-11 — a gate that could not say where it stood)
+
+This list is the previous one's PROOF, audited. The browser gate that list added clicked `nav
+button:has-text("Memory")`; the rail's buttons are named by `aria-label` and carry no text, so three of the four
+clicks matched nothing, `.catch(() => {})` swallowed the miss, and the gate measured the DEFAULT page four times
+and printed PASS. **A green check that cannot say which page it measured is a check of nothing.**
+
+**History — the page the fourth click was for — paints THIRTEEN undeclared leadings**, all from `font:` shorthands
+that name a size and a family and therefore reset `line-height` to the user agent's `normal`:
+
+    `.archive-showing`      10 px   11 px box        `.archive-row-last`    10 px   11 px box
+    `.archive-row-name`     11 px   12 px box        `.archive-row-reason`  10 px   (no such row on this page)
+    `.archive-row-kind`     10 px   15 px box        `.archive-row-when`    10 px   11 px box
+
+1. **Five drawn rules and one undrawn sibling name no ratio**, and the page is where that is visible.
+   **Fix:** `/1.5` in the shorthand. **Done — panel `1d140d011` (not pushed).** Rendered boxes:
+   `.archive-row-name` **12 → 16.5**, `.archive-row-kind` **15 → 19**, `.archive-row-when`/`-last` **11 → 15**;
+   `.archive-row` itself **35.5 → 36** — the row was already taller than its cells, so what moved is each cell's
+   box, not the rhythm. `.archive-row-reason` takes the same ratio although no row on this page carries one.
+2. **The gate could not prove where it was.** **Fix:** click `nav[aria-label="Pages"] button[aria-label="<name>"]`,
+   then require `h1.page-title` to say that name BEFORE measuring — a page that never arrived is a FAILURE, not a
+   skip, and a page that paints no text at all is one too. The page the panel OPENS on (the terminal) is measured
+   as well, so the run is **five pages** (Terminal, Memory, Plugins, Settings, History), not four. **Done — same
+   commit.** **Mutation:** `aria-label="Memory"` → `"Memories"` fails with *Memory NEVER ARRIVED — `h1.page-title`
+   says "Terminal", so nothing was measured on it* (the old gate passed this); `.archive-row-name` back to the
+   ratio-less shorthand fails naming `History paints line-height: normal — archive-row-name (span, 11px) h=12px`.
+
+**AND THE SHEET IS A CENSUS, NOT THE INSTRUMENT.** The panel's `src/styles/` names **59 `font:` shorthands with no
+ratio** (four are `font: inherit`, which carries the ratio with the rest). A static rule — "every shorthand names a
+ratio" — would fail 55 of them, most on elements that paint no text or take their leading from a later rule, and a
+55-rule sweep would move pixels nothing asked to move. The ratio that matters is the one the RENDERED page paints,
+so it is measured there and the shorthand count is recorded here: **59, of which 6 were wrong on a page a person
+can open.** The next round to touch `font:` shorthands can use the count without inventing a rule for it.
 
 ## How a round goes
 
