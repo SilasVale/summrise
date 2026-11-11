@@ -4966,8 +4966,17 @@ unknown, so there is nothing to reserve the shape OF. It is the connect state an
 
 1. **The panel's terminal draws a sentence where the atom says a shape, and its `role="status"` is absent.** **Fix:**
    the terminal's first read reserves rows at the atom's six numbers, in a `role="status"` region. **M.**
+   *(**Done, MERGED, NOT DEPLOYED** — panel `3faec0c96`. The terminal reserves `3 rows` at radius **10**, pad **12**,
+   gap **8**, bar **6**, in `role="status"` with `aria-label="Reading the session list"` — measured after, the same six
+   numbers Memory and Plugins draw. **And the sentence is gone**: "Sessions unavailable — reconnecting…" WAS this
+   page's loading state, and the reconnect is a different fact the banner already states; `sessionsEmptyLabel` is
+   `"No sessions yet"` — a fact about an ANSWERED read. Two branches (desktop density and the shared one) both take
+   the skeleton, because the atom is one atom.)*
 2. **Nothing gates this half of rule 19.** The browser gates assert the console's two skeletons by NAME; **the panel has
    no gate that holds a read and reads what is reserved** — a page that says a word, or nothing, passes. **S.**
+   *(**Half done**: the panel's `reserves the SHAPE of a read, not a word for it` holds the atom's six numbers and
+   the terminal's composition. **The console's two skeletons are still asserted by NAME in its browser gate** — that
+   leg reads `.skeleton-list` exists, not that its rows carry the atom's radius/pad/gap/bar. **S**, open.)*
 
 ## How a round goes
 
