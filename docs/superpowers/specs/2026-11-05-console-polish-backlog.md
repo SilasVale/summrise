@@ -4272,7 +4272,7 @@ recorded last round are `22` and `17`, and **neither is free**: 22 belongs to th
    second sentence needs, so each surface picked a different existing step. **Fix:** state which step a second line
    takes, or record that the scale cannot carry one. **S.**
 
-## P0 — the hundred-and-twenty-third list (opened 2026-11-11, rule 8: Settings draws 23 boxes, Plugins 7)
+## P0 — the hundred-and-twenty-third list (opened 2026-11-11, rule 8; the atom half done, the band open)
 
 The hundred-and-twenty-second list is closed. **This list is rule 8 — *"fewer borders"* — counted instead of admired.**
 
@@ -4295,7 +4295,12 @@ element and counting a RULE are different questions**, and the first census answ
 box — which is rule 8's actual subject: not "many borders" but **borders on things that are not regions**.
 
 1. **Settings draws 23 boxes and Plugins 7, on one surface, and no gate records a page's border count.** **Fix:** the
-   count is measured and a page kind's band is recorded, or the boxes are brought into one band. **M.**
+   count is measured and a page kind's band is recorded, or the boxes are brought into one band. **M.** *(**The atom
+   half is DONE, MERGED, NOT DEPLOYED** — console `819f59e`, panel `e78a77059`: `hairline` now names the three kinds a
+   border can be — `rowRule`, a `box` on a **region**, a `box` on a **control** — because **my first census counted
+   elements and called a table's one rule 25 borders**. *A page's border count is only meaningful when it says which
+   it is counting.* **The band itself is not recorded yet**, and the next round's numbers are the corrected ones:
+   Home **7**, Activity **4**, Settings **23**, Plugins **7**.)*
 2. **Six classes carry Settings' boxes and four are CONTROLS** — `settings-input-narrow` 4, `BUTTON` 3,
    `connect-tab` 2, `INPUT` 2. **A control's edge is its affordance; three controls in a row is a form drawn as
    boxes.** **Fix:** the control grammar is the atom's, or the count is recorded as the page's decision. **M.**
