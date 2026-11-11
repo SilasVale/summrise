@@ -1,6 +1,15 @@
 import { callTool, ToolError, type Grant } from "./terminal";
 
 /**
+ * **THE MOMENT A ROW WAS READ, IN THE CONSOLE'S CLOCK.** `since_ms` comes from the DEVICE; every
+ * "how long ago" on this page would otherwise subtract it from the BROWSER's `Date.now()`, and those
+ * are two machines' clocks. A device or a console a minute out is a minute added to (or taken off)
+ * every rule's age — silently, because "bound 1 m" and "bound 2 m" both look plausible. The value is
+ * taken once, when the list is read, so every row on one read is dated by the same moment.
+ */
+export type ForwardRead = { rows: ForwardRow[]; readAtMs: number };
+
+/**
  * One rule's live state, as `forward.list` describes it.
  *
  * **THE LIST CANNOT CARRY A CREDENTIAL, AND THAT IS WHY IT CAN BE DRAWN.** The device stores
@@ -69,10 +78,14 @@ export function forwardRows(text: string): ForwardRow[] | null {
   return parsed.map(row).filter((entry): entry is ForwardRow => entry !== null);
 }
 
-export async function listForwards(grant: Grant): Promise<ForwardRow[]> {
-  const rows = forwardRows(await callTool(grant, "forward.list", {}));
+export async function listForwards(grant: Grant): Promise<ForwardRead> {
+  const text = await callTool(grant, "forward.list", {});
+  const rows = forwardRows(text);
   if (rows === null) throw new Error("the machine answered forward.list without a list");
-  return rows;
+  // **READ AFTER THE ANSWER, NOT BEFORE THE CALL.** `Date.now()` before the call would date the
+  // rows by a moment that is already older than the answer; after it, the age of a bound listener is
+  // measured from the moment the page learned it was bound.
+  return { rows, readAtMs: Date.now() };
 }
 
 /**

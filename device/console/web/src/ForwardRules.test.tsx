@@ -149,6 +149,27 @@ describe("ForwardRules", () => {
     }
   });
 
+  it("measures a rule's age on ONE clock, so a device ahead of the console is not a bogus age", async () => {
+    // **A DEVICE WHOSE CLOCK IS AHEAD MAKES EVERY RULE LOOK OLDER THAN IT IS.** `since_ms` is the
+    // device's; `Date.now()` is the browser's. A time server two minutes apart is not exotic, and
+    // the result would be `bound 2 m` the instant a rule binds — a number that reads as a fact.
+    const now = Date.now();
+    device(() =>
+      JSON.stringify([
+        { ...LIVE, since_ms: now + 120_000, listening: true }, // the device is 2 min AHEAD
+        { ...LIVE, name: "behind", since_ms: now - 90_000, listening: true }
+      ])
+    );
+    render(<ForwardRules grant={GRANT} deviceId="device-1" />);
+
+    await screen.findByText("console");
+    // The ahead case states the disagreement rather than inventing a negative age.
+    expect(screen.getByText(/this machine's clock is ahead of the console's/)).toBeTruthy();
+    // The behind case is a real age, and it is NOT what a skew would have produced.
+    expect(screen.getByText(/bound 1 m 30 s/)).toBeTruthy();
+    expect(screen.queryByText(/bound 3 m 30 s/)).toBeNull();
+  });
+
   it("does not ask a machine the fleet says is down, and says why", async () => {
     device(() => "[]");
     render(<ForwardRules grant={GRANT} deviceId="device-1" deviceOnline={false} />);
