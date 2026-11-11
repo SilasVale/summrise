@@ -5042,16 +5042,21 @@ what is ACTUALLY behind it, not against `body`):
      panel     `.plug-card`      `rgba(255,255,255,.8)`        `.desktop-content` `(254,254,254)` **1.007**  1.196
                                    over `.desktop-content`       — which is **the same token**
 
-**The panel's pane and the panel's card are painted with ONE token**: `.desktop-content { background: var(--glass-tint) }`
-and `.plug-card { background: var(--glass-tint) }`, both `rgba(255,255,255,.8)`, so a card inside the pane composites to
-**the colour of the pane** — **1.007:1**, which is not a tint, it is the same colour. Its only visible separation is
-its hairline.
+**The panel's pane and the panel's card were painted with ONE token**: `.desktop-content` and `.plug-card` both read
+`--glass-tint` = `rgba(255,255,255,.8)`, so a card inside the pane composited to **the colour of the pane** — **1.007:1**,
+which is not a tint, it is the same colour.
 
-**And the console is only better, not right**: **1.071:1** between the card and the page it sits on. The atom records
-two channels and both surfaces lean on one.
+**BUT THE CAUSE WAS DEEPER, AND MY FIRST READING OF IT WAS WRONG.** `rgba(255,255,255,.8)` over the `#fafafa` ground
+composites to **`(254,254,254)`** — **the pane was LIGHTER than the page it sits on**, so *no* card could sit above it:
+`#fff` over that pane is **1.009:1** even after the card takes the opaque surface. **A pane that lightens its own
+backing erases the level above it.** The console's page wash is `(247,247,247)` — one step BELOW the ground, which is
+what makes its card read at **1.071:1**.
 
-1. **A card and the pane it sits in are the same material, so the card has no fill of its own.** **Fix:** the pane
-   keeps the translucent tint and the card takes the opaque surface — one token each, one level each. **M.**
+**So the fix is the PANE's, not the card's alone**, and it is the console's number because the two surfaces are one
+product.
+
+1. **A pane lighter than its own ground erases the level above it, and the card was that level.** **Fix:** the pane's
+   tint takes the console's `(247,247,247)` at 80%, and the card takes the opaque surface. **M.**
 2. **The atom says "a hairline and a tint" and nothing measures the TINT.** `themeContrast` measures text pairs;
    the card's fill against its backing was never asked. **Fix:** a rendered leg that composites the chain and refuses
    a tint below a stated floor. **S.**
