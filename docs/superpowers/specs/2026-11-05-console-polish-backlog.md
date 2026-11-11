@@ -4170,7 +4170,7 @@ Both sentences sit **52 px apart** in the same column, and neither says the othe
    no cut was published, because **a gate that always fires is worse than silence**. The measured page's window
    reached midnight by 19 h 32 m from 09:40; the page now says the conclusion instead of asking the reader to subtract.)*
 
-## P0 — the hundred-and-twenty-first list (opened 2026-11-11, the verdict is LIGHTER than the title it sits under)
+## P0 — the hundred-and-twenty-first list (closed 2026-11-11: the claim slot is named, drawn, and placed by a gate)
 
 The hundred-and-twentieth list is closed. This list is rule 5 — *"hierarchy from size, weight and colour"* — measured
 on the rendered pages, and the first thing it finds is that **the two surfaces disagree about what the product's
@@ -4214,6 +4214,16 @@ word "Home"**. On Activity the day's count is **17/600** — a whole step DOWN f
    fold; `Plugins` the same. **The atom permits a claim and no panel page takes it**, so the product's most direct
    sentence ("3 of 4 online · 2 need attention") has a slot on one surface and none on the other. **Fix:** each panel
    page states its claim in the slot the atom now names. **M.**
+   *(**Done, MERGED, NOT PUSHED** — panel `7cde75b61`. **Two pages HAD a claim and drew it where a result goes**,
+   which is why "no claim" was half wrong: `Memory`'s `3 entries · newest first` sat in `.mem-result-line`,
+   **121 px below the head**, rewritten by every keystroke; `Plugins`' count was a filter **pill** beside the
+   search. **A claim is the page's whole population; a result is what the reader narrowed it to.** Now: `Memory`
+   **`3 entries saved`** and `Plugins` **`4 plugins · 4 enabled`**, both **17/600 ink** inside `.page-head`; the
+   result line keeps **`newest first`** — **the duplicate was measured first** (`3 entries saved` y=114 and
+   `3 entries · newest first` y=235: one number twice on one screen). **`Settings` and `Terminal` draw none, and
+   that is recorded**: Terminal's rail page IS its claim and Settings has no population. **Three drafts were
+   refused** — `build-css` on an invented `--tracking-tight`, a 900-char "inside the head" window the claim's own
+   comment outgrew, and a `stripComments` helper borrowed from another suite.)*
 2. **The type scale has no step between the title and the body's largest.** `22 → 17 → 14` skips the one a page's
    second sentence needs, so each surface picked a different existing step. **Fix:** state which step a second line
    takes, or record that the scale cannot carry one. **S.**
