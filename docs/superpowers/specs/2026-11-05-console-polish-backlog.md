@@ -5057,9 +5057,19 @@ product.
 
 1. **A pane lighter than its own ground erases the level above it, and the card was that level.** **Fix:** the pane's
    tint takes the console's `(247,247,247)` at 80%, and the card takes the opaque surface. **M.**
+   *(**Done on the panel, MERGED, NOT DEPLOYED** — `ffcf298b6`. **Two fixes, in the order the measurement demanded**:
+   the cards take the opaque `--surface`, AND the pane takes the console's own `--canvas` derivation
+   (`color-mix(in srgb, var(--ink) 3.5%, var(--surface))`) instead of a white film at 80%. Measured after:
+   **light 1.071 / dark 1.086** against a pane the card actually sits on — the console's 1.071 on both.
+   **`--canvas` is restated after dark**, because measured, the dark page kept the LIGHT theme's value: the mix is
+   evaluated at declaration time and `--ink` flips while `--canvas` did not — the third occurrence of that exact
+   computed-value trap in that one file.)*
 2. **The atom says "a hairline and a tint" and nothing measures the TINT.** `themeContrast` measures text pairs;
    the card's fill against its backing was never asked. **Fix:** a rendered leg that composites the chain and refuses
    a tint below a stated floor. **S.**
+   *(**Half done**: the panel's `a card sits ON the pane, not in the same colour as it` holds the wash's DERIVATION, the
+   dark restatement and each card's surface. **The measured TINT itself is still ungated** — the numbers above come
+   from a probe that composites the chain, and no gate owns that probe. **S**, open.)*
 
 ## How a round goes
 
