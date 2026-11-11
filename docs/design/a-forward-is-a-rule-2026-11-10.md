@@ -115,7 +115,8 @@ requests appends hundreds of lines a minute.
   while its row still says `listening: true`.
 - **`connections` counts CARRIED connections, not arrivals.** Both pipes must have ended without an
   error. An accepted-then-refused connection is a log line (D6), and counting it would make the
-  field mean "arrived" while its name and the panel read "worked".
+  field mean "arrived" while its name (and, since the surface exists, the console's machine page)
+  read "worked".
 - **A rule's log line is written off the reactor**, on a `spawn_blocking` worker, because every
   caller is async and the write is blocking. It is not awaited: a caller must not fail because its
   audit line was slow.
@@ -144,11 +145,16 @@ the registry's sense and why `forward.add` and `forward.remove` are the operator
   built: a client that speaks plaintext to `listen` while the far side is TLS, or the reverse.
   Until one of them is built and the starvation measured, "which front end" stays a question with
   no evidence behind either answer.
-- **Where the rules are edited** — the console's device page is where an operator would look; the
-  CLI is where they would be written. `forward.list` is the wire surface both read.
+- ~~**Where the rules are edited**~~ — ANSWERED, by the console's Machine tab: `ForwardRules.tsx`
+  lists every rule with its live state and carries the two acts (`forward.add` and `forward.remove`)
+  in a sheet each. **THE PANEL STILL DRAWS NO RULE, and that is a decision rather than an omission:**
+  the panel is the device's own page, served on loopback with no login, and a rule's values say who
+  can reach what — broadcasting them on the page a person reaches with no credential is the wrong
+  trade for a list nobody edits there. `forward.list` is the wire surface both would read.
 - **How many rules one device may carry** — `RULES_MAX` is 4 today, and a fifth NAME is refused while
   an EDIT of an existing name is not (a full device has to stay maintainable). Whether 4 is the right
-  number is the open part; the audit and the panel read better with a stated small maximum.
+  number is the open part; the audit and the console's rule list read better with a stated small
+  maximum.
   **WHAT WOULD SETTLE IT:** the cap exists so a device's forward table stays a list somebody can read
   and revoke. Four is chosen, not derived; a deployment that needs six has to edit rather than add,
   which is the friction the number is for.

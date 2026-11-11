@@ -361,7 +361,13 @@ impl fmt::Display for ForwardError {
 
 impl std::error::Error for ForwardError {}
 
-/// What one rule's executor is doing, as the panel and `forward.list` report it.
+/// What one rule's executor is doing, as `forward.list` and the console's machine page report it.
+///
+/// **NOT THE PANEL.** This line said "as the panel and `forward.list` report it" and the panel has
+/// never drawn a rule: `panel.rs` does not mention `forward` except in one sentence about reaching a
+/// console over a tunnel. The claim was written when the row was designed and stayed after the
+/// build chose otherwise, which is the kind of sentence that makes the next reader look for a
+/// surface that is not there. The console's Machine tab carries the rows now, in `ForwardRules.tsx`.
 ///
 /// Every field says what was OBSERVED, not what was hoped: `listening` is bind() having returned,
 /// `since_ms` is when that happened, and `last_error` is the sentence the last failure produced.
