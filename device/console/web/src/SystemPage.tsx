@@ -311,7 +311,7 @@ export function SystemPage({
   deviceOnline,
   consoleStartedAt,
   fleet = [],
-  vitals = []
+  vitals = [],
 }: {
   grant: Grant;
   /** The selected machine, from the fleet read; null while it is starting or gone. */
@@ -930,7 +930,7 @@ export function SystemPage({
         )}
       </section>
 
-      <ForwardRules grant={grant} deviceOnline={deviceOnline} />
+      <ForwardRules grant={grant} deviceOnline={deviceOnline} deviceId={device?.id ?? null} />
 
       {restartOpen && (
         <Modal

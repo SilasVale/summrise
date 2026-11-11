@@ -7,10 +7,31 @@ import { clockTimeSeconds, exactMoment, isoDate } from "./format";
 // The update card compares the running build with the staged release, so `/installer` is part of the
 // page's surface. Each test names the answer it needs; the default is a console with no staging.
 const installerApi = vi.hoisted(() => ({ installer: vi.fn() }));
-vi.mock("./api", () => ({ api: { installer: installerApi.installer } }));
+//
+// **THE PAGE ALSO MOUNTS THE FORWARD RULES, WHICH READS THE SHARED LIVE-TOOLS HOOK.** That hook asks
+// `api.liveTools`, so a mock naming only `installer` is an api this page legitimately needs and does
+// not have — measured: 24 of this file's tests died with `api.liveTools is not a function` the moment
+// the section was mounted. The `useLiveTools` mock below answers for the whole page, so `api.liveTools`
+// is here only to keep the module's shape honest.
+const liveApi = vi.hoisted(() => ({ liveTools: vi.fn() }));
+vi.mock("./api", () => ({ api: { installer: installerApi.installer, liveTools: liveApi.liveTools } }));
 
 // The page's whole device surface is `callTool`; the real `ToolError` stays so a refusal is the class
 // the page actually receives from `./terminal`.
+// **THE MACHINE THIS PAGE DRAWS DOES NOT ADVERTISE THE FORWARD TOOLS**, which is the older-build
+// case: the section then draws one sentence and makes no call, so this file's `device()` helper is
+// never asked for a `forward.*` answer it does not have.
+vi.mock("./useLiveTools", () => ({
+  useLiveTools: () => ({
+    tools: [] as { name: string }[],
+    stale: false,
+    error: null,
+    offline: false,
+    loading: false,
+    retry: () => {}
+  })
+}));
+
 vi.mock("./terminal", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./terminal")>();
   return { ...actual, callTool: vi.fn() };
@@ -269,7 +290,12 @@ describe("SystemPage", () => {
     expect(await screen.findByText("online")).toBeInTheDocument();
     // The word now has a subject: `Status · online`, not a bare value under the facts card.
     expect(screen.getByText("Status").parentElement).toHaveTextContent("Status · online");
-    expect(screen.queryByText(/build/)).toBeNull();
+    // **THE RULE IS ABOUT A BUILD *LABEL*, NOT THE WORD.** This read `/build/` and was written when
+    // no section on this tab could say "build"; mounting the forward rules brought the product's
+    // established `Older build` state (the same phrase `PluginList.tsx` draws) onto this page, and a
+    // page-wide word match then fails on a sentence that is not the third copy the rule forbids. The
+    // measured thing was `build 0.3.277 · online`, so that is what the assertion names.
+    expect(screen.queryByText(/build 0\.3/)).toBeNull();
     expect(screen.queryByText(/0\.3\.1/)).toBeNull();
   });
 
