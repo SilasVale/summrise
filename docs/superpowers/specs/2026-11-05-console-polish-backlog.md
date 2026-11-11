@@ -4039,10 +4039,13 @@ repeated for surfaces.
 1. **A card's LEVEL is a measured number that no gate owns.** **Fix:** the console's `a11y-audit` and the panel's
    `themeContrast` composite the chain and refuse a card whose tint falls below the stated floor, in both themes.
    **M.**
-2. **A RECESSED card is `--bg` painted on the page, so it has no tint at all.** `--surface-recessed: var(--bg)` on
-   both surfaces: the console's `--panel-2: #fafafa` on a `#fafafa` ground, the panel's `#fafafa` on a `(247,247,247)`
-   pane. Measured: `.settings-fold` **1.027** tint, **1.117** edge. **Fix:** a recessed block is a step DOWN from the
-   card, not the ground repeated; one token, both surfaces. **M.**
+2. **A RECESSED block is worth only 1.027 however it is spelled, because the scale has no step between the card
+   and the ground.** Measured 2026-11-11: `.settings-fold` **1.027** tint, **1.117** edge; the console's `--panel-3`
+   `#f4f4f5` is **1.027** against the pane; `#fafafa` on `#fafafa` is **1.000**. **The scale's own steps are 3-8
+   levels apart (`#fafafa`/`#f4f4f5`/`#ffffff`) and a usable recess needs ~8 below the pane** (`grey 239` = **1.073**, the
+   card's own 1.071 with the sign reversed). So the fix is NOT "pick a token" — **the scale has no such token, and
+   adding one invents a colour.** **Fix:** the atom records that a recessed block is the CARD's step with the sign
+   reversed, and the two surfaces take the same value. **M.**
 3. **The floor itself is unstated.** `elevation.flat` says "a hairline and a tint" and gives neither a minimum
    contrast nor a word for what the tint is FOR. **Fix:** the atom records the floor and the reason. **S.**
 
