@@ -4227,8 +4227,16 @@ word "Home"**. On Activity the day's count is **17/600** — a whole step DOWN f
 2. **The type scale has no step between the title and the body's largest.** `22 → 17 → 14` skips the one a page's
    second sentence needs, so each surface picked a different existing step. **Fix:** state which step a second line
    takes, or record that the scale cannot carry one. **S.**
+   *(**Closed on both surfaces, MERGED, NOT DEPLOYED** — console `90d73ef`, panel `7085f4a49`. **AND THE ITEM'S OWN
+   PREMISE WAS WRONG, which the measurement says so.** *"The scale has no step between the title and the body's
+   largest"* — it has **two**: the claim takes `xl` on Home and `lg` on Activity, Memory and Plugins. What was missing
+   was not a step but **the rule for choosing one, in a form a gate reads**: it lived in the atom's `$comment`, and
+   **a comment cannot refuse an 18 px claim.** `claimSlot.stepBy` is a field now — `condition → xl`, `count → lg` —
+   and **4 of 4 claiming pages agree with it**, so it is measured rather than proposed. **Adding an eighteenth or
+   twentieth pixel would fix rule 5 by breaking rule 3** (the seven sizes are pinned by
+   `seven_type_sizes_and_a_thirteen_pixel_body`), which is why the fix was to record the choice.)*
 
-## P0 — the hundred-and-twenty-second list (item 1 closed 2026-11-11: the marker is the SLOT; item 2 open)
+## P0 — the hundred-and-twenty-second list (closed 2026-11-11: the marker is the SLOT, and the step is a field)
 
 The hundred-and-twenty-first list is closed, and its own numbers open this one. **The atom's levels, measured**
 (`section.h2 17/600`, `title 22/700`), against what the pages draw:
