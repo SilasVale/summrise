@@ -390,27 +390,41 @@ function dayStretches(lines: readonly AuditLine[]): Stretch[] {
 }
 
 /** One count of calls, in the one spelling the stretch labels and the day's door share. */
-function callsText(count: number): string {
-  return `${count} ${count === 1 ? "call" : "calls"}`;
+/**
+ * **A LINE THIS PAGE DREW IS NOT A CLIENT CALL, AND THE DAY BLOCK SAYS SO (the hundred-and-twentieth list).**
+ *
+ * Measured on the live console, all three statements true at once:
+ *
+ *     Today: 543 client calls, 17 failed.        the DAY's CLIENT CALLS (the header's unit)
+ *     939 client calls in this window · …        the WINDOW's (a different interval, 19 h 32 m)
+ *     547 calls · 16:00 → 05:14                  **the ROWS this page drew for today**
+ *
+ * **547 and 543 are four apart, and nothing on the page says why** — the four are console reads and polls, which the
+ * header's word `client calls` deliberately excludes (the hub keeps its own repeats sentence for exactly this
+ * distinction). `dayText` and the stretch labels count LINES; the header counts CLIENT CALLS. **Two units do not get
+ * one word**, so the line's own noun is `lines` and the header keeps `client calls`.
+ */
+function linesText(count: number): string {
+  return `${count} ${count === 1 ? "line" : "lines"}`;
 }
 
 /** What a stretch held, in the one spelling both forms use. */
 function stretchText(stretch: Stretch): string {
-  const calls = callsText(stretch.count);
+  const calls = linesText(stretch.count);
   return stretch.spanMs > 0 ? `${calls} · ${spanText(stretch.spanMs)}` : calls;
 }
 
 /**
- * The day's own count and span, in the page's existing vocabulary: `692 calls · 11:52 → 12:43`.
+ * The day's own count and span, in the page's existing vocabulary: `692 lines · 11:52 → 12:43`.
  *
- * `callsText` is the stretch label's own noun, and `clockTime` is the summary line's own clock, so
- * the door states the day in the words the page already uses instead of a second format. The rows
- * arrive newest first, so the span runs from the day's first row to its last. The count is every row
- * the day holds — the drawn ones and the ones behind its door — because the door qualifies that
- * count rather than adding a second one.
+ * **THE NOUN IS `lines`, NOT `calls` (the hundred-and-twentieth list).** This count is every ROW the day holds —
+ * drawn ones and the ones behind its door — and the header's `client calls` is a different population, four of them
+ * apart on the measured page. `linesText` is the stretch label's own noun, and `clockTime` is the summary line's own
+ * clock, so the door states the day in the words the page already uses instead of a second format. The rows arrive
+ * newest first, so the span runs from the day's first row to its last.
  */
 function dayText(lines: readonly AuditLine[]): string {
-  const calls = callsText(lines.length);
+  const calls = linesText(lines.length);
   if (lines.length === 0) return calls;
   const newest = lines[0].ts_ms;
   const oldest = lines[lines.length - 1].ts_ms;

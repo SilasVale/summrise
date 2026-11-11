@@ -88,7 +88,7 @@ describe("ActivityTimeline stretches", () => {
       line({ ts_ms: start - 61_000, device_id: alpha, sentence: "Older", tool: "files.read" })
     ];
     render(<ActivityTimeline lines={lines} devices={devices} />);
-    expect(screen.getByText("3 calls · 1 m")).toBeInTheDocument();
+    expect(screen.getByText("3 lines · 1 m")).toBeInTheDocument();
   });
 
   it("puts a long stretch's summary above its first row, and keeps no footer for it", () => {
@@ -114,7 +114,7 @@ describe("ActivityTimeline stretches", () => {
 
     const header = document.querySelector<HTMLElement>(".timeline-stretch.is-header");
     expect(header).not.toBeNull();
-    expect(header).toHaveTextContent("12 calls · 1 m 50 s");
+    expect(header).toHaveTextContent("12 lines · 1 m 50 s");
     // It belongs to the list, not to the copy: the item after it is the stretch's first row.
     expect(header?.nextElementSibling).toHaveTextContent("Long 1");
     // The summary moved rather than copied: a long stretch is not summarized a second time below.
@@ -134,7 +134,7 @@ describe("ActivityTimeline stretches", () => {
     render(<ActivityTimeline lines={lines} devices={devices} />);
 
     expect(document.querySelector(".timeline-stretch.is-header")).toBeNull();
-    const footer = screen.getByText("2 calls · 10 s").closest("li");
+    const footer = screen.getByText("2 lines · 10 s").closest("li");
     expect(footer).not.toBeNull();
     expect(footer).not.toHaveClass("is-header");
     expect(footer?.previousElementSibling).toHaveTextContent("Newest 2");
@@ -155,7 +155,7 @@ describe("ActivityTimeline stretches", () => {
 
     expect(screen.queryByText("1 call")).toBeNull();
     // The stretch above it keeps its summary: only the one-call label is dropped.
-    expect(screen.getByText("2 calls · 10 s")).toBeInTheDocument();
+    expect(screen.getByText("2 lines · 10 s")).toBeInTheDocument();
     expect(screen.getByText("Single")).toBeInTheDocument();
   });
 });
@@ -1368,7 +1368,7 @@ describe("ActivityTimeline's day door", () => {
     expect(doors[0]).toHaveTextContent("Show the rest of today (140 more)");
     // And the day it belongs to, in the page's vocabulary: the stretch label's noun and the
     // provenance line's clock, over the whole day rather than only the drawn rows.
-    expect(doors[0]).toHaveTextContent("200 calls · 12:39 → 12:43");
+    expect(doors[0]).toHaveTextContent("200 lines · 12:39 → 12:43");
     expect(screen.queryByText("Call 140")).toBeNull();
     expect(screen.getByText("Call 60")).toBeInTheDocument();
   });
