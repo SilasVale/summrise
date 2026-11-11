@@ -4272,6 +4272,34 @@ recorded last round are `22` and `17`, and **neither is free**: 22 belongs to th
    second sentence needs, so each surface picked a different existing step. **Fix:** state which step a second line
    takes, or record that the scale cannot carry one. **S.**
 
+## P0 — the hundred-and-twenty-third list (opened 2026-11-11, rule 8: the same frame draws 32 borders on one page and 4 on another)
+
+The hundred-and-twenty-second list is closed. **This list is rule 8 — *"fewer borders"* — counted instead of
+admired**, and the count is the finding: **two pages of one product, sharing one page frame, differ by 8x.**
+
+Measured 2026-11-11 at 1,440, counting every element inside `.page` that draws a visible border
+(`width >= 30`, `height >= 12`, border alpha > 0):
+
+    console Home       **32 borders**   | 4 shadows | 16 filled  | radii 6/8/14/pill
+    console Activity   ** 4 borders**   | 0 shadows |  7 filled  | radii 6/pill
+    panel  Settings    **23 borders**   | 0 shadows | 19 filled  | radii 6/8/10/14/pill
+    panel  Plugins     ** 7 borders**   | 0 shadows | 17 filled  | radii 6/8/14/pill
+
+**Home draws eight times Activity's borders and sits at the top of the page that is supposed to be the simplest to
+read at a glance.** Settings draws three times its sibling Plugins. **And the border count is not the only drift:**
+Settings alone paints **five** radius steps (`6/8/10/14/pill`) while Activity paints **two**, and the atom assigns
+`6/8/10/14` to mark/control/row/card — so Settings' five are the atom's four plus a pill, which is the atom's own
+answer, while Activity's two are a page that draws almost nothing.
+
+1. **A page's border count is a number nothing records, so one page can carry 8x another's.** **Fix:** the atom
+   records a band per page kind — a verdict page may draw more than a record — or the pages are brought into one
+   band. **M.**
+2. **`settings-input-narrow` alone draws 4 borders, and `settings-section` 3** — the panel's Settings page is built
+   from boxes inside boxes while Plugins uses rows. **Fix:** the same block grammar on both, or the difference is
+   recorded. **M.**
+3. **Activity draws 4 borders on a page of ~500 rows** — so the record's separation is *not* a border (correct by
+   rule 7) — **but nothing measures that either.** A page could return to 32 and no gate would notice. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
