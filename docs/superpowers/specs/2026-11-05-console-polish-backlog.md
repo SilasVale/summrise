@@ -4618,6 +4618,43 @@ ratio" — would fail 55 of them, most on elements that paint no text or take th
 so it is measured there and the shorthand count is recorded here: **59, of which 6 were wrong on a page a person
 can open.** The next round to touch `font:` shorthands can use the count without inventing a rule for it.
 
+## P0 — the hundred-and-thirty-first list (CLOSED 2026-11-11 — the record's own number was `undefined`)
+
+Rule 19, whose other half is *"a failed read says what it could not read"*. Activity's first line is built from
+`/audit/day`'s counts, and `call<T>` parses the body and trusts it. Measured 2026-11-11 on the built page against
+an answer that carried no counts (a **200** whose body was `[]` — the shape a proxy, a version skew or a truncated
+write can produce):
+
+    Activity
+    Today: undefined client calls.        <- the day's number, a raw JavaScript value
+    The live stream is down; this is the last read.
+
+Every other sentence on the page said what it could not read; this one invented a word, and it was the first line
+of the record. **The answer came from the probe fixture** (`/tmp/fx.mjs`, which the session's screenshots use) —
+the console's response to it is the defect: nothing between the wire and `activityDaySentence` had asked whether
+the answer was an answer.
+
+1. **A day answer with no counts is not an answer.** **Fix:** `api.auditDay` throws `NoAnswer` when the body has no
+   numeric `client_calls`, so the read fails the way a 502 does. **Done — console `d415aa6` (pushed; NOT deployed —
+   the console deploy waits on the operator's word).** The same body now renders
+
+       The console could not read the audit; this timeline shows only calls that arrive live.   [Retry]
+
+   and no `Today:` line at all. A counted day still reads `Today: 44 client calls, 3 failed — 1 console failure;
+   1 unattributed.` Both after-shots are in `.superpowers/sdd/2026-11-05-console-polish-backlog/list131/`
+   (`after-malformed.png`, `after-counted.png`) beside `before-undefined.png`.
+2. **The suite pinned no shape for this route.** **Fix:** three cases in `api.test.ts` — `[]`, `{}`, `null` and an
+   empty body each reject as `NoAnswer`, a non-numeric count rejects, and a counted day is taken with its scope
+   on the path. **Done — same commit.** **Mutation:** deleting the guard fails **2 failed | 34 passed**, naming
+   *refuses a 200 that carries no counts* and *refuses a count that is not a number*; restored 36/36.
+
+**THE NUMBER THAT MADE THIS VISIBLE WAS NOT THE PRODUCT'S.** The fixture is a probe harness, not the hub: its
+`/audit/day` answered `[]` because it was never taught that route. The console is what turned a bad answer into a
+sentence with `undefined` in it, so the product half is real — but the honest provenance is a fixture, and the
+next reader should not go looking for a hub that serves `[]`. What the fixture DID prove for free: the page's
+degraded path is otherwise complete (the amber notice, the Retry, the empty-window line), which is why one guard
+was the whole fix.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
