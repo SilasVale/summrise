@@ -4883,9 +4883,17 @@ console's five pages reach their empty state at all" cannot be answered from the
    rule sets and **`rowGap` is absent** (the atom's `gap: 12`), while the console's `.empty-state` carries
    `gap: var(--empty-gap, var(--sp-3))` — a variable nothing sets, so 12 by luck. **Fix:** the card's inset and the
    card's gap are the atom's, in one declaration each. **S.**
+   *(**Done on both sides, MERGED, NOT DEPLOYED** — console `5459c31`, panel `3bd6ea391`. The panel's card declares all
+   of the atom's five numbers in ONE rule (grid, gap 12, start, pad 16, no shadow) and the rule above it says why it
+   exists (flex room, not inset). **And the console's gap came from a fallback**: `gap: var(--empty-gap, --sp-3)` with
+   `--empty-gap` set NOWHERE — *a fallback is not a value; it is a number that survives the token it was meant to read
+   being deleted.* **AND THE CONSOLE'S SECOND EMPTY WAS A COPY**: `.timeline-empty-filtered` restated the atom's six
+   declarations verbatim; it wears `.empty-state` now, because **two cards that happen to agree are two habits.**)*
 2. **Nothing measures an empty CARD's shape.** Every gate reads the stylesheet's rules; **none asks what a rendered
-   empty card measures**, so `gap` can be missing on one surface and a fallback on the other while both sheets
-   "declare" the atom. **S.**
+   empty card measures**, so `gap` was missing on one surface and a fallback on the other while both sheets "declare"
+   the atom. *(**Half done**: the console's gate now asks the atom's five numbers of the ONE card and the composition
+   that puts it on the second surface. **The rendered measure is still absent** — a `gap` can be right in the sheet and
+   overridden in a later block; only a probe catches that, and no gate owns one. **S**, open.)*
 
 ## How a round goes
 
