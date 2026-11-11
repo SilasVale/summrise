@@ -4067,6 +4067,37 @@ repeated for surfaces.
    one, and both gates read it from the atom rather than carrying their own copy.** **The original item read:** **The floor itself is unstated.** `elevation.flat` says "a hairline and a tint" and gives neither a minimum
    contrast nor a word for what the tint is FOR. **Fix:** the atom records the floor and the reason. **S.**
 
+## P0 — the hundred-and-eighteenth list (opened 2026-11-11, a token written into the file the generator rewrites)
+
+The hundred-and-seventeenth list is closed, and **it left a red gate behind that I only found when starting this
+round**: round 117's recess derivation went into `device/console/web/src/tokens.css`, and that file is **written by
+`scripts/generate-tokens.sh`**. `generated_tokens_match_the_canonical_sheet` was red from that moment.
+
+Measured 2026-11-11:
+
+     `git show HEAD:device/console/web/src/tokens.css | grep -c "surface-recessed:color-mix"`   **0**
+     `git show HEAD:device/ui/src/lib.rs      | grep -c "color-mix"`                            **2** (the scrim)
+     `cargo test -p summrise-console --test tokens`                                               **1 failed**
+
+**And the same trap had already been sprung and already been recorded**: `--dur-interaction` was moved from that
+generated file into `lib.rs` **in this series, for this exact reason, with a comment saying so**. **A rule the file
+states is a rule I have to read.** The precedent was one `git log` away and I did not look.
+
+**And one gate could not see the new token at all**: `every_text_pair_reads_on_the_surface_it_sits_on` parses
+`#rrggbb` and **panics on `color-mix`** — so a derived surface is either an error or, if "fixed" by skipping it,
+**unmeasured**. Skipping is how `--ink-faint` shipped at 2.46:1; that test's own header says so. Compositing the
+derivation found a real defect on its first run: **`--warn` on the recess measured 4.49:1 — 0.01 under AA**.
+
+1. **A token added to a generated file is a token the generator deletes.** *(**Done**: `e66ea0b` — the recess moves to
+   `device/ui/src/lib.rs`, `tokens.css` is regenerated, and 15 token tests are green.)* **S.**
+2. **A derived surface is a colour a gate must COMPOSITE, not skip.** *(**Done**: `e66ea0b` — the test blends
+   `color-mix` in srgb, the way the browser does; `--warn` moved one step darker to clear AA on the recess it sits
+   on.)* **S.**
+3. **Nothing tells the next round that `tokens.css` is generated.** The file says it at line 1 — **and the header is a
+   comment, not a gate**: `generated_tokens_match_the_canonical_sheet` exists, but it is in the CONSOLE's Rust suite,
+   which this program has never run as part of the round loop. **Fix:** the console's Rust token test joins the round's
+   gate list, named, in `ci.yml`'s own matrix. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
