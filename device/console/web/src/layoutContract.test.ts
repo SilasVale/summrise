@@ -61,7 +61,13 @@ type Contract = {
     gap: number;
     align: string;
     subtitleSlot: { class: string; size: string; weight: string; ink: string; measure: string };
-    claimSlot: { class: string; permittedSteps: string[]; weight: string; ink: string };
+    claimSlot: {
+      class: string;
+      permittedSteps: string[];
+      weight: string;
+      ink: string;
+      stepBy: { by: string; condition: string; count: string };
+    };
     maxHeadsPerPage: number;
   };
   // A ROW inside a list (the eighty-seventh list, read by a test for the first time in the eighty-ninth).
@@ -218,7 +224,7 @@ describe("the layout contract", () => {
     // The literal below is the sha256 of BOTH copies, and it is the same literal the panel's test carries.
     const ours = createHash("sha256").update(contractText()).digest("hex");
     expect(ours).toBe(
-      "a3fb45b9523f160a09286a9c79f6890f78bf5a7505c0ab5c2fe815565c99c6dd"
+      "7ab3c1e3122d6d4fdc9e59e253934b702ceefeb1b79aa5a72de8de7950693a7f"
     );
     const sibling = path.join(here, "..", "..", "..", "..", "..", "summrise", "docs",
       "superpowers", "specs", "layout-contract.json");
@@ -410,6 +416,25 @@ describe("the layout contract", () => {
     expect(contract.head.claimSlot.class, "the claim slot is named").toBe(".page-claim");
     expect(contract.head.claimSlot.permittedSteps, "two steps, not one").toEqual(["xl", "lg"]);
     expect(contract.head.claimSlot.weight, "and the weight says it is a sentence, not a title").toBe("semi");
+    // **AND WHICH STEP EACH CLAIM TAKES IS A FIELD, NOT A COMMENT (the hundred-and-twenty-second list, item 2).**
+    // The choosing rule was prose — *"`xl` when it is the page's second title line, `lg` when the page's title is the
+    // whole claim"* — and **a comment cannot refuse an 18 px claim.** Measured on all four claiming pages:
+    //
+    //     Home      `3 of 4 online · 2 need attention`   a CONDITION  -> 22 (xl)
+    //     Activity  `Today: 543 client calls`            a COUNT      -> 17 (lg)
+    //     Memory    `3 entries saved`                    a COUNT      -> 17 (lg)
+    //     Plugins   `4 plugins · 4 enabled`              a COUNT      -> 17 (lg)
+    //
+    // **4 of 4 agree**, so this is a measured rule and not a proposal. And both answers are steps the seven-size
+    // scale ALREADY has — an eighteenth or twentieth pixel would fix rule 5's ambiguity by breaking rule 3.
+    const stepBy = contract.head.claimSlot.stepBy;
+    expect(stepBy.by, "the rule is by what the claim is FOR").toBe("what the claim is for");
+    expect(stepBy.condition, "a condition is the page's second title line").toBe("xl");
+    expect(stepBy.count, "a count is a step under it").toBe("lg");
+    // Both answers must be steps the claim slot permits, or the field contradicts its own list.
+    for (const step of [stepBy.condition, stepBy.count]) {
+      expect(contract.head.claimSlot.permittedSteps, `${step} is a permitted claim step`).toContain(step);
+    }
     // **AND BOTH POSITIONS ARE IN USE, WHICH IS WHY TWO STEPS ARE PERMITTED.** A third would be a decision.
     const sheet = stripComments(css());
     expect(sheet, "Home's claim takes the title's rung").toContain("font-size: var(--fs-xl)");

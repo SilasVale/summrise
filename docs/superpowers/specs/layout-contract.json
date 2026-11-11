@@ -125,7 +125,12 @@
       ],
       "weight": "semi",
       "ink": "ink",
-      "$comment": "**THE CLAIM SLOT IS A POSITION, NOT ONE STEP (the hundred-and-twenty-first list).** Measured 2026-11-11: the sentence a page exists to make sat at the TITLE's rung on Home (`3 of 4 online · 2 need attention`, 22/600), at the SECTION's on Activity (`Today: 543 client calls`, 17/600), and NOWHERE on the panel (`Settings` went straight to its fold). **Home's being at the title's rung is a recorded decision and a gate pins it** (`the two pages must NOT converge`); what was missing is the record that a claim BELONGS in the head's block at all, and that its step is one of TWO — `xl` when it is the page's second title line, `lg` when the page's title is the whole claim. **A third step is a decision, not a choice.**"
+      "$comment": "**THE CLAIM SLOT IS A POSITION, NOT ONE STEP (the hundred-and-twenty-first list).** Measured 2026-11-11: the sentence a page exists to make sat at the TITLE's rung on Home (`3 of 4 online · 2 need attention`, 22/600), at the SECTION's on Activity (`Today: 543 client calls`, 17/600), and NOWHERE on the panel (`Settings` went straight to its fold). **Home's being at the title's rung is a recorded decision and a gate pins it** (`the two pages must NOT converge`); what was missing is the record that a claim BELONGS in the head's block at all, and that its step is one of TWO — `xl` when it is the page's second title line, `lg` when the page's title is the whole claim. **A third step is a decision, not a choice.** **AND WHICH STEP TO TAKE IS A FIELD NOW, NOT A SENTENCE (the hundred-and-twenty-second list, item 2).** The choosing rule was prose in this comment — *`xl` when it is the page's second title line, `lg` when the page's title is the whole claim* — and **a comment cannot refuse an 18 px claim**. `stepBy` names the two conditions and the two answers, so a gate in each repo reads the same rule and a third step has to argue with it.",
+      "stepBy": {
+        "by": "what the claim is for",
+        "condition": "xl",
+        "count": "lg"
+      }
     }
   },
   "card": {
