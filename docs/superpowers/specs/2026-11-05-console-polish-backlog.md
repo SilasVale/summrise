@@ -4308,6 +4308,38 @@ defect by count.
    and no band of this atom can decide a form. **Recorded here so the next round argues with it instead of
    rediscovering it.** **S.**
 
+## P0 — the hundred-and-twenty-fourth list (opened 2026-11-11, rule 2: the accent family is TWO families)
+
+The hundred-and-twenty-third list is closed. **This list is rule 2 — *"a limited palette: greys plus ONE accent plus
+semantic"* — measured as a census of every colour actually painted**, at 1,440 on four pages, rather than of the tokens
+a sheet declares.
+
+    console Home      3 opaque + 2 translucent, 4 text colours
+    console Activity  4 opaque + 1 translucent, 4 text colours
+    panel  Settings   6 opaque + 0 translucent, **6 text colours**
+    panel  Plugins    4 opaque + 2 translucent, 5 text colours
+
+**The greys are one family. The accent is not:**
+
+    console   --accent #bf3a0a · --accent-solid #b03a0a · --accent-soft **#fff0e6** · paint-on-soft: `--accent`
+    panel     --accent #bf3a0a · --accent-solid #b03a0a · --accent-soft **#ffefe5** · paint-on-soft: **#9c3a0a**
+
+**`#fff0e6` against `#ffefe5` is one channel one level apart** — a reader cannot see it and a token gate can. And
+**the panel needed a SIXTH member the console does not have**: `--accent-on-soft #9c3a0a`, because the console paints
+accent text on the wash with `--accent` and measures **4.93:1** where the panel's measures **6.2:1**. **The atom's own
+`accentFamily` records the console's `--accent-on-soft` as `(none)`** — a job with no token, filled by the wrong one.
+
+**And Settings paints SIX text colours where Home paints four**, including `#52525b` and `#a51d1d` that the palette
+atom does not name.
+
+1. **The wash is two values one level apart, and the atom records neither.** **Fix:** both sheets share the atom's
+   wash, or the difference is recorded with its reason. **S.**
+2. **The console paints accent text on the wash with `--accent` (4.93:1) where the panel uses a sixth member
+   (6.2:1).** The atom already says the job exists and gives the console `(none)`. **Fix:** the console takes the
+   atom's `on-soft` member. **M.**
+3. **Settings paints `#52525b` and `#a51d1d`, which the palette atom does not name**, on one page. **Fix:** name them
+   or replace them with the atom's. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
