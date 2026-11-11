@@ -630,7 +630,7 @@ export function ActivityTimeline(props: {
    * counting up, and the 1 s ticker that would move it is not started.
    */
   nowMs?: number;
-  /** The search text, shared with the table's "Tool or detail" field. */
+  /** The search text, shared with the table's "What happened" field. */
   query?: string;
   onQuery?: (value: string) => void;
   /**

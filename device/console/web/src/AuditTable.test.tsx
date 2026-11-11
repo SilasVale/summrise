@@ -29,6 +29,42 @@ function refusedExport(message: string): Response {
   }, 413);
 }
 
+/**
+ * **THE TOOLBAR AND THE TABLE MUST SPEAK ONE VOCABULARY (the hundred-and-thirty-sixth list).** Measured
+ * 2026-11-11 at 1440: the fields were labelled TIME and TOOL OR DETAIL while the header row of the very
+ * table beneath them said When and What happened — two words for one column, on one screen, above the
+ * values they name. The scope pair also had only an accessible name ("Audit scope") and no visible
+ * label in a row where every neighbour had one.
+ */
+describe("AuditTable's field labels", () => {
+  it("names each field with the column's own word", () => {
+    render(<AuditTable lines={[line({ device_id: alpha })]} devices={devices} tokens={[]} />);
+    const labels = [...document.querySelectorAll(".audit-filter-fields .audit-field > span")]
+      .map((span) => span.textContent?.trim() ?? "");
+    const labelsOfFields = labels.filter((label) => label !== "");
+    // The table's columns, named once.
+    const columns = ["When", "Device", "Token", "What happened", "Status"];
+    const filterLabels = labelsOfFields.filter((label) => label !== "Scope");
+    expect(filterLabels.length, "the toolbar draws its fields").toBeGreaterThan(0);
+    for (const label of filterLabels) {
+      expect(columns, `the field labelled ${label} names a column`).toContain(label);
+    }
+    // The two words the measurement found, both directions.
+    expect(filterLabels).toContain("When");
+    expect(filterLabels).toContain("What happened");
+    expect(filterLabels).not.toContain("Time");
+    expect(filterLabels).not.toContain("Tool or detail");
+  });
+
+  it("gives the scope pair a visible label, not only an accessible one", () => {
+    render(<AuditTable lines={[line({ device_id: alpha })]} devices={devices} tokens={[]} />);
+    expect(screen.getByRole("group", { name: "Scope" })).toBeInTheDocument();
+    const visible = [...document.querySelectorAll(".audit-filter-fields .audit-field > span")]
+      .map((span) => span.textContent?.trim());
+    expect(visible).toContain("Scope");
+  });
+});
+
 const alpha = "device-a-0123456789ab";
 const beta = "device-b-0123456789ab";
 
@@ -262,7 +298,7 @@ it("counts a range's matching rows when the filter hides them all", () => {
   ).toBeInTheDocument();
 
   fireEvent.change(screen.getByLabelText("Status"), { target: { value: "ok" } });
-  fireEvent.change(screen.getByLabelText("Tool or detail"), { target: { value: "no-such-tool" } });
+  fireEvent.change(screen.getByLabelText("What happened"), { target: { value: "no-such-tool" } });
   expect(
     screen.getByText("Showing 09:00–17:00 of 11-05, 3 lines; 0 of the 3 lines match the filters")
   ).toBeInTheDocument();
@@ -621,7 +657,7 @@ describe("AuditTable", () => {
     );
     expect(await screen.findByRole("alert")).toHaveTextContent("50,000-line scan bound");
 
-    fireEvent.change(screen.getByLabelText("Time"), { target: { value: "hour" } });
+    fireEvent.change(screen.getByLabelText("When"), { target: { value: "hour" } });
 
     // The parent has not answered with the new range's rows yet. The old sentence describes a range
     // the operator has already left, so it goes with the control's change, not with the answer.
@@ -701,7 +737,7 @@ describe("AuditTable", () => {
     fireEvent.click(
       screen.getByRole("button", { name: /^Export JSONL: the drawn range/ })
     );
-    fireEvent.change(screen.getByLabelText("Time"), { target: { value: "hour" } });
+    fireEvent.change(screen.getByLabelText("When"), { target: { value: "hour" } });
     rerender(
       <AuditTable
         lines={lines}
@@ -738,13 +774,13 @@ describe("AuditTable", () => {
         onRange={onRange}
       />
     );
-    expect(screen.getByLabelText("Time")).toHaveValue("window");
+    expect(screen.getByLabelText("When")).toHaveValue("window");
     expect(screen.getByRole("option", { name: "Newest window" })).toBeInTheDocument();
     expect(screen.queryByText(/^Showing .*lines?$/)).toBeNull();
     expect(screen.getByText("old.tool")).toBeInTheDocument();
 
     const before = Date.now();
-    fireEvent.change(screen.getByLabelText("Time"), { target: { value: "hour" } });
+    fireEvent.change(screen.getByLabelText("When"), { target: { value: "hour" } });
     const after = Date.now();
 
     expect(onRange).toHaveBeenCalledTimes(1);
@@ -762,7 +798,7 @@ describe("AuditTable", () => {
       <AuditTable lines={lines} devices={devices} tokens={[]} range={null} onRange={onRange} />
     );
 
-    fireEvent.change(screen.getByLabelText("Time"), { target: { value: "custom" } });
+    fireEvent.change(screen.getByLabelText("When"), { target: { value: "custom" } });
     fireEvent.change(screen.getByLabelText("From"), { target: { value: "2026-11-05T09:00" } });
     fireEvent.change(screen.getByLabelText("To"), { target: { value: "2026-11-05T17:00" } });
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
@@ -792,16 +828,16 @@ describe("AuditTable", () => {
     expect(
       screen.getByText("Showing 09:00–17:00 of 11-05, 3 lines")
     ).toBeInTheDocument();
-    expect(screen.getByLabelText("Time")).toHaveValue("custom");
+    expect(screen.getByLabelText("When")).toHaveValue("custom");
 
-    fireEvent.change(screen.getByLabelText("Time"), { target: { value: "window" } });
+    fireEvent.change(screen.getByLabelText("When"), { target: { value: "window" } });
     expect(onRange).toHaveBeenCalledWith(null);
 
     // The page clears the range and the sentence goes with it; the newest window is named by the
     // control, not by a cap sentence it has no reason to show.
     rerender(<AuditTable lines={lines} devices={devices} tokens={[]} range={null} onRange={onRange} />);
     expect(screen.queryByText(/^Showing 09:00/)).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Time")).toHaveValue("window");
+    expect(screen.getByLabelText("When")).toHaveValue("window");
   });
 
   it("states a range's missing start and the scan bound that cut it", () => {
@@ -956,7 +992,7 @@ describe("AuditTable", () => {
     expect(within(record).getByTitle(new Date(lines[0].ts_ms).toISOString())).toBeInTheDocument();
     expect(within(record).getByText("200")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("Tool or detail"), { target: { value: "zzz-no-such-tool" } });
+    fireEvent.change(screen.getByLabelText("What happened"), { target: { value: "zzz-no-such-tool" } });
     expect(
       screen.getByText("No calls match the machine Alpha and the search “zzz-no-such-tool”.")
     ).toBeInTheDocument();
@@ -999,7 +1035,7 @@ describe("AuditTable", () => {
         emptyFiltered="No failed authentication matches this filter."
       />
     );
-    fireEvent.change(screen.getByLabelText("Tool or detail"), {
+    fireEvent.change(screen.getByLabelText("What happened"), {
       target: { value: "no-such-detail" }
     });
     expect(
@@ -1066,7 +1102,7 @@ describe("AuditTable", () => {
     const row = toggleRow("terminal.list");
     expect(row).toHaveAttribute("aria-expanded", "true");
 
-    fireEvent.change(screen.getByLabelText("Tool or detail"), {
+    fireEvent.change(screen.getByLabelText("What happened"), {
       target: { value: "terminal.list" }
     });
     expect(auditRows()).toHaveLength(1);

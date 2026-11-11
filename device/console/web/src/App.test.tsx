@@ -1440,7 +1440,7 @@ describe("App", () => {
     await waitFor(() => expect(mocks.audit).toHaveBeenLastCalledWith(1000, workshop.id));
 
     fireEvent.click(screen.getByRole("tab", { name: "Table" }));
-    const scope = screen.getByRole("group", { name: "Audit scope" });
+    const scope = screen.getByRole("group", { name: "Scope" });
     const readsBefore = mocks.audit.mock.calls.length;
     fireEvent.click(within(scope).getByRole("button", { name: "All machines" }));
     await waitFor(() => expect(mocks.audit).toHaveBeenCalledTimes(readsBefore + 1));
@@ -1475,7 +1475,7 @@ describe("App", () => {
       )
     ).toBeInTheDocument();
 
-    const scope = screen.getByRole("group", { name: "Audit scope" });
+    const scope = screen.getByRole("group", { name: "Scope" });
     fireEvent.click(within(scope).getByRole("button", { name: "All machines" }));
     expect(
       await screen.findByText(
@@ -1513,7 +1513,7 @@ describe("App", () => {
     // is the page's next read — there is no manual control repeating the poll (C10).
     mocks.audit.mockResolvedValue(full.slice(0, 999));
     fireEvent.click(
-      within(screen.getByRole("group", { name: "Audit scope" })).getByRole("button", {
+      within(screen.getByRole("group", { name: "Scope" })).getByRole("button", {
         name: "All machines"
       })
     );
@@ -1691,19 +1691,19 @@ describe("App", () => {
     expect(within(chips).getByRole("button", { name: "All machines" })).toBeInTheDocument();
 
     // The table's own controls are not on this view.
-    expect(screen.queryByRole("group", { name: "Audit scope" })).toBeNull();
-    expect(screen.queryByLabelText("Time")).toBeNull();
+    expect(screen.queryByRole("group", { name: "Scope" })).toBeNull();
+    expect(screen.queryByLabelText("When")).toBeNull();
     expect(screen.queryByLabelText("Device")).toBeNull();
     expect(screen.queryByLabelText("Token")).toBeNull();
     expect(screen.queryByLabelText("Status")).toBeNull();
 
     // The table still has all six.
     fireEvent.click(screen.getByRole("tab", { name: "Table" }));
-    expect(screen.getByRole("group", { name: "Audit scope" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Time")).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Scope" })).toBeInTheDocument();
+    expect(screen.getByLabelText("When")).toBeInTheDocument();
     expect(screen.getByLabelText("Device")).toBeInTheDocument();
     expect(screen.getByLabelText("Token")).toBeInTheDocument();
-    expect(screen.getByLabelText("Tool or detail")).toBeInTheDocument();
+    expect(screen.getByLabelText("What happened")).toBeInTheDocument();
     expect(screen.getByLabelText("Status")).toBeInTheDocument();
   });
 
@@ -1718,7 +1718,7 @@ describe("App", () => {
     await screen.findByRole("heading", { name: "Activity", level: 1 });
     fireEvent.click(screen.getByRole("tab", { name: "Table" }));
 
-    fireEvent.change(screen.getByLabelText("Time"), { target: { value: "hour" } });
+    fireEvent.change(screen.getByLabelText("When"), { target: { value: "hour" } });
 
     // The preset is a request, not a local filter: one `/audit?from=&to=` with the page's window.
     await waitFor(() => expect(mocks.auditRange).toHaveBeenCalledTimes(1));
@@ -1773,9 +1773,9 @@ describe("App", () => {
     expect(screen.getByText("tools/list")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("tab", { name: "Table" }));
-    expect(screen.getByLabelText("Tool or detail")).toHaveValue("tools/list");
+    expect(screen.getByLabelText("What happened")).toHaveValue("tools/list");
 
-    fireEvent.change(screen.getByLabelText("Tool or detail"), {
+    fireEvent.change(screen.getByLabelText("What happened"), {
       target: { value: "files.read" }
     });
     fireEvent.click(screen.getByRole("tab", { name: "Timeline" }));
@@ -2361,7 +2361,7 @@ describe("App", () => {
     mocks.audit.mockReturnValueOnce(scoped.promise).mockReturnValueOnce(reread.promise);
 
     fireEvent.click(
-      within(screen.getByRole("group", { name: "Audit scope" })).getByRole("button", {
+      within(screen.getByRole("group", { name: "Scope" })).getByRole("button", {
         name: "All machines"
       })
     );

@@ -561,21 +561,29 @@ export function AuditTable({
             Filters{filterCount > 0 && ` (${filterCount})`}
           </summary>
           <div className="audit-filter-fields">
-            <div className="seg" role="group" aria-label="Audit scope">
-              <button
-                type="button"
-                aria-pressed={scope === "machine"}
-                disabled={!selectedDeviceId}
-                onClick={() => setScope("machine")}
-              >
-                This machine
-              </button>
-              <button type="button" aria-pressed={scope === "all"} onClick={() => setScope("all")}>
-                All machines
-              </button>
+            {/* **ONE VOCABULARY: THE FILTER NAMES THE COLUMN IT NARROWS (the hundred-and-thirty-sixth
+                list).** Measured 2026-11-11 at 1440: the toolbar named its fields TIME and TOOL OR DETAIL
+                while the header row of the very table beneath them said When and What happened — two
+                words for one column, on one screen. The labels are the headers now, and the scope pair,
+                which had only an accessible name, carries a visible one in the same row of labels. */}
+            <div className="audit-field">
+              <span id="audit-scope-label">Scope</span>
+              <div className="seg" role="group" aria-labelledby="audit-scope-label">
+                <button
+                  type="button"
+                  aria-pressed={scope === "machine"}
+                  disabled={!selectedDeviceId}
+                  onClick={() => setScope("machine")}
+                >
+                  This machine
+                </button>
+                <button type="button" aria-pressed={scope === "all"} onClick={() => setScope("all")}>
+                  All machines
+                </button>
+              </div>
             </div>
             <label className="audit-field">
-              <span>Time</span>
+              <span>When</span>
               <select value={timeMode} onChange={(event) => chooseTime(event.target.value)}>
                 {/* **THE WINDOW SAYS WHAT IT IS.** "All time" named the newest 1,000 lines as the
                     whole record; the page has always drawn the newest window, and now the words do. */}
@@ -656,7 +664,7 @@ export function AuditTable({
               </label>
             )}
             <label className="audit-field tool">
-              <span>Tool or detail</span>
+              <span>What happened</span>
               <input
                 type="search"
                 value={filter.tool}

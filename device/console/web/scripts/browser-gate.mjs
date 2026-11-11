@@ -5211,9 +5211,9 @@ try {
   // **THE PHONE FOLDS THE FIELDS, NOT THE FILTERS.** `Filters` is one press away and the count is
   // on its summary; the range control is inside it (audit-41 F4).
   await page.locator('.audit-filter-fold > summary').click();
-  await page.getByLabel('Time').waitFor({ state: 'visible', timeout: 5_000 });
+  await page.getByLabel('When').waitFor({ state: 'visible', timeout: 5_000 });
   const rangeRequestsBefore = state.rangeRequests;
-  await page.getByLabel('Time').selectOption('hour');
+  await page.getByLabel('When').selectOption('hour');
   await page.waitForFunction(
     () => document.querySelector('.audit-cap')?.textContent?.startsWith('Showing '),
     null,
