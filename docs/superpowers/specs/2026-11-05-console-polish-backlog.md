@@ -4699,6 +4699,40 @@ locale and no rule against the seventh; the console's own history shows the cost
 every stylesheet test was green). The scan is the artefact that keeps the decision, and the twelve edits are the
 price of having a decision at all.
 
+## P0 — the hundred-and-thirty-third list (CLOSED 2026-11-11 — the gate pinned the defect it named)
+
+Rule 8 — *fewer borders* — read against the atom the fifty-seventh list wrote. The gate for it in this repo was
+**a test that asserted the atom says one name while requiring a second**:
+
+    expect(contract.hairline.names, "one family, three steps").toBe(1);
+    expect(sheet, "the chrome line is derived from the ink")
+      .toMatch(/--hairline:\s*color-mix\(in srgb, var\(--ink\)/);
+
+The second line is the defect written as an expectation. Its reason was "derived, not restated" — the chrome's line
+should not be a second literal — but the derivation had drifted to `color-mix(in srgb, var(--ink) 8.5%,
+transparent)`: **a fourth alpha the atom does not have** (line .08, strong .14, soft .05) under a **second name**.
+The atom's `names: 1` and the sheet's two names could both be true only because the test said so.
+
+Measured 2026-11-11, sheet and rendered page:
+
+    --line       62 uses   rgba(0,0,0,.08)                       the atom's separating line
+    --hairline   47 uses   color-mix(ink 8.5%)                   a fourth alpha, a second name
+    Home's cards           color(srgb .0941177 … / 0.085)        every card edge, the most-seen edge
+
+1. **47 sites painted a fourth alpha under a second name, and the gate required it.** **Fix:** the sites take
+   `var(--line)` and the declaration goes from both theme blocks. **Done — console `cdb8d42` (pushed; NOT deployed —
+   the console deploy waits on the operator's word).** The card's edge now computes to `rgba(0, 0, 0, 0.08)`, and the
+   chrome, the cards, the folds and the rules are one family at the atom's three steps.
+2. **The test now states the rule it meant:** no fourth name, `names: 1`, and the page draws `var(--line)`. **Done —
+   same commit.** **Mutation:** `--hairline: color-mix(in srgb, var(--ink) 8.5%, transparent)` back in `:root` ->
+   `the family has no fourth name` fails. **And the reverse direction was measured first:** deleting the declaration
+   while the old expectation stood made that test fail — which is what a gate that pins a defect looks like from the
+   other side.
+
+**A ROUND THAT MOVES NO PIXEL, SAID PLAINLY.** 8.5% of `#18181b` over white is one level away from 8% of black; no
+screenshot can show it. What this round buys is the atom being TRUE and the gate no longer protecting a lie — and the
+next reader of `layoutContract.test.ts` cannot re-derive a fourth name without failing it.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
