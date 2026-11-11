@@ -9,6 +9,7 @@ import {
 } from "./forwardApi";
 import { spanText } from "./age";
 import { Sheet } from "./Sheet";
+import { useLiveTools } from "./useLiveTools";
 import type { Grant } from "./terminal";
 
 /**
@@ -151,42 +152,62 @@ function draftProblem(draft: Draft): string | null {
 
 export function ForwardRules({
   grant,
-  deviceOnline
+  deviceOnline,
+  deviceId
 }: {
   grant: Grant;
   /// The fleet's reachability fact; only `false` is a fact, `undefined` is "no opinion".
   deviceOnline?: boolean;
+  /// The machine whose tool list decides whether these three tools exist on it.
+  deviceId: string | null;
 }) {
+  /**
+   * **A MACHINE RUNNING AN OLDER BUILD ANSWERS `unknown tool: forward.list` TO EVERY CALL.** The
+   * section's own read would then show that refusal as a failure with a Retry button, and a Retry
+   * that cannot succeed is worse than a sentence — the operator reads it as `the console is broken`
+   * while the machine is fine and merely older. `Plugins` learned this first (`PluginList.tsx`'s
+   * `Older build` state); this is the same fact, checked BEFORE the read instead of after it.
+   *
+   * The hook is the one `ToolsTab` calls, against a module-level cache: two tabs on one device
+   * asking inside the same 30 s window is one request, which is what that cache is for.
+   */
+  const live = useLiveTools(deviceId);
+  const toolListKnown = !live.loading && live.error === null;
+  const supported = live.tools.some((tool) => tool.name === "forward.list");
   const [rows, setRows] = useState<ForwardRow[] | null>(null);
   const [reading, setReading] = useState(false);
   const [readError, setReadError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<ForwardRow | null>(null);
   const offline = deviceOnline === false;
+  // **AN OLDER BUILD IS NEITHER A FAILURE NOR AN EMPTY TABLE.** Only a finished read makes
+  // `supported` a fact; before that it is unknown, and a call made on a guess would be a call the
+  // device refuses for a reason that has nothing to do with this section.
+  const canRead = toolListKnown && supported;
 
   // One read in flight at a time, and its answer is applied only if this page is still the one that
   // asked: a section that unmounts mid-read must not set state.
-  const live = useRef(true);
+  const mounted = useRef(true);
   useEffect(() => {
-    live.current = true;
+    mounted.current = true;
     return () => {
-      live.current = false;
+      mounted.current = false;
     };
   }, []);
 
   const read = useCallback(async () => {
-    if (offline) return;
+    if (offline || !canRead) return;
     setReading(true);
     setReadError(null);
     try {
       const next = await listForwards(grant);
-      if (live.current) setRows(next);
+      if (mounted.current) setRows(next);
     } catch (cause) {
-      if (live.current) setReadError(forwardFailure(cause));
+      if (mounted.current) setReadError(forwardFailure(cause));
     } finally {
-      if (live.current) setReading(false);
+      if (mounted.current) setReading(false);
     }
-  }, [grant, offline]);
+  }, [grant, offline, canRead]);
 
   useEffect(() => {
     void read();
@@ -202,7 +223,20 @@ export function ForwardRules({
         belongs to the rule rather than to whoever created it.
       </p>
 
-      {offline ? (
+      {!toolListKnown ? (
+        <p className="hint">The rules are read once this machine's tool list arrives.</p>
+      ) : !supported ? (
+        // **AN OLDER BUILD IS A SENTENCE, NOT A RETRY LOOP.** The machine is not broken and the
+        // console is not broken; it simply cannot answer these three tools yet, and a Retry button
+        // would offer an act that cannot work.
+        <section className="empty-state">
+          <h3>Older build</h3>
+          <p className="hint">
+            This machine does not advertise the forward tools yet. It needs a newer Summrise to
+            carry rules.
+          </p>
+        </section>
+      ) : offline ? (
         <p className="hint">
           The machine is offline; the rules it carries are read when it answers.
         </p>

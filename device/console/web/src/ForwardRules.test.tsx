@@ -15,6 +15,28 @@ const mocked = vi.mocked(callTool);
 const GRANT: Grant = { deviceId: "device-1", envelope: { token: "envelope" } };
 
 /**
+ * What this machine's `tools/list` advertises. `forward.list` present means this build can carry
+ * rules at all — the fact `ForwardRules` gates its first read on.
+ */
+const liveTools = vi.hoisted(() => ({
+  /// What this machine's `tools/list` advertises. A test sets it BEFORE it renders.
+  tools: ["forward.add", "forward.list", "forward.remove"] as string[],
+  loading: false,
+  error: null as string | null
+}));
+
+vi.mock("./useLiveTools", () => ({
+  useLiveTools: () => ({
+    tools: liveTools.tools.map((name) => ({ name })),
+    stale: false,
+    error: liveTools.error,
+    offline: false,
+    loading: liveTools.loading,
+    retry: () => {}
+  })
+}));
+
+/**
  * One rule's wire shape, copied from `forward.list`.
  *
  * **THIS IS DELIBERATELY THE WHOLE LIST SHAPE, WITH NO CREDENTIAL.** The real `forward.list`
@@ -69,11 +91,14 @@ const called = (name: string) => mocked.mock.calls.filter((call) => call[1] === 
 describe("ForwardRules", () => {
   beforeEach(() => {
     mocked.mockReset();
+    liveTools.tools = ["forward.add", "forward.list", "forward.remove"];
+    liveTools.loading = false;
+    liveTools.error = null;
   });
 
   it("reads the machine's rules and says what each one is doing", async () => {
     device(() => JSON.stringify([LIVE, BROKEN]));
-    render(<ForwardRules grant={GRANT} />);
+    render(<ForwardRules grant={GRANT} deviceId="device-1" />);
 
     expect(await screen.findByText("console")).toBeTruthy();
     expect(screen.getByText("office")).toBeTruthy();
@@ -96,7 +121,7 @@ describe("ForwardRules", () => {
 
   it("says a machine with no rules has none, and offers the act that adds one", async () => {
     device(() => "[]");
-    render(<ForwardRules grant={GRANT} />);
+    render(<ForwardRules grant={GRANT} deviceId="device-1" />);
 
     expect(await screen.findByText(/No forward rules/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Add a rule" })).toBeTruthy();
@@ -105,9 +130,28 @@ describe("ForwardRules", () => {
     expect(screen.queryByRole("button", { name: "Refresh" })).toBeNull();
   });
 
+  it("says an OLDER build cannot carry rules, instead of a refusal with a Retry", async () => {
+    // **A MACHINE THAT DOES NOT ADVERTISE THE TOOLS ANSWERS `unknown tool: forward.list`, AND A
+    // RETRY FOR THAT CANNOT SUCCEED.** The section checks the same `tools/list` Plugins checks,
+    // BEFORE the read, so the operator gets a sentence about the machine rather than a failure
+    // about the console.
+    liveTools.tools = ["monitor.list"];
+    try {
+      device(() => "[]");
+      render(<ForwardRules grant={GRANT} deviceId="device-old" />);
+
+    expect(await screen.findByText("Older build")).toBeTruthy();
+    expect(screen.getByText(/does not advertise the forward tools yet/)).toBeTruthy();
+    // The proof that this is a sentence and not a failure: nothing was asked.
+      expect(called("forward.list").length).toBe(0);
+    } finally {
+      liveTools.tools = ["forward.add", "forward.list", "forward.remove"];
+    }
+  });
+
   it("does not ask a machine the fleet says is down, and says why", async () => {
     device(() => "[]");
-    render(<ForwardRules grant={GRANT} deviceOnline={false} />);
+    render(<ForwardRules grant={GRANT} deviceId="device-1" deviceOnline={false} />);
 
     expect(screen.getByText(/The machine is offline/)).toBeTruthy();
     expect(called("forward.list").length).toBe(0);
@@ -120,7 +164,7 @@ describe("ForwardRules", () => {
       if (attempt === 1) throw new ToolError("the device refused the read", 200, -32001, true);
       return JSON.stringify([LIVE]);
     });
-    render(<ForwardRules grant={GRANT} />);
+    render(<ForwardRules grant={GRANT} deviceId="device-1" />);
 
     expect(await screen.findByText("the device refused the read")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
@@ -129,7 +173,7 @@ describe("ForwardRules", () => {
 
     it("refuses a wildcard listen before it asks the device", async () => {
     device(() => JSON.stringify([]));
-    render(<ForwardRules grant={GRANT} />);
+    render(<ForwardRules grant={GRANT} deviceId="device-1" />);
     fireEvent.click(await screen.findByRole("button", { name: "Add a rule" }));
 
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "wide" } });
@@ -153,7 +197,7 @@ describe("ForwardRules", () => {
 
   it("adds a rule with the credential typed here, and does not keep it", async () => {
     device((name) => (name === "forward.list" ? "[]" : JSON.stringify(LIVE)));
-    render(<ForwardRules grant={GRANT} />);
+    render(<ForwardRules grant={GRANT} deviceId="device-1" />);
     fireEvent.click(await screen.findByRole("button", { name: "Add a rule" }));
 
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "console" } });
@@ -189,7 +233,7 @@ describe("ForwardRules", () => {
 
   it("sends a key path as a key, and refuses a relative one here", async () => {
     device((name) => (name === "forward.list" ? "[]" : JSON.stringify(LIVE)));
-    render(<ForwardRules grant={GRANT} />);
+    render(<ForwardRules grant={GRANT} deviceId="device-1" />);
     fireEvent.click(await screen.findByRole("button", { name: "Add a rule" }));
 
     fireEvent.click(screen.getByLabelText("Key file"));
@@ -229,7 +273,7 @@ describe("ForwardRules", () => {
 
   it("removes a rule only after naming it, and reports `false` as a present answer", async () => {
     device((name) => (name === "forward.list" ? JSON.stringify([LIVE]) : '{"removed":true}'));
-    render(<ForwardRules grant={GRANT} />);
+    render(<ForwardRules grant={GRANT} deviceId="device-1" />);
     await screen.findByText("console");
 
     fireEvent.click(screen.getByRole("button", { name: "Remove the forward rule console" }));
@@ -249,7 +293,7 @@ describe("ForwardRules", () => {
       if (name === "forward.list") return JSON.stringify([LIVE]);
       throw new ToolError("the rule is still there", 200, -32002, true);
     });
-    render(<ForwardRules grant={GRANT} />);
+    render(<ForwardRules grant={GRANT} deviceId="device-1" />);
     fireEvent.click(await screen.findByRole("button", { name: "Remove the forward rule console" }));
     fireEvent.click(screen.getByRole("button", { name: "Remove" }));
 
@@ -261,7 +305,7 @@ describe("ForwardRules", () => {
 
   it("does not read a device's unreadable answer as a machine with no rules", async () => {
     device(() => "not json");
-    render(<ForwardRules grant={GRANT} />);
+    render(<ForwardRules grant={GRANT} deviceId="device-1" />);
 
     // **AN EMPTY LIST AND AN UNREADABLE ANSWER ARE DIFFERENT FACTS.** Drawing the second as the
     // first would tell an operator their machine carries no rule while it carries one.
@@ -273,7 +317,7 @@ describe("ForwardRules", () => {
     // A device that DID leak an `auth` field would still not have it printed: the page renders the
     // nine fields it knows, not the object it was handed.
     device(() => JSON.stringify([{ ...LIVE, auth: { kind: "password", password: "hunter2" } }]));
-    render(<ForwardRules grant={GRANT} />);
+    render(<ForwardRules grant={GRANT} deviceId="device-1" />);
     await screen.findByText("console");
 
     expect(screen.queryByText("hunter2")).toBeNull();
