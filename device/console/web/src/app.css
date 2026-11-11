@@ -2386,6 +2386,15 @@ span.files-name {
    **this shape is INSIDE a card, so it must not draw its own surface** (the thirty-eighth list's `no card inside a
    card`), and the `.panel.activity-panel` it rides in supplies the box. What it takes from the atom is the one number
    the atom is FOR here — the distance between the sentence and the control that undoes it. */
+/* **A BLOCK INSIDE A CARD HAS ONE SPELLING (the hundred-and-twenty-fourth list).** The atom records TWO empty
+   shapes — `standalone` (a card of its own) and `inCard` (*"no surface, no radius, no shadow; the card's inset and the
+   atom's gap"*). `.audit-empty` was the in-card shape invented LOCALLY, and the next page that needed it (the forward
+   rules' `Older build`) wrote `empty-state` and got **1.000** against its own card — 962x147 of hairline around
+   nothing, caught by the card-level pass. One spelling, then, so the second page cannot invent a third. */
+.empty-state.in-card {
+  background: none; border: 0; box-shadow: none; border-radius: 0;
+  padding: var(--sp-3) 0; gap: var(--sp-3);
+}
 .audit-empty { display: grid; gap: var(--sp-3); justify-items: start; padding: var(--sp-3) 0; }
 /* THE EXPORT IS ONE CONTROL AT THE FILTER ROW'S END (audit-41 F4). It used to be two buttons in
    two rows — `Export JSONL` beside Time, `Export CSV` at the far end — so the row said "Export"

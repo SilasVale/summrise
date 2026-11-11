@@ -227,7 +227,7 @@ describe("the layout contract", () => {
     // The literal below is the sha256 of BOTH copies, and it is the same literal the panel's test carries.
     const ours = createHash("sha256").update(contractText()).digest("hex");
     expect(ours).toBe(
-      "09c4e1a1ee00c99f74fe5224db2e3d41b48fbd4f858bdddcedf0082247352099"
+      "bb56f7b35945c2921a12b4e64358bb9b85650ead71e758b46ab91b448066d6f7"
     );
     const sibling = path.join(here, "..", "..", "..", "..", "..", "summrise", "docs",
       "superpowers", "specs", "layout-contract.json");
@@ -1687,6 +1687,26 @@ describe("the layout contract", () => {
     const sticky = sheet.match(/\.timeline-day-head\.is-sticky\s*\{[^}]*\}/);
     expect(sticky, "the day's head is what sticks to the container").toBeTruthy();
     expect(sticky![0]).toContain("position: sticky");
+  });
+
+  it("draws an empty state in ONE of TWO shapes, and an in-card block takes the one with no surface", () => {
+    // **THE ATOM RECORDS TWO SHAPES; A PAGE TOOK THE WRONG ONE (the hundred-and-twenty-fourth list).** Measured
+    // 2026-11-11 by the card-level pass on `device-machine`: the forward rules' `Older build` drew `.empty-state`
+    // INSIDE `.system-section` and measured **1.000** — a card painted the card's own colour, **962x147 of hairline
+    // around nothing**. The atom's `inCard` shape is *"no surface, no radius, no shadow; the card's inset and the
+    // atom's gap"* — and `.audit-empty` had already invented it locally, so the second page had no spelling to take.
+    expect(contract.empty.shapes.inCard, "the atom records the in-card shape").toContain("no surface");
+    const rules = stripComments(css());
+    const inCard = rules.match(/\n\.empty-state\.in-card \{([^}]*)\}/)?.[1] ?? "";
+    expect(inCard, "the sheet draws the in-card shape").not.toBe("");
+    expect(inCard, "it has no surface").toContain("background: none");
+    expect(inCard, "no border").toContain("border: 0");
+    expect(inCard, "and no shadow").toContain("box-shadow: none");
+    // **AND THE PAGE THAT SITS IN A CARD USES IT**: a `.empty-state` inside a `.system-section` that does not say
+    // `in-card` draws the standalone shape where a block belongs — the defect the card-level pass found.
+    const forward = readFileSync(path.join(here, "ForwardRules.tsx"), "utf8");
+    const empty = forward.match(/<section className="(empty-state[^"]*)"/)?.[1] ?? "";
+    expect(empty, "the in-card empty says which shape it is").toContain("in-card");
   });
 
   it("is the RECORD's one grouping: a stretch is a LEVEL, not a caption", () => {

@@ -229,7 +229,12 @@ export function ForwardRules({
         // **AN OLDER BUILD IS A SENTENCE, NOT A RETRY LOOP.** The machine is not broken and the
         // console is not broken; it simply cannot answer these three tools yet, and a Retry button
         // would offer an act that cannot work.
-        <section className="empty-state">
+        //
+        // **AND IT IS THE ATOM'S `inCard` SHAPE, NOT ITS STANDALONE ONE (the hundred-and-twenty-fourth list).**
+        // Measured 2026-11-11 by the card-level pass: this `.empty-state` sits inside `.system-section` and measured
+        // **1.000** — a card painted the card's own colour, 962x147 of hairline around nothing. The atom records two
+        // shapes; a block inside a card takes the one with no surface of its own.
+        <section className="empty-state in-card">
           <h3>Older build</h3>
           <p className="hint">
             This machine does not advertise the forward tools yet. It needs a newer Summrise to

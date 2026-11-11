@@ -56,7 +56,9 @@
         ]
       },
       "note": "each job exists for a measured contrast need: brand 5.49 white, wall 6.08 white at button size, wallHover 6.78 (a hover that DARKENS), textOnWash 6.95 (a label on the wash), ink 3:1 for graphics; the console's brand doubles as its graphic ink, which is why its `ink` slot is the accent itself **AND THE JOB WITH NO TOKEN WAS FILLED WITH THE WRONG ONE (the hundred-and-twenty-fourth list).** Measured 2026-11-11: the console painted accent TEXT on the wash with `--accent` — **4.93:1** on `#fff0e6` — while the panel used `--accent-on-soft #9c3a0a` at **6.2:1**. **Both pass AA, so nothing was broken**: the defect is TWO ANSWERS to one job, and this atom recorded the console's member as `(none)`. It is `--accent-on-soft` on both surfaces now, **declared in both blocks**, because after dark the wash is a dark brown and the light value measures **1.4:1** while the dark accent measures **7.07:1** — a member is a JOB and its value is the theme's.",
-      "maxDeltaE": 16
+      "maxDeltaE": 16,
+      "washValue": "#fff0e6",
+      "$comment": "**RULE 15 AS A NUDGE:** `#ffefe5` and `#fff0e6` are the same colour to a reader and different tokens to a gate. Measured 2026-11-11: the panel's `--accent-soft` was `#ffefe5` where the canonical sheet says `#fff0e6` — **G 240 against 239, B 230 against 229**, one level on two channels. **A JOB is named here; its VALUE is stated here too**, because a job whose value each sheet picks is a job that drifts by a level nobody can see."
     },
     "extraHues": [
       {
