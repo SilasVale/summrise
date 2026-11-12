@@ -27,9 +27,20 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      # THE LAYERING GATE IS NODE, NOT CARGO (I8/S5). This job had no Node setup because every other
+      # step is Rust; the gate reads `cargo metadata --no-deps` and needs both tools. Node 22 is the
+      # console-web job's version, so the workflow has one Node line rather than two.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.98.1
+      # **THE GATE RUNS BEFORE THE CACHE AND ANY BUILD.** `cargo metadata --no-deps` reads manifests
+      # only: no registry, no lockfile, no compilation. An upward edge fails in seconds and by name,
+      # instead of after forty-five minutes of tests.
+      - name: dependencies point one way
+        run: node scripts/check-architecture.mjs
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: device
