@@ -23,10 +23,13 @@ below ladders to that; one round completes one major item end to end.
 - 2026-11-13 — S1's visible outcome (`48dbae5`): the Activity page renders `device` events as session
   lines (21 targeted tests, 1 175 page tests, tsc clean).
 
+- 2026-11-13 — S2 complete on `feat/s2-journal` (`d41abf2`, `ba4b734`): segmented journal, 4 MiB
+  rotation, 64 MiB retention, cross-segment replay, torn tail only in the last segment, `oldest_seq` /
+  `reset{snapshot_seq, lost_from, lost_to}`, and an atomic `snapshot-<seq>.json` every 1 000 events.
+  12 bus tests.
+
 ## In flight (branch `feat/s2-journal`)
 
-- S2 reset/snapshots: `reset{snapshot_seq, lost}`, `oldest_seq`, `snapshot-<seq>.json` every 1 000
-  events (sub-agent E).
 - S5 dependency gate: `scripts/check-architecture.mjs` + CI (sub-agent C).
 - S3 plugin lifecycle events on the bus (sub-agent D).
 
