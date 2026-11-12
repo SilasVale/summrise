@@ -5176,6 +5176,29 @@ buckets), 263 at 12/500 in the alarm colour (`Restart app` — the one destructi
 14/400 muted (the `⋯` row menus). **Three red rows for one door is not a hierarchy fault; it is the alarm doing its job.**
 Nothing else on this tab spends a rung it does not need.
 
+## The hundred-and-fifty-first list (CHECK ONLY 2026-11-12 — the rest of the workspace, and one door with no verb)
+
+Finished the sweep of the device workspace's remaining tabs on the LIVE build, same technique (leaf elements grouped by
+computed `size/weight/ink`, then a look at the shot):
+
+    tab     distribution (leaf elements)                                        verdict
+    Tools   77 @ 12/400 muted · 47 @ 13/400 ink · 46 @ 14/400 muted (chevrons)   group 14/600 over tool 13/400: a ladder
+            · 11 @ 14/600 (group names) · 11 @ 11/600 (Built-in chips)          with a step at every level
+    Files   66 @ 12/400 ink (names) · 65 @ 10/600 muted (kind) · 65 @ 11/400     name > kind > size; correct
+    Runs    20 @ 11/400 accent (the command BUTTON) · 20 @ 11/600 ok (exit 0)    the accent is the interactive element,
+            · 20 @ 11/400 ink (bytes) · 40 @ 11/400 faint (times)                not an alarm — verified in the markup
+                                                                                 (`.runs-open` is a `<button>`)
+
+**NO INVERSION LEFT IN THESE THREE.** The Runs tab's wall of orange was the one thing that looked like an alarm colour misused;
+the markup says it is a button (`runs-open`, `aria-expanded`, opens the run's record), so the accent is doing its job.
+
+**WHAT THE SWEEP LEAVES, AND IT IS THE OPERATOR'S OWN SENTENCE.** Home's warning card lists three machines with their problems
+in words (`On v0.3.291 · behind 0.3.292.`, `offline · last seen 6d 20h ago`) and offers each one the same door: **`Open`** — to
+the machine's page, where the operator then has to find the action. The standing direction says *"Home is the fleet's verdict
+**and next action**"*; a verdict that names a problem and hands you a doorway is half of it. **The next list: what verb the
+warning row should carry** — `Update` for a machine behind, `Open` for a machine that is simply away — measured against the
+machine page's actual update flow before anything is drawn.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
