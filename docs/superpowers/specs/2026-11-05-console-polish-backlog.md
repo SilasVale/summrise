@@ -5241,6 +5241,26 @@ VERIFIED (agent repo, committed `293839bc4`, never pushed): `tsc` 0 · **120 fil
 undefined refs, 696.86 kB · **`panel_sheet_freshness` 1, `spacing_scale` 2, `stylesheet_hygiene` 5 — all pass.** Mutation: the
 rule back to `--fs-xl` -> the new test failed on the size.
 
+## The hundred-and-fifty-fourth list (CHECK ONLY 2026-11-12 — the tablet band, and two judgement calls left alone)
+
+The audit had not looked between 390 and 1440, so: Home, Activity and Device at **768** and **1024**, the two bands where the
+contract's `columns` stop (1088) decides the frame.
+
+    width  page      horizontal overflow   verdict
+    768    all three  scrollW == inner     none; no element crosses the right edge
+    1024   all three  scrollW == inner     none
+
+**TWO THINGS THAT LOOK WRONG AND ARE NOT — WRITTEN DOWN SO A LATER ROUND DOES NOT "FIX" THEM.**
+1. **The head's actions drop to their own line at 768** (`.page-actions` keeps `margin-left: auto`, so the wrapped line ends
+   at the right edge — 566 px from the left, under a title block that starts at 256). It is flexbox doing what the sheet says,
+   and at 1024 the actions still sit on the title's line (744 px of room for a 642 px row). Forcing them into a full row at
+   `max-width: 1087` would change 1024, where the current look is better; a breakpoint at the actual wrap point (~922) is not
+   on a contract stop and would be the fourth rhythm this program exists to stop. **Left alone.**
+2. **The selected machine appears twice on phone/tablet** — as the summary card (with `Connect a client`) and as the
+   highlighted row in the roster directly below. Measured: `.machine-summary` is `display: none` above the phone band and the
+   row's highlight is `--accent-soft` (the selection's own colour, not the alarm's). Two facts, two jobs: the card is the
+   selected machine's DOORS, the row is the roster's place in the fleet. **Left alone.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
