@@ -1381,6 +1381,11 @@ export function App() {
             liveLines={live.lines}
             liveState={live.state}
             liveRunning={live.running}
+            onFailedMachine={(deviceId) => {
+              // The row's count and the page's filter are the same two facts: this machine, the failures.
+              setActivityFilter((current) => ({ ...current, device: deviceId, status: "failed" }));
+              setPage("activity");
+            }}
             onFailedToday={() => {
               // **THE DAY'S FAILURES, ONE CLICK (the two-hundredth list).** Activity's own filters, set the way the number was counted.
               setActivityFilter((current) => ({ ...current, status: "failed" }));

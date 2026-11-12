@@ -59,6 +59,12 @@ type Props = {
    * row's management already lives, so the doors go there rather than into a new column.
    */
   onOpenTab?: (tab: "machine" | "memory") => void;
+  /**
+   * **WHICH MACHINE IS THE SICK ONE (the two-hundred-and-first list).** The fleet row said online/offline, version and start; the day's
+   * failures — the one number that turns a fleet into a queue of work — were only on Home's aggregate line, so finding WHICH machine
+   * needed reading Activity's machine chips. The fleet serves each machine's own `today`, so the row can say it and open it.
+   */
+  onFailed?: (deviceId: string) => void;
 };
 
 /**
@@ -79,9 +85,13 @@ export function DeviceCard({
   onRename,
   onRemove,
   onDiagnostics,
-  onOpenTab
+  onOpenTab,
+  onFailed
 }: Props) {
   const label = device.name ?? shortId(device.id);
+  // The machine's own day, as the fleet serves it. Absent on an older hub: the row then says nothing rather than zero.
+  const todayFailed = device.today?.failed ?? 0;
+  const todayTotal = device.today?.client_calls ?? 0;
   // **THE AGE IS THE NEWEST EVIDENCE THE CONSOLE HAS.** A frame proves presence and wins; a console
   // that restarted mid-outage still has the audit's newest open `device.left`; the registry's
   // `last_seen_ms` is the last channel open, older than either. The row states the same moment the
@@ -117,6 +127,16 @@ export function DeviceCard({
       <td className="fleet-status">
         <span className={"dot " + (device.online ? "dot-ok" : "dot-off")} aria-hidden="true" />
         <span className={"fleet-state" + (device.online ? " ok" : "")}>{state}</span>
+        {todayFailed > 0 && onFailed !== undefined && (
+          <button
+            type="button"
+            className="fleet-failed"
+            title={`${todayFailed} of today's ${todayTotal} calls from this machine failed`}
+            onClick={() => onFailed(device.id)}
+          >
+            {todayFailed} failed
+          </button>
+        )}
       </td>
       <td className="fleet-version">
         {device.version ? (

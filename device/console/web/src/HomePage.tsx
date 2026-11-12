@@ -858,6 +858,7 @@ function FleetHome(props: HomePageProps) {
                   onRemove={() => props.onRemove(device)}
                   onDiagnostics={() => props.onDiagnostics(device)}
                   onOpenTab={(tab) => props.onOpenTab?.(device.id, tab)}
+                  onFailed={props.onFailedMachine}
                 />
               ))}
             </tbody>
@@ -1012,6 +1013,11 @@ export type HomePageProps = FleetProps & {
    * on the verdict line, with a door that opens Activity already narrowed to the failures.
    */
   onFailedToday?: () => void;
+  /**
+   * **THE MACHINE'S OWN FAILURES, ONE CLICK (the two-hundred-and-first list).** The fleet row names how many of today's calls from that
+   * machine failed; the door opens Activity scoped to the machine and to the failures.
+   */
+  onFailedMachine?: (deviceId: string) => void;
   onConnect: () => void;
   onTools: () => void;
 };
