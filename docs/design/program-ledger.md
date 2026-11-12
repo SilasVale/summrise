@@ -76,20 +76,14 @@ below ladders to that; one round completes one major item end to end.
 - 2026-11-13 — CI now tests and lints `summrise-plugin-host` and `summrise-console-page` (`9104933`).
 
 ## Next (in order)
-2. S4b — extract `console-page` as a crate so "the page holds no keys" is a compile-time boundary.
-3. S3b — extract `plugin-host` as a crate; the lifecycle events are already on the bus.
-4. UI — the Device page's live tail (sessions, plugins) from the journal.
-5. Windows runner — build the installer, run the shell's `--check-window`, sign.
 
-## Next (order may change as the work teaches us)
-
-1. S2 — snapshot every 1 000 events / 5 minutes, `reset{snapshot_seq, lost}`, retention tests.
-2. A test that `device.started` reaches the journal from the router (the one call without one).
-3. S3 — extract `plugin-host` from `device/device/src/plugins`, emit the lifecycle events.
-4. S4 — console/console-page split; page holds no keys.
-5. S5 — `scripts/check-architecture.mjs` reading `cargo metadata` in CI.
-6. S6 — desktop follow-through: Windows packaging and the shell's panel path.
-7. UI work driven by what the operator actually hits (Activity, Device, Connect).
+1. Linux end-to-end smoke — a standalone device and a local console, register, mint a token, one MCP
+   call, then read it in Activity and in the device's journal. This is the product loop, not unit
+   tests; it is the last thing that can be verified on this machine.
+2. Windows handoff — build the installer on a Windows runner, silent install/uninstall, run
+   `summrise-shell.exe --check-window` with the console down, sign the four exes.
+3. Docs — refresh the architecture doc's §6 current-state table to the shipped code and RELEASE.md
+   for the new crates.
 
 ## Rules
 
