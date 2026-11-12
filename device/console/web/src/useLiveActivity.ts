@@ -1,8 +1,52 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { openLiveActivity, runningAt, type LiveLine, type StartedCall } from "./liveActivity";
+import {
+  openLiveActivity,
+  runningAt,
+  type DeviceEvent,
+  type LiveLine,
+  type StartedCall
+} from "./liveActivity";
 
 /** How many lines the page keeps: the hub reads five, Activity filters a few hundred. */
 export const LIVE_LIMIT = 200;
+
+/**
+ * The sentence a device event earns on Activity.
+ *
+ * The device's journal carries no human sentence, and `session.opened on <machine>` would make the
+ * reader learn the journal's own spelling. The two session events name the terminal they are
+ * about; a started device names itself. Anything else is reported as the event's type, because the
+ * page knows nothing about that kind beyond the fact that it happened on this machine.
+ */
+function deviceSentence(device: string, event: DeviceEvent): string {
+  if (event.type === "session.opened" || event.type === "session.closed") {
+    const id = event.payload.id;
+    if (id !== undefined && id !== "") {
+      const verb = event.type === "session.opened" ? "opened" : "closed";
+      return `terminal ${id} ${verb} on ${device}`;
+    }
+  }
+  if (event.type === "device.started") return `${device} started`;
+  return `${event.type} on ${device}`;
+}
+
+/**
+ * One device event as a row. It is a session fact, not a call: the envelope has no HTTP status, and
+ * the device's `ts` is its own clock — a body whose time cannot be read falls back to this page's,
+ * which is newer than the event, never older.
+ */
+function deviceLine(device: string, event: DeviceEvent): LiveLine {
+  const parsed = Date.parse(event.ts);
+  return {
+    ts_ms: Number.isFinite(parsed) ? parsed : Date.now(),
+    kind: "session",
+    status: 200,
+    ok: true,
+    device_id: device,
+    live: true,
+    sentence: deviceSentence(device, event)
+  };
+}
 
 export type LiveFeedState = {
   /** Newest first. */
@@ -34,7 +78,8 @@ export type LiveFeedState = {
  *
  * A snapshot replaces the list — it is the audit's own newest lines — and each later event is put in
  * front of it. The list is capped, because a page left open for a day must not grow without bound;
- * what falls off is older than anything the page draws.
+ * what falls off is older than anything the page draws. A device event is put in front the same way,
+ * as a session row: it is not a call, so it never joins `running`.
  *
  * A `lagged` frame means the console's broadcast buffer overflowed under this tab: the lines between
  * the last one drawn and the one the stream resumed with are a hole, not a pause. `reread` is called
@@ -128,6 +173,13 @@ export function useLiveActivity(
       },
       finished: (id) => {
         setRunning((current) => current.filter((entry) => entry.id !== id));
+      },
+      // A device event is the machine's own journal reaching the page, not a proxied call: it earns
+      // a row so a session opening is visible as it happens, and stays out of `running`, which is
+      // the proxy's in-flight calls and nothing else.
+      device: (device, event) => {
+        setLines((current) => [deviceLine(device, event), ...current].slice(0, LIVE_LIMIT));
+        setState("live");
       },
       lagged: (dropped) => {
         setLagged((current) => current + dropped);

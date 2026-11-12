@@ -189,4 +189,65 @@ describe("the live activity stream", () => {
       [{ id: "call-8", tool: "files.read", at_ms: 2_000, caller: "console" }]
     );
   });
+
+  it("hands a relayed device event to the page with its envelope parsed", () => {
+    const source = new FakeSource("/events");
+    const handlers = {
+      snapshot: vi.fn(),
+      activity: vi.fn(),
+      lagged: vi.fn(),
+      error: vi.fn(),
+      device: vi.fn()
+    };
+    openLiveActivity(handlers, () => source);
+
+    // The console relays the device's journal line as the device wrote it; the machine's id sits
+    // outside the envelope, so the page is told both.
+    source.emit("device", {
+      device_event: {
+        device: "abc",
+        event: {
+          v: 1,
+          plane: "control",
+          seq: 42,
+          ts: "2026-11-13T10:00:00.000Z",
+          type: "session.opened",
+          subject: { session: "2" },
+          payload: { id: "2", kind: "pty" }
+        }
+      }
+    });
+
+    expect(handlers.device).toHaveBeenCalledWith("abc", {
+      v: 1,
+      plane: "control",
+      seq: 42,
+      ts: "2026-11-13T10:00:00.000Z",
+      type: "session.opened",
+      subject: { session: "2" },
+      payload: { id: "2", kind: "pty" }
+    });
+  });
+
+  it("ignores a device frame it cannot read, without throwing", () => {
+    const source = new FakeSource("/events");
+    const handlers = {
+      snapshot: vi.fn(),
+      activity: vi.fn(),
+      lagged: vi.fn(),
+      error: vi.fn(),
+      device: vi.fn()
+    };
+    openLiveActivity(handlers, () => source);
+    const listener = source.listeners.get("device")!;
+
+    // A broken body, an event without its envelope, and an envelope without a machine are all
+    // silence: the page does not control what a device's journal writes, and a bad frame must not
+    // stop the stream.
+    expect(() => listener({ data: "not json" } as MessageEvent)).not.toThrow();
+    source.emit("device", { device_event: { device: "abc" } });
+    source.emit("device", { device_event: { event: { type: "session.opened" } } });
+    source.emit("device", {});
+    expect(handlers.device).not.toHaveBeenCalled();
+  });
 });

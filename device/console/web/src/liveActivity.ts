@@ -75,6 +75,44 @@ export type StartedCall = {
 };
 
 /**
+ * The facts a device event's payload can carry that the page reads.
+ *
+ * The payload is the event kind's own: a session names the session it opened, and a
+ * `device.started` names its port. Only the session's id is drawn here, so only the fields the page
+ * can vouch for are typed rather than inventing one shape for every kind.
+ */
+export type DevicePayload = {
+  /** The session's id, on `session.opened` and `session.closed`. */
+  id?: string;
+  /** How the session reaches its machine: `pty`, `ssh` or `serial`. */
+  kind?: string;
+};
+
+/**
+ * One event from a device's own journal, as the console relays it on the stream.
+ *
+ * The console does not rewrite the device's envelope: `v`, `plane`, `seq`, `ts` and `type` are the
+ * journal's own fields, `subject` is whatever the event names as its subject, and `payload` is the
+ * kind's facts. A frame that does not carry these fields is not an event the page can report.
+ */
+export type DeviceEvent = {
+  /** The envelope's schema version; additive changes stay at 1. */
+  v: number;
+  /** Which plane the event belongs to; the console's own events are `control`. */
+  plane: "control" | "data";
+  /** The device journal's monotonic sequence for this event. */
+  seq: number;
+  /** When the device recorded it, as an RFC 3339 string. */
+  ts: string;
+  /** `session.opened`, `session.closed`, `device.started`, … */
+  type: string;
+  /** What the event is about, when it names a subject. */
+  subject?: unknown;
+  /** The facts the event kind carries. */
+  payload: DevicePayload;
+};
+
+/**
  * The proxy's own cut on one call: the longest a `started` entry may stand without a `finished`.
  *
  * The proxy stops waiting at ninety seconds for a run and sooner for everything else. A page that
@@ -102,6 +140,11 @@ export type LiveHandlers = {
   started?: (call: StartedCall) => void;
   /** One call's reply arrived (or its proxy stopped waiting); clear the line by id. */
   finished?: (id: string) => void;
+  /**
+   * One event from a device's own journal. It is not an audit line and not a call: the event has a
+   * `seq` of its own and no HTTP status, so the page reads the envelope rather than the record.
+   */
+  device?: (device: string, event: DeviceEvent) => void;
   /** The connection dropped. `EventSource` retries on its own. */
   error: () => void;
   /**
@@ -198,11 +241,16 @@ export function openLiveActivity(
     const id = finishedId(frame);
     if (id !== null) handlers.finished?.(id);
   };
+  const onDevice = (event: MessageEvent) => {
+    const parsed = asDeviceEvent(parse(event.data));
+    if (parsed) handlers.device?.(parsed.device, parsed.event);
+  };
   source.addEventListener("snapshot", onSnapshot);
   source.addEventListener("activity", onActivity);
   source.addEventListener("lagged", onLagged);
   source.addEventListener("started", onStarted);
   source.addEventListener("finished", onFinished);
+  source.addEventListener("device", onDevice);
   source.onerror = () => {
     if (closed) return;
     dropped = true;
@@ -268,6 +316,56 @@ function asStarted(value: unknown, caller: unknown): StartedCall | null {
     at_ms: at,
     ...(typeof frame.device_id === "string" ? { device_id: frame.device_id } : {}),
     ...(audience ? { caller: audience } : {})
+  };
+}
+
+/**
+ * One relayed device event, or `null` when the frame does not carry an envelope the page can
+ * report.
+ *
+ * The console does not write a sentence for these — the device's event is the whole fact — so a
+ * half-read envelope is refused rather than drawn with blanks. The wrapper is `device_event`
+ * because the console answers `device` too: the device's id is outside the journal line, and the
+ * frame must not confuse which machine wrote it.
+ */
+function asDeviceEvent(
+  frame: Record<string, unknown> | null
+): { device: string; event: DeviceEvent } | null {
+  const wrapper = frame?.device_event;
+  if (!wrapper || typeof wrapper !== "object" || Array.isArray(wrapper)) return null;
+  const relayed = wrapper as Record<string, unknown>;
+  const device =
+    typeof relayed.device === "string" && relayed.device !== "" ? relayed.device : null;
+  const raw = relayed.event;
+  if (device === null || !raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const event = raw as Record<string, unknown>;
+  const v = typeof event.v === "number" && Number.isFinite(event.v) ? event.v : null;
+  const plane = event.plane === "control" || event.plane === "data" ? event.plane : null;
+  const seq = typeof event.seq === "number" && Number.isFinite(event.seq) ? event.seq : null;
+  const ts = typeof event.ts === "string" && event.ts !== "" ? event.ts : null;
+  const type = typeof event.type === "string" && event.type !== "" ? event.type : null;
+  if (v === null || plane === null || seq === null || ts === null || type === null) return null;
+  return {
+    device,
+    event: {
+      v,
+      plane,
+      seq,
+      ts,
+      type,
+      ...(event.subject !== undefined ? { subject: event.subject } : {}),
+      payload: asDevicePayload(event.payload)
+    }
+  };
+}
+
+/** The payload's facts the page reads. Every other field belongs to the event kind, not to this page. */
+function asDevicePayload(value: unknown): DevicePayload {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const raw = value as Record<string, unknown>;
+  return {
+    ...(typeof raw.id === "string" ? { id: raw.id } : {}),
+    ...(typeof raw.kind === "string" ? { kind: raw.kind } : {})
   };
 }
 

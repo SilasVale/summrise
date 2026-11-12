@@ -22,6 +22,18 @@ class FakeSource implements EventSourceLike {
 
 const line = (ts: number, sentence: string) => ({ ts_ms: ts, kind: "mcp", status: 200, sentence });
 
+/** One device event as the console relays it: the machine's id, then the journal's envelope. */
+const deviceEvent = (
+  type: string,
+  ts: string,
+  payload: Record<string, unknown> = { id: "2", kind: "pty" }
+) => ({
+  device_event: {
+    device: "abc",
+    event: { v: 1, plane: "control", seq: 7, ts, type, payload }
+  }
+});
+
 beforeEach(() => {
   FakeSource.instances = [];
   vi.stubGlobal("EventSource", FakeSource);
@@ -188,5 +200,67 @@ describe("following the live activity", () => {
       source.emit("snapshot", { lines: [], running: [] });
     });
     expect(result.current.running).toEqual([]);
+  });
+
+  it("draws a device event as a session line, not as a running call", () => {
+    const { result } = renderHook(() => useLiveActivity(true));
+    const source = FakeSource.instances[0];
+
+    act(() => {
+      source.emit("snapshot", { lines: [line(10, "Read `notes.txt`")] });
+    });
+    act(() => {
+      source.emit("device", deviceEvent("session.opened", "2026-11-13T10:00:00.000Z"));
+    });
+
+    // The machine's journal is a row so a session opening is visible, but it is not one of the
+    // proxy's calls: opening a terminal must not put anything in the running band.
+    expect(result.current.lines).toEqual([
+      {
+        ts_ms: Date.parse("2026-11-13T10:00:00.000Z"),
+        kind: "session",
+        status: 200,
+        ok: true,
+        device_id: "abc",
+        live: true,
+        sentence: "terminal 2 opened on abc"
+      },
+      line(10, "Read `notes.txt`")
+    ]);
+    expect(result.current.running).toEqual([]);
+  });
+
+  it("names a session close, a started device, and a kind it does not know", () => {
+    const { result } = renderHook(() => useLiveActivity(true));
+    const source = FakeSource.instances[0];
+
+    act(() => {
+      source.emit("device", deviceEvent("session.closed", "2026-11-13T10:00:01.000Z"));
+      source.emit("device", deviceEvent("device.started", "2026-11-13T10:00:02.000Z", {}));
+      source.emit("device", deviceEvent("session.idle", "2026-11-13T10:00:03.000Z"));
+    });
+
+    // Newest first, like every other row. The two session kinds are the only ones the page can
+    // describe; anything else says what it was rather than guessing what it did.
+    expect(result.current.lines.map((entry) => entry.sentence)).toEqual([
+      "session.idle on abc",
+      "abc started",
+      "terminal 2 closed on abc"
+    ]);
+  });
+
+  it("dates a device event whose clock cannot be read at the page's own", () => {
+    const before = Date.now();
+    const { result } = renderHook(() => useLiveActivity(true));
+    const source = FakeSource.instances[0];
+
+    act(() => {
+      source.emit("device", deviceEvent("session.opened", "not a time"));
+    });
+
+    // A device clock the page cannot parse is still an event that just arrived; the fallback is
+    // newer than the event, never older.
+    expect(result.current.lines[0].ts_ms).toBeGreaterThanOrEqual(before);
+    expect(result.current.lines[0].ts_ms).toBeLessThanOrEqual(Date.now());
   });
 });
