@@ -4813,6 +4813,33 @@ browser gate's own `getByLabel('Time')` followed it — a label is a contract wi
 and the gate caught the rename the moment the page changed (`FAIL — locator.waitFor: Timeout 5000 ms` waiting for
 `Time`). Before/after strip in `.superpowers/sdd/2026-11-05-console-polish-backlog/list136/`.
 
+## P0 — the hundred-and-thirty-seventh list (CLOSED 2026-11-12 — a failed read's reason was the route)
+
+The hundred-and-thirty-fifth list fixed the transport's sentence; this is the same rule one layer up. `NoAnswer`
+carried the REQUEST PATH as its `message`, and `describe(cause)` puts that message wherever a reason is drawn.
+Measured 2026-11-12 against an HTML answer from the edge:
+
+    Home      "The console could not read the machine list." + Retry      (no reason in the body)
+    Activity  "The console could not read the audit; this timeline shows only calls that arrive live." + Retry
+    the reason itself, wherever a page or a tooltip draws it      `/audit?limit=20` · `/audit/day` · `/mcp`
+
+Neither page body leaked it — but every `title` that carries the reason did, and any page that names its own read plus
+the cause (`Could not read this device's sessions: …`) would have said `/mcp` where the reason goes.
+
+1. **`NoAnswer` states who answered.** **Fix — console `1711153` (pushed; NOT deployed — the console deploy waits on
+   the operator's word).** `the edge answered this read with a web page, not the console (HTTP 502)`; the route stays
+   as a field (`path`) for a caller that wants it, and the status (`status`) is carried the same way.
+2. **A refusal that is not the edge's must not borrow that sentence.** `/audit/day` answering a 200 with no counts is
+   the route answering incompletely, not a web page; it now carries its own reason (`the day's answer carried no
+   counts`), so the hundred-and-thirty-first list's refusal is said in words instead of being re-labelled a lie.
+3. **The suite pinned the instance, never the message.** **Fix:** a case asserting the sentence, the status, the path
+   and that the message does not contain the route. **Mutation:** `super(reason ?? path)` ->
+   `expected '/audit?limit=20' to be 'the edge answered this read with a we…'`.
+
+**A ROUND WHOSE FIX IS NOT ON SCREEN, SAID PLAINLY.** Both page bodies were already clean; what moves is every tooltip
+and every future page that names its own read — the same class of defect as the transport's, caught one layer earlier
+because the transport's measurement said where to look.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
