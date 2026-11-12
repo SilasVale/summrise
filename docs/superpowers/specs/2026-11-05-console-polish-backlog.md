@@ -6241,6 +6241,22 @@ had been given a glow. The pulse is said in the word `Running:`; the dot is the 
     during   Running: runs.exec on DESKTOP-9VH92BJ · 1 s in
     after    Now: runs.exec on DESKTOP-9VH92BJ · 1 s ago ›
 
+## The hundred-and-ninety-eighth list (SHIPPED 2026-11-12 — the browser view stops asking a machine that cannot start one)
+
+**The audit named this one two rounds ago** (the failures-by-tool line): `browser.list` STARTS the device's browser, so on a machine
+where chrome cannot come up, **every look at Screen → Browser fired a doomed call** — three `browser.list` failures in one window,
+all of them the console's own.
+
+The pane now remembers the machine whose launch failed, per machine, in memory; it shows **that machine's own answer** (the exit code
+and the port it never answered) and waits for the operator's `Refresh pages` instead of asking again by itself. A launch that works
+retires the memory; another machine is another question.
+
+**LIVE AFTER `-ux251`**, counting `browser.list` lines in the audit directly:
+
+    before the visit                        4
+    after opening Screen → Browser          5     (one call)
+    after leaving and coming back           5     (no second call)
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
