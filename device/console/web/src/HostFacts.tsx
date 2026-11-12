@@ -105,7 +105,7 @@ export function HostFactsBlock({
    * mid-outage and has no frame date — the registry's last-seen moment. The prefix must name the
    * source, because "last frame 5h ago" and "last seen 5h ago" are different claims about the facts.
    */
-  readFrom?: "frame" | "seen";
+  readFrom?: "frame" | "seen" | "read";
   /**
    * The fleet's reachability for this machine. Only a live machine's absent repair-task fact draws
    * the "not reported by this build" row: an offline block's facts are its last frame and already
@@ -131,9 +131,11 @@ export function HostFactsBlock({
         // exact instant stays in the title for anyone matching it to a log. A last-seen date is not
         // a frame date, so the sentence says what it is rather than handing the values that moment.
         <p className="hint facts-read" title={exactMoment(readAtMs)}>
-          {readFrom === "frame"
-            ? `Last frame ${seenAgo(readAtMs)}. These facts are the machine's last frame, not a live read.`
-            : `Last seen ${seenAgo(readAtMs)}. These facts are the machine's last frame; the console has no timestamp for that frame.`}
+          {readFrom === "read"
+            ? `Read from the machine just now.`
+            : readFrom === "frame"
+              ? `Last frame ${seenAgo(readAtMs)}. These facts are the machine's last frame, not a live read.`
+              : `Last seen ${seenAgo(readAtMs)}. These facts are the machine's last frame; the console has no timestamp for that frame.`}
         </p>
       )}
       <dl className="facts host">

@@ -68,6 +68,7 @@ const INVENTORY = [
   "files.read",
   "files.write",
   "forward.list",
+  "host.facts",
   "host.restart",
   "memory.list",
   "memory.search",

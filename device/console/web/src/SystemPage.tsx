@@ -1,3 +1,4 @@
+import type { HostFacts } from "./api";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import type { Device } from "./DeviceCard";
 import { spanText } from "./age";
@@ -5,6 +6,7 @@ import { clockTime, grouped, isoDate, lastHeardMs, message, seenAgo } from "./fo
 import { ForwardRules } from "./ForwardRules";
 import { HostFactsBlock } from "./HostFacts";
 import { ServicesWatched } from "./ServicesWatched";
+import { hostFactsFailure, readHostFacts } from "./hostFactsApi";
 import { Modal } from "./Modal";
 import { useRequestGate } from "./requests";
 import { callTool, ToolError, type Grant } from "./terminal";
@@ -600,6 +602,23 @@ export function SystemPage({
   // values came from and wins when the console has one; a console that restarted mid-outage has no
   // `last_frame_ms` (the measured 14R) and the registry's `last_seen_ms` is the only moment left.
   // Which fact dated it travels with the moment: "last frame" and "last seen" are different claims.
+  // **THE MACHINE CAN BE ASKED, AND THE PAGE SAYS WHICH ANSWER IT IS SHOWING (the hundred-and-seventy-third list).** The facts
+  // above are the last FRAME; `host.facts` answers the same shape live. A wedged channel with a live process is exactly the
+  // case where a five-hour-old frame misleads, so the operator gets one button and the block names the source it drew.
+  const [liveFacts, setLiveFacts] = useState<HostFacts | null>(null);
+  const [factsError, setFactsError] = useState<string | null>(null);
+  const [readingFacts, setReadingFacts] = useState(false);
+  const readFactsNow = async () => {
+    setReadingFacts(true);
+    setFactsError(null);
+    try {
+      setLiveFacts(await readHostFacts(grant));
+    } catch (error) {
+      setFactsError(hostFactsFailure(error));
+    } finally {
+      setReadingFacts(false);
+    }
+  };
   const factsReadAt = offline ? (device?.last_frame_ms ?? device?.last_seen_ms ?? null) : null;
   const factsReadFrom = device?.last_frame_ms != null ? "frame" : "seen";
 
@@ -607,15 +626,23 @@ export function SystemPage({
     <div className="system-page">
       <section className="system-section" aria-labelledby="system-this-machine">
         <h3 id="system-this-machine">This machine</h3>
-        {device?.host ? (
+        {liveFacts !== null && (
+          <p className="hint facts-live">
+            Read from the machine just now.{" "}
+            <button type="button" className="link" onClick={() => setLiveFacts(null)}>
+              Show the last frame again
+            </button>
+          </p>
+        )}
+        {(liveFacts ?? device?.host) ? (
           <HostFactsBlock
-            host={device.host}
+            host={(liveFacts ?? device?.host)!}
             vitals={vitals}
-            collecting={!offline}
-            readAtMs={factsReadAt}
-            readFrom={factsReadFrom}
-            online={device.online}
-            runningVersion={device.version}
+            collecting={!offline && liveFacts === null}
+            readAtMs={liveFacts === null ? factsReadAt : Date.now()}
+            readFrom={liveFacts !== null ? "read" : factsReadFrom}
+            online={device?.online ?? false}
+            runningVersion={device?.version ?? null}
           />
         ) : (
           // **ONE MACHINE DATE, ONE CONSOLE DATE, EACH LABELLED (audit-44 F6).** The measured
@@ -626,6 +653,24 @@ export function SystemPage({
           // date the card answers with.
           <p className="hint">{missingFactsSentence(device, consoleStartedAt)}</p>
         )}
+        {factsError !== null && (
+          <div className="notice" role="status">
+            <span>{factsError}</span>
+            <button type="button" disabled={readingFacts} onClick={() => void readFactsNow()}>
+              {readingFacts ? "Retrying…" : "Retry"}
+            </button>
+          </div>
+        )}
+        <div className="system-toolbar">
+          <button
+            type="button"
+            disabled={readingFacts || offline}
+            title={offline ? "The machine is offline; its facts cannot be read" : undefined}
+            onClick={() => void readFactsNow()}
+          >
+            {readingFacts ? "Reading the machine…" : "Read the machine now"}
+          </button>
+        </div>
         {device && (
           // **THE REACHABILITY WORD NOW HAS A SUBJECT.** The facts card ended on a bare `online`
           // (audit-40 F3): a 12 px orphan under the chart, reading as a label with no value or a
