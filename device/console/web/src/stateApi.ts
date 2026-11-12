@@ -53,12 +53,20 @@ export async function readDeviceState(grant: Grant): Promise<DeviceSelf> {
     throw new Error(refusal !== "" ? refusal : "the machine refused the read");
   }
   const events = Array.isArray(answer.events) ? answer.events : [];
+  // **THE HEALTH IS NESTED, AND THE FIRST VERSION LOOKED FLAT (found by the live read, the hundred-and-seventh list's lesson
+  // again).** The shipped device (0.3.292) answers `{health: {pid, poisoned, status, version}, state: {…}, events: […]}`; the page
+  // looked for `status`/`release`/`pid` at the top and drew `unknown` beside ten real events. Both shapes are read: the nested
+  // `health` first, the flat fields as the fallback.
+  const health = (answer.health !== null && typeof answer.health === "object" ? answer.health : {}) as Record<
+    string,
+    unknown
+  >;
   return {
-    status: str(answer.status) ?? "unknown",
-    release: str(answer.release) ?? str(answer.version),
-    pid: num(answer.pid),
+    status: str(health.status) ?? str(answer.status) ?? "unknown",
+    release: str(health.version) ?? str(answer.release) ?? str(answer.version),
+    pid: num(health.pid) ?? num(answer.pid),
     // A document that could not be read is reported as `state: null` with degraded health; both are read.
-    poisoned: answer.state === null || answer.poisoned === true,
+    poisoned: answer.state === null || health.poisoned === true || answer.poisoned === true,
     events: events.flatMap((value): DeviceEvent[] => {
       if (value === null || typeof value !== "object") return [];
       const raw = value as Record<string, unknown>;

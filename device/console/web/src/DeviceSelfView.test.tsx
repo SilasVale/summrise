@@ -36,6 +36,18 @@ describe("DeviceSelfView — what the machine says about itself", () => {
     expect(screen.getByText(/allow · console/)).toBeInTheDocument();
   });
 
+  it("reads the NESTED health the shipped device answers with", async () => {
+    // Measured live 2026-11-12: 0.3.292 answers {health: {pid, poisoned, status, version}, state, events} and the page drew
+    // `unknown` beside ten real events.
+    mocked.mockResolvedValue(
+      JSON.stringify({ health: { pid: 20072, poisoned: false, status: "ok", version: "0.3.292" }, state: {}, events: [] })
+    );
+    render(<DeviceSelfView grant={GRANT} />);
+    await waitFor(() => expect(screen.getByText(/release 0\.3\.292/)).toBeInTheDocument());
+    expect(screen.getByText(/pid 20072/)).toBeInTheDocument();
+    expect(screen.queryByText(/unknown/)).toBeNull();
+  });
+
   it("draws a poisoned document as a degradation, not as an error", async () => {
     mocked.mockResolvedValue(
       JSON.stringify({ status: "degraded", release: "0.3.292", pid: 7, state: null, events: [] })
