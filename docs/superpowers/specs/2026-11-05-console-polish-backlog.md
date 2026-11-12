@@ -6281,6 +6281,19 @@ the page.
 
     A newer console is deployed (0.3.274-ux254); this page is 0.3.274-ux200. Reload to use it.   [Reload]
 
+## The two-hundredth list (SHIPPED 2026-11-12 — Home's verdict carries the day's failures, and the count is a door)
+
+Home answered what needs a person and what is there; **the day's failures** — the number an operator acts on — lived only on Activity.
+
+    ● Today 51 of 529 calls failed ›      →  Activity, with `Failures only` already on
+
+**ONE READ OF THE FLEET'S DAY** (`/audit/day`, no device id — the same answer Activity's default scope shows), and **a silence is not a
+zero**: a failed read draws nothing rather than claiming "no failures today". The sentence names both numbers, so the count cannot be
+read as 51 failures out of nothing.
+
+**LIVE AFTER `-ux255`**: the line read `Today 51 of 529 calls failed ›`, and clicking it landed on `#activity` with `Failures only`
+pressed (`aria-pressed: true`).
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
