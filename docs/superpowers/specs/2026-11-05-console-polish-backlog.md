@@ -4933,7 +4933,7 @@ reader (10 cases around the device's real answer) and in the branch gate.
 half-fix that leaves Create/Remove calling absent tools would be a worse lie than the current one. The measurement is the
 deliverable this round — recorded with the file:line of both sides so the next round starts from evidence, not memory.
 
-## P0 — the hundred-and-forty-first list (OPENED 2026-11-12 — the console spells its device tools in a dialect the agent does not declare)
+## P0 — the hundred-and-forty-first list (CLOSED 2026-11-12 — the console's tool names ARE the device's; the agent's literals are declarations, not the wire)
 
 Found while closing the hundred-and-fortieth list: the Forward page's names were not one bad page, they are the console's WHOLE
 convention. Measured 2026-11-12 by reading both sides' declarations:
@@ -4991,6 +4991,20 @@ equivalent of `panel_tool_names.rs` — a fixture list of the agent's declared n
 
 **WHY THE ROUND STOPS HERE.** A 30-name rewrite on a contradiction would be a guess with a green gate; the measurement above is
 the kind that has to be right before the code moves.
+
+**CLOSED — ANSWERED BY A LIVE DEVICE, NOT BY READING THE AGENT'S SOURCE.** `GET /fleet/<id>/tools` on DESKTOP-9VH92BJ
+(0.3.292) answers **46 tools, all dotted** — `files.read`, `terminal.read`, `browser.open`, `plugins.list`, `system.process_list`,
+`screen.capture`, `host.restart` — and the console's 32 names match **31** of them exactly. The one that does not is
+`forward.list`: that build carries no forward plugin at all, so nothing can confirm or deny it until a device ships one.
+
+**WHAT THE OPENING MEASUREMENT GOT WRONG.** It compared the console's names against `ToolDef::new("…")` LITERALS in `agent/src`
+and concluded the console spoke a dialect the agent did not. Those literals are DECLARATION names; the wire is dotted. The
+mistake renamed the Forward section to `forward_list` for a round (corrected in `83ae6a4`), and the lesson is recorded where it
+belongs: **a name is whatever the running product answers to, and only the running product can say.**
+
+**WHAT REMAINS ENFORCED.** `device/console/web/src/toolNames.test.ts` holds the 32-name inventory in both directions (a new name
+fails, a removed one fails) and names `forward.list` as the single unverified entry.
+
 
 ## The hundred-and-forty-second list (CLOSED 2026-11-12 — the deployment, and the page's first eight seconds)
 
