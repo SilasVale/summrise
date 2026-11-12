@@ -1544,6 +1544,14 @@ button.chip-tag:hover {
   padding-bottom: var(--sp-2);
 }
 .runs-form > button { flex: none; }
+/* **ONE FIELD PER ROW ON A PHONE (the hundred-and-ninety-first list).** Measured at 390 x 844: the command field took a row and the
+   working directory (10 rem) and timeout (7.5 rem) shared the next one, so the form read as two unequal columns on a screen with no
+   room for columns. Each field takes the row; the checkbox and the Run button follow. */
+@media (max-width: 639px) {
+  .runs-field.command,
+  .runs-field.cwd,
+  .runs-field.timeout { flex: 1 1 100%; }
+}
 
 .runs-result header .mono { margin-left: auto; }
 
