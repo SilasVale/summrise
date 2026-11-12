@@ -29,6 +29,9 @@ pub const DEFAULT_SEGMENT_BYTES: u64 = 4 * 1024 * 1024;
 /// The production retention ceiling: 64 MiB across all segments.
 pub const DEFAULT_MAX_BYTES: u64 = 64 * 1024 * 1024;
 
+/// How many published events apart the journal writes a snapshot.
+pub const DEFAULT_SNAPSHOT_EVERY: u64 = 1_000;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Plane {
@@ -53,12 +56,24 @@ pub struct Envelope {
     pub payload: Value,
 }
 
+/// What a subscriber lost to retention when its cursor fell behind the oldest retained row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Reset {
+    /// The last sequence a snapshot could cover: everything up to it is gone.
+    pub snapshot_seq: u64,
+    /// The first lost sequence, inclusive.
+    pub lost_from: u64,
+    /// The last lost sequence, inclusive.
+    pub lost_to: u64,
+}
+
 /// The journal and its live fan-out. One writer, one sequence.
 pub struct Bus {
     dir: PathBuf,
     journal: Mutex<Journal>,
     segment_bytes: u64,
     max_bytes: u64,
+    snapshot_every: u64,
     seq: AtomicU64,
     tx: broadcast::Sender<Arc<Envelope>>,
 }
@@ -85,6 +100,17 @@ impl Bus {
         segment_bytes: u64,
         max_bytes: u64,
     ) -> io::Result<Self> {
+        Self::open_with_snapshot(dir, segment_bytes, max_bytes, DEFAULT_SNAPSHOT_EVERY)
+    }
+
+    /// Open (or create) a segmented journal with explicit sizes and snapshot cadence. A cadence of
+    /// zero disables snapshots; tests otherwise use small values.
+    pub fn open_with_snapshot(
+        dir: impl AsRef<Path>,
+        segment_bytes: u64,
+        max_bytes: u64,
+        snapshot_every: u64,
+    ) -> io::Result<Self> {
         let dir = dir.as_ref().to_path_buf();
         fs::create_dir_all(&dir)?;
         let (last_seq, mut segments) = recover(&dir)?;
@@ -105,6 +131,7 @@ impl Bus {
             }),
             segment_bytes,
             max_bytes,
+            snapshot_every,
             seq: AtomicU64::new(last_seq),
             tx,
         })
@@ -155,6 +182,9 @@ impl Bus {
                 *tracked = size;
             }
         }
+        // The event is durable before this point. Snapshots are derived data, so a failure to write
+        // one must not fail a publish that already succeeded.
+        let _ = self.write_snapshot(seq, &envelope.ts);
         let _ = self.tx.send(Arc::new(envelope.clone()));
         Ok(envelope)
     }
@@ -184,6 +214,81 @@ impl Bus {
     /// The last durable sequence. Zero when the journal is empty.
     pub fn last_seq(&self) -> u64 {
         self.seq.load(Ordering::SeqCst)
+    }
+
+    /// The first sequence still retained on disk. Zero when the journal is empty.
+    pub fn oldest_seq(&self) -> u64 {
+        let indices: Vec<u64> = {
+            let journal = self
+                .journal
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner());
+            journal.segments.keys().copied().collect()
+        };
+        for index in indices {
+            let Ok(bytes) = fs::read(self.dir.join(segment_name(index))) else {
+                // Retention may delete a segment between the snapshot of the index list and this
+                // read; the next retained segment still answers.
+                continue;
+            };
+            for line in bytes.split(|byte| *byte == b'\n') {
+                if line.is_empty() {
+                    continue;
+                }
+                if let Ok(envelope) = serde_json::from_slice::<Envelope>(line) {
+                    return envelope.seq;
+                }
+            }
+        }
+        0
+    }
+
+    /// The lost range for a subscriber whose cursor is `from`, or `None` when that cursor is still
+    /// inside the retained window (or the journal is empty).
+    pub fn reset(&self, from: u64) -> Option<Reset> {
+        let oldest = self.oldest_seq();
+        if oldest == 0 || from >= oldest {
+            return None;
+        }
+        Some(Reset {
+            snapshot_seq: oldest - 1,
+            lost_from: from,
+            lost_to: oldest - 1,
+        })
+    }
+
+    /// Write `snapshot-<seq>.json` when this sequence is due one. An existing snapshot is never
+    /// rewritten, and the file appears atomically: write the `.tmp` sibling, fsync, rename.
+    fn write_snapshot(&self, seq: u64, ts: &str) -> io::Result<()> {
+        if self.snapshot_every == 0 || seq % self.snapshot_every != 0 {
+            return Ok(());
+        }
+        let path = self.dir.join(snapshot_name(seq));
+        if path.exists() {
+            return Ok(());
+        }
+        #[derive(Serialize)]
+        struct Snapshot<'a> {
+            v: u8,
+            seq: u64,
+            ts: &'a str,
+        }
+        let bytes = serde_json::to_vec(&Snapshot {
+            v: SCHEMA_VERSION,
+            seq,
+            ts,
+        })
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+        let tmp = self.dir.join(format!("{}.tmp", snapshot_name(seq)));
+        let mut file = OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .open(&tmp)?;
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+        drop(file);
+        fs::rename(&tmp, &path)
     }
 
     /// Seal the active segment, start the next index, and prune old segments if retention demands it.
@@ -258,6 +363,11 @@ impl Subscription {
 /// `000001.seg`, zero-padded to six digits.
 fn segment_name(index: u64) -> String {
     format!("{index:06}.seg")
+}
+
+/// `snapshot-<seq>.json`.
+fn snapshot_name(seq: u64) -> String {
+    format!("snapshot-{seq}.json")
 }
 
 /// The index a segment file name carries, or `None` for anything else in the directory.
@@ -541,5 +651,95 @@ mod tests {
         }
         seqs.sort_unstable();
         assert_eq!(seqs, (1..=6).collect::<Vec<_>>(), "no seq is reused");
+    }
+
+    #[test]
+    fn reset_names_the_lost_range() {
+        let dir = temp_dir("reset");
+        let bus = Bus::open_with(&dir, 200, 300).unwrap();
+        for index in 0..10 {
+            bus.publish("e", serde_json::json!({ "i": index })).unwrap();
+        }
+        assert!(
+            !dir.join(segment_name(1)).exists(),
+            "retention should have dropped the first segment"
+        );
+
+        let oldest = bus.oldest_seq();
+        assert!(
+            oldest > 1,
+            "expected lost rows, oldest retained is {oldest}"
+        );
+        let reset = bus.reset(1).expect("reset(1) names the lost range");
+        assert_eq!(reset.lost_from, 1);
+        assert_eq!(reset.lost_to, reset.snapshot_seq);
+        assert!(reset.snapshot_seq > 0);
+        assert_eq!(reset.snapshot_seq, oldest - 1);
+
+        assert!(
+            bus.reset(oldest).is_none(),
+            "a cursor inside the retained window is not lost"
+        );
+        assert!(bus.reset(oldest + 1).is_none());
+    }
+
+    #[test]
+    fn a_snapshot_is_written_every_n_events() {
+        let dir = temp_dir("snapshot");
+        let bus = Bus::open_with_snapshot(&dir, 1 << 20, 1 << 20, 3).unwrap();
+        for _ in 0..3 {
+            bus.publish("e", Value::Null).unwrap();
+        }
+        let path = dir.join("snapshot-3.json");
+        assert!(path.is_file(), "expected snapshot-3.json in {dir:?}");
+        let first = fs::read(&path).unwrap();
+        let value: Value = serde_json::from_slice(&first).unwrap();
+        assert_eq!(value["v"], 1);
+        assert_eq!(value["seq"], 3);
+        assert!(
+            value["ts"].as_str().unwrap().contains('T'),
+            "expected an rfc3339 timestamp, found {}",
+            value["ts"]
+        );
+        assert!(
+            !dir.join("snapshot-3.json.tmp").exists(),
+            "the temporary file should have been renamed away"
+        );
+
+        for _ in 0..2 {
+            bus.publish("e", Value::Null).unwrap();
+        }
+        assert!(!dir.join("snapshot-4.json").exists());
+        assert!(!dir.join("snapshot-5.json").exists());
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            first,
+            "the first snapshot must not be rewritten"
+        );
+    }
+
+    #[tokio::test]
+    async fn replay_from_within_the_window_still_works() {
+        let dir = temp_dir("replay-window");
+        let bus = Bus::open_with(&dir, 200, 300).unwrap();
+        for index in 0..10 {
+            bus.publish("e", serde_json::json!({ "i": index })).unwrap();
+        }
+        assert!(
+            !dir.join(segment_name(1)).exists(),
+            "retention should have dropped the first segment"
+        );
+        let oldest = bus.oldest_seq();
+        assert!(
+            oldest > 1,
+            "expected lost rows, oldest retained is {oldest}"
+        );
+
+        let mut subscription = bus.subscribe(oldest).unwrap();
+        for seq in oldest..=10 {
+            assert_eq!(subscription.next().await.unwrap().seq, seq);
+        }
+        bus.publish("live", Value::Null).unwrap();
+        assert_eq!(subscription.next().await.unwrap().seq, 11);
     }
 }
