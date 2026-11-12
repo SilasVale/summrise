@@ -4977,6 +4977,14 @@ the log shows `terminal.read` succeeding — and something outside this repo's s
 and failing, and the console's device pages have never worked against the agent while every console gate used a mock that accepts
 any name.
 
+**INVENTORY GATE LANDED — console `6f90d3d` (pushed; NOT deployed — the console deploy waits on the operator's word).**
+`device/console/web/src/toolNames.test.ts` reads every `callTool("…")` under `src/` and holds the 32-name vocabulary in both
+directions: a NEW name fails, a REMOVED name fails, and the file states the open question with the measurement
+(**1 of 32** names is one the agent declares — `forward_list`, from the hundred-and-fortieth list). A direct comparison would
+be red today, and a red gate cannot be committed; the inventory does the two things that matter until the log settles the
+question. **Mutation:** one planted `files.delete` -> `a name this page calls that the inventory does not record: expected [
+'files.delete' ] to deeply equal []`.
+
 **PLAN (next round, M or L):** read one live device's `tools/list`; build the console↔agent name map from it; add the console-side
 equivalent of `panel_tool_names.rs` — a fixture list of the agent's declared names, a scan of every `callTool("…")` in
 `device/console/web/src`, and a mutation that renames one call. The rewrite itself is mechanical once the map is proven.
