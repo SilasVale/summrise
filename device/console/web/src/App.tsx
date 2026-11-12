@@ -1334,6 +1334,8 @@ export function App() {
               setPage("device");
               setTab(tab);
             }}
+            liveLines={live.lines}
+            liveState={live.state}
             onRename={(device) => {
               setRenaming(device);
               setDraftName(device.name ?? "");

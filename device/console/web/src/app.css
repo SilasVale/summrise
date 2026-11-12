@@ -4079,6 +4079,11 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .service-address { font-size: var(--fs-base); }
 .service-meta { font-size: var(--fs-xs); color: var(--ink-muted); font-variant-numeric: tabular-nums; }
 
+/* The fleet's pulse: one line while calls are arriving, gone when the fleet is quiet. */
+.home-now { display: flex; align-items: center; gap: var(--sp-2); margin: var(--sp-1) 0 0; font-size: var(--fs-xs); color: var(--ink-muted); }
+.home-now .dot { width: 0.45rem; height: 0.45rem; }
+.home-now .mono { color: var(--ink); }
+
 /* The failures' concentration: the header's number, broken by tool, each chip one click from its rows. */
 /* The machine's own field list, beside a schema refusal: required fields first, the rest after. */
 .evidence-expected dd { display: flex; gap: var(--sp-1); flex-wrap: wrap; margin: 0; }

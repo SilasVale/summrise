@@ -1,4 +1,5 @@
 import { readMonitors, type MonitorTarget } from "./monitorApi";
+import type { LiveLine } from "./liveActivity";
 import { useEffect, useRef, useState } from "react";
 import { type Device, type Installer } from "./api";
 import { DeviceCard } from "./DeviceCard";
@@ -598,6 +599,21 @@ function FleetHome(props: HomePageProps) {
   // there is no verdict to give, so the header draws none and the notice below states what the page
   // can show. A second failure sentence here made the page say one failure three times (audit-40
   // F4); the banner's title still carries the browser's cause.
+  /**
+   * **THE NEWEST CALL, OR NOTHING.** A channel boundary (`device.left`) is not work, and a console read is not the AI's: the line
+   * names a CLIENT call when one happened, and falls back to whatever the newest row is only when nothing else is recent. The age
+   * tick comes from `tick` (the page's own clock) so the sentence ages without a re-render storm.
+   */
+  const newestLive = (() => {
+    if (props.liveState !== "live") return null;
+    const rows = (props.liveLines ?? []).filter((line) => line.kind !== "left" && line.kind !== "joined");
+    if (rows.length === 0) return null;
+    const newest = [...rows].sort((a, b) => b.ts_ms - a.ts_ms)[0];
+    const ageMs = Date.now() - newest.ts_ms;
+    // A call older than two minutes is history, and history belongs to Activity.
+    if (ageMs > 120_000 || ageMs < -60_000) return null;
+    return { line: newest, ageMs };
+  })();
   const verdict =
     fleet.state === "reading"
       ? "Reading the machine list…"
@@ -618,6 +634,19 @@ function FleetHome(props: HomePageProps) {
           {verdict !== null && (
             <p className={"home-verdict" + (problems.length > 0 ? " has-attention" : "")}>
               {verdict}
+            </p>
+          )}
+          {newestLive !== null && (
+            <p className="page-sub home-now">
+              <span className="dot dot-ok" aria-hidden="true" />
+              <span>
+                Now: <span className="mono">{newestLive.line.tool ?? newestLive.line.kind}</span>
+                {newestLive.line.device_id
+                  ? ` on ${props.devices.find((d) => d.id === newestLive.line.device_id)?.name ?? newestLive.line.device_id.slice(0, 8)}`
+                  : ""}
+                {newestLive.line.status >= 400 ? " · failed" : ""}
+                {` · ${Math.max(1, Math.round(newestLive.ageMs / 1000))} s ago`}
+              </span>
             </p>
           )}
           {watches !== null && watches.total > 0 && (
@@ -868,6 +897,14 @@ export type HomePageProps = FleetProps & {
   onDevice: () => void;
   /** Open one machine's tab from the fleet table's row menu (`machine` or `memory`). */
   onOpenTab?: (deviceId: string, tab: "machine" | "memory") => void;
+  /**
+   * **THE FLEET'S PULSE, WHILE IT IS BEATING (the hundred-and-ninety-fourth list).** Home answers "what needs me" and "what is
+   * there"; it did not answer "is anything happening right now" — that question lived on Activity, a whole page away. The live
+   * stream the console already follows is enough for ONE line: the newest call, its machine, and how long ago. It is drawn only
+   * while the stream is live and the newest call is recent; a quiet fleet shows nothing rather than a stale sentence.
+   */
+  liveLines?: readonly LiveLine[];
+  liveState?: string;
   onConnect: () => void;
   onTools: () => void;
 };
