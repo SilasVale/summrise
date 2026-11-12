@@ -4933,6 +4933,39 @@ reader (10 cases around the device's real answer) and in the branch gate.
 half-fix that leaves Create/Remove calling absent tools would be a worse lie than the current one. The measurement is the
 deliverable this round — recorded with the file:line of both sides so the next round starts from evidence, not memory.
 
+## P0 — the hundred-and-forty-first list (OPENED 2026-11-12 — the console spells its device tools in a dialect the agent does not declare)
+
+Found while closing the hundred-and-fortieth list: the Forward page's names were not one bad page, they are the console's WHOLE
+convention. Measured 2026-11-12 by reading both sides' declarations:
+
+    the console's callTool names (30, distinct)   terminal.list · files.read · browser.open · plugins.list · runs.exec …
+    the agent's declared ToolDef names            terminal_list · terminal_read · browser_pw_info · … (underscored)
+    finding a tool on the agent                   `plugin_registry.find_tool(name)` — an EXACT lookup (plugins/mod.rs:176),
+                                                  and the MCP server answers an unknown name with `Unknown tool: …`
+    the panel (the same product's other surface)  `callTool("terminal_read", …)`, and the agent has a gate that pins it
+
+**THE PRECEDENT IS THE POINT.** `agent/tests/panel_tool_names.rs` exists because *"the panel and the agent are two processes that
+agree by spelling"*: it scans every `callTool("…")` in the panel and fails on a name the agent does not declare, with a floor on
+both sides so a scan that reads nothing cannot pass. The panel therefore uses the device's spelling; the console does not, and
+nothing in the console repo compares its names with anything.
+
+**AND THE FORWARD PAGE WAS THE TIP.** `forward.list` was wrong in the same way, and the hundred-and-fortieth list fixed THAT page
+by matching the device (`forward_list`). 29 other names are still dotted.
+
+**ONE THING DOES NOT FIT, AND IT IS THE FIRST THING TO SETTLE.** The backlog's own live record (the fifth list's fix, 2026-11-06)
+says *"17 concurrent `terminal.read` calls … through the console — 16 answered at 15.04-15.09 s"*: a call answered at the WAIT
+bound is a call the device understood, so on that build `terminal.read` reached a terminal reader. Either the console forwarded a
+different name than its page spelled, or a build between then and now renamed the tools, or the audit line's `tool` field is the
+console's label rather than the device's name. **Settle it on a live device before rewriting 30 names**: one `tools/list` from a
+device answers the whole question, and the console's own `/api/devices/:id/tools` (or the Tools page) draws it.
+
+**PLAN (next round, M or L):** read one live device's `tools/list`; build the console↔agent name map from it; add the console-side
+equivalent of `panel_tool_names.rs` — a fixture list of the agent's declared names, a scan of every `callTool("…")` in
+`device/console/web/src`, and a mutation that renames one call. The rewrite itself is mechanical once the map is proven.
+
+**WHY THE ROUND STOPS HERE.** A 30-name rewrite on a contradiction would be a guess with a green gate; the measurement above is
+the kind that has to be right before the code moves.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
