@@ -1096,6 +1096,20 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     // started before the listener accepts a call, and stopped after `serve` returns so the graceful
     // Ctrl+C path kills the children rather than leaving them behind a dead device.
     let plugin_host = std::sync::Arc::new(plugins::host::PluginHost::load(&config.data));
+    // The journal exists before the plugins start: their first start is a lifecycle event too. A
+    // journal that cannot be opened leaves the device serving without events rather than refusing
+    // to start.
+    let bus: Option<std::sync::Arc<summrise_bus::Bus>> =
+        match summrise_bus::Bus::open(config.data.join("journal")) {
+            Ok(bus) => Some(std::sync::Arc::new(bus)),
+            Err(error) => {
+                eprintln!("summrise-device: the event journal is unavailable: {error}");
+                None
+            }
+        };
+    if let Some(bus) = &bus {
+        plugin_host.attach_bus(std::sync::Arc::clone(bus));
+    }
     plugin_host.start_all().await;
     let serving = http::serve(
         config,
@@ -1105,6 +1119,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         helper,
         std::sync::Arc::clone(&plugin_host),
         update_check,
+        bus,
     )
     .await;
     plugin_host.stop_all().await;

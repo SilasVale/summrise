@@ -45,6 +45,7 @@ pub(crate) fn router(config: &Config, store: Store) -> Router {
         restart::none(),
         Arc::new(PluginHost::load(&config.data)),
         None,
+        None,
     )
     .0
 }
@@ -66,6 +67,7 @@ pub(crate) fn router_with_limits(
         None,
         restart::none(),
         Arc::new(PluginHost::load(&config.data)),
+        None,
         None,
     )
     .0
@@ -89,6 +91,7 @@ fn router_with(
     restart: restart::Hook,
     plugins: Arc<PluginHost>,
     update_check: Option<Arc<crate::update_check::UpdateChecker>>,
+    bus: Option<Arc<summrise_bus::Bus>>,
 ) -> (Router, Arc<browser::BrowserRegistry>) {
     // The MCP service and the panel share one terminal registry, so a session an MCP client opened
     // is the session the panel lists. `/mcp` is the same secret as `/api/state`: the gate runs before
@@ -96,16 +99,6 @@ fn router_with(
     // One audit for the process: the MCP service writes it, and the panel shares it so a session
     // opened from the device's own page is in the same file as a call an AI client made.
     let audit = std::sync::Arc::new(crate::mcp::Audit::new(&config.data));
-    // The device's event journal: one writer, one sequence, under the data directory. A journal that
-    // cannot be opened leaves the device serving without events rather than refusing to start.
-    let bus: Option<std::sync::Arc<summrise_bus::Bus>> =
-        match summrise_bus::Bus::open(config.data.join("journal")) {
-            Ok(bus) => Some(std::sync::Arc::new(bus)),
-            Err(error) => {
-                eprintln!("summrise-device: the event journal is unavailable: {error}");
-                None
-            }
-        };
     let (mcp_service, terminal, browser) = crate::mcp::service_with_terminal(
         config,
         limits,
@@ -254,6 +247,7 @@ pub async fn serve(
     helper: Option<Arc<helper::Helper>>,
     plugins: Arc<PluginHost>,
     update_check: Option<Arc<crate::update_check::UpdateChecker>>,
+    bus: Option<Arc<summrise_bus::Bus>>,
 ) -> io::Result<()> {
     // A supervised app restarts through the launcher after the answer reaches the page or the MCP
     // client; a standalone process has no supervisor to bring it back, so its handlers never call
@@ -269,6 +263,7 @@ pub async fn serve(
         restart,
         plugins,
         update_check,
+        bus,
     );
     let listener = bind(&config).await?;
     let address = listener.local_addr()?;
@@ -1617,6 +1612,7 @@ mod tests {
                 helper,
                 restart,
                 Arc::new(PluginHost::load(&self.config.data)),
+                None,
                 None,
             )
             .0
