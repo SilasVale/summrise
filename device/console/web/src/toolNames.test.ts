@@ -74,6 +74,7 @@ const INVENTORY = [
   "memory.search",
   "monitor.add",
   "monitor.list",
+  "monitor.probe",
   "monitor.remove",
   "plugins.add",
   "plugins.inspect",

@@ -4029,7 +4029,7 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .service-form .hint { flex-basis: 100%; margin: 0; }
 .service-notice { margin: 0 0 var(--sp-2); }
 .service-confirm { font-size: var(--fs-xs); color: var(--ink-muted); }
-.service-stop { font-size: var(--fs-xs); }
+.service-stop, .service-probe { font-size: var(--fs-xs); }
 /* ── The machine's own record ────────────────────────────────────────────────────────────────────
    A diagnostic the machine writes about itself: health and release on one line, then its last ten events as a compact list. The
    time is mono, the event is the row's voice, and the decision/transport/outcome sit muted after it. */

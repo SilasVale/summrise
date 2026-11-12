@@ -163,3 +163,26 @@ function refusalOf(answer: Record<string, unknown>, fallback: string): string {
   const text = typeof answer.error === "string" ? answer.error.trim() : "";
   return text !== "" ? text : fallback;
 }
+
+/**
+ * **ASK ONE TARGET RIGHT NOW (the hundred-and-seventy-eighth list).** `monitor.probe {id}` takes a sample immediately and records
+ * it in the target's series — the answer to "is it up NOW", which the list's own 15 s cadence cannot promise. The sample comes
+ * back as `{ts, ok, latency_ms}`; the page re-reads the list afterwards so the row's summary is the device's, not a guess.
+ */
+export async function probeNow(grant: Grant, id: string): Promise<void> {
+  const body = await callTool(grant, "monitor.probe", { id });
+  let answer: Record<string, unknown>;
+  try {
+    const parsed: unknown = JSON.parse(body);
+    answer = (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {}) as Record<
+      string,
+      unknown
+    >;
+  } catch {
+    throw new Error("the machine answered monitor.probe with text");
+  }
+  if (answer.ok === false) {
+    const refusal = typeof answer.error === "string" ? answer.error.trim() : "";
+    throw new Error(refusal !== "" ? refusal : "the machine refused the probe");
+  }
+}

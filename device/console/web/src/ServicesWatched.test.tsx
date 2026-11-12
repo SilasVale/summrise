@@ -122,6 +122,17 @@ describe("ServicesWatched — what the device probes", () => {
     await waitFor(() => expect(mocked).toHaveBeenCalledWith(GRANT, "monitor.remove", { id: UP.id }));
   });
 
+  it("takes a sample NOW through monitor.probe and re-reads the list", async () => {
+    mocked.mockResolvedValue(answer([UP]));
+    render(<ServicesWatched grant={GRANT} />);
+    await waitFor(() => expect(screen.getByText("Up")).toBeInTheDocument());
+    mocked.mockResolvedValueOnce(JSON.stringify({ ok: true, ts: 1_762_000_000_000, ok_now: true, latency_ms: 3 }));
+    fireEvent.click(screen.getByRole("button", { name: "Probe now" }));
+    await waitFor(() => expect(mocked).toHaveBeenCalledWith(GRANT, "monitor.probe", { id: UP.id }));
+    // and the row is the DEVICE's summary again, not a guess by the page
+    await waitFor(() => expect(mocked.mock.calls.filter(([g, n]) => n === "monitor.list").length).toBeGreaterThan(1));
+  });
+
   it("drops a target it cannot address, rather than drawing a blank row", async () => {
     mocked.mockResolvedValue(answer([UP, { id: "x", host: "", port: 80, summary: {} }]));
     render(<ServicesWatched grant={GRANT} />);

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { addWatch, monitorFailure, readMonitors, removeWatch, type MonitorTarget } from "./monitorApi";
+import { addWatch, monitorFailure, probeNow, readMonitors, removeWatch, type MonitorTarget } from "./monitorApi";
 import type { Grant } from "./terminal";
 
 /**
@@ -29,6 +29,20 @@ export function ServicesWatched(props: { grant: Grant; online?: boolean }) {
   const [writeError, setWriteError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
+  const [probing, setProbing] = useState<string | null>(null);
+
+  const probe = async (id: string) => {
+    setProbing(id);
+    setWriteError(null);
+    try {
+      await probeNow(props.grant, id);
+      await read();
+    } catch (error) {
+      setWriteError(monitorFailure(error).replace(/^The services could not be read — /, ""));
+    } finally {
+      setProbing(null);
+    }
+  };
 
   const add = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -191,6 +205,15 @@ export function ServicesWatched(props: { grant: Grant; online?: boolean }) {
                 {target.summary.lastStatus !== null && (
                   <span className="service-meta">HTTP {target.summary.lastStatus}</span>
                 )}
+                <button
+                  type="button"
+                  className="link service-probe"
+                  title="Take a sample now and record it in the target's series"
+                  disabled={probing === target.id}
+                  onClick={() => void probe(target.id)}
+                >
+                  {probing === target.id ? "Probing…" : "Probe now"}
+                </button>
                 {confirming === target.id ? (
                   <span className="service-confirm">
                     Stop watching {target.id}? Its series is discarded.{" "}
