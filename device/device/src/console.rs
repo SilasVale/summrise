@@ -1884,7 +1884,7 @@ mod tests {
         ));
         std::fs::create_dir_all(&dir).unwrap();
         let bus = Arc::new(
-            summrise_bus::Bus::open(dir.join("journal").join("000001.seg"))
+            summrise_bus::Bus::open(dir.join("journal"))
                 .expect("the journal opens"),
         );
         bus.publish("a", json!({})).unwrap();

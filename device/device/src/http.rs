@@ -99,7 +99,7 @@ fn router_with(
     // The device's event journal: one writer, one sequence, under the data directory. A journal that
     // cannot be opened leaves the device serving without events rather than refusing to start.
     let bus: Option<std::sync::Arc<summrise_bus::Bus>> =
-        match summrise_bus::Bus::open(config.data.join("journal").join("000001.seg")) {
+        match summrise_bus::Bus::open(config.data.join("journal")) {
             Ok(bus) => Some(std::sync::Arc::new(bus)),
             Err(error) => {
                 eprintln!("summrise-device: the event journal is unavailable: {error}");
