@@ -3413,6 +3413,16 @@ th,
    sits on the same column start the input does (`display: grid` with one column). */
 .timeline-search { display: grid; gap: var(--sp-1-5); min-width: 0; margin-left: auto; }
 .timeline-search input { width: 18rem; max-width: 100%; }
+/* **A FIELD THAT WRAPS TAKES THE LINE IT LANDS ON (the hundred-and-thirty-ninth list).** Measured 2026-11-12 at
+   1024: the chips and `Clients only` filled the first line, so the search wrapped to the second — and
+   `margin-left: auto` pushed it to that line's RIGHT edge, starting the input at x=713 of a 748 px row and
+   leaving 450 px of the row empty to its left. Between the phone's one column and the desktop's one row the
+   field now spans the line it wrapped to, from the row's own left edge. The desktop's right-hand column is
+   unchanged: this rule stops at the `columns` breakpoint (1088), where the search still fits beside the chips. */
+@media (min-width: 640px) and (max-width: 1087px) {
+  .timeline-search { flex: 1 1 100%; margin-left: 0; }
+  .timeline-search input { width: 100%; max-width: 28rem; }
+}
 
 @media (max-width: 639px) {
   .activity-page .page-head h1 { font-size: var(--fs-xl); }
