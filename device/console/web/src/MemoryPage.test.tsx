@@ -36,7 +36,7 @@ describe("MemoryPage — the machine's memory, read", () => {
     mocked.mockResolvedValue(answer([RECORD]));
     render(<MemoryPage grant={GRANT} />);
     await waitFor(() => expect(screen.getByText(RECORD.title)).toBeInTheDocument());
-    expect(mocked).toHaveBeenCalledWith(GRANT, "memory.list", { limit: 50, include_deleted: true });
+    expect(mocked).toHaveBeenCalledWith(GRANT, "memory.list", { limit: 50 });
     expect(screen.getByText(/shared · unknown ·/)).toBeInTheDocument();
     expect(screen.getByText("1 entry · newest first")).toBeInTheDocument();
     expect(screen.getByText("build")).toBeInTheDocument();
@@ -80,32 +80,6 @@ describe("MemoryPage — the machine's memory, read", () => {
     render(<MemoryPage grant={GRANT} />);
     await waitFor(() => expect(screen.getByText(RECORD.title)).toBeInTheDocument());
     expect(screen.getByText("1 entry · newest first")).toBeInTheDocument();
-  });
-
-  it("retires a record with the SOFT delete, and can bring it back", async () => {
-    mocked.mockResolvedValue(answer([RECORD]));
-    render(<MemoryPage grant={GRANT} />);
-    await waitFor(() => expect(screen.getByText(RECORD.title)).toBeInTheDocument());
-    mocked.mockResolvedValueOnce(JSON.stringify({ ok: true }));
-    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
-    await waitFor(() =>
-      expect(mocked).toHaveBeenCalledWith(GRANT, "memory.update", { id: RECORD.id, deleted: true })
-    );
-    // the list is re-read with the retired records included, or a restore would be unreachable
-    await waitFor(() =>
-      expect(mocked).toHaveBeenCalledWith(GRANT, "memory.list", { limit: 50, include_deleted: true })
-    );
-  });
-
-  it("offers Restore on a record the device calls deleted, and says the record is still there", async () => {
-    mocked.mockResolvedValue(answer([{ ...RECORD, deleted: true }]));
-    render(<MemoryPage grant={GRANT} />);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Restore" })).toBeInTheDocument());
-    mocked.mockResolvedValueOnce(JSON.stringify({ ok: true }));
-    fireEvent.click(screen.getByRole("button", { name: "Restore" }));
-    await waitFor(() =>
-      expect(mocked).toHaveBeenCalledWith(GRANT, "memory.update", { id: RECORD.id, deleted: false })
-    );
   });
 
   it("marks a record the device reports as deleted", async () => {

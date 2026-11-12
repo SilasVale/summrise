@@ -66,7 +66,7 @@ export async function readMemory(
 ): Promise<{ entries: MemoryEntry[]; ok: boolean; error: string | null }> {
   const trimmed = query.trim();
   const body = trimmed === ""
-    ? await callTool(grant, "memory.list", { limit: 50, include_deleted: true })
+    ? await callTool(grant, "memory.list", { limit: 50 })
     : await callTool(grant, "memory.search", { query: trimmed, limit: 50 });
   let answer: Record<string, unknown>;
   try {
@@ -98,28 +98,4 @@ export function memoryFailure(error: unknown): string {
       : "The memory list could not be read.";
   }
   return "The memory list could not be read.";
-}
-
-/**
- * **SOFT DELETE, AND ITS UNDO (the hundred-and-seventy-fifth list).** `memory.update {id, deleted:true}` retires a record; the
- * same call with `deleted:false` restores it. The device treats it as an update — the record stays on disk, marked — so the page
- * can offer both directions from one control instead of a destructive door it cannot undo. `memory.delete` (the hard one) is
- * left unwired on purpose: a console that can erase the AI's knowledge outright is a sharper tool than this page needs.
- */
-export async function setMemoryDeleted(grant: Grant, id: string, deleted: boolean): Promise<void> {
-  const body = await callTool(grant, "memory.update", { id, deleted });
-  let answer: Record<string, unknown>;
-  try {
-    const parsed: unknown = JSON.parse(body);
-    answer = (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {}) as Record<
-      string,
-      unknown
-    >;
-  } catch {
-    throw new Error("the machine answered memory.update with text");
-  }
-  if (answer.ok === false) {
-    const refusal = typeof answer.error === "string" ? answer.error.trim() : "";
-    throw new Error(refusal !== "" ? refusal : "the machine refused the change");
-  }
 }

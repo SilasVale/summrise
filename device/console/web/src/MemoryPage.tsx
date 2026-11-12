@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { memoryFailure, readMemory, setMemoryDeleted, type MemoryEntry } from "./memoryApi";
+import { memoryFailure, readMemory, type MemoryEntry } from "./memoryApi";
 import type { Grant } from "./terminal";
 
 /**
@@ -21,28 +21,6 @@ export function MemoryPage(props: { grant: Grant; deviceOnline?: boolean }) {
   const [query, setQuery] = useState("");
   const [asked, setAsked] = useState("");
   const [reading, setReading] = useState(false);
-  // **A RETIRED RECORD STAYS ON THE MACHINE, SO THE PAGE CAN BRING IT BACK (the hundred-and-seventy-fifth list).** The delete
-  // this page offers is the SOFT one (`memory.update {deleted:true}`); the hard `memory.delete` stays unwired on purpose.
-  const [writing, setWriting] = useState<string | null>(null);
-  const [writeError, setWriteError] = useState<string | null>(null);
-
-  const setDeleted = async (row: MemoryEntry, deleted: boolean) => {
-    setWriting(row.id);
-    setWriteError(null);
-    try {
-      await setMemoryDeleted(props.grant, row.id, deleted);
-      await read(asked);
-    } catch (error) {
-      setWriteError(
-        (error instanceof Error && error.message.trim() !== ""
-          ? error.message.trim()
-          : "the change did not land"
-        ).replace(/^The memory list could not be read — /, "")
-      );
-    } finally {
-      setWriting(null);
-    }
-  };
 
   // A read that answers after the reader typed again is the OLD question's answer: the generation counts reads and
   // only the newest may write state.
@@ -142,12 +120,6 @@ export function MemoryPage(props: { grant: Grant; deviceOnline?: boolean }) {
         </p>
       )}
 
-      {writeError !== null && (
-        <p className="error" role="alert">
-          {writeError}
-        </p>
-      )}
-
       {count > 0 && (
         <ol className="memory-list">
           {shown.map((row) => (
@@ -169,21 +141,6 @@ export function MemoryPage(props: { grant: Grant; deviceOnline?: boolean }) {
                   ))}
                 </p>
               )}
-              <p className="memory-actions">
-                <button
-                  type="button"
-                  className="link"
-                  disabled={writing === row.id}
-                  title={
-                    row.deleted
-                      ? "The record is still on the machine; this brings it back into the list"
-                      : "The record is marked and stays on the machine; it can be restored"
-                  }
-                  onClick={() => void setDeleted(row, !row.deleted)}
-                >
-                  {writing === row.id ? "Saving…" : row.deleted ? "Restore" : "Delete"}
-                </button>
-              </p>
             </li>
           ))}
         </ol>

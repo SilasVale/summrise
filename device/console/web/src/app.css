@@ -4054,7 +4054,6 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
 }
 .memory-tags { display: flex; gap: var(--sp-1-5); flex-wrap: wrap; margin: var(--sp-2) 0 0; }
-.memory-actions { margin: var(--sp-2) 0 0; font-size: var(--fs-xs); }
 
 /* ── Home: the selected machine is highlighted, not repeated ───────────────────────────────────
    The fleet's verdict, attention rows and table stay Home's; the machine's own live page is
