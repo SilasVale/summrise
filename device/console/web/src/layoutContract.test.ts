@@ -1002,14 +1002,21 @@ describe("the layout contract", () => {
     // `--fs-xl` and the test passed, because it had read the phone rule). A page that draws the name twice must draw it
     // one way, and this is the width-independent way to say so.
     const named = contract.head.nameWhenClaim;
-    const rules = [...css().matchAll(/\.home-page \.page-head h1\s*\{([\s\S]*?)\n\}/g)].map((m) => m[1]);
-    expect(rules.length, "the name is drawn at both widths").toBe(2);
-    for (const rule of rules) {
+    const blocks = [...css().matchAll(/([^{}]*\.page-head h1[^{}]*)\{\n([\s\S]*?)\n\}/g)].map((m) => ({
+      selector: m[1],
+      body: m[2]
+    }));
+    const held = blocks.filter((block) => block.selector.includes(".home-page .page-head h1"));
+    expect(held.length, "the rule is drawn at both widths").toBe(2);
+    for (const block of held) {
+      // **BOTH PAGES THAT CARRY A CLAIM** — measured 2026-11-12, one round apart: Home's tie was fixed first and Activity
+      // kept drawing `Activity` 22/700 above a 17/600 claim, which is the same shape the rule refuses.
+      expect(block.selector, "Activity's head carries a claim too").toContain(".activity-page .page-head h1");
       const size = tokenFor(tokens(), 13, "fs");
       expect(named.size).toBe("base");
-      expect(rule, "the name takes the contract's step").toContain(`font-size: var(--${size})`);
-      expect(rule, "and its weight").toContain("font-weight: var(--fw-medium)");
-      expect(rule, "and its ink").toContain("color: var(--ink-muted)");
+      expect(block.body, "the name takes the contract's step").toContain(`font-size: var(--${size})`);
+      expect(block.body, "and its weight").toContain("font-weight: var(--fw-medium)");
+      expect(block.body, "and its ink").toContain("color: var(--ink-muted)");
     }
     // The claim is still the page's voice, and it is still the title's rung.
     expect(ruleFor(css(), ".home-verdict")).toContain("font-size: var(--fs-xl)");

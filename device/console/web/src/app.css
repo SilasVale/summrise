@@ -3257,7 +3257,6 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
    `gap: 16px` — a FOURTH rhythm, after the `22px` the last audit removed from Home and Overview, on
    the one page no browser leg measured. Live at 1440, its two blocks sat 16 px apart while Home's
    sat 24. A page does not get its own rhythm; the frame supplies it. */
-.activity-page .page-head h1 { font-size: var(--fs-xl); }
 /* **THE HEAD HAS ONE SUBTITLE SLOT AND ONE STEP (the eighty-second list).** Measured 2026-11-10 across both
    surfaces: `head.subtitleSlot` is `.page-sub` and the pages draw it at 13/400 (the panel's Memory, Plugins
    and Settings) — while THIS line, the title's own count sentence, was 17/500, the size the contract gives a
@@ -3425,8 +3424,7 @@ th,
 }
 
 @media (max-width: 639px) {
-  .activity-page .page-head h1 { font-size: var(--fs-xl); }
-  .activity-today { font-size: var(--fs-lg); }
+    .activity-today { font-size: var(--fs-lg); }
   .activity-panel.is-record .stream-bar { padding-top: 12px; }
   /* **THE PHONE IS ONE COLUMN (the thirty-fourth list, item 2).** The bar's grid is three columns
      wide on a desktop; at 390 those columns cannot fit, so the phone stacks the subjects and each
@@ -3735,7 +3733,11 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
    Measured on the LIVE page 2026-11-12 (`0.3.274-ux193`, 1440): `Home` drew 22/700 and `3 of 4 online · 2 need attention`
    beneath it drew 22/600 — two headlines at one size six pixels apart, and neither won. The rule is the contract's
    `head.nameWhenClaim`; the claim below keeps `--fs-xl` and this page's one voice is the fleet's state. */
-.home-page .page-head h1 {
+/* **AND ACTIVITY'S HEAD CARRIES A CLAIM TOO (measured 2026-11-12, after Home's fix): `Activity` drew 22/700 above
+   `Today: 153 client calls, 10 failed.` at 17/600 — the same shape the contract's `head.nameWhenClaim` refuses, one page
+   over.** The rule is about a HEAD WITH A CLAIM, not about Home; both pages take it. */
+.home-page .page-head h1,
+.activity-page .page-head h1 {
   font-size: var(--fs-base); font-weight: var(--fw-medium);
   color: var(--ink-muted); letter-spacing: var(--tracking-none);
 }
@@ -4027,7 +4029,11 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
    Measured on the LIVE page 2026-11-12 (`0.3.274-ux193`, 1440): `Home` drew 22/700 and `3 of 4 online · 2 need attention`
    beneath it drew 22/600 — two headlines at one size six pixels apart, and neither won. The rule is the contract's
    `head.nameWhenClaim`; the claim below keeps `--fs-xl` and this page's one voice is the fleet's state. */
-.home-page .page-head h1 {
+/* **AND ACTIVITY'S HEAD CARRIES A CLAIM TOO (measured 2026-11-12, after Home's fix): `Activity` drew 22/700 above
+   `Today: 153 client calls, 10 failed.` at 17/600 — the same shape the contract's `head.nameWhenClaim` refuses, one page
+   over.** The rule is about a HEAD WITH A CLAIM, not about Home; both pages take it. */
+.home-page .page-head h1,
+.activity-page .page-head h1 {
   font-size: var(--fs-base); font-weight: var(--fw-medium);
   color: var(--ink-muted); letter-spacing: var(--tracking-none);
 }
