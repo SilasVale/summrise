@@ -1471,4 +1471,17 @@ describe("ActivityTimeline's day door", () => {
     expect(before).not.toBeNull();
     expect(before?.previousElementSibling).toBe(capped);
   });
+  it("narrows to the FAILED rows with one control, and says it is on", () => {
+    const lines = [
+      line({ ts_ms: Date.UTC(2026, 10, 5, 9, 2, 0), device_id: alpha, sentence: "A call that worked", tool: "files.read" }),
+      line({ ts_ms: Date.UTC(2026, 10, 5, 9, 1, 0), device_id: alpha, sentence: "A call that failed", tool: "runs.exec", status: 500 })
+    ];
+    render(<ActivityTimeline lines={lines} devices={devices} />);
+    const control = screen.getByRole("button", { name: "Failures only" });
+    expect(control).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(control);
+    expect(control).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByText("A call that worked")).toBeNull();
+    expect(screen.getByText("A call that failed")).toBeInTheDocument();
+  });
 });

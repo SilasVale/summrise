@@ -656,6 +656,13 @@ export function ActivityTimeline(props: {
   clientsOnly?: boolean;
   onClientsOnly?: (next: boolean) => void;
   /**
+   * **THE VERDICT'S MOST ALARMING NUMBER, ONE CLICK FROM ITS ROWS (the hundred-and-eighty-fourth list).** The header says
+   * `51 failed`; the Timeline had no way to show ONLY those rows — the Table's own status filter lived behind the other view, so the
+   * number was a fact with no door. The page owns the choice (shared with the Table), the timeline draws the control.
+   */
+  status?: "all" | "ok" | "failed";
+  onStatus?: (next: "all" | "ok" | "failed") => void;
+  /**
    * The hub's one folded chip: the console's own reads in this day, counted and off by default.
    * The page owns the rows and the toggle; the timeline draws the control. Activity never passes
    * it, because the audit's default is every caller and its "Clients only" chip is the narrowing.
@@ -766,6 +773,12 @@ export function ActivityTimeline(props: {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [ownClientsOnly, setOwnClientsOnly] = useState(false);
   const clientsOnly = filterable && (props.clientsOnly ?? ownClientsOnly);
+  const [ownStatus, setOwnStatus] = useState<"all" | "ok" | "failed">("all");
+  const status = props.status ?? ownStatus;
+  const setStatus = (next: "all" | "ok" | "failed") => {
+    if (props.onStatus) props.onStatus(next);
+    else setOwnStatus(next);
+  };
   const setClientsOnly = (next: boolean) => {
     if (props.onClientsOnly) props.onClientsOnly(next);
     else setOwnClientsOnly(next);
@@ -773,7 +786,7 @@ export function ActivityTimeline(props: {
   // How many narrowings are on. The button states the number so a collapsed block cannot hide a filter
   // the reader forgot — a hidden control that still filters is the defect this list must not create.
   const activeFilterCount =
-    (scope ? 1 : 0) + (clientsOnly ? 1 : 0) + (query.trim() ? 1 : 0);
+    (scope ? 1 : 0) + (clientsOnly ? 1 : 0) + (status !== "all" ? 1 : 0) + (query.trim() ? 1 : 0);
   // **THE ROWS ARE CALLS, NOT CHANNEL FACTS.** `device.left` / `device.joined` are in the audit so a
   // fleet row can measure an absence, but a person watching the machine's work must not read them
   // as work. They are dropped before the chips, the counts and the days are derived.
@@ -812,10 +825,12 @@ export function ActivityTimeline(props: {
         .some((value) => value.toLowerCase().includes(needle));
     });
   }, [rows, props.devices, scope, needle]);
-  const filtered = useMemo(
-    () => (clientsOnly ? matching.filter(isClientCall) : matching),
-    [matching, clientsOnly]
-  );
+  const filtered = useMemo(() => {
+    const byCaller = clientsOnly ? matching.filter(isClientCall) : matching;
+    if (status === "failed") return byCaller.filter(auditFailed);
+    if (status === "ok") return byCaller.filter((line) => !auditFailed(line));
+    return byCaller;
+  }, [matching, clientsOnly, status]);
   const clientCalls = useMemo(() => matching.filter(isClientCall).length, [matching]);
   // **THE WINDOW'S SPAN IS WHAT MAKES ITS COUNT READABLE.** The measured page put the day's `18
   // client calls` over `486 rows in this window`; the fetched window covered 24 h 37 m and nothing
@@ -952,6 +967,15 @@ export function ActivityTimeline(props: {
                 onClick={() => setClientsOnly(!clientsOnly)}
               >
                 Clients only
+              </button>
+              <button
+                type="button"
+                className="chip"
+                aria-pressed={status === "failed"}
+                title="Only the exchanges that failed"
+                onClick={() => setStatus(status === "failed" ? "all" : "failed")}
+              >
+                Failures only
               </button>
             </div>
           </div>

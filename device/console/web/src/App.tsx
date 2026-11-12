@@ -1487,6 +1487,8 @@ export function App() {
                   onQuery={(tool) => setActivityFilter((current) => ({ ...current, tool }))}
                   clientsOnly={activityClientsOnly}
                   onClientsOnly={setActivityClientsOnly}
+                  status={activityFilter.status}
+                  onStatus={(status) => setActivityFilter((current) => ({ ...current, status }))}
                   device={activityMachine}
                   // THE FALLBACK'S ID IS NOT A SCOPE. Its rows are still in the window (the page
                   // says the past activity stays searchable), but the timeline must not turn the
