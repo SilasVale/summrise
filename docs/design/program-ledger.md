@@ -44,10 +44,22 @@ below ladders to that; one round completes one major item end to end.
   source-scanning guard test; the `/events` operator gate stays in control; the device-event replay
   ring moved to `Audit`. 171 console tests. `/health` and the read-only JSON routes stay in control.
 
-## In flight (branch `feat/s6-desktop`)
+- 2026-11-13 — S6 shipped and merged (`hub/v1`): the shell resolves the console from
+  `SUMMRISE_CONSOLE_URL` → `<data>/console.json` → build default, probes it for 900 ms and opens
+  `http://127.0.0.1:<port>/panel` when it does not answer; the installer builds `summrise-shell` and
+  checks all four exes; the CI clippy lists name bus and ui. Windows: `cargo xwin check` (msvc) and
+  `--target x86_64-pc-windows-gnu` pass; plain msvc `cargo check` needs MSVC's `lib.exe`. Shell 24
+  tests. What still needs Windows: link/NSIS/signing and an interactive `--check-window`.
 
-- S6: cross-check the Windows build, the shell's panel fallback when the console is unreachable, and
-  the packaging path (installer/release workflows).
+## Next (in order)
+
+1. S2 close-out — the `reset` frame end to end: device sends `reset{snapshot_seq, lost}` when a
+   cursor falls off, console subscribes from its last device seq instead of live-only, page shows the
+   gap.
+2. S4b — extract `console-page` as a crate so "the page holds no keys" is a compile-time boundary.
+3. S3b — extract `plugin-host` as a crate; the lifecycle events are already on the bus.
+4. UI — the Device page's live tail (sessions, plugins) from the journal.
+5. Windows runner — build the installer, run the shell's `--check-window`, sign.
 
 ## Next (order may change as the work teaches us)
 
