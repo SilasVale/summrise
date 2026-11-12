@@ -30,6 +30,7 @@ import { FilesPage } from "./FilesPage";
 import { RunsPage } from "./RunsPage";
 import { parseRunLink, runLink } from "./run-link";
 import { parseSurfaceHash, surfaceHash } from "./surface-link";
+import { pageVersion } from "./consoleVersion";
 import { ScreenPage } from "./ScreenPage";
 import { MemoryPage } from "./MemoryPage";
 import { SystemPage } from "./SystemPage";
@@ -420,6 +421,33 @@ export function App() {
   /** True when the console refused a call on the session in force, so the recovery panel is offered above the live tabs. */
   const [grantStale, setGrantStale] = useState(false);
   const [consoleVersion, setConsoleVersion] = useState<string | null>(null);
+  /**
+   * **A TAB FROM BEFORE THE DEPLOY IS TOLD SO (the hundred-and-ninety-ninth list).** Measured: three console-originated refusals in one
+   * audit window (`monitor.add`, `memory.list`, `monitor.status`), all from a page whose build had already been fixed. The page's own
+   * stamped version against `/health`'s answer is enough — no second read, no new poll.
+   */
+  const ownBuild = pageVersion();
+  const newerBuild = ownBuild !== null && consoleVersion !== null && consoleVersion !== ownBuild ? consoleVersion : null;
+  // **THE COMPARISON HAS TO KEEP HAPPENING.** `/health` is read on a session probe, which a tab that stays open does not repeat: the
+  // banner would only ever appear on a page loaded after the deploy, which is the page that does not need it. One cheap read a
+  // minute keeps the label right and lets an old tab notice it is old.
+  useEffect(() => {
+    if (ownBuild === null) return;
+    let current = true;
+    const check = async () => {
+      try {
+        const health = await api.health();
+        if (current) setConsoleVersion(health.version);
+      } catch {
+        /* the label keeps its last answer; a failed read is not news about the build */
+      }
+    };
+    const timer = window.setInterval(() => void check(), 60_000);
+    return () => {
+      current = false;
+      window.clearInterval(timer);
+    };
+  }, [ownBuild]);
   /** When this console process began, from `/health`'s uptime; null until the answer lands. */
   const [consoleStartedAt, setConsoleStartedAt] = useState<number | null>(null);
   const [accessNote, setAccessNote] = useState<string | null>(null);
@@ -1286,6 +1314,18 @@ export function App() {
         // the technical cause in the title (audit-38 F2). A repeat of the same action replaces its
         // entry instead of stacking another banner.
         <div className="alert-stack">
+          {/* **ONE RELOAD, NAMED BY BOTH VERSIONS.** The page says which build it is and which one the console now serves, so the
+              operator can tell a needed reload from a stale tab they were about to lose work in. */}
+          {newerBuild !== null && (
+            <div className="alert-banner alert-stale" role="status">
+              <span>
+                A newer console is deployed ({newerBuild}); this page is {ownBuild}. Reload to use it.
+              </span>
+              <button type="button" onClick={() => window.location.reload()}>
+                Reload
+              </button>
+            </div>
+          )}
           {failures.map((failure) => (
             <div className="alert-banner" role="alert" key={failure.key}>
               <span title={failure.detail}>{failure.sentence}</span>

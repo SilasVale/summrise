@@ -2922,4 +2922,5 @@ describe("App", () => {
     expect(screen.queryByLabelText("Reading the machine list")).toBeNull();
     view.unmount();
   });
+
 });

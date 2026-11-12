@@ -82,6 +82,26 @@ const RETRY_AFTER_MS: u64 = 1_000;
 /// and ship.
 const REACT_PAGE: &str = include_str!("../web/dist/index.html");
 
+/// **THE PAGE KNOWS WHICH BUILD IT IS (the hundred-and-ninety-ninth list).** A tab left open across a deploy kept calling the routes of
+/// an older page — measured: `monitor.add`, `memory.list` and `monitor.status` refusals in the audit, all `caller: console`, all from a
+/// bundle that had already been fixed. The page is stamped at start with this build's version, so it can compare itself with `/health`
+/// and offer a Reload rather than keep asking in an older language.
+fn stamped_page() -> &'static str {
+    use std::sync::OnceLock;
+    static STAMPED: OnceLock<String> = OnceLock::new();
+    STAMPED.get_or_init(|| {
+        let version = PAGE_VERSION.get().map(String::as_str).unwrap_or("");
+        if version.is_empty() {
+            // A console built without a version (a test binary) serves the page as it was: a placeholder in a `<meta>` is not a claim.
+            return REACT_PAGE.replace("__CONSOLE_VERSION__", "");
+        }
+        REACT_PAGE.replace("__CONSOLE_VERSION__", version)
+    })
+}
+
+/// The build this process serves; set once, when the console is constructed.
+static PAGE_VERSION: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
 /// How many sessions the store keeps.
 ///
 /// One operator, a handful of browsers. Signing in mints a session for an Access-verified request
@@ -210,6 +230,8 @@ impl Console {
         let now: Now = Arc::new(now);
         let audit = Audit::new(&config.data, audit_max_bytes);
 
+        // The page is stamped with this build's version before it is ever served (the hundred-and-ninety-ninth list).
+        let _ = PAGE_VERSION.set(config.version.clone());
         Ok(Console {
             inner: Arc::new(Inner {
                 operator_token,
@@ -1366,7 +1388,7 @@ async fn root(uri: axum::http::Uri) -> Response {
     if login_code {
         Redirect::to(&format!("/next?{}", uri.query().unwrap_or_default())).into_response()
     } else {
-        Html(REACT_PAGE).into_response()
+        Html(stamped_page()).into_response()
     }
 }
 
@@ -1520,7 +1542,7 @@ async fn access_sign_in(
 /// `GET /app`: the React console page, one embedded file. It carries no data of its own; the page
 /// authenticates with the console's own session and calls the JSON routes that already exist.
 async fn react_page() -> Html<&'static str> {
-    Html(REACT_PAGE)
+    Html(stamped_page())
 }
 
 /// Any path the router does not own. **A TYPED OR SHARED PATH IS A PERSON, NOT A BOT** (the hundred-and-forty-fourth list).
