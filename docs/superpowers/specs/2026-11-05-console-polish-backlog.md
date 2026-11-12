@@ -5118,6 +5118,22 @@ in all three the page's NAME was at the title's rung and the page's SUBJECT was 
 one default; the next audit question is whether any head on either surface still spends `title` on a word the page does not need
 to say.
 
+## The hundred-and-forty-eighth list (CLOSED 2026-11-12 — a disclosure drew a second card inside the card)
+
+Swept the device workspace's five tabs on the live console; Terminal's empty state was the one that read wrong:
+
+    before  `Saved connections`   full-width band, 1 px border, --surface-recessed fill, 12 px / 600 / ink
+    after   `Saved connections`   12 px / 500 / muted, no fill, one hairline above, the card-details triangle
+
+A control nobody had opened was the heaviest object on the screen after the accent button — heavier than the empty sentence it
+sat under. **The product already had this grammar** (`.card-details`: no fill, muted label, a triangle that turns); the terminal's
+disclosure had its own box. It now uses the shared one, tokens and all. `c638c5f`, deployed as `0.3.274-ux202`.
+
+**AND THE SWEEP ITSELF IS THE FINDING.** Five tabs at 1440, one at a time: Overview (three blocks after the last two rounds),
+Terminal (this fix), Files, Runs, Tools, Machine (12 k characters — the busiest). The remaining candidates for the next list are
+Machine's long form and the fact that every one of these frames still leaves its lower half empty at 1440 — which is honest for
+short content and worth ONE measurement rather than six fixes.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
