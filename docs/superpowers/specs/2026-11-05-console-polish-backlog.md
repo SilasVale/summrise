@@ -5776,6 +5776,24 @@ build that carries the flag.**
 source — `monitor.list` (bare array), `memory.list` (bare array of a thinner record), `monitor.add` (four required fields). A console
 that reads only the tree's shape will keep failing on the fleet. **Read the wire, and keep a test for each wire shape found.**
 
+## The hundred-and-seventy-sixth list (SHIPPED 2026-11-12 — the landing page ends with three doors)
+
+First round on **priority 2** (the Overview's empty half). The page answered "what is this machine doing" and then stopped —
+measured 2026-11-12, 380 px of content in a 900 px window. The three things a person does next with a machine existed as tabs and
+none was reachable from the page itself.
+
+    [Open a terminal]          [Watch a service]          [Read its memory]
+     Take this machine's        Probe a host and port      What the AI learned here
+     keyboard                   on it
+
+A door is a TAB'S NAME and goes where it says (`terminal` / `machine` / `memory`) through the same `setTab` the strip uses; the
+notes say what the door is for. The row is cards in the same grammar as every other card, so it reads as part of the page rather
+than a toolbar bolted to the bottom.
+
+**LIVE AFTER `-ux226`**: three doors at y=424, 74 px tall, the page ends at 498; clicking *Read its memory* lands on `#device/memory`
+with the memory panel drawn. **The remaining space below is breathing room, not a gap to fill with rows** — that decision is the
+sixty-second list's and this round does not reopen it.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
