@@ -8,6 +8,7 @@ import {
 } from "./activityMerge";
 import { isChannelBoundary, isClientCall } from "./activitySummary";
 import { auditFailed } from "./auditFilter";
+import { useLiveTools } from "./useLiveTools";
 import { spanText } from "./age";
 import { Clock, clock } from "./Clock";
 import { ageAt, clockTime, shortId } from "./format";
@@ -227,6 +228,44 @@ function CapturedFrame(props: { src: string; capturedAt: number }) {
 }
 
 /** The evidence panel for one row. */
+/**
+ * **WHAT THE MACHINE EXPECTED, BESIDE WHAT IT REFUSED (the hundred-and-eighty-seventh list).** A row that fails with
+ * `the arguments do not match the tool's input schema` names no argument, and the reader cannot fix an integration from that
+ * sentence. The console already holds the answer: the machine's own catalogue carries each tool's `inputSchema`, so the evidence
+ * panel names the fields — required first — from the catalogue the Tools tab draws.
+ *
+ * **READ THROUGH THE SHARED CACHE**: `useLiveTools` caches per device for 30 s, so opening three refused rows on one machine costs
+ * one read, and the panel says nothing at all when the catalogue has no such tool (an older build, or a name the device dropped).
+ */
+function ExpectedArguments(props: { deviceId: string; tool: string }) {
+  const live = useLiveTools(props.deviceId);
+  const tool = live.tools.find((entry) => entry.name === props.tool);
+  const schema = tool?.inputSchema;
+  if (schema === null || typeof schema !== "object") return null;
+  const raw = schema as Record<string, unknown>;
+  const required = Array.isArray(raw.required) ? raw.required.filter((name): name is string => typeof name === "string") : [];
+  const props2 = (raw.properties !== null && typeof raw.properties === "object" ? raw.properties : {}) as Record<string, unknown>;
+  const optional = Object.keys(props2).filter((name) => !required.includes(name));
+  if (required.length === 0 && optional.length === 0) return null;
+  return (
+    <div className="evidence-expected">
+      <dt>This machine expects</dt>
+      <dd>
+        {required.map((name) => (
+          <span key={name} className="chip chip-required">
+            {name} · required
+          </span>
+        ))}
+        {optional.map((name) => (
+          <span key={name} className="chip">
+            {name}
+          </span>
+        ))}
+      </dd>
+    </div>
+  );
+}
+
 function Evidence(props: {
   line: AuditLine;
   tokenNames: ReadonlyMap<string, string>;
@@ -291,6 +330,10 @@ function Evidence(props: {
             <dt>Status</dt>
             <dd className={failed ? "is-bad" : "is-ok"}>{line.status || "—"}</dd>
           </div>
+          {/* A refusal that names no argument earns the machine's own field list (the hundred-and-eighty-seventh list). */}
+          {failed && detail !== null && /input schema/i.test(detail) && line.tool && line.device_id && (
+            <ExpectedArguments deviceId={line.device_id} tool={line.tool} />
+          )}
           {typeof line.ms === "number" && (
             <div>
               <dt>Took</dt>

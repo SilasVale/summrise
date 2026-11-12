@@ -4057,6 +4057,10 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .service-meta { font-size: var(--fs-xs); color: var(--ink-muted); font-variant-numeric: tabular-nums; }
 
 /* The failures' concentration: the header's number, broken by tool, each chip one click from its rows. */
+/* The machine's own field list, beside a schema refusal: required fields first, the rest after. */
+.evidence-expected dd { display: flex; gap: var(--sp-1); flex-wrap: wrap; margin: 0; }
+.chip-required { border-color: var(--line-strong); color: var(--ink); font-weight: var(--fw-semi); }
+
 .activity-failures { display: flex; gap: var(--sp-2); flex-wrap: wrap; align-items: baseline; margin: var(--sp-1) 0 0; font-size: var(--fs-xs); color: var(--ink-muted); }
 .activity-failures button { font-size: var(--fs-xs); }
 
