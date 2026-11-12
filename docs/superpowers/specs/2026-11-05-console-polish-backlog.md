@@ -6,6 +6,13 @@ down, solve them, and keep going — a goal that can run for hours without a que
 Each item ships on its own: the web gates, the console's Rust tests, a live check on
 `console.saisi.online` with a screenshot, then one commit. An item is done when all four are true.
 
+## READY TO BUILD, NOT RELEASED — the panel and the forward feature
+
+**`docs/superpowers/specs/2026-11-12-release-ready-panel-and-forward.md`** is the release note that waits for the operator's word: what
+would ship, the gates that prove it (panel **120 files / 1,066 tests**, its three Rust gates green, the bundle rebuilt), the exact
+first step of any device build (**the panel build, because `build.rs` refuses a stale bundle by MTIME**), the rollback, and the three
+things that must still be true before the forward feature can be used.
+
 ## THE WIRE, MEASURED — read this before a page reads a tool
 
 **`docs/superpowers/specs/2026-11-12-device-wire-shapes.md`** records what the FLEET answers (0.3.292, 2026-11-12), tool by tool,
