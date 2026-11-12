@@ -5134,6 +5134,27 @@ Terminal (this fix), Files, Runs, Tools, Machine (12 k characters — the busies
 Machine's long form and the fact that every one of these frames still leaves its lower half empty at 1440 — which is honest for
 short content and worth ONE measurement rather than six fixes.
 
+## The hundred-and-forty-ninth list (CHECK ONLY 2026-11-12 — the phone still holds what the earlier rounds measured)
+
+No code this round: a verification sweep at 390 against the LIVE build (`0.3.274-ux202`), because every change since the phone
+filters has been made at 1440 and the smallest window is where a rung change is most likely to have broken something.
+
+    page      h1            claim                          result
+    Home      Home 13/500   `3 of 4 online · 2 need attention` 22/600   holds
+    Activity  Activity 13/500  `Today: 3 client calls.` 17/600        holds
+    Device    Overview 13/500  (no claim)                            holds
+    Activity's filters toggle  32 px, aria-expanded=false, block not rendered, first row at y=430  (was 676 before the
+                               hundred-and-thirty-fourth list) — the phone fix still holds after twelve rounds of edits
+
+**TWO HYPOTHESES THE DOM DISPROVED, BOTH FROM LOOKING AT A SCREENSHOT.** (1) The roster's rows "had a grey band and lost their
+status": measured, the row is `rgb(255,255,255)` with a 1 px border and every cell present — `online · seen 10s ago` was in the
+row all along, and the "band" was the row's own top edge against the page's ground. (2) The row "was clipped at the bottom":
+that was the viewport's 844 px, not a layout fault — the page scrolls. **A screenshot can suggest; only the DOM decides.** This is
+the same lesson as the mutation that missed the built page: the check has to be pointed at the thing that can be wrong.
+
+**WHAT THE SWEEP LEFT FOR THE NEXT LIST.** Device → Machine carries **12,338 characters** at 1440 — nine times the Overview tab it
+sits beside — and it has never been through the rung audit. That is the next round's subject, with its own numbers.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
