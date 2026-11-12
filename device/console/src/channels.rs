@@ -427,6 +427,16 @@ impl ChannelRegistry {
     pub(crate) async fn serve(&self, device_id: String, mut socket: WebSocket) {
         let mut open = self.open(&device_id).await;
 
+        // Subscribe to the device's own journal before serving requests: every session event the
+        // device publishes arrives as a `{"evt":...}` frame and is relayed to the page's stream.
+        // From 0 replays what the journal still retains; the console does not need a cursor yet.
+        let events_id = self.next_request.fetch_add(1, Ordering::SeqCst);
+        let subscribe = json!({ "id": events_id, "events": { "from_seq": 0 } }).to_string();
+        if socket.send(Message::Text(subscribe)).await.is_err() {
+            self.close(&device_id, open.generation, &open.pending).await;
+            return;
+        }
+
         loop {
             tokio::select! {
                 command = open.commands.recv() => match command {
