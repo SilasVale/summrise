@@ -5218,6 +5218,29 @@ the panel does not, and its own test only pins the file's hash. **That is an ope
 — and fixing it means touching the panel's gates (`panel_sheet_freshness`, the leading gate) in a repo the operator does not see
 this week, so it is recorded rather than rushed.
 
+## The hundred-and-fifty-third list (CLOSED 2026-11-12 — the panel now answers the same question the same way)
+
+The rule the console had already drawn twice is now drawn on the other surface, which is what "one product" means in this
+program:
+
+    before  .page-title 22/700  +  .page-claim 17/600        (Memory, Plugins — panel)
+    after   .page-title.as-context 13/500 muted + the claim  (the same two pages)
+            a head with NO claim keeps 22/700                (Settings, History, Terminal)
+
+**BOTH PAGES COMPUTE THE CONDITION, SO THE CLASS AND THE SENTENCE CANNOT DISAGREE.** Memory's claim text was a ternary inside
+the JSX with an empty-string branch; it is now one `claimText` value used by both the `<h1>`'s class and the `<p>`.
+
+**AND THE PANEL'S GATES SAID NO TWICE, BOTH RIGHT.**
+- `is ONE head whose subtitle is the title's SECOND LINE, on every page` refused a comment I put between `<div>` and `<h1>` —
+  its matcher expects the block's h1 to follow the block's opening tag (`/<div>\s*\n\s*<h1/`), the same shape the console's
+  eyebrow gate refuses.
+- `every page states its own name as its only h1` refused a template literal in the `<h1>` (`expected '0 ? " as-context" : ""}`}>Plugins'
+  to be 'Plugins'`) — the outline gate reads the element's TEXT, so the class moved to a variable and the text stayed literal.
+
+VERIFIED (agent repo, committed `293839bc4`, never pushed): `tsc` 0 · **120 files / 1,065 tests** · panel build 137 tokens / 0
+undefined refs, 696.86 kB · **`panel_sheet_freshness` 1, `spacing_scale` 2, `stylesheet_hygiene` 5 — all pass.** Mutation: the
+rule back to `--fs-xl` -> the new test failed on the size.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
