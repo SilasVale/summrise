@@ -704,6 +704,16 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   display: grid; justify-items: start;
   margin: 0; background: var(--surface-recessed);
 }
+/* **THE INSTALLER IS A FOOTNOTE, AND A FOOTNOTE IS NOT A CARD (the hundred-and-fifty-sixth list).** Measured on the LIVE
+   Home page 2026-11-12 (`0.3.274-ux203`, 1440): the page drew THREE titled blocks with THREE title treatments — the warning
+   card an eyebrow (10/600 uppercase), the roster none, and this strip a 13/700 card title on its own bordered surface. Three
+   grammars for three peers is what makes a page read as a stack of unrelated boxes. The strip is a utility at the foot: it
+   keeps the space, loses the box, and its title drops to a semi label so the row's FACTS and its ONE button carry it. */
+.installer-strip {
+  border: 0; border-top: 1px solid var(--line); border-radius: 0;
+  padding: var(--sp-3) 0 0; background: transparent;
+}
+.installer-strip h2 { font-weight: var(--fw-semi); color: var(--ink-muted); }
 .installer h2 { font-size: var(--fs-base); }
 .installer .hint { margin: 0; }
 .installer-missing { margin: 0 0 var(--sp-3); }
