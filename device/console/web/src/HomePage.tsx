@@ -636,7 +636,31 @@ function FleetHome(props: HomePageProps) {
               {verdict}
             </p>
           )}
-          {newestLive !== null && (
+          {newestLive !== null && props.onNow !== undefined && (
+            <button
+              type="button"
+              className="page-sub home-now home-now-door"
+              title="Open this call's record in Activity"
+              onClick={() =>
+                props.onNow?.({
+                  tool: newestLive.line.tool ?? "",
+                  deviceId: newestLive.line.device_id ?? null
+                })
+              }
+            >
+              <span className="dot dot-ok" aria-hidden="true" />
+              <span>
+                Now: <span className="mono">{newestLive.line.tool ?? newestLive.line.kind}</span>
+                {newestLive.line.device_id
+                  ? ` on ${props.devices.find((d) => d.id === newestLive.line.device_id)?.name ?? newestLive.line.device_id.slice(0, 8)}`
+                  : ""}
+                {newestLive.line.status >= 400 ? " · failed" : ""}
+                {` · ${Math.max(1, Math.round(newestLive.ageMs / 1000))} s ago`}
+                <span aria-hidden="true"> ›</span>
+              </span>
+            </button>
+          )}
+          {newestLive !== null && props.onNow === undefined && (
             <p className="page-sub home-now">
               <span className="dot dot-ok" aria-hidden="true" />
               <span>
@@ -905,6 +929,12 @@ export type HomePageProps = FleetProps & {
    */
   liveLines?: readonly LiveLine[];
   liveState?: string;
+  /**
+   * **FROM THE PULSE TO ITS RECORD (the hundred-and-ninety-fifth list).** The Now line named a call; the next question is always "and
+   * what happened". This opens Activity scoped to that machine and that tool — the two filters the page already owns — so the line is
+   * a door rather than a caption.
+   */
+  onNow?: (call: { tool: string; deviceId: string | null }) => void;
   onConnect: () => void;
   onTools: () => void;
 };

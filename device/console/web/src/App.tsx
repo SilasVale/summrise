@@ -1336,6 +1336,12 @@ export function App() {
             }}
             liveLines={live.lines}
             liveState={live.state}
+            onNow={(call) => {
+              // **THE PULSE'S DOOR (the hundred-and-ninety-fifth list).** Activity opens scoped to the call the line named: its tool and
+              // its machine, both of which the page's filter already carries — no new state, no second read.
+              setActivityFilter((current) => ({ ...current, tool: call.tool, device: call.deviceId ?? "" }));
+              setPage("activity");
+            }}
             onRename={(device) => {
               setRenaming(device);
               setDraftName(device.name ?? "");
