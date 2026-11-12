@@ -196,7 +196,7 @@ type AttentionProblem = {
   /** Stable key: one machine can have two problems, and both are listed under its one row. */
   key: string;
   device: Device;
-  tone: "offline" | "behind";
+  tone: "offline" | "behind" | "service";
   /**
    * The problem without its machine's name: the row's heading is the name, so repeating it in every
    * line would make one machine's two problems read as two machines (audit-40 F6).
@@ -208,7 +208,7 @@ type AttentionProblem = {
 type AttentionMachine = {
   device: Device;
   /** The row's dot: away outranks behind when a machine has both. */
-  tone: "offline" | "behind";
+  tone: "offline" | "behind" | "service";
   problems: AttentionProblem[];
 };
 
@@ -225,7 +225,9 @@ type AttentionMachine = {
 function attentionProblems(
   devices: readonly Device[],
   /** The build the behind rows are measured against, and where it came from. */
-  release: Release | null
+  release: Release | null,
+  /** Watches the machine's own probes report DOWN, by device id — measured, never inferred. */
+  downByDevice: ReadonlyMap<string, string[]> = new Map()
 ): AttentionProblem[] {
   const target = release?.version ?? null;
   const problems: AttentionProblem[] = [];
@@ -239,6 +241,17 @@ function attentionProblems(
         // `presenceText`'s one casing; the old `Offline — last seen … .` made the same silence read
         // as a different fact in the block above the row that states it (audit-43 F2).
         clause: presenceText(device)
+      });
+    }
+    // **A WATCHED SERVICE THAT IS DOWN IS A PROBLEM THIS PAGE CAN PROVE (the hundred-and-eighty-second list).** The machine's own
+    // probe says so (`up_now: false`), and Home is where a person looks first — a down service that only the Machine page knows
+    // about is a fact the verdict hid.
+    for (const target of downByDevice.get(device.id) ?? []) {
+      problems.push({
+        key: `${device.id}:service:${target}`,
+        device,
+        tone: "service",
+        clause: `A watched service is down: ${target}.`
       });
     }
     if (target !== null && versionBelow(device.version, target)) {
@@ -531,18 +544,11 @@ function FleetHome(props: HomePageProps) {
   const empty = fleet.state === "ready" && props.devices.length === 0;
   // The verdict and the attention rows are claims about the fleet now, so they wait for a
   // successful read. A failed read keeps the last list on screen and states the failure instead.
-  const ready = fleet.state === "ready";
-  const release = ready ? releaseTarget(props.devices, installer) : null;
-  const problems = ready ? attentionProblems(props.devices, release) : [];
-  // **THE BANNER NAMES THE FAILURE; THIS LINE ONLY SAYS WHAT IS MISSING.** When the read failed
-  // there is no verdict to give, so the header draws none and the notice below states what the page
-  // can show. A second failure sentence here made the page say one failure three times (audit-40
-  // F4); the banner's title still carries the browser's cause.
   // **THE FLEET'S WATCHES, IN ONE LINE (the hundred-and-eightieth list).** The console can now start a watch on any machine, and
   // Home — the page that gives the fleet's verdict — said nothing about them. This reads each ONLINE machine's list once per
   // membership change (not per poll): four machines are four cheap calls, and a page that re-read them every few seconds would
   // spend more on this line than on the fleet itself.
-  const [watches, setWatches] = useState<{ total: number; down: string[]; machines: number } | null>(null);
+  const [watches, setWatches] = useState<{ total: number; down: { deviceId: string; label: string }[]; machines: number } | null>(null);
   const watchKey = props.devices.map((d) => `${d.id}:${d.online ? 1 : 0}`).join(",");
   const watchKeyRef = useRef("");
   useEffect(() => {
@@ -557,16 +563,18 @@ function FleetHome(props: HomePageProps) {
     void Promise.all(
       online.map((d) =>
         readMonitors({ deviceId: d.id, envelope: null })
-          .then((read) => ({ name: d.name ?? d.id, targets: read.targets }))
+          .then((read) => ({ id: d.id, name: d.name ?? d.id, targets: read.targets }))
           .catch(() => null)
       )
     ).then((rows) => {
       if (!live) return;
-      type Watched = { name: string; targets: MonitorTarget[] };
+      type Watched = { id: string; name: string; targets: MonitorTarget[] };
       const known = rows.filter((row): row is Watched => row !== null);
       const total = known.reduce((n, row) => n + row.targets.length, 0);
       const down = known.flatMap((row) =>
-        row.targets.filter((t) => t.summary.upNow === false).map((t) => `${row.name}: ${t.id}`)
+        row.targets
+          .filter((t) => t.summary.upNow === false)
+          .map((t) => ({ deviceId: row.id, label: `${row.name}: ${t.id}` }))
       );
       setWatches({ total, down, machines: known.length });
     });
@@ -575,6 +583,21 @@ function FleetHome(props: HomePageProps) {
     };
   }, [watchKey, props.devices]);
 
+  const ready = fleet.state === "ready";
+  const release = ready ? releaseTarget(props.devices, installer) : null;
+  // The down services join the attention model: a machine whose own probe says a service is down is a machine that needs a person,
+  // and Home is where a person looks first (the hundred-and-eighty-second list).
+  const downByDevice = new Map<string, string[]>();
+  for (const row of watches?.down ?? []) {
+    const list = downByDevice.get(row.deviceId) ?? [];
+    list.push(row.label.split(": ").slice(1).join(": "));
+    downByDevice.set(row.deviceId, list);
+  }
+  const problems = ready ? attentionProblems(props.devices, release, downByDevice) : [];
+  // **THE BANNER NAMES THE FAILURE; THIS LINE ONLY SAYS WHAT IS MISSING.** When the read failed
+  // there is no verdict to give, so the header draws none and the notice below states what the page
+  // can show. A second failure sentence here made the page say one failure three times (audit-40
+  // F4); the banner's title still carries the browser's cause.
   const verdict =
     fleet.state === "reading"
       ? "Reading the machine list…"
@@ -604,7 +627,7 @@ function FleetHome(props: HomePageProps) {
                   one watch, two online machines, and the sentence read as if the service spanned both. */}
               {watches.down.length === 0
                 ? `Watching ${watches.total} ${watches.total === 1 ? "service" : "services"} · all up`
-                : `${watches.down.length} ${watches.down.length === 1 ? "service is" : "services are"} down: ${watches.down.join(", ")}`}
+                : `${watches.down.length} ${watches.down.length === 1 ? "service is" : "services are"} down: ${watches.down.map((row) => row.label).join(", ")}`}
             </p>
           )}
         </div>

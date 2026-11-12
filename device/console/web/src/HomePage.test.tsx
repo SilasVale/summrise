@@ -1084,4 +1084,21 @@ describe("Home — opening the enrollment panel", () => {
       Element.prototype.scrollIntoView = original;
     }
   });
+  it("puts a DOWN watched service in Needs attention, with the machine that watches it", async () => {
+    monitors.read.mockResolvedValue({
+      targets: [
+        {
+          id: "10.0.0.5:443/health",
+          host: "10.0.0.5",
+          port: 443,
+          path: "/health",
+          summary: { probes: 12, up: 11, down: 1, upPct: 92, upNow: false, sinceMs: Date.now() - 60_000, lastStatus: 502, drops: 1 }
+        }
+      ],
+      intervalSecs: 15
+    });
+    drawFleet({ devices: [machine({ name: "workshop" })] });
+    // The clause names the target; the row's heading names the machine.
+    expect(await screen.findByText(/A watched service is down: 10\.0\.0\.5:443\/health\./)).toBeInTheDocument();
+  });
 });
