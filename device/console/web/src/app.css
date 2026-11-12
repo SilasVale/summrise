@@ -4084,7 +4084,11 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
    46 tools advertised, 32 wired, six of the missing were memory). A record is a title, its provenance and its text:
    the title is the row's voice, the meta its date, and the body is clamped so a long record cannot push the list. */
 .memory-search { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin: 0 0 var(--sp-3); }
-.memory-search input { flex: 1 1 16rem; min-width: 0; }
+.memory-search input { flex: 1 1 12rem; min-width: 0; }
+/* **ONE ROW ON A PHONE (the hundred-and-eighty-ninth list, second pass).** Measured at 390 x 844: the field's 16 rem basis pushed the
+   Search button onto its own line, so the control read as two blocks. A 12 rem basis keeps field and button on one row down to 390,
+   and the button never shrinks below its label. */
+.memory-search button { flex: 0 0 auto; }
 .memory-count { margin: 0 0 var(--sp-3); font-size: var(--fs-xs); color: var(--ink-muted); }
 .memory-list { list-style: none; margin: 0; padding: 0; }
 .memory-entry { padding: var(--sp-3) 0; border-top: 1px solid var(--line); }
