@@ -5449,6 +5449,31 @@ it. 105 steps become 106.
 
 and the failure prints the whole allowed palette, so the next person does not have to go looking for the sheet.
 
+## The hundred-and-sixty-third list (OPENED 2026-11-12 — Device -> Overview delivers 345 characters in a 900 px window)
+
+Measured on the live console (`0.3.274-ux209`, 1440, a machine selected):
+
+    Device -> Overview      345 characters      3 cards, all inside the top 300 px; the lower 600 px empty
+    Device -> Machine    10,935 characters
+    Device -> Tools       9,282 characters
+
+The whole page is: the machine's name and `online`, `started 4d 8h ago`, a chip row (`46 tools · 11 capabilities · 0 plugins →`),
+`Now ● Quiet — no calls in the last minute`, and `Today 5 client calls · spanning 4 h 18 m — All activity →`. **Three surfaces for
+three sentences**, one per card, and then nothing.
+
+**WHY IT WAS NOT CHANGED IN THE SAME ROUND.** Filling it means choosing what the machine's landing page is FOR, and every
+candidate needs a fact the page does not fetch yet: the build (`0.3.292` is on Home's row and on the Machine tab), the platform
+and uptime (Machine), the last five calls (Activity, filtered). Rendering them here is a fetch plus a shape, not a stylesheet
+edit — and this program's rule is that every number comes from a probe, so the list is opened with the measurement rather than
+guessed at with a card.
+
+**THE CANDIDATES, EACH WITH ITS SOURCE NAMED:**
+1. The identity card carries the machine's BUILD and platform — `/system` facts the Machine tab already fetches, drawn where a
+   reader looks first (`0.3.292 · Windows 11 · 12 cores · started 4d 8h ago`).
+2. `Now` and `Today` become ONE card: both are the machine's recent activity, both are one line, and two cards for two lines is
+   the same fault as three title treatments for three peers.
+3. The last five calls, ready on the landing page — `/audit?device=<id>&limit=5`, which Activity already asks for.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
