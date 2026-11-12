@@ -5408,6 +5408,27 @@ one sentence (`the audit as rows, with filters and CSV or JSON Lines export`), s
 `pageerror`, `console.error` and failed requests — and every one returned **0 / 0** while drawing between 326 and 18,095
 characters. The surface has no page that throws.
 
+## The hundred-and-sixty-first list (CHECK ONLY 2026-11-12 — the dark surface keeps the ladder, and the numbers say by how much)
+
+The audit had only ever drawn the console in the light theme. Measured live at 1440 with `prefers-color-scheme: dark`:
+
+    page      document bg       page name                 the page's claim
+    Home      rgb(19,20,24)     13/500 rgb(162,163,172)   22/600 rgb(236,237,239)
+    Activity  rgb(19,20,24)     13/500 rgb(162,163,172)   17/600 rgb(236,237,239)
+
+**THE SAME TWO RUNGS, THE SAME TWO COLOURS OF MEANING** — the dark block restates the ladder rather than inheriting it, which is
+what rule 15's gate (`the_dark_surfaces_are_restated_not_inherited`) asserts in the sheet; this is the rendered half.
+
+**CONTRAST, COMPUTED FROM THE MEASURED PIXELS (WCAG 2.1 relative luminance):**
+
+    muted ink on the dark ground    rgb(162,163,172) on rgb(19,20,24)   7.34:1
+    the claim on the dark ground    rgb(236,237,239) on rgb(19,20,24)  15.71:1
+    muted ink on the light ground   rgb(113,113,122) on #fff            4.83:1
+
+All three pass AA for their sizes (4.5:1), and the muted pair — the one that carries every label on both surfaces — is **1.5×
+the threshold in the dark theme and 1.07× in the light one**. The light pair is the tighter of the two and is exactly what
+`every_text_pair_reads_on_the_surface_it_sits_on` has pinned since the twenty-sixth list.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
