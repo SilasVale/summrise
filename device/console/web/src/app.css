@@ -4019,6 +4019,15 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .installer-strip .btn { flex: none; }
 .installer-strip .hint { margin: 0 0 0 auto; font-size: var(--fs-xs); }
 
+/* ── Services this machine watches ───────────────────────────────────────────────────────────────
+   The device probes host:port on its own timer; this is the operator's view of it. An address is a MONO fact, the state is a
+   chip with a word (never a colour alone), and the summary facts sit on one muted line under it. */
+.service-list { list-style: none; margin: var(--sp-1) 0 0; padding: 0; }
+.service-row { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; padding: var(--sp-2) 0; border-top: 1px solid var(--line); }
+.service-row:first-child { border-top: 0; }
+.service-address { font-size: var(--fs-base); }
+.service-meta { font-size: var(--fs-xs); color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+
 /* ── Memory: what the AI wrote down on this machine, read-only ─────────────────────────────────
    The device has carried the memory family since the plugin landed and the console had no door (measured 2026-11-12:
    46 tools advertised, 32 wired, six of the missing were memory). A record is a title, its provenance and its text:

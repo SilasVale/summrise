@@ -4,6 +4,7 @@ import { spanText } from "./age";
 import { clockTime, grouped, isoDate, lastHeardMs, message, seenAgo } from "./format";
 import { ForwardRules } from "./ForwardRules";
 import { HostFactsBlock } from "./HostFacts";
+import { ServicesWatched } from "./ServicesWatched";
 import { Modal } from "./Modal";
 import { useRequestGate } from "./requests";
 import { callTool, ToolError, type Grant } from "./terminal";
@@ -659,6 +660,7 @@ export function SystemPage({
             <UpdateCheckLine />
           </>
         )}
+
         <p className="hint">
           The app the launcher supervises. Restarting it ends every open terminal, browser tab and
           run on this machine, and takes it offline briefly while the launcher starts it again.
@@ -688,6 +690,11 @@ export function SystemPage({
           </>
         )}
       </section>
+
+      {/* **WHAT THIS MACHINE WATCHES IS A FACT ABOUT THE MACHINE, SO IT BELONGS HERE (the hundred-and-seventy-second list).**
+          The device probes host:port targets on its own timer; the console never showed them. Read-only: the writes persist on
+          the device and are the next door. */}
+      <ServicesWatched grant={grant} online={!offline} />
 
       <section className="system-section" aria-labelledby="system-processes">
         <h3 id="system-processes">Processes</h3>
