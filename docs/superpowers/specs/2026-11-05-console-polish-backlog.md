@@ -4892,6 +4892,35 @@ breakpoint` — a query's width must be a declared breakpoint or its neighbour (
 `max-width: 1087px`; and the 390 probe returns **no search input at all**, which is the hundred-and-thirty-fourth
 list's collapse working. Before/after strip in `.superpowers/sdd/2026-11-05-console-polish-backlog/list139/`.
 
+## P0 — the hundred-and-fortieth list (OPENED 2026-11-12 — the console's Forward page speaks a dialect the device does not)
+
+The 59538830 line's open item was *"the forward UI's remaining measured gaps"*. Measured 2026-11-12 by reading both sides'
+source — the console's reader against the device's registered tools and their answers:
+
+| the console sends / reads | the device registers / answers | verdict |
+|---|---|---|
+| `forward.list` | **`forward_list`** (`agent/src/plugins/forward/tools.rs:23`) | wrong name — the call is an unknown tool |
+| `forward.add` | **does not exist, deliberately** (`mod.rs` D6: "a rule is an operator's act"; a test pins its absence) | the Create button calls a tool that must never exist |
+| `forward.remove` | **does not exist** (same design) | the Remove button ditto |
+| a **bare array** of rows | `{ "rules": [ … ] }` (`tools.rs:44`) | the list read refuses every real answer |
+| flat `listening/since_ms/attempts/connections/last_error` | nested under **`state`** (`forward::ForwardState`) | every field undefined — a bound rule draws as not listening |
+| `since_ms === null` for "never" | `since_ms: 0` means never listened | a 1970 stamp would read as an age |
+
+**WHY EVERY TEST IS GREEN.** `ForwardRules.test.tsx`'s fixture is documented as *"copied from `forward.list`"* — and it is the
+console's expectation, not the device's answer: a bare array with flat fields and the name `forward.list`. The suite mocks
+`callTool`, so the fixture and the page agree with each other and with nothing else. **A fixture written from the reader is a
+test of the reader.**
+
+**PLAN (next round, S/M each):**
+1. the list read: `forward_list`, `{rules:[…]}`, nested `state`, `since_ms: 0` → "never";
+2. **Create and Remove go**: the device has no such tools by design and D6 makes a rule the operator's act on the machine —
+   the page becomes the record of what the device carries (the same shape the panel's pages take for device-owned facts);
+3. a fixture copied from the device's own `json!` block, and a test that fails when the reader and that fixture disagree.
+
+**WHY THIS ROUND SHIPPED NO CODE.** The reader fix lands with (2) or the page keeps two buttons that cannot work; and a
+half-fix that leaves Create/Remove calling absent tools would be a worse lie than the current one. The measurement is the
+deliverable this round — recorded with the file:line of both sides so the next round starts from evidence, not memory.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
