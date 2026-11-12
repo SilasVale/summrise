@@ -5092,6 +5092,32 @@ selected tab 40 px to its right also reads `Overview`** — the page names itsel
 strip already carries. The machine's name is the page's subject and sits in a card below, where the topbar also names it. That
 is a head decision (what the h1 of a machine surface is), not a rung, so it goes to the next list.
 
+## The hundred-and-forty-seventh list (CLOSED 2026-11-12 — the device head named itself twice)
+
+Measured on the live console (`0.3.274-ux200`, 1440, Device → Overview):
+
+    .device-head h1   "Overview"   22 / 700 / ink
+    the tab strip      "Overview"   12 / 600   — the SELECTED tab, 40 px to its right
+
+The page spent the title's rung on a word the strip beside it already carried, while the machine — the page's actual subject —
+was a 17/600 card heading below.
+
+**THE RULE IS IN THE CONTRACT, NOT IN THE PAGE.** `head.nameWhenRepeated` {base, medium, muted}: a head whose name a CONTROL
+it renders already says draws that name as context. The condition is mechanical, so it is recorded; `title` still governs
+every head that names something no control repeats. Byte-identical JSON in both repos, pinned at `9b70a26c…` by both tests.
+
+After: `Overview` **13/500 muted**, the strip owns the view's name, the machine's name leads the content. `e0b5eaf`, deployed as
+`0.3.274-ux201`; the after-shot is `list147/after-ux201.png`.
+
+**A MISTAKE WORTH THE RECORD.** The first insertion put `nameWhenRepeated` INSIDE `nameWhenClaim` — valid JSON, right values,
+wrong tree — and the test failed with `Cannot read properties of undefined`. The fix was to parse, move the key and dump; the
+suite only noticed because the test reads the field by name rather than trusting the file's shape.
+
+**WHAT THE FOUR HEAD FIXES SHARE, AND THE RULE THEY NOW MAKE.** Home (claim), Activity (claim), Device (repeated by a control):
+in all three the page's NAME was at the title's rung and the page's SUBJECT was not. The contract now carries two conditions and
+one default; the next audit question is whether any head on either surface still spends `title` on a word the page does not need
+to say.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
