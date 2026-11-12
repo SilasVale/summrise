@@ -6053,6 +6053,23 @@ Rust suite.
 CSS declaration (the browser drops it silently); the Rust token gate can, and it only runs when someone runs it. `gate-ledger.sh`
 exists to be that someone.
 
+## The hundred-and-eighty-sixth list (SHIPPED 2026-11-12 — where the failures are, one click from their rows)
+
+The header said how many failed; nothing said **where**. A person reading `51 failed` needs the three tools doing most of it before
+they can act, and the window already holds them.
+
+    Failures by tool:  runs.exec · 50   browser.list · 3   monitor.status · 2
+
+Each chip narrows to **that tool AND the failures** — the two filter fields the controls already own. Computed from the drawn window
+(`shownActivity`), never from a second read: the page's counts and its rows come from one list.
+
+**LIVE AFTER `-ux238`**: the line reads `Failures by tool: runs.exec · 50 browser.list · 3 monitor.status · 2`, and clicking the
+first chip sets the search box to `runs.exec` and turns `Failures only` on (`aria-pressed: true`).
+
+**AND IT NAMED A REAL FLEET FACT** the record had not said out loud: of the window's failures, **50 are `runs.exec`** — a command door,
+not a display one. The console's own `browser.list` failures (3) and `monitor.status` refusals (2) are the noise this week's rounds
+created, and they are legible now.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
