@@ -5979,6 +5979,21 @@ The Screen page's Browser view already says exactly that (`The device's answer` 
 can run: **a live view of a browser that cannot start is a door to a wall.** The sentence belongs to the device's upgrade, which the
 operator holds.
 
+## The hundred-and-eighty-second list (SHIPPED 2026-11-12 — a down watched service reaches the verdict)
+
+The console can watch services; Home's verdict counted machines away or behind and said nothing about a service the machine's own
+probe reports **DOWN**.
+
+    NEEDS ATTENTION
+      workshop                                     ●
+        A watched service is down: 10.0.0.5:443/health.
+
+**THE PROBE'S OWN ANSWER IS THE EVIDENCE** — `up_now: false`, read from the machine; never inferred from a stale count. The machine
+joins the verdict's "needs attention" count, the row's dot is the block's warn tone, and the clause names the target while the row's
+heading names the machine. **No watch is invented when nothing is down**: the attention model takes an empty map on a healthy fleet
+and the block is unchanged — measured live after `-ux235`: `3 of 4 online · 2 need attention`, `Watching 1 service · all up`, and the
+same two rows as before.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
