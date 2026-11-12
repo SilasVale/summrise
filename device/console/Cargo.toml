@@ -6,6 +6,9 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
+# The page role is its own crate: this console implements its read-only seam and mounts its
+# router, and the page crate cannot name anything from this workspace back.
+summrise-console-page = { path = "../console-page" }
 summrise-ui = { path = "../ui" }
 # `ws` is the device channel: the device dials the console, and the console forwards the operator's
 # MCP exchange over that socket.

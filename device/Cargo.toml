@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["core", "bus", "launch", "device", "mesh", "release", "console", "winsec", "winsys", "shell", "ui"]
+members = ["core", "bus", "launch", "device", "mesh", "release", "console", "console-page", "winsec", "winsys", "shell", "ui"]
 
 [workspace.package]
 edition = "2021"

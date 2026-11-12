@@ -1,0 +1,18 @@
+[package]
+name = "summrise-console-page"
+description = "The console's page role: the built page, its assets, and the live event stream."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+axum = "0.7"
+# `once`, `iter` and `unfold` build the snapshot, the replay and the live tail as one stream.
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+serde_json = "1"
+# `sync` is the live index's broadcast; `time` is the keep-alive interval.
+tokio = { version = "1", features = ["sync", "time"] }
+
+[dev-dependencies]
+# The tests drive the handlers on a runtime; the library itself starts none.
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

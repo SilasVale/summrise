@@ -2,9 +2,9 @@
 //! management and health.
 //!
 //! It holds the keys (architecture of record, §0.4): the operator secret, the grant key, the
-//! session list and the device channels. The page role is [`crate::page`]; this module builds it,
-//! mounts its routes, and keeps the operator gate in front of the one page route that needs a
-//! caller it can authenticate.
+//! session list and the device channels. The page role is [`summrise_console_page`]; this module
+//! implements its read-only seam, mounts its routes, and keeps the operator gate in front of the
+//! one page route that needs a caller it can authenticate.
 //!
 //! One router, built once from a loaded [`Console`]. The handlers are thin on purpose: the decisions
 //! live in `auth`, `codes`, `devices` and `grants`, and the router only turns refusals into status
@@ -43,8 +43,8 @@ use crate::devices::{self, Device, DeviceRegistry, RegisterError};
 use crate::grants::{self, GrantEnvelope, GrantError, VerifyError};
 use crate::hex;
 use crate::mcp::DeviceRef;
-use crate::page::Page;
 use crate::tokens::{Token, TokenError, TokenKind, TokenMeta, Tokens};
+use summrise_console_page::{Page, PageSource};
 
 /// How far a device's clock may be from the console's when it registers: five minutes.
 const REGISTRATION_SKEW_MS: u64 = 5 * 60 * 1000;
@@ -131,6 +131,9 @@ struct Inner {
     /// it is not the audit and nothing here is written to a file.
     /// Shared with the page role, whose `/events` snapshot names the same in-flight calls.
     running: Arc<crate::running::Running>,
+    /// The page role: the built page and the only three reads it is handed. Built at load so the
+    /// version is stamped before the first request; the router only mounts it.
+    page: Arc<Page>,
     mcp_timeout: Duration,
     now: Now,
     started: Instant,
@@ -150,6 +153,45 @@ struct Inner {
     /// `None` means the console has no mesh view; the readiness route reports that rather than a fake
     /// "unreachable". No operator frame moves over the mesh yet.
     mesh_broker: Option<String>,
+}
+
+/// The page role's reads, over the control role's own handles.
+///
+/// This is the whole surface the page crate is handed: the live index it follows, the calls still
+/// in flight, and the clock. It holds no decision and no credential — the gate, the registry and the
+/// signing key stay in this module.
+struct PageReads {
+    audit: Audit,
+    running: Arc<crate::running::Running>,
+    now: Now,
+}
+
+impl PageSource for PageReads {
+    fn follow(&self) -> tokio::sync::broadcast::Receiver<Value> {
+        self.audit.follow()
+    }
+
+    /// The page's snapshot seam is synchronous by design, so this reads the file without awaiting.
+    /// It is the same read as `Audit::newest`, including the one rotated generation.
+    fn newest(&self, limit: usize) -> Vec<Value> {
+        self.audit.newest_blocking(limit)
+    }
+
+    fn running(&self, now_ms: u64) -> Vec<Value> {
+        self.running.current(now_ms)
+    }
+
+    fn now_ms(&self) -> u64 {
+        (self.now)()
+    }
+
+    fn events_after(&self, device: &str, seq: u64) -> Vec<Value> {
+        self.audit.events_after(device, seq)
+    }
+
+    fn sentence(&self, line: &Value) -> String {
+        crate::activity::line_sentence(line)
+    }
 }
 
 impl Console {
@@ -210,9 +252,18 @@ impl Console {
         // are what the fleet subtracts, so the registry must not read the wall clock itself.
         let now: Now = Arc::new(now);
         let audit = Audit::new(&config.data, audit_max_bytes);
+        let running = Arc::new(crate::running::Running::new(RUNS_MAX_PROXY_WAIT));
 
         // The page is stamped with this build's version before it is ever served (the hundred-and-ninety-ninth list).
-        crate::page::stamp_version(&config.version);
+        // `Page::new` is the one stamp: the page crate fixes the claim before the first request.
+        let page = Arc::new(Page::new(
+            Arc::new(PageReads {
+                audit: audit.clone(),
+                running: running.clone(),
+                now: now.clone(),
+            }),
+            &config.version,
+        ));
         Ok(Console {
             inner: Arc::new(Inner {
                 operator_token,
@@ -226,7 +277,8 @@ impl Console {
                 channels: ChannelRegistry::recording(audit.clone(), now.clone()),
                 audit,
                 denials: Denials::new(&config.data),
-                running: Arc::new(crate::running::Running::new(RUNS_MAX_PROXY_WAIT)),
+                running,
+                page,
                 mcp_timeout,
                 now,
                 started: Instant::now(),
@@ -251,16 +303,12 @@ impl Console {
 
     /// Build the router. It carries no socket and no runtime: the caller decides where it listens.
     ///
-    /// Two roles, one router. The control routes below hold the keys; the page role is built from the
-    /// only three handles it may hold (the audit, the calls in flight, the clock) and mounted from
-    /// [`crate::page::router`]. Its one gated route, `/events`, is wrapped here by
-    /// [`page_operator_gate`]: only the control role can tell an operator from a stranger.
+    /// Two roles, one router. The control routes below hold the keys; the page role was built at
+    /// load from the only three handles it may hold (the audit, the calls in flight, the clock) and
+    /// is mounted from [`summrise_console_page::router`]. Its one gated route, `/events`, is wrapped
+    /// here by [`page_operator_gate`]: only the control role can tell an operator from a stranger.
     pub fn router(&self) -> Router {
-        let page = Arc::new(Page::new(
-            self.inner.audit.clone(),
-            self.inner.running.clone(),
-            self.inner.now.clone(),
-        ));
+        let page = self.inner.page.clone();
         let control: Router = Router::new()
             .route("/health", get(health))
             .route("/auth", post(authenticate))
@@ -351,7 +399,7 @@ impl Console {
             .fallback(not_found)
             .with_state(self.inner.clone());
         control
-            .merge(crate::page::router(page))
+            .merge(summrise_console_page::router(page))
             // The page holds no credential and cannot authenticate anyone. The operator gate belongs
             // to this role's state, and it asks only the page route that needs it.
             .layer(axum::middleware::from_fn_with_state(
@@ -1375,7 +1423,7 @@ async fn login_link(
 
 /// The operator's gate over the page role's one authenticated route.
 ///
-/// The page cannot authenticate a caller and holds no credential to try: [`crate::page::router`]
+/// The page cannot authenticate a caller and holds no credential to try: [`summrise_console_page::router`]
 /// mounts `/events` without a check, and this layer — installed by the control router, where the
 /// identity lives — asks the same [`OperatorSession`] every other operator route asks, on that path
 /// only. The page and its assets stay public by design; the audit stream is not.

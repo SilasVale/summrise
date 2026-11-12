@@ -225,6 +225,24 @@ impl JsonLines {
         self.newest_matching(limit, |_| true).await
     }
 
+    /// The newest `limit` lines for a caller that cannot await.
+    ///
+    /// The page crate's snapshot seam is synchronous, so it takes this path. It reads the same
+    /// current file and its one rotation as [`JsonLines::newest`], with the same tolerance for a
+    /// torn last line; only the read itself blocks the calling thread.
+    pub(crate) fn newest_blocking(&self, limit: usize) -> Vec<Value> {
+        if limit == 0 {
+            return Vec::new();
+        }
+
+        let mut lines = self.read_newest_matching_blocking(&self.path, limit);
+        if lines.len() < limit {
+            let older = self.read_newest_matching_blocking(&self.rotated, limit - lines.len());
+            lines.extend(older);
+        }
+        lines
+    }
+
     /// The newest `limit` lines that `matches` accepts, newest first, across the current file and its
     /// one rotation.
     ///
@@ -347,26 +365,55 @@ impl JsonLines {
             }
         };
 
-        let text = String::from_utf8_lossy(&bytes);
-        let mut lines = Vec::new();
-        for line in text.lines().rev() {
-            if lines.len() == limit {
-                break;
-            }
-            match serde_json::from_str::<Value>(line) {
-                Ok(value) => {
-                    if matches(&value) {
-                        lines.push(value);
-                    }
-                }
-                Err(error) => eprintln!(
-                    "summrise-console: skipping an unreadable line in {}: {error}",
-                    path.display()
-                ),
-            }
-        }
-        lines
+        newest_lines(path, &bytes, limit, matches)
     }
+
+    /// The blocking form of [`JsonLines::read_newest_matching`].
+    fn read_newest_matching_blocking(&self, path: &Path, limit: usize) -> Vec<Value> {
+        let bytes = match std::fs::read(path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Vec::new(),
+            Err(error) => {
+                eprintln!(
+                    "summrise-console: could not read {}: {error}",
+                    path.display()
+                );
+                return Vec::new();
+            }
+        };
+
+        newest_lines(path, &bytes, limit, &|_| true)
+    }
+}
+
+/// The newest `limit` lines of `bytes` that `matches` accepts, newest first.
+///
+/// A line that cannot be parsed is skipped and reported: a crash can leave a partial last line, and
+/// a damaged line must not make the rest of the file unreadable. The async and the blocking read
+/// share this scan so the snapshot and the log routes cannot disagree about what a line is.
+fn newest_lines<F>(path: &Path, bytes: &[u8], limit: usize, matches: &F) -> Vec<Value>
+where
+    F: Fn(&Value) -> bool,
+{
+    let text = String::from_utf8_lossy(bytes);
+    let mut lines = Vec::new();
+    for line in text.lines().rev() {
+        if lines.len() == limit {
+            break;
+        }
+        match serde_json::from_str::<Value>(line) {
+            Ok(value) => {
+                if matches(&value) {
+                    lines.push(value);
+                }
+            }
+            Err(error) => eprintln!(
+                "summrise-console: skipping an unreadable line in {}: {error}",
+                path.display()
+            ),
+        }
+    }
+    lines
 }
 
 /// The name a page may state: the base name, never the host's directory.

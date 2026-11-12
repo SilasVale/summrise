@@ -391,6 +391,15 @@ impl Audit {
         self.file.newest(limit).await
     }
 
+    /// The newest `limit` lines for a caller that cannot await.
+    ///
+    /// The page role's snapshot seam is synchronous, so it reads through here. The scan is
+    /// [`Audit::newest`]'s — current file plus its one rotation, newest first — and only the read
+    /// itself blocks.
+    pub(crate) fn newest_blocking(&self, limit: usize) -> Vec<Value> {
+        self.file.newest_blocking(limit)
+    }
+
     /// The file this audit reads, its size and the moments its lines span, for the page's one
     /// source line.
     ///
@@ -864,6 +873,37 @@ mod tests {
             text.push('\n');
         }
         std::fs::write(dir.join(AUDIT_FILE), text).expect("the audit file is writable");
+    }
+
+    /// The page's snapshot seam is synchronous; its read must agree with `/audit`'s about the
+    /// index, including the one rotated generation.
+    #[tokio::test]
+    async fn the_blocking_snapshot_read_matches_the_async_read() {
+        let dir = TempDir::new("snapshot-blocking");
+        write_audit(
+            &dir.0,
+            &[
+                serde_json::json!({ "ts_ms": 3, "kind": "grant" }),
+                serde_json::json!({ "ts_ms": 4, "kind": "grant" }),
+            ],
+        );
+        std::fs::write(
+            dir.0.join("audit.1.jsonl"),
+            format!(
+                "{}\n",
+                serde_json::json!({ "ts_ms": 1, "kind": "register" })
+            ),
+        )
+        .expect("the rotated audit file is writable");
+        let audit = Audit::new(&dir.0, AUDIT_MAX_BYTES);
+
+        for limit in [0usize, 1, 2, 3, 10] {
+            assert_eq!(
+                audit.newest(limit).await,
+                audit.newest_blocking(limit),
+                "limit {limit}"
+            );
+        }
     }
 
     /// The page keeps the newest device events so a reconnect can be handed what it missed.

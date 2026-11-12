@@ -89,11 +89,13 @@ const RULES = {
   },
 
   // The console: core and bus (the control plane's target), the OS boundary, the page's shared
-  // shell, and the mesh readiness probe. The manifest names core, mesh and ui today; bus, winsec
-  // and winsys are the brief's permissions and have no edge yet.
+  // shell, the mesh readiness probe, and the page crate it implements the reads for. The manifest
+  // names core, mesh and ui today; bus, winsec and winsys are the brief's permissions and have no
+  // edge yet.
   "summrise-console": {
     mayUse: [
       "summrise-bus",
+      "summrise-console-page",
       "summrise-core",
       "summrise-mesh",
       "summrise-ui",
@@ -101,6 +103,10 @@ const RULES = {
       "summrise-winsys"
     ]
   },
+
+  // The page role: the built assets, the icon and the live stream, handed only the reads its
+  // handler needs. It names no other workspace crate; that is the boundary the split exists for.
+  "summrise-console-page": { mayUse: [] },
 
   // The desktop shell: the OS boundary only. It is a surface, not a library the app links.
   "summrise-shell": { mayUse: ["summrise-winsys"] }
@@ -395,6 +401,7 @@ function runSelfTest(rules) {
     ["summrise-device", "portable-pty"],
     ["summrise-device", "summrise-launch", "dev"],
     ["summrise-console", "summrise-core"],
+    ["summrise-console", "summrise-console-page"],
     ["summrise-console", "summrise-mesh"],
     ["summrise-console", "summrise-ui"],
     ["summrise-shell", "summrise-winsys"]

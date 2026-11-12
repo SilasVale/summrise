@@ -1,15 +1,17 @@
 //! The page role: the built page, its assets, and the live stream.
 //!
 //! The console may host both roles in one process, but the split is a code boundary first
-//! (architecture of record, §0.4 and §4.2): this module serves the static page, the icon and the
+//! (architecture of record, §0.4 and §4.2): this crate serves the static page, the icon and the
 //! operator's event stream, and it is handed no secret to hold. Enrollment, the device registry,
-//! grant signing and permanent-token management stay in `http.rs`; that control role builds a
-//! [`Page`] and mounts [`router`].
+//! grant signing and permanent-token management stay in `summrise-console`; that control role
+//! implements [`PageSource`], builds a [`Page`] and mounts [`router`].
 //!
-//! `/events` is the one route here that is not public. This module cannot ask who the caller is and
-//! deliberately does not learn: the control router wraps this router with its operator gate
-//! (`http::page_operator_gate`) before serving it. The page still never holds a way to mint or check
-//! a credential, which is the invariant [`tests::the_page_holds_nothing_secret`] makes executable.
+//! `/events` is the one route here that is not public. This crate cannot ask who the caller is and
+//! deliberately does not learn: the control router wraps this router with its operator gate before
+//! serving it. The page still never holds a way to mint or check a credential, which is the
+//! invariant [`tests::the_page_holds_nothing_secret`] makes executable.
+
+#![forbid(unsafe_code)]
 
 use std::convert::Infallible;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -24,14 +26,37 @@ use axum::routing::get;
 use axum::Router;
 use serde_json::{json, Value};
 
-use crate::audit::Audit;
-use crate::running::Running;
+/// What the page role may read.
+///
+/// The handler needs exactly these reads and nothing else: the live index, the newest lines, the
+/// calls in flight, the clock, the buffered device events, and the sentence for a stored line. The
+/// control role implements this over its own state; the page never receives that state itself.
+pub trait PageSource: Send + Sync + 'static {
+    /// Follow the live index as it is written. Subscribe before [`PageSource::newest`], or a line
+    /// written between the two is in neither the snapshot nor the stream.
+    fn follow(&self) -> tokio::sync::broadcast::Receiver<serde_json::Value>;
+
+    /// The newest `limit` lines, newest first.
+    fn newest(&self, limit: usize) -> Vec<serde_json::Value>;
+
+    /// The calls still running at `now_ms`, oldest first.
+    fn running(&self, now_ms: u64) -> Vec<serde_json::Value>;
+
+    /// The console's clock, in Unix milliseconds.
+    fn now_ms(&self) -> u64;
+
+    /// The buffered device events for `device` after `seq`, oldest first.
+    fn events_after(&self, device: &str, seq: u64) -> Vec<serde_json::Value>;
+
+    /// A human sentence for one stored line.
+    fn sentence(&self, line: &serde_json::Value) -> String;
+}
 
 /// The React console page, embedded as one self-contained file.
 ///
 /// `/` and `/app` both serve it. The build is committed and gated, so a stale page cannot compile
 /// and ship.
-const REACT_PAGE: &str = include_str!("../web/dist/index.html");
+const REACT_PAGE: &str = include_str!("../../console/web/dist/index.html");
 
 /// **THE PAGE KNOWS WHICH BUILD IT IS (the hundred-and-ninety-ninth list).** A tab left open across a deploy kept calling the routes of
 /// an older page — measured: `monitor.add`, `memory.list` and `monitor.status` refusals in the audit, all `caller: console`, all from a
@@ -49,14 +74,14 @@ fn stamped_page() -> &'static str {
     })
 }
 
-/// The build this process serves; set once, when the console is constructed.
+/// The build this process serves; set once, when the page is constructed.
 static PAGE_VERSION: OnceLock<String> = OnceLock::new();
 
 /// Stamp the page with the build the console is serving.
 ///
-/// Called by the control role at load: the page's copy of the version is fixed before the first
-/// request, and a later call is a no-op rather than a second claim.
-pub(crate) fn stamp_version(version: &str) {
+/// Called at load: the page's copy of the version is fixed before the first request, and a later
+/// call is a no-op rather than a second claim.
+fn stamp_version(version: &str) {
     let _ = PAGE_VERSION.set(version.to_owned());
 }
 
@@ -65,40 +90,34 @@ mod assets {
     /// The brand mark at 128 px: the browser tab's icon and the console's face in a task switcher.
     /// The React build already points at `/assets/icon.png`, so this route is the page's, not the
     /// deleted surface's.
-    pub(super) const ICON: &[u8] = include_bytes!("../assets/icon.png");
+    pub(super) const ICON: &[u8] = include_bytes!("../../console/assets/icon.png");
 }
-
-/// The page's clock, in Unix milliseconds: the console's injected clock, never a second wall clock.
-pub(crate) type Clock = Arc<dyn Fn() -> u64 + Send + Sync>;
 
 /// The page role's state.
 ///
-/// It holds only what the page's routes read: the built page and its icon, the live index it
-/// follows, the calls still in flight, and the clock. There is deliberately no signing key, no
-/// operator credential, no device registry and no channel here; the executable form of that rule is
-/// [`tests::the_page_holds_nothing_secret`].
-pub(crate) struct Page {
+/// It holds only what the page's routes read: the built page and its icon, and the [`PageSource`]
+/// behind them. There is deliberately no signing key, no operator credential, no device registry
+/// and no delivery channel here; [`tests::the_page_holds_nothing_secret`] is the executable form of
+/// that rule.
+pub struct Page {
+    source: Arc<dyn PageSource>,
     /// The built page, stamped with this build's version before the first request.
     page: &'static str,
     /// The brand mark, served at `/favicon.ico` and `/assets/icon.png`.
     icon: &'static [u8],
-    /// The live index `/events` follows and reads its snapshot from.
-    audit: Audit,
-    /// The calls the proxy is still waiting on, for the snapshot's `running` line.
-    running: Arc<Running>,
-    /// The console's clock.
-    now: Clock,
 }
 
 impl Page {
-    /// Build the page role from the control role's shared handles.
-    pub(crate) fn new(audit: Audit, running: Arc<Running>, now: Clock) -> Page {
+    /// Build the page role from the control role's read-only view of its state.
+    ///
+    /// `version` is stamped before the first request; a later call is a no-op, so the first loaded
+    /// console owns the page's claim.
+    pub fn new(source: Arc<dyn PageSource>, version: &str) -> Page {
+        stamp_version(version);
         Page {
+            source,
             page: stamped_page(),
             icon: assets::ICON,
-            audit,
-            running,
-            now,
         }
     }
 }
@@ -106,9 +125,9 @@ impl Page {
 /// The page role's routes.
 ///
 /// The caller must mount this router behind the control role's operator gate for `/events`. The page
-/// cannot authenticate a caller and must not be given the means to: the gate lives in `http.rs`,
-/// with the keys.
-pub(crate) fn router(page: Arc<Page>) -> Router {
+/// cannot authenticate a caller and must not be given the means to: the gate lives with the
+/// console's identity state, not here.
+pub fn router(page: Arc<Page>) -> Router {
     Router::new()
         .route("/", get(root))
         // The conventional favicon path: a browser asks for it on every page, and a 404 there is a
@@ -170,17 +189,16 @@ async fn icon(State(page): State<Arc<Page>>) -> impl IntoResponse {
 async fn event_stream(State(page): State<Arc<Page>>, headers: HeaderMap) -> Response {
     // Subscribe BEFORE reading the newest lines: a line written between the two would otherwise be in
     // neither the snapshot nor the stream.
-    let live = page.audit.follow();
+    let live = page.source.follow();
     // The calls in flight are not in the file, so a page that reconnects reads them here. The same
     // cut the page applies is applied by the registry: an entry whose clear was dropped expires.
-    let running = page.running.current((page.now)());
+    let running = page.source.running(page.source.now_ms());
     let recent: Vec<Value> = page
-        .audit
+        .source
         .newest(40)
-        .await
         .into_iter()
         .map(|mut line| {
-            let sentence = crate::activity::line_sentence(&line);
+            let sentence = page.source.sentence(&line);
             line["sentence"] = json!(sentence);
             line
         })
@@ -204,7 +222,7 @@ async fn event_stream(State(page): State<Arc<Page>>, headers: HeaderMap) -> Resp
         .and_then(parse_device_cursor)
     {
         Some((device, seq)) => futures_util::stream::iter(
-            page.audit
+            page.source
                 .events_after(device, seq)
                 .into_iter()
                 .map(|value| {
@@ -340,41 +358,72 @@ fn next_event_id() -> usize {
 mod tests {
     use super::*;
     use axum::http::{StatusCode, Uri};
+    use futures_util::StreamExt;
 
-    /// A directory this test owns, removed with it.
-    struct TempDir(std::path::PathBuf);
+    /// A page source the handlers can read without a console: the routes under test read only the
+    /// values below and the static assets, and nothing here writes a line.
+    #[derive(Clone)]
+    struct TestSource {
+        live: tokio::sync::broadcast::Sender<Value>,
+        newest: Vec<Value>,
+        running: Vec<Value>,
+        replay: Vec<Value>,
+        now: u64,
+    }
 
-    impl TempDir {
-        fn new(label: &str) -> Self {
-            let path = std::env::temp_dir()
-                .join(format!("summrise-page-unit-{}-{label}", std::process::id()));
-            let _ = std::fs::remove_dir_all(&path);
-            std::fs::create_dir_all(&path).expect("the test directory is creatable");
-            TempDir(path)
+    impl TestSource {
+        fn empty() -> Self {
+            let (live, _) = tokio::sync::broadcast::channel(8);
+            TestSource {
+                live,
+                newest: Vec::new(),
+                running: Vec::new(),
+                replay: Vec::new(),
+                now: 0,
+            }
         }
     }
 
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
+    impl PageSource for TestSource {
+        fn follow(&self) -> tokio::sync::broadcast::Receiver<Value> {
+            self.live.subscribe()
+        }
+
+        fn newest(&self, limit: usize) -> Vec<Value> {
+            self.newest.iter().take(limit).cloned().collect()
+        }
+
+        fn running(&self, _now_ms: u64) -> Vec<Value> {
+            self.running.clone()
+        }
+
+        fn now_ms(&self) -> u64 {
+            self.now
+        }
+
+        fn events_after(&self, _device: &str, _seq: u64) -> Vec<Value> {
+            self.replay.clone()
+        }
+
+        fn sentence(&self, _line: &Value) -> String {
+            "A stored sentence".to_owned()
         }
     }
 
-    /// The page role with a throwaway index and a fixed clock. The routes under test read only the
-    /// static assets and the clock's values; nothing here writes a line.
-    fn test_page(label: &str) -> (TempDir, Arc<Page>) {
-        let dir = TempDir::new(label);
-        let page = Arc::new(Page::new(
-            Audit::new(&dir.0, 64 * 1024),
-            Arc::new(Running::new(Duration::from_secs(30))),
-            Arc::new(|| 0u64),
-        ));
-        (dir, page)
+    fn test_page(source: TestSource) -> Arc<Page> {
+        Arc::new(Page::new(Arc::new(source), ""))
+    }
+
+    type FrameStream = std::pin::Pin<Box<axum::body::BodyDataStream>>;
+
+    async fn read_frame(stream: &mut FrameStream) -> String {
+        let chunk = stream.next().await.expect("a frame").expect("frame bytes");
+        String::from_utf8_lossy(&chunk).into_owned()
     }
 
     #[tokio::test]
     async fn root_sends_only_login_codes_to_the_login_link() {
-        let (_dir, page) = test_page("root");
+        let page = test_page(TestSource::empty());
 
         let answer = root(State(page.clone()), Uri::from_static("/")).await;
         assert_eq!(answer.status(), StatusCode::OK);
@@ -399,13 +448,79 @@ mod tests {
         assert_eq!(parse_device_cursor("device:9vh:not-a-number"), None);
     }
 
+    #[tokio::test]
+    async fn the_snapshot_carries_sentences_and_running_calls() {
+        let source = TestSource {
+            newest: vec![json!({ "kind": "grant", "status": 200 })],
+            running: vec![json!({ "id": "call-1", "tool": "runs.exec" })],
+            ..TestSource::empty()
+        };
+        let page = test_page(source);
+
+        let response = event_stream(State(page), HeaderMap::new()).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers().get("x-accel-buffering").unwrap(), "no");
+
+        let mut stream: FrameStream = Box::pin(response.into_body().into_data_stream());
+        let frame = read_frame(&mut stream).await;
+        assert!(frame.contains("event: snapshot"), "{frame}");
+        assert!(
+            frame.contains("\"sentence\":\"A stored sentence\""),
+            "{frame}"
+        );
+        assert!(frame.contains("call-1"), "{frame}");
+    }
+
+    #[tokio::test]
+    async fn a_last_event_id_replays_the_device_cursor() {
+        let source = TestSource {
+            replay: vec![json!({
+                "device_event": { "device": "9vh", "event": { "seq": 42 } }
+            })],
+            ..TestSource::empty()
+        };
+        let page = test_page(source);
+        let mut headers = HeaderMap::new();
+        headers.insert("last-event-id", HeaderValue::from_static("device:9vh:41"));
+
+        let response = event_stream(State(page), headers).await;
+        let mut stream: FrameStream = Box::pin(response.into_body().into_data_stream());
+        let mut seen = String::new();
+        for _ in 0..8 {
+            seen.push_str(&read_frame(&mut stream).await);
+            if seen.contains("event: device") {
+                break;
+            }
+        }
+        assert!(seen.contains("event: device"), "{seen}");
+        assert!(seen.contains("id: device:9vh:42"), "{seen}");
+    }
+
+    #[tokio::test]
+    async fn a_line_written_after_the_snapshot_arrives_as_activity() {
+        let source = TestSource::empty();
+        let sender = source.live.clone();
+        let page = test_page(source);
+
+        let response = event_stream(State(page), HeaderMap::new()).await;
+        let mut stream: FrameStream = Box::pin(response.into_body().into_data_stream());
+        let snapshot = read_frame(&mut stream).await;
+        assert!(snapshot.contains("event: snapshot"), "{snapshot}");
+
+        sender
+            .send(json!({ "kind": "grant", "status": 200 }))
+            .expect("the stream is subscribed");
+        let activity = read_frame(&mut stream).await;
+        assert!(activity.contains("event: activity"), "{activity}");
+    }
+
     /// **THE PAGE HOLDS NONE.** The page role is a code boundary, so this reads its own source and
     /// proves the names of the control role's state never enter it: no signing key, no operator
     /// credential, no session list, no permanent-token store, no device channel and no proxy trust.
     /// The needles are assembled from fragments so this test does not itself mention them.
     #[test]
     fn the_page_holds_nothing_secret() {
-        let source = include_str!("page.rs");
+        let source = include_str!("lib.rs");
         let forbidden = [
             ["grant", "_key"].concat(),
             ["operator", "_", "token"].concat(),
@@ -417,7 +532,7 @@ mod tests {
         for needle in forbidden {
             assert!(
                 !source.contains(&needle),
-                "page.rs names `{needle}`: the page role must hold none of the control role's state"
+                "lib.rs names `{needle}`: the page role must hold none of the control role's state"
             );
         }
     }

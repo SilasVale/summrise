@@ -4828,12 +4828,23 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "summrise-console-page",
  "summrise-core",
  "summrise-mesh",
  "summrise-ui",
  "tokio",
  "tokio-tungstenite 0.24.0",
  "tower",
+]
+
+[[package]]
+name = "summrise-console-page"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "futures-util",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

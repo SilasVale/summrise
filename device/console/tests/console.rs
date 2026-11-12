@@ -2858,19 +2858,40 @@ fn http_status(error: &tungstenite::Error) -> Option<u16> {
 }
 
 async fn next_message(socket: &mut DeviceSocket) -> WsMessage {
-    tokio::time::timeout(Duration::from_secs(5), socket.next())
-        .await
-        .expect("a frame arrives")
-        .expect("the socket stays open")
-        .expect("a websocket message")
+    loop {
+        let message = tokio::time::timeout(Duration::from_secs(5), socket.next())
+            .await
+            .expect("a frame arrives")
+            .expect("the socket stays open")
+            .expect("a websocket message");
+        // The console subscribes to the device's journal as soon as the channel opens (S1). That
+        // frame is not a call, an answer or the close a test is waiting for; skip it here so every
+        // test that reads the next meaningful frame does not have to know it exists.
+        if let WsMessage::Text(text) = &message {
+            if let Ok(frame) = serde_json::from_str::<Value>(text.as_str()) {
+                if frame.get("events").is_some() || frame.get("unsubscribe").is_some() {
+                    continue;
+                }
+            }
+        }
+        return message;
+    }
 }
 
 async fn next_json(socket: &mut DeviceSocket) -> Value {
-    let text = next_message(socket)
-        .await
-        .into_text()
-        .expect("a text frame");
-    serde_json::from_str(text.as_str()).expect("the frame is JSON")
+    loop {
+        let text = next_message(socket)
+            .await
+            .into_text()
+            .expect("a text frame");
+        let frame: Value = serde_json::from_str(text.as_str()).expect("the frame is JSON");
+        // The channel subscribes to the device's journal as soon as it opens (S1); that frame is not
+        // a call, and a test that reads the next call must not mistake it for one.
+        if frame.get("events").is_some() || frame.get("unsubscribe").is_some() {
+            continue;
+        }
+        return frame;
+    }
 }
 
 async fn answer(socket: &mut DeviceSocket, frame: &Value, result: Value) {
@@ -4530,11 +4551,23 @@ async fn connected_device(
     key: &SigningKey,
 ) -> (String, String, DeviceSocket) {
     let (device_id, token) = fixture.register(key).await;
-    let device = open_channel(server, &device_id, &token)
+    let mut device = open_channel(server, &device_id, &token)
         .await
         .expect("the device channel");
     // The upgrade callback registers the channel in a spawned task; give it one turn.
     tokio::task::yield_now().await;
+    // The console subscribes to the device's journal as soon as the channel opens (S1). Consume that
+    // first frame here so a test's next read is the traffic it is about — and a test that asserts
+    // nothing reached the device is not defeated by the subscription itself.
+    let first = tokio::time::timeout(Duration::from_secs(2), device.next())
+        .await
+        .expect("the channel subscribes to the journal")
+        .expect("the socket stays open")
+        .expect("a websocket message");
+    match &first {
+        WsMessage::Text(text) if text.as_str().contains("\"events\"") => {}
+        other => panic!("the first frame is the journal subscription: {other:?}"),
+    }
     (device_id, token, device)
 }
 
@@ -11287,14 +11320,20 @@ async fn read_until_after(
 /// The stream carries `event: <name>\ndata: <json>\n\n`; a test that needs the started frame's id
 /// parses the body rather than matching a field inside a buffer that also holds the snapshot.
 fn last_event(seen: &str, name: &str) -> Value {
-    let marker = format!("event: {name}\ndata: ");
+    // The stream carries an `id:` line between the event name and its data (S1). Older buffers in
+    // this file predate it, so find the data line rather than assuming it directly follows.
+    let marker = format!("event: {name}\n");
     let start = seen
         .rfind(&marker)
         .unwrap_or_else(|| panic!("the buffer holds a {name} event: {seen}"))
         + marker.len();
     let rest = &seen[start..];
-    let end = rest.find('\n').unwrap_or(rest.len());
-    serde_json::from_str(&rest[..end])
+    let data_at = rest
+        .find("data: ")
+        .unwrap_or_else(|| panic!("the {name} event carries data: {seen}"));
+    let after = &rest[data_at + "data: ".len()..];
+    let end = after.find('\n').unwrap_or(after.len());
+    serde_json::from_str(&after[..end])
         .unwrap_or_else(|error| panic!("the {name} event's data is JSON: {error}: {seen}"))
 }
 
