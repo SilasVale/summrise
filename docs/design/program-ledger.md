@@ -3,6 +3,12 @@
 Updated 2026-11-13. The coordinator reads this first; the architecture of record
 (`docs/design/architecture-of-record-2026-11-12.md`) is the constraint until it is amended.
 
+## Goal
+
+Ship Summrise v1 and keep improving it: one operator installs the device, enrolls it into the
+console, connects AI clients over MCP, and can see, stop and trust everything that runs. Every item
+below ladders to that; one round completes one major item end to end.
+
 ## Shipped
 
 - 2026-11-12 — architecture of record approved: trusted plugins (no signature/sandbox), shell is the
