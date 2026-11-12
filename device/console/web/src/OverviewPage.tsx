@@ -412,6 +412,17 @@ export function OverviewPage(props: OverviewPageProps) {
         : "The machine is running. The console could not read its tool list, so these counts may be stale."
       : null;
 
+  // The day line is the band's second half; it is built once, here, so the card below can place it.
+  const dayLine = (
+    <div className="home-day">
+      {summary !== null && <p className="home-today">{summary}</p>}
+      <button type="button" className="link home-all" onClick={props.onActivity}>
+        All activity <span aria-hidden="true">→</span>
+      </button>
+      {empty !== null && <p className="hint">{empty}</p>}
+    </div>
+  );
+
   return (
     <div className="overview-page">
       {/* **A PAGE HAS ONE HEAD, AND THIS IS A CARD (the sixty-second list).** Measured: the Device page
@@ -480,15 +491,23 @@ export function OverviewPage(props: OverviewPageProps) {
           evidence read as evidence of idleness (audit-43 F5). The dated notice above is the
           machine's state; the day line below is its last record. */}
       {!offline && (
-        <LiveNow
-          // The band and the day line are the same machine's day: feeding the band the fleet's
-          // newest 200 live lines made it say "Quiet" while the window held this machine's calls,
-          // and after a reconnect the live list is only the newest forty. The band reads presence
-          // from that window and draws none of its rows: the calls themselves live in Activity.
-          lines={dayLines}
-          running={liveRunning}
-          state={props.liveState ?? "connecting"}
-        />
+        // **ONE SURFACE FOR THE MACHINE'S ACTIVITY (the hundred-and-sixty-third list).** Measured at 1440: the Now band and
+        // the day line were two bordered panels 12 px apart, each holding one sentence, on a page whose lower 600 px were
+        // empty. The band painted `--panel`/`--line`/`--radius` by hand instead of taking the card atom — the two could not be
+        // one surface while it did. The CARD is this wrapper now; the band keeps its name and its no-doors rule (a test
+        // asserts `.live-now button` is empty), and the day line sits beside it inside the same surface.
+        <section className="card overview-activity" aria-label="This machine's activity">
+          <LiveNow
+            // The band and the day line are the same machine's day: feeding the band the fleet's
+            // newest 200 live lines made it say "Quiet" while the window held this machine's calls,
+            // and after a reconnect the live list is only the newest forty. The band reads presence
+            // from that window and draws none of its rows: the calls themselves live in Activity.
+            lines={dayLines}
+            running={liveRunning}
+            state={props.liveState ?? "connecting"}
+          />
+          {dayLine}
+        </section>
       )}
 
       {/* **THE DAY IS ONE LINE, NOT ACTIVITY'S CARD.** The measured page ended in a 29-row copy of
@@ -496,13 +515,9 @@ export function OverviewPage(props: OverviewPageProps) {
           heading (audit-42 F1). The day's count, failures and span stay here because they are the
           machine's state; the rows are the record's and live in Activity, behind this one door. It
           is not a live region: it moves on the five-second reread, not on every line. */}
-      <section className="panel home-day" aria-label="This machine's activity">
-        {summary !== null && <p className="home-today">{summary}</p>}
-        <button type="button" className="link home-all" onClick={props.onActivity}>
-          All activity <span aria-hidden="true">→</span>
-        </button>
-        {empty !== null && <p className="hint">{empty}</p>}
-      </section>
+      {/* **THE DAY LINE IS THE BAND'S SECOND HALF (the hundred-and-sixty-third list).** It was a `panel` of its own — a
+          second bordered surface 12 px under the first, holding one sentence and one door. Measured at 1440 the page drew
+          three surfaces for three sentences and left its lower 600 px empty; the two activity blocks are one card now. */}
     </div>
   );
 }

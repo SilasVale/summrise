@@ -3226,10 +3226,12 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
    One band above the page's own panels: presence, rate, and the last few things the console saw.
    Everything is a fact from the audit stream; the pulse stops when the calls stop. */
 
-.live-now {
-  margin: 0 0 var(--sp-4); padding: var(--sp-3-5) var(--sp-4);
-  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
-}
+/* **THE BAND IS THE CARD'S FIRST HALF, NOT A CARD OF ITS OWN (the hundred-and-sixty-third list).** It painted
+   `--panel` / 1 px `--line` / `--radius` by hand — a card in everything but its class — so the day line 12 px under it could
+   not share the surface, and the page drew three bordered panels for three sentences. The wrapper `.overview-activity` is the
+   card now; this is layout inside it. */
+.live-now { margin: 0; padding: 0; background: transparent; border: 0; border-radius: 0; }
+.overview-activity .home-day { margin-top: var(--sp-3); padding-top: var(--sp-3); border-top: 1px solid var(--line); }
 .live-now-head { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; }
 .live-now-head h2 { margin: 0; font-size: var(--fs-md); font-weight: var(--fw-semi); letter-spacing: var(--tracking-tight); }
 .live-state { display: inline-flex; align-items: center; gap: var(--sp-1-5); font-size: var(--fs-xs); color: var(--ink-muted); }

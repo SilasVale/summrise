@@ -146,6 +146,11 @@ export function LiveNow(props: {
           ))}
         </ul>
       )}
+      {/* **THE DAY LINE IS THE SAME CARD'S SECOND HALF (the hundred-and-sixty-third list).** Measured at 1440: the page drew
+          the Now band and the day line as two bordered panels 12 px apart, each holding one sentence — two surfaces for two
+          lines, on a page whose lower 600 px were empty. The band's own rule painted `--panel`/`--line`/`--radius` BY HAND
+          rather than taking the card atom, which is why the two could not simply be one: the band was a card in everything
+          but its class. It takes `.card` now, and the caller puts its day line inside it. */}
     </section>
   );
 }
