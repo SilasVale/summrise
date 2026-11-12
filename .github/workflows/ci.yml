@@ -50,7 +50,7 @@ jobs:
       # this job from drifting apart. `working-directory: device` would make the command correct only
       # in this file, and the same command pasted into a terminal would fail.
       - name: the device workspace (unit tests)
-        run: cargo test --manifest-path device/Cargo.toml -p summrise-core -p summrise-bus -p summrise-device -p summrise-launch -p summrise-mesh -p summrise-release -p summrise-console -p summrise-ui -p summrise-winsec -p summrise-winsys -p summrise-shell
+        run: cargo test --manifest-path device/Cargo.toml -p summrise-core -p summrise-bus -p summrise-plugin-host -p summrise-console-page -p summrise-device -p summrise-launch -p summrise-mesh -p summrise-release -p summrise-console -p summrise-ui -p summrise-winsec -p summrise-winsys -p summrise-shell
       # **PHASE 2'S FLOOR, RUN RATHER THAN UNIT-TESTED.** The same binary the Windows service runs
       # starts with a throwaway install/data pair and serves `/api/health` and its panel on Linux.
       # The Windows job still owns the service, installer and swap; this owns "the portable half
@@ -86,7 +86,7 @@ jobs:
       - name: the device workspace formats
         run: cargo fmt --manifest-path device/Cargo.toml --all -- --check
       - name: the device workspace is clippy-clean
-        run: cargo clippy --manifest-path device/Cargo.toml -p summrise-core -p summrise-bus -p summrise-device -p summrise-launch -p summrise-mesh -p summrise-release -p summrise-console -p summrise-ui -p summrise-winsec -p summrise-winsys -p summrise-shell --all-targets -- -D warnings
+        run: cargo clippy --manifest-path device/Cargo.toml -p summrise-core -p summrise-bus -p summrise-plugin-host -p summrise-console-page -p summrise-device -p summrise-launch -p summrise-mesh -p summrise-release -p summrise-console -p summrise-ui -p summrise-winsec -p summrise-winsys -p summrise-shell --all-targets -- -D warnings
 
       # **A FORWARD IS A RULE, AND THE ONLY HONEST PROOF OF A FORWARDED CHANNEL IS A REAL sshd.**
       # `capabilities::forward`'s unit tests drive an IN-PROCESS SSH server, and that fixture cannot
