@@ -566,6 +566,26 @@ describe("the layout contract", () => {
     expect(uses, "and not one of them is a page-level card").toBeLessThanOrEqual(4);
   });
 
+  it("puts a ring on every native control, so a keyboard's place is drawn", () => {
+    // **A PROBE THAT FOCUSES WITH SCRIPT CANNOT SEE THIS, AND THAT IS WHY IT IS PINNED (the hundred-and-thirty-eighth
+    // list).** Measured 2026-11-12 on the built page: a focus walk over `main`'s 38 controls reported six without a
+    // ring — the machine chips and the fleet rows among them — because `el.focus()` from script does not match
+    // `:focus-visible` in this browser. The page was fine: one blanket rule names every native control type. That
+    // rule is the guarantee, so it is the thing to hold — a stylesheet edit that drops one type, or the rule itself,
+    // now fails here instead of waiting for a keyboard user to find it.
+    const sheet = css();
+    const blanket = sheet.match(
+      /button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible \{[^}]*\}/
+    );
+    expect(blanket, "one rule names every native control").not.toBeNull();
+    expect(blanket?.[0]).toContain("outline: 2px solid var(--focus-ring)");
+    expect(blanket?.[0]).toContain("outline-offset: 2px");
+    // And no type may be dropped from the list.
+    for (const type of ["button", " a", " input", " select", " textarea", " summary"]) {
+      expect(blanket?.[0], `${type.trim()} keeps its ring`).toContain(`${type}:focus-visible`);
+    }
+  });
+
   it("is ONE hairline family, and the chrome's line is derived rather than restated", () => {
     // **THIS SURFACE HAD ONE FAMILY AND THE PANEL HAD THREE (the fifty-seventh list).** Measured, the
     // panel's `--chrome-line` was the same `rgba(0,0,0,.08)` as `--line` under a second name, and its
