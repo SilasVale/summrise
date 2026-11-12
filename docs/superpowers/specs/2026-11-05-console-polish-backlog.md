@@ -5818,6 +5818,29 @@ shipped device answers `{health: {pid, poisoned, status, version}, state, events
 **WIRED NOW: 38 of 46.** Remaining eight: memory writes (3), `browser.cast`, `terminal.screen`, `forward.list` (needs a device that
 ships the forward plugin), `monitor.probe`, `monitor.status`.
 
+## The hundred-and-seventy-eighth list (SHIPPED 2026-11-12 — probe a service now, and stop inventing its count)
+
+The card could only report the device's 15 s cadence, so "is it up NOW?" had no answer in the console. `monitor.probe {id}` takes a
+sample immediately and records it in the series.
+
+    each row → [Probe now] → the row redraws from the DEVICE's summary after the sample
+
+**The page re-reads `monitor.list` instead of drawing the sample it just got**: the device owns the series, and a row composed from
+one sample would be a second opinion beside the device's.
+
+**AND THE LIVE ROW SAID `0% of 0 probes`** — a sentence about nothing. Measured on 0.3.292, the summary is
+`{drops, last_status, since_ms, up_now, up_pct}`: **no `probes`, no `up`, no `down`** (the count lives in `monitor.status`, and the
+series is not in this build's list answer). The page defaulted the absent count to 0 and printed a percentage of it. The count is
+nullable now: `97% of 40 probes` when the build reports one, **`0% up in the window`** when it does not.
+
+**THE DEMO WATCH IS GONE.** The watch created in the hundred-and-seventy-fourth list to prove the feature pointed at
+`127.0.0.1:19000/health` and read **Down** — measured with `monitor.probe`, `{latency_ms: null, ok: false}`: the console does not
+answer on the machine's loopback. A watch that reports a false Down on the operator's page is noise, so it was removed
+(`{"removed": true}`, then `[]`). The feature was proven; the misleading object is not left behind.
+
+**WIRED NOW: 39 of 46.** Remaining seven: memory writes (3, blocked on the shipped schema), `browser.cast`, `terminal.screen`,
+`forward.list` (blocked on a device that ships the plugin), `monitor.status`.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
