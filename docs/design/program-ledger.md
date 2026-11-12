@@ -98,21 +98,21 @@ below ladders to that; one round completes one major item end to end.
   NSIS installer is not byte-reproducible. The device's own verifier is `summrise-device --check-update`,
   which `publish-canary.bash` runs at the end of a real publish.
 
-## In flight (branch `feat/verify-authenticity`)
-
-- `verify-release.sh` gains the device's own acceptance: a `--device` check runs
-  `summrise-device --check-update` against the mirror, and the sidecar is checked; the rehearsal passes
-  it automatically.
+- 2026-11-13 — `verify-release.sh` now proves what the device accepts (`b9b4bbb`): `--device`,
+  `--device-data` and `--device-install` run the built device's `--check-update`, so the signed document
+  must pass the same signature, revocation, policy and artifact-signature checks the machine runs; a
+  sidecar the mirror serves is checked against the signed pointer. The rehearsal builds a Linux verifier
+  from the derived keys, boots it once for its state (`--release-version/--release-channel`) and passes
+  it through. Positive: five ok lines including `the device accepts the signed document (version
+  0.3.995)` in 26 s. Negative: edit the document's version and the device check fails with `the release
+  signature does not verify`, while the mirror checks stay ok.
 
 ## Next (in order)
 
-1. `verify-release.sh` should prove what the device accepts, not merely that the mirror is
-   self-consistent: run the built `summrise-device --check-update <mirror>/release-<v>.json` inside the
-   tool (or add `--check-with-device`), and check the sidecar's presence and signature. This is the
-   gap the rehearsal exposed and it is verifiable here.
-2. Windows handoff — build the installer on a Windows runner, silent install/uninstall, run
-   `summrise-shell.exe --check-window` with the console down, sign the four exes.
-3. Keep improving from what the operator hits (one major item a round, green merges into `hub/v1`).
+1. Windows handoff — build the installer on a Windows runner, silent install/uninstall, run
+   `summrise-shell.exe --check-window` with the console down, sign the four exes. This is the only v1
+   item this Linux machine cannot verify.
+2. Keep improving from what the operator hits (one major item a round, green merges into `hub/v1`).
 
 ## Rules
 
