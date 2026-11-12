@@ -5860,6 +5860,28 @@ second stream in the card would be two answers to one question. Empty and failed
 **WIRED NOW: 40 of 46.** Remaining six: memory writes (3, blocked on the shipped schema), `browser.cast`, `forward.list` (blocked on
 a device that ships the plugin), `monitor.status`.
 
+## The hundred-and-eightieth list (SHIPPED 2026-11-12 — Home says the fleet's watches in one line)
+
+The console can start a watch on any machine, and Home said nothing about them. One line under the verdict:
+
+    Watching 1 service · all up
+    1 service is down: DESKTOP-9VH92BJ: 100.74.250.98:19000/health
+
+**READ ONCE PER MEMBERSHIP CHANGE, NOT PER POLL**: four online machines are four cheap calls, and a page that re-read them every few
+seconds would spend more on this line than on the fleet itself. A watch that cannot be read is dropped rather than counted as up.
+
+**AND THE LIVE LINE SAID `across 2 machines`** — the read answers for every ONLINE machine, so the count measured the machines that
+answered, not the machines that watch something (`-ux233` drops it).
+
+**`monitor.status` IS DELIBERATELY NOT WIRED**: measured live on 0.3.292 it answers the SAME summary `monitor.list` carries
+(`{drops, last_status, since_ms, up_now, up_pct}`) — a second door to one fact would be a second answer to one question.
+
+**AND ONE USEFUL WATCH NOW EXISTS ON THE FLEET**: `100.74.250.98:19000/health` (the console's own health over Tailscale), added to
+prove the add/status path, measured **up 200, 100%** — it stays, unlike the loopback one from the hundred-and-seventy-eighth list.
+
+**WIRED NOW: 40 of 46, plus one deliberate omission.** Remaining: memory writes (3, blocked on the shipped schema), `browser.cast`,
+`forward.list` (blocked on a device that ships the plugin).
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
