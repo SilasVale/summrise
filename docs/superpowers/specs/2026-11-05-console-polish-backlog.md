@@ -5896,6 +5896,68 @@ prove the add/status path, measured **up 200, 100%** — it stays, unlike the lo
 **WIRED NOW: 40 of 46, plus one deliberate omission.** Remaining: memory writes (3, blocked on the shipped schema), `browser.cast`,
 `forward.list` (blocked on a device that ships the plugin).
 
+## THE WEEK'S LEDGER (2026-11-12 — SHIP-FAST, rounds 51–64: what shipped, what the live check caught, what is left)
+
+**32 commits, 21 console deployments** (`0.3.274-ux213` → `-ux233`), every one verified on `console.saisi.online` before it was
+recorded here.
+
+### Shipped (each a door or a page a person can see)
+
+| what | deploy | the measurement it answers |
+|---|---|---|
+| **Device → Memory** — search + list of the AI's records on a machine | `-ux214`, `-ux224`, `-ux225` | the device had 6 memory tools and the console had no surface for any of them |
+| **Machine → Services this machine watches** — the device's probes, with a WORD per state | `-ux215`, `-ux216` | 5 monitor tools, no door |
+| **Watch a host and port / Stop watching** | `-ux219`, `-ux220` | start a watch without a terminal on the machine |
+| **Probe now** | `-ux229`, `-ux230` | "is it up NOW?", which the 15 s cadence cannot answer |
+| **Read the machine now** (`host.facts`) | `-ux217`, `-ux218` | the Machine tab only ever showed the last FRAME |
+| **The machine's own record** (`state.get`) | `-ux227`, `-ux228` | the console's claim vs the machine's claim about itself |
+| **The session's screen** (`terminal.screen`) | `-ux231` | the card showed facts, then a black rectangle |
+| **The machine's three doors** on Overview | `-ux226` | 380 px of content in a 900 px window |
+| **Home says the fleet's watches in one line** | `-ux232`, `-ux233` | the fleet's verdict knew nothing about the watches |
+
+**Tool wiring: 32 of 46 → 40 of 46**, plus one deliberate omission (`monitor.status` answers the same summary `monitor.list`
+carries — measured, not assumed).
+
+### What the live check caught that no test would have
+
+**Ten defects, every one found by looking at the deployed page or calling the deployed tool** — not by the suite:
+
+    monitor.list answers a BARE ARRAY                     → "the machine answered monitor.list without a list"
+    monitor.add requires kind, host, port, interval_ms    → "the arguments do not match the tool's input schema"
+    memory.list answers a BARE ARRAY of {id, tags, text}  → "the machine answered without a list"
+    state.get nests its health under "health"             → "unknown" beside ten real events
+    the router kept a SECOND copy of the tab list         → "#device/memory" drew nothing
+    an absent timestamp became 0 and printed "no date"    → five rows, five invented dates
+    an absent probe count became 0                        → "0% of 0 probes"
+    "across 2 machines" counted machines that ANSWERED    → a watch that spanned nothing
+    a 4-second wait with a frozen label                   → reads as a hang
+    the panel bundle's MTIME, not its bytes, was stale    → a device build that refuses to start
+
+**The lesson is a file now**: `docs/superpowers/specs/2026-11-12-device-wire-shapes.md` records what the fleet answers, tool by
+tool, and the rule that follows — **read the live answer before trusting the source, and keep a test per shape found.**
+
+### Numbers, at the close
+
+| | |
+|---|---|
+| console vitest | **70 files / 1,162 tests** (was 67 / 1,141) |
+| console Rust | **437** |
+| browser gate | **107 steps**, PASS |
+| panel vitest | **120 files / 1,066 tests** |
+| panel Rust gates | **1 · 2 · 5** |
+| contract | sha256 `51abc1df…`, byte-identical in both repositories |
+
+### What is left, and why each one is not a defect
+
+1. **The device's forward feature has never run.** No live build carries the plugin (`0.3.292` advertises 46 tools, none
+   `forward.*`). Blocked on a device release — which the operator holds.
+2. **The memory writes (append/update/delete).** `memory.list` on the shipped build accepts only `limit` and `tag`; a soft delete
+   without `include_deleted` is a one-way door, so it was built, tested, and **reverted** (`64b2583`).
+3. **`browser.cast`.** The Screen page already draws the browser view from `browser.screenshot`; the cast stream would be a second
+   answer to one question, and its shape has not been measured.
+4. **TS types generated from Rust.** The engineering debt named earlier in the week and not yet paid: the tool-name inventory and the
+   tab list are hand-kept copies of things Rust already knows. **This is the next round's first job.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
