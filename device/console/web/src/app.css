@@ -367,7 +367,13 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
 .boot { padding: 2rem; color: var(--ink-muted); }
 .login-wrap { min-height: 100vh; display: grid; place-items: center; padding: var(--sp-5); }
 .login { width: min(30rem, 100%); display: grid; gap: var(--sp-2); }
-.login h1, .login h2 { margin: var(--sp-1) 0 0; font-size: var(--fs-lg); }
+/* **THE SIGN-IN PAGE'S NAME IS ITS CLAIM, AND THE CONTRACT HAS A RUNG FOR THAT (the hundred-and-sixty-fifth list).** Measured
+   on the built page 2026-11-12 (1280 × 900): `.login h1` drew **17 / 700** while Home's verdict drew 22 and Activity's claim 17 —
+   the one screen a person meets BEFORE they are inside said its purpose more quietly than every screen inside. `head`'s two
+   conditional fields (`nameWhenClaim`, `nameWhenRepeated`) do not apply here: this head has no claim under it and no control
+   repeating it, so the name IS the claim and takes the `title` atom. */
+.login h1 { margin: var(--sp-1) 0 0; font-size: var(--fs-xl); font-weight: var(--fw-semi); letter-spacing: var(--tracking-display); }
+.login h2 { margin: var(--sp-1) 0 0; font-size: var(--fs-lg); }
 .login label { font-size: var(--fs-sm); font-weight: var(--fw-medium); margin-top: var(--sp-1-5); }
 .login input {
   width: 100%; padding: var(--sp-2) var(--sp-2-5); border: 1px solid var(--line-strong); border-radius: var(--radius-xs);

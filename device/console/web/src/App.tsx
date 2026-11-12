@@ -1170,8 +1170,8 @@ export function App() {
             <>
               <h1>Sign in to the console</h1>
               <p className="hint">
-                The operator token is the 64-character secret in the file the console's
-                <code> --operator-token-file </code> names, on the console host.
+                The operator token is the 64-character secret in the file the console's{" "}
+                <code>--operator-token-file</code> names, on the console host.
               </p>
               {accessNote && <p className="error">{accessNote}</p>}
               {!accessNote && session.access?.header && session.access.error && (
