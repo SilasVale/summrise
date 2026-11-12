@@ -190,6 +190,21 @@ describe("the answers", () => {
     );
     await expect(api.session()).rejects.toBeInstanceOf(NoAnswer);
   });
+
+  it("states the edge in a sentence, and keeps the route out of the reader's", async () => {
+    // **THE REASON A READER SEES IS A SENTENCE (the hundred-and-thirty-seventh list).** `NoAnswer`'s
+    // message was the request path, so a tooltip that had just said "the console could not read the
+    // audit" carried `/audit/day` under the pointer. The path stays on the error for a caller; the
+    // message says who answered, and the status when there is one.
+    fetchMock.mockResolvedValue(answer({ status: 200, text: "<!doctype html><html></html>" }));
+    const failure = await api.audit().catch((error) => error);
+    expect(failure).toBeInstanceOf(NoAnswer);
+    expect(failure.message).toBe(
+      "the edge answered this read with a web page, not the console (HTTP 200)"
+    );
+    expect(failure.path).toBe("/audit?limit=20");
+    expect(failure.message).not.toContain("/audit");
+  });
 });
 
 describe("the day's answer", () => {

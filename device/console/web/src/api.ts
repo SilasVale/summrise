@@ -408,7 +408,29 @@ export type AuditLine = {
 /// The console did not answer with JSON: the edge answered instead — an Access login page after the
 /// session lapsed, or a proxy's error page. The page reloads once through Access rather than telling
 /// the operator to find a token.
-export class NoAnswer extends Error {}
+///
+/// **THE MESSAGE IS A SENTENCE, NOT THE ROUTE (the hundred-and-thirty-seventh list).** `new
+/// NoAnswer(path)` used to put the request path in `message`, and every `describe(cause)` that drew a
+/// reason printed it: a tooltip that had just said "the console could not read the audit" carried
+/// `/audit/day` under the pointer, and a page that names its own read (`Could not read this device's
+/// sessions: …`) would have said `/mcp`. The path is kept as a field for a caller that wants it; the
+/// sentence says who answered.
+export class NoAnswer extends Error {
+  constructor(
+    readonly path: string,
+    readonly status: number = 0,
+    /** A sentence for a refusal that is not the edge's: the route answered, but with nothing usable. */
+    reason?: string
+  ) {
+    super(
+      reason ??
+        (status > 0
+          ? `the edge answered this read with a web page, not the console (HTTP ${status})`
+          : "the edge answered this read with a web page, not the console")
+    );
+    this.name = "NoAnswer";
+  }
+}
 
 class HttpError extends Error {
   constructor(
@@ -435,7 +457,7 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   try {
     body = text ? (JSON.parse(text) as T | { error?: string }) : null;
   } catch {
-    throw new NoAnswer(path);
+    throw new NoAnswer(path, response.status);
   }
   if (!response.ok) {
     const failure = body as { error?: string; message?: string } | null;
@@ -523,7 +545,7 @@ export const api = {
       `/audit/day${device ? `?device=${encodeURIComponent(device)}` : ""}`
     );
     if (day === null || typeof day !== "object" || typeof day.client_calls !== "number") {
-      throw new NoAnswer("/audit/day");
+      throw new NoAnswer("/audit/day", 0, "the day's answer carried no counts");
     }
     return day;
   },
