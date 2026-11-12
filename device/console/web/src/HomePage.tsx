@@ -644,7 +644,11 @@ function FleetHome(props: HomePageProps) {
               onClick={() =>
                 props.onNow?.({
                   tool: newestLive.line.tool ?? "",
-                  deviceId: newestLive.line.device_id ?? null
+                  deviceId: newestLive.line.device_id ?? null,
+                  // **A RUN'S LINE CAN OPEN THE RUN ITSELF (the hundred-and-ninety-sixth list).** `runs.exec` writes `run <id> exited …`
+                  // into its detail, and the console already turns that into a run link elsewhere; the page passes the sentence and lets
+                  // the app decide, so one regex serves one meaning.
+                  detail: newestLive.line.detail ?? null
                 })
               }
             >
@@ -934,7 +938,7 @@ export type HomePageProps = FleetProps & {
    * what happened". This opens Activity scoped to that machine and that tool — the two filters the page already owns — so the line is
    * a door rather than a caption.
    */
-  onNow?: (call: { tool: string; deviceId: string | null }) => void;
+  onNow?: (call: { tool: string; deviceId: string | null; detail: string | null }) => void;
   onConnect: () => void;
   onTools: () => void;
 };

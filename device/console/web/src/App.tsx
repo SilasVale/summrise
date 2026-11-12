@@ -1337,8 +1337,14 @@ export function App() {
             liveLines={live.lines}
             liveState={live.state}
             onNow={(call) => {
-              // **THE PULSE'S DOOR (the hundred-and-ninety-fifth list).** Activity opens scoped to the call the line named: its tool and
-              // its machine, both of which the page's filter already carries — no new state, no second read.
+              // **A FINISHED RUN'S LINE OPENS THE RUN (the hundred-and-ninety-sixth list).** `runs.exec` names its run in the detail, and
+              // the run's own result is what a person wants next — the Device page's Runs tab already focuses a run by id.
+              const finished = call.tool === "runs.exec" ? /^run (\S+) /.exec(call.detail ?? "") : null;
+              if (finished !== null && call.deviceId !== null) {
+                openRun(call.deviceId, finished[1]);
+                return;
+              }
+              // Otherwise Activity opens scoped to the call: its tool and its machine, both of which the page's filter already carries.
               setActivityFilter((current) => ({ ...current, tool: call.tool, device: call.deviceId ?? "" }));
               setPage("activity");
             }}
