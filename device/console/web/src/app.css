@@ -2984,6 +2984,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 .system-update { margin: 0; font-variant-numeric: tabular-nums; }
 .system-section .card { border: 0; background: var(--canvas); }
 
+
 /* ── The files page ─────────────────────────────────────────────────────────────────────────────
    A file browser is a path, a toolbar and a list. The path is a bar (not a heading floating beside
    the root picker), the toolbar is one row, and the list is grouped rows with hairlines. */
@@ -3385,6 +3386,10 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
    carried the baseline, because it declared a SIZE and not a step. It is the same kind of word as the
    `MACHINES` label beside it, so it joins this ruleset rather than restating its five declarations —
    which is what the count above this list exists to prevent. */
+/* **THE PANEL INSIDE THE APP CARD IS A GROUP, AND ITS NAME IS AN EYEBROW (the hundred-and-fiftieth list).** Measured on
+   the LIVE console 2026-11-12 (`0.3.274-ux202`, 1440, Device -> Machine): `Updates` drew 14/600 ink — the same rung as the
+   card titles that CONTAIN it — so a group of four rows read as a sibling card. It joins the atom rather than restating it;
+   the count above this list is what makes that the only option. */
 .filter-label,
 .audit-field > span,
 th,
@@ -3397,7 +3402,8 @@ th,
 .audit-caller,
 .evidence-label,
 .attention-label,
-.fleet-started-label {
+.fleet-started-label,
+.system-update > header strong {
   font-size: var(--fs-2xs); font-weight: var(--fw-semi);
   text-transform: uppercase; letter-spacing: var(--tracking-label);
   color: var(--ink-muted);
