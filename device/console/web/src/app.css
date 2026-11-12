@@ -4036,6 +4036,21 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .service-address { font-size: var(--fs-base); }
 .service-meta { font-size: var(--fs-xs); color: var(--ink-muted); font-variant-numeric: tabular-nums; }
 
+/* ── The machine's doors ─────────────────────────────────────────────────────────────────────────
+   The landing page ends with three doors into the things a person does next with a machine. Each is a card in the same grammar
+   as every other card (the atom decides the box), so the row reads as part of the page and not as a toolbar. */
+.overview-doors {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: var(--sp-3); margin: var(--sp-4) 0 0;
+}
+.overview-door {
+  display: grid; gap: var(--sp-1); text-align: left; cursor: pointer;
+  font: inherit; color: inherit;
+}
+.overview-door:hover { border-color: var(--line-strong); }
+.overview-door-title { font-size: var(--fs-base); font-weight: var(--fw-semi); }
+.overview-door-note { font-size: var(--fs-xs); color: var(--ink-muted); }
+
 /* ── Memory: what the AI wrote down on this machine, read-only ─────────────────────────────────
    The device has carried the memory family since the plugin landed and the console had no door (measured 2026-11-12:
    46 tools advertised, 32 wired, six of the missing were memory). A record is a title, its provenance and its text:

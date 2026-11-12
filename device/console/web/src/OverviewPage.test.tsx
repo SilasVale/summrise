@@ -123,11 +123,13 @@ function draw(overrides: Record<string, unknown> = {}) {
   else auditApi.audit.mockResolvedValue(audit ?? calls);
   const onTools = vi.fn();
   const onActivity = vi.fn();
+  const onTab = vi.fn();
   const page = (extra: Record<string, unknown> = {}) => (
     <OverviewPage
       device={workshop}
       onTools={onTools}
       onActivity={onActivity}
+      onTab={onTab}
       {...props}
       {...extra}
     />
@@ -138,7 +140,8 @@ function draw(overrides: Record<string, unknown> = {}) {
     /** Redraw the same page with new props: a tick, a recovery, or another snapshot. */
     rerenderHub: (extra: Record<string, unknown>) => view.rerender(page(extra)),
     onTools,
-    onActivity
+    onActivity,
+    onTab
   };
 }
 
@@ -1175,4 +1178,13 @@ describe("Device overview — the machine's live page", () => {
     }
   });
 
+  it("offers the machine's three doors, and each goes to the tab it names", () => {
+    const view = draw();
+    expect(screen.getByRole("button", { name: /Open a terminal/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Watch a service/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Read its memory/ }));
+    expect(view.onTab).toHaveBeenCalledWith("memory");
+    fireEvent.click(screen.getByRole("button", { name: /Watch a service/ }));
+    expect(view.onTab).toHaveBeenCalledWith("machine");
+  });
 });

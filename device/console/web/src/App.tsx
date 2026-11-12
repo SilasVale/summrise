@@ -1582,6 +1582,7 @@ export function App() {
                     device={chosen}
                     onTools={() => setTab("tools")}
                     onActivity={() => setPage("activity")}
+                    onTab={(next) => setTab(next)}
                     liveLines={live.lines}
                     liveRunning={live.running}
                     liveState={live.state}

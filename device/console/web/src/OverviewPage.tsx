@@ -29,6 +29,13 @@ export type OverviewPageProps = {
   device: Device;
   onTools: () => void;
   onActivity: () => void;
+  /**
+   * **THE MACHINE'S DOORS (the hundred-and-seventy-sixth list).** The landing page answered "what is this machine doing" and then
+   * stopped: measured 2026-11-12, 380 px of content in a 900 px window, with the rest empty. The three things a person does next
+   * with a machine are taking its keyboard, seeing what it watches, and reading what it learned — all three existed as tabs and
+   * none was reachable from here without the strip at the top. A door is a tab's name; nothing is invented.
+   */
+  onTab?: (tab: "terminal" | "machine" | "memory") => void;
   /** The live activity stream, newest first. Absent in tests and before the stream opens. */
   liveLines?: LiveLine[];
   /** The calls the proxy has announced and not cleared, for this machine or another. */
@@ -525,6 +532,23 @@ export function OverviewPage(props: OverviewPageProps) {
             state={props.liveState ?? "connecting"}
           />
           {dayLine}
+        </section>
+      )}
+
+      {props.onTab !== undefined && (
+        <section className="overview-doors" aria-label="Do something with this machine">
+          <button type="button" className="card overview-door" onClick={() => props.onTab?.("terminal")}>
+            <span className="overview-door-title">Open a terminal</span>
+            <span className="overview-door-note">Take this machine's keyboard</span>
+          </button>
+          <button type="button" className="card overview-door" onClick={() => props.onTab?.("machine")}>
+            <span className="overview-door-title">Watch a service</span>
+            <span className="overview-door-note">Probe a host and port on it</span>
+          </button>
+          <button type="button" className="card overview-door" onClick={() => props.onTab?.("memory")}>
+            <span className="overview-door-title">Read its memory</span>
+            <span className="overview-door-note">What the AI learned here</span>
+          </button>
         </section>
       )}
 
