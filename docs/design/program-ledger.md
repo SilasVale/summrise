@@ -75,6 +75,11 @@ below ladders to that; one round completes one major item end to end.
   is green. 1 182 page tests, layout contract included.
 - 2026-11-13 — CI now tests and lints `summrise-plugin-host` and `summrise-console-page` (`9104933`).
 
+## In flight (branch `feat/local-smoke`)
+
+- A Linux smoke script: the standalone device boots, serves its panel, answers MCP and journals
+  `device.started`; the console serves its page and health.
+
 ## Next (in order)
 
 1. Linux end-to-end smoke — a standalone device and a local console, register, mint a token, one MCP
