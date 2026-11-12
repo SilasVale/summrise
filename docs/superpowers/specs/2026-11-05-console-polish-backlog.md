@@ -6,6 +6,13 @@ down, solve them, and keep going — a goal that can run for hours without a que
 Each item ships on its own: the web gates, the console's Rust tests, a live check on
 `console.saisi.online` with a screenshot, then one commit. An item is done when all four are true.
 
+## THE WIRE, MEASURED — read this before a page reads a tool
+
+**`docs/superpowers/specs/2026-11-12-device-wire-shapes.md`** records what the FLEET answers (0.3.292, 2026-11-12), tool by tool,
+with the exact JSON observed and the reader that accepts it. Five console defects in one week came from writing a page against the
+source tree instead of the deployed build; that file is the antidote, and the rule it carries is one sentence: **read the live
+answer before trusting the source, and keep a test per shape found.**
+
 ## THE GATE LEDGER (snapshot 2026-11-12, every number run on this tree)
 
 Two repositories, three kinds of gate: **Rust**, **vitest**, and **a browser gate that drives the BUILT page**. Every command
