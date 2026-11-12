@@ -28,11 +28,12 @@ export type MemoryEntry = {
 const text = (value: unknown, fallback = ""): string =>
   typeof value === "string" ? value : fallback;
 
-const seconds = (value: unknown): number => {
+const seconds = (value: unknown): number | null => {
   // The store writes seconds; a build that ever wrote milliseconds would be off by 1000, so the reader refuses a
-  // number that cannot be seconds (anything past the year 3000 is somebody's millis).
-  const n = typeof value === "number" && Number.isFinite(value) ? value : 0;
-  return n > 0 && n < 32_503_680_000 ? Math.round(n) : 0;
+  // number that cannot be seconds (anything past the year 3000 is somebody's millis). **AN ABSENT STAMP IS NULL, NOT 0** —
+  // the shipped build's records carry no timestamp at all, and a zero would have drawn `no date` on every row.
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return value > 0 && value < 32_503_680_000 ? Math.round(value) : null;
 };
 
 /**
