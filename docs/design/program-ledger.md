@@ -68,10 +68,12 @@ below ladders to that; one round completes one major item end to end.
   feature carries the scripted launcher for device tests. 32 plugin-host tests, 9 device plugin tests,
   gate 14 packages / 22 edges / 0 upward.
 
-## In flight (branch `feat/console-surface`)
-
-- The console's operator surface: a freshly minted token defaults to destructive consent, and the
-  Device page shows the machine's journal events (sessions, plugin lifecycle).
+- 2026-11-13 — The console's operator surface shipped and merged: a token minted from the console
+  defaults to `allow_destructive: true` with a one-click off and an on-state note; the Device page
+  shows the chosen machine's journal events (session/plugin lifecycle, newest first, 20 cap). The
+  embedded page was rebuilt (`8a9f2fe`) so the binary ships the new UI, and `build-web.sh --check`
+  is green. 1 182 page tests, layout contract included.
+- 2026-11-13 — CI now tests and lints `summrise-plugin-host` and `summrise-console-page` (`9104933`).
 
 ## Next (in order)
 2. S4b — extract `console-page` as a crate so "the page holds no keys" is a compile-time boundary.
