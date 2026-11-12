@@ -51,11 +51,11 @@ below ladders to that; one round completes one major item end to end.
   `--target x86_64-pc-windows-gnu` pass; plain msvc `cargo check` needs MSVC's `lib.exe`. Shell 24
   tests. What still needs Windows: link/NSIS/signing and an interactive `--check-window`.
 
-## In flight (branch `feat/s2-resume`)
-
-- S2 close-out — the `reset` frame end to end: device sends `reset{snapshot_seq, lost}` when a
-  cursor falls off, console subscribes from its last device seq instead of live-only, page shows the
-  gap.
+- 2026-11-13 — S2 close-out shipped and merged: the device sends `reset{snapshot_seq, lost}` before
+  the retained rows when a cursor falls off; the console subscribes from its last seen `seq + 1`
+  (live-only on a first connect) and relays the reset as an SSE `reset` event; the page adds the lost
+  range to its existing gap count and rereads. Commits `30baf09` (page) and `bd72800` (Rust).
+  Tests: console 173, device console 30, page 24.
 
 ## Next (in order)
 2. S4b — extract `console-page` as a crate so "the page holds no keys" is a compile-time boundary.
