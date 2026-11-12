@@ -89,18 +89,24 @@ below ladders to that; one round completes one major item end to end.
   callout and §7 say what shipped as slices and point at this ledger; I7 records the page's crate
   boundary and I8 the gate's numbers. RELEASE.md names the three library crates and the four exes.
 
-## In flight (branch `feat/release-rehearsal`)
-
-- A local release rehearsal: sign a canary with the archive keys, serve the mirror on loopback, and
-  verify the pointer, the document and the artifact — the update path, without a device.
+- 2026-11-13 — The release rehearsal shipped and merged (`aa33706`): `scripts/rehearse-release.sh`
+  derives the three public keys from the archive seeds, publishes a canary on loopback (four exes via
+  `cargo xwin`, a signed document, the NSIS installer), serves it and runs `verify-release.sh`; the
+  positive run is 25 s and the corrupt-artifact copy fails on the digest. Findings worth keeping:
+  `verify-release.sh` checks consistency, not signatures (a rewritten document passes; the sidecar is
+  not checked at all), the signed `artifactUrl` is absolute so the mirror host must be signed, and the
+  NSIS installer is not byte-reproducible. The device's own verifier is `summrise-device --check-update`,
+  which `publish-canary.bash` runs at the end of a real publish.
 
 ## Next (in order)
 
-1. Windows handoff — build the installer on a Windows runner, silent install/uninstall, run
-   `summrise-shell.exe --check-window` with the console down, sign the four exes. This is the only
-   item left in the v1 checklist that this Linux machine cannot verify.
-2. After Windows: keep improving from what the operator hits (the ledger's rules still apply — one
-   major item a round, green merges into `hub/v1`).
+1. `verify-release.sh` should prove what the device accepts, not merely that the mirror is
+   self-consistent: run the built `summrise-device --check-update <mirror>/release-<v>.json` inside the
+   tool (or add `--check-with-device`), and check the sidecar's presence and signature. This is the
+   gap the rehearsal exposed and it is verifiable here.
+2. Windows handoff — build the installer on a Windows runner, silent install/uninstall, run
+   `summrise-shell.exe --check-window` with the console down, sign the four exes.
+3. Keep improving from what the operator hits (one major item a round, green merges into `hub/v1`).
 
 ## Rules
 
