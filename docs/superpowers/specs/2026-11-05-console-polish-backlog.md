@@ -5552,6 +5552,37 @@ whether the panel this audit keeps in step with is ever going to be shipped to a
 
 **AND THE TWO RULES STILL WITHOUT A GATE**, unchanged from the hundred-and-sixty-second list: shadow KINDS (16) and icons (17).
 
+## The hundred-and-sixty-seventh list (OPENED 2026-11-12 — three of the sheet's six shadow families are declared outside the token system)
+
+Rule 16 (shadows, used sparingly and from one family) was the audit's remaining ungated rule, so it was measured rather than
+argued about. `app.css` declares **47** `box-shadow` values; grouped by what they resolve to:
+
+    none                          10      (a state that removes the shadow, not a shadow)
+    var(--ring)                    9      focus rings — a ring is not an elevation
+    var(--shadow-pop)              7      tokens.css, generated
+    var(--shadow-1)                3      tokens.css, generated
+    var(--shadow-2)                2      tokens.css, generated
+    var(--elev-segment)            3      **declared in app.css:2518, not in the token sheet**
+    var(--elev-2)                  2      **declared in app.css:2520 + a dark override, not in the sheet**
+    var(--ring)                    —      **declared in app.css:2520, not in the sheet**
+    0 0 0 1px var(--accent) inset  2      a ring drawn at the call site
+    inset 3px 0 0 var(--accent)    1      the warning card's edge
+
+**SO THE SHEET HAS SIX ELEVATION FAMILIES, AND THREE OF THEM ARE HAND-WRITTEN WHERE THE PAGE USES THEM** — the segmented
+control's raised sheet (`--elev-segment`), the popover's deep shadow (`--elev-2`, with its own dark value), and the focus ring
+(`--ring`). The generated sheet builds the other three from `device/ui/src/lib.rs`, and the Rust token gate already knows about
+these three because they are USED on the page (it counts `var(token)` uses), which is why nothing was red.
+
+**WHY IT WAS NOT MOVED IN THIS ROUND.** The tokens are GENERATED (`scripts/generate-tokens.sh` from `device/ui/src/lib.rs`), and
+`device/console/tests/tokens.rs` measures the sheet it produces — including the rule that *a ring is not an elevation and never
+counts as one*. Moving three tokens means editing the Rust source, regenerating, re-running that gate, and deleting the local
+block in the same commit; half of that leaves the sheet and its source disagreeing, which is the exact failure the generator
+exists to prevent. **The change is written down with its shape rather than started with ten minutes left.**
+
+**THE PLAN FOR IT (next round):** add `--elev-segment`, `--elev-2` and `--ring` to both blocks of `device/ui/src/lib.rs`, run
+`scripts/generate-tokens.sh`, delete `app.css:2518-2530`'s local declarations, then `cargo test -p summrise-console` (tokens +
+the elevation count) and the browser gate — and finally a rule-16 gate that refuses a `box-shadow` outside the six families.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
