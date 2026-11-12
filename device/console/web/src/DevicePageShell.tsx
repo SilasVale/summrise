@@ -1,7 +1,8 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import type { Device } from "./api";
-import { lastHeardMs } from "./format";
+import { clockTime, exactMoment, lastHeardMs } from "./format";
 import type { FleetRead } from "./HomePage";
+import type { LiveLine } from "./liveActivity";
 import { DEVICE_TABS, DEVICE_TAB_LABELS, type DeviceTab } from "./Rail";
 import { DevicePicker } from "./DevicePicker";
 import { OfflineNotice } from "./OfflineNotice";
@@ -33,6 +34,7 @@ export function DevicePageShell({
   onConnect,
   fleetRead,
   onRetryFleet,
+  journalLines,
   children
 }: {
   tab: DeviceTab;
@@ -45,9 +47,15 @@ export function DevicePageShell({
   fleetRead?: FleetRead;
   /** The page's one fleet Retry, shared with Home's notice. */
   onRetryFleet?: () => void;
+  /**
+   * The live feed, or this machine's slice of it. The strip keeps only watched session rows for the
+   * chosen machine, so a caller cannot put another machine's journal on this page.
+   */
+  journalLines?: readonly LiveLine[];
   children: (grant: Grant) => React.ReactNode;
 }) {
   const grant = grantFor(chosen);
+  const journal = chosen ? deviceJournal(journalLines ?? [], chosen.id) : [];
   const tabStrip = useRef<HTMLElement>(null);
   const activeTab = useRef<HTMLButtonElement>(null);
   const [edges, setEdges] = useState({ left: false, right: false });
@@ -192,6 +200,46 @@ export function DevicePageShell({
         />
       )}
 
+      {/* **THE MACHINE'S OWN JOURNAL, ON EVERY TAB (the live strip).** The console relays a device's
+          session and plugin events as they happen; this is the selected machine's slice, newest
+          first, so a session opening is visible where the machine is, not only on Activity. It is
+          a card like every block under the head, and its list scrolls instead of growing the page:
+          twenty rows stay a band, not a second page above the one that was asked for. The chip is
+          the stream's own fact — a line arrived for this machine this page opened — not a
+          connectivity claim, which the machine header and the offline notice already own. */}
+      {chosen && (
+        <section className="card device-events" aria-labelledby="device-events-title">
+          <header>
+            <strong id="device-events-title">Events</strong>
+            {journal.length > 0 && <span className="chip chip-ok">Live</span>}
+          </header>
+          {journal.length === 0 ? (
+            <p className="hint">No sessions or plugin events yet on this machine.</p>
+          ) : (
+            <ol className="device-events-list">
+              {journal.map((line) => (
+                <li
+                  className="device-event"
+                  key={`${line.device_id ?? ""}:${line.ts_ms}:${line.sentence}`}
+                >
+                  <time
+                    className="device-event-time"
+                    dateTime={new Date(line.ts_ms).toISOString()}
+                    title={exactMoment(line.ts_ms)}
+                  >
+                    {clockTime(line.ts_ms)}
+                  </time>
+                  <span className="device-event-sentence">{line.sentence}</span>
+                  {!sentenceNamesKind(line.sentence, line.kind) && (
+                    <span className="device-event-kind">{line.kind}</span>
+                  )}
+                </li>
+              ))}
+            </ol>
+          )}
+        </section>
+      )}
+
       {chosen && grant ? (
         children(grant)
       ) : (
@@ -215,6 +263,39 @@ export function DevicePageShell({
       )}
     </div>
   );
+}
+
+/**
+ * The machine's own journal: how many watched session rows the strip keeps.
+ *
+ * The live feed holds two hundred lines, most of them calls; a Device strip is a glance, not the
+ * record. Twenty rows is the newest work on this machine, and the list scrolls rather than growing.
+ */
+const JOURNAL_LIMIT = 20;
+
+/**
+ * This machine's watched journal rows, newest first.
+ *
+ * `useLiveActivity` records a device event as a `session` line with `live: true`; a snapshot line
+ * was read back from the audit and has no `live`, so it belongs to the record, not this strip. A
+ * call is a line too, which is why the kind matters as much as the machine.
+ */
+export function deviceJournal(
+  lines: readonly LiveLine[],
+  deviceId: string | null | undefined
+): LiveLine[] {
+  if (!deviceId) return [];
+  return lines
+    .filter(
+      (line) => line.live === true && line.kind === "session" && line.device_id === deviceId
+    )
+    .sort((a, b) => b.ts_ms - a.ts_ms)
+    .slice(0, JOURNAL_LIMIT);
+}
+
+/** Whether the console's sentence already names the row's kind (`session.idle on …`). */
+function sentenceNamesKind(sentence: string, kind: string): boolean {
+  return sentence.toLowerCase().includes(kind.toLowerCase());
 }
 
 function grantFor(chosen: Device | null): Grant | null {

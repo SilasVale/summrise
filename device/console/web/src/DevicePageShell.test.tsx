@@ -1,7 +1,9 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { Device } from "./api";
-import { DevicePageShell } from "./DevicePageShell";
+import { DevicePageShell, deviceJournal } from "./DevicePageShell";
+import { clockTime } from "./format";
+import type { LiveLine } from "./liveActivity";
 import type { DeviceTab } from "./Rail";
 
 const BOOT_AT = Date.now() - 25 * 3_600_000;
@@ -22,7 +24,12 @@ const MACHINE: Device = {
   }
 };
 
-function renderShell(tab: DeviceTab, device: Device = MACHINE, onConnect = () => undefined) {
+function renderShell(
+  tab: DeviceTab,
+  device: Device = MACHINE,
+  onConnect = () => undefined,
+  journalLines: readonly LiveLine[] = []
+) {
   return render(
     <DevicePageShell
       tab={tab}
@@ -31,11 +38,112 @@ function renderShell(tab: DeviceTab, device: Device = MACHINE, onConnect = () =>
       chosen={device}
       onChoose={() => undefined}
       onConnect={onConnect}
+      journalLines={journalLines}
     >
       {() => <p>page contents</p>}
     </DevicePageShell>
   );
 }
+
+/** One synthetic session row, shaped exactly as `useLiveActivity` publishes one. */
+function journalLine(ts_ms: number, sentence: string, overrides: Partial<LiveLine> = {}): LiveLine {
+  return {
+    ts_ms,
+    kind: "session",
+    status: 200,
+    ok: true,
+    device_id: MACHINE.id,
+    live: true,
+    sentence,
+    ...overrides
+  };
+}
+
+describe("DevicePageShell's Events strip", () => {
+  it("draws this machine's newest journal rows first, with HH:MM and the kind it has to name", () => {
+    const earlier = journalLine(
+      new Date(2026, 10, 12, 9, 5).getTime(),
+      "terminal 2 opened on workshop"
+    );
+    const newest = journalLine(
+      new Date(2026, 10, 12, 9, 8).getTime(),
+      "session.idle on workshop"
+    );
+    const middle = journalLine(
+      new Date(2026, 10, 12, 9, 6).getTime(),
+      "workshop started"
+    );
+    // A snapshot row was read back, not watched live, so it is not this strip's event.
+    const snapshot = journalLine(
+      new Date(2026, 10, 12, 9, 9).getTime(),
+      "terminal 4 opened on workshop",
+      { live: false }
+    );
+    const otherMachine = journalLine(
+      new Date(2026, 10, 12, 9, 10).getTime(),
+      "terminal 9 opened on attic",
+      { device_id: "d2" }
+    );
+
+    renderShell("overview", MACHINE, () => undefined, [
+      earlier,
+      newest,
+      middle,
+      snapshot,
+      otherMachine
+    ]);
+
+    expect(screen.getByText("Events")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Events" })).toBeInTheDocument();
+    expect(screen.getByText("Live")).toBeInTheDocument();
+    const rows = within(screen.getByRole("list")).getAllByRole("listitem");
+    expect(rows).toHaveLength(3);
+    expect(rows.map((row) => row.textContent)).toEqual([
+      expect.stringContaining(newest.sentence),
+      expect.stringContaining(middle.sentence),
+      expect.stringContaining(earlier.sentence)
+    ]);
+    expect(rows[0].querySelector("time")).toHaveTextContent(clockTime(newest.ts_ms));
+    // `session.idle on workshop` already names its kind; the two human sentences do not.
+    expect(rows[0].querySelector(".device-event-kind")).toBeNull();
+    expect(rows[2].querySelector(".device-event-kind")).toHaveTextContent("session");
+    expect(screen.queryByText(otherMachine.sentence)).toBeNull();
+    expect(screen.queryByText(snapshot.sentence)).toBeNull();
+  });
+
+  it("says the journal is empty before the machine has opened a session or run a plugin", () => {
+    renderShell("overview");
+
+    expect(screen.getByText("No sessions or plugin events yet on this machine.")).toBeInTheDocument();
+    expect(screen.queryByRole("list")).toBeNull();
+    expect(screen.queryByText("Live")).toBeNull();
+  });
+});
+
+describe("deviceJournal", () => {
+  it("keeps only this machine's watched session rows, newest first, at twenty", () => {
+    const rows = Array.from({ length: 25 }, (_, index) =>
+      journalLine(1_000 + index, `terminal ${index} opened on workshop`)
+    );
+    const feed = [
+      ...rows,
+      journalLine(9_000, "terminal 9 opened on attic", { device_id: "d2" }),
+      journalLine(9_001, "Read a file", { kind: "mcp" }),
+      journalLine(9_002, "terminal 9 opened on workshop", { live: false })
+    ];
+
+    const journal = deviceJournal(feed, MACHINE.id);
+
+    expect(journal).toHaveLength(20);
+    expect(journal.map((line) => line.ts_ms)).toEqual(
+      Array.from({ length: 20 }, (_, index) => 1_024 - index)
+    );
+    expect(journal.every((line) => line.device_id === MACHINE.id && line.kind === "session")).toBe(
+      true
+    );
+    expect(deviceJournal(feed, null)).toEqual([]);
+  });
+});
 
 describe("DevicePageShell's Connect door", () => {
   it("names the Device's Connect door for the sheet it opens and calls it", () => {

@@ -38,7 +38,7 @@ import { HomePage, type FleetRead } from "./HomePage";
 import { OverviewPage } from "./OverviewPage";
 import { useLiveActivity } from "./useLiveActivity";
 import { ToolsTab } from "./ToolsTab";
-import { DevicePageShell } from "./DevicePageShell";
+import { DevicePageShell, deviceJournal } from "./DevicePageShell";
 import { AccountMenu } from "./AccountMenu";
 import { MachineMenu } from "./MachineMenu";
 import { useMediaQuery } from "./useMediaQuery";
@@ -1668,6 +1668,7 @@ export function App() {
             onConnect={() => setConnect({ section: "endpoint", device: chosen })}
             fleetRead={fleetRead}
             onRetryFleet={() => void load().catch(() => {})}
+            journalLines={deviceJournal(live.lines, chosen?.id)}
           >
             {() => (
               <>
