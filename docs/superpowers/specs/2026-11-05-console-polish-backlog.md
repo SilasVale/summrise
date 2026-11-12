@@ -5593,9 +5593,17 @@ counts as one*. Moving three tokens means editing the Rust source, regenerating,
 block in the same commit; half of that leaves the sheet and its source disagreeing, which is the exact failure the generator
 exists to prevent. **The change is written down with its shape rather than started with ten minutes left.**
 
-**THE PLAN FOR IT (next round):** add `--elev-segment`, `--elev-2` and `--ring` to both blocks of `device/ui/src/lib.rs`, run
-`scripts/generate-tokens.sh`, delete `app.css:2518-2530`'s local declarations, then `cargo test -p summrise-console` (tokens +
-the elevation count) and the browser gate — and finally a rule-16 gate that refuses a `box-shadow` outside the six families.
+**DONE 2026-11-12 (`8a1248b`, `0.3.274-ux213`).** `--elev-segment`, `--elev-2` (with its dark value) and `--ring` are in
+`device/ui/src/lib.rs`; `scripts/generate-tokens.sh` wrote 156 lines; `app.css`'s local block keeps only the evidence pair; the
+Rust gate's `every_box_shadow_is_an_elevation_token_or_none` and its declared-elevation loop both pass. Measured live after the
+deploy: `--elev-segment` `0 1px 2px rgba(0,0,0,.1)`, `--elev-2` `0 24px 60px -18px …`, `--ring` `0 0 0 4px color-mix(in srgb,
+#bf3a0a 22%, transparent)` — **all three resolve, and 11 elements carry a shadow**, so the move was value-for-value.
+
+    before   six elevation families, three hand-written where the page used them
+    after    six elevation families, all six in the generated sheet — one place answers "what may float"
+
+**THE LESSON, WHICH IS THE PROGRAM'S OWN SUBJECT**: the Rust gate could only count USES because the sheet could not SEE the
+declarations. A measurement that reads the page is weaker than a gate that reads the source the page is generated from.
 
 ## The hundred-and-sixty-ninth list (CLOSED 2026-11-12 — the last ungated rule, and all twenty are now held)
 
