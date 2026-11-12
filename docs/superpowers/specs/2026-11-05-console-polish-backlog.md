@@ -5078,6 +5078,20 @@ and a Today row — with roughly **500 px of empty page under them**. Four borde
 as four separate things rather than one document; the page's own content would fit in one card. That is a structural change
 (JSX + CSS + the gates that count blocks), not a rung, so it is the next round's work rather than this one's.
 
+## The hundred-and-forty-sixth list (CLOSED 2026-11-12 — four boxes around four single lines)
+
+The structural finding under the flat-line fix, taken one step this round: at 1440 the Overview page drew **four bordered
+blocks stacked in one column** — the machine card, the Now band, a counts chip, the day row — with ~500 px of page under them.
+
+**FIX:** the counts answer "what can this machine do", so they belong in the card that names it. The chip keeps its grammar
+(a button to the Tools tab) and its three states (offline / reading / failed); it stops being a block of its own. **Four blocks
+become three** — `8189519`, deployed as `0.3.274-ux200`; the after-shot is `list146/after-ux200.png`.
+
+**WHAT THIS PAGE STILL REPEATS, AND THE NEXT LIST.** Measured on the same shot: the head's h1 reads `Overview` **while the
+selected tab 40 px to its right also reads `Overview`** — the page names itself twice and spends the title's rung on a word the
+strip already carries. The machine's name is the page's subject and sits in a card below, where the topbar also names it. That
+is a head decision (what the h1 of a machine surface is), not a rung, so it goes to the next list.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
