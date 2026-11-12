@@ -81,6 +81,7 @@ const INVENTORY = [
   "plugins.logs",
   "plugins.remove",
   "plugins.restart",
+  "state.get",
   "runs.exec",
   "runs.get",
   "runs.list",

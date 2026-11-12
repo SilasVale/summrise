@@ -6,6 +6,7 @@ import { clockTime, grouped, isoDate, lastHeardMs, message, seenAgo } from "./fo
 import { ForwardRules } from "./ForwardRules";
 import { HostFactsBlock } from "./HostFacts";
 import { ServicesWatched } from "./ServicesWatched";
+import { DeviceSelfView } from "./DeviceSelfView";
 import { hostFactsFailure, readHostFacts } from "./hostFactsApi";
 import { Modal } from "./Modal";
 import { useRequestGate } from "./requests";
@@ -758,6 +759,13 @@ export function SystemPage({
           The device probes host:port targets on its own timer; the console never showed them. Read-only: the writes persist on
           the device and are the next door. */}
       <ServicesWatched grant={grant} online={!offline} />
+      {/* **THE MACHINE'S OWN CLAIM ABOUT ITSELF (the hundred-and-seventy-seventh list).** Everything above is the console's view of
+          the machine; `state.get` is the machine's view — health, release, pid, whether its state document is readable, and the
+          last ten events it recorded. It reads when opened, not on a timer: this is a diagnostic, not a fact to poll. */}
+      <section className="system-section" aria-labelledby="system-self-view">
+        <h3 id="system-self-view">What the machine says about itself</h3>
+        <DeviceSelfView grant={grant} online={!offline} />
+      </section>
 
       <section className="system-section" aria-labelledby="system-processes">
         <h3 id="system-processes">Processes</h3>
