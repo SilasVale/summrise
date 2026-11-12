@@ -1,7 +1,7 @@
 # Summrise v1 — release notes
 
-Status: **v1 implemented on `hub/v1`, verified on the Linux build host; the Windows packaging rehearsal
-is the one open item.** This page is the operator's summary. The evidence lives in
+Status: **v1 implemented, verified on the Linux build host, and merged to `main` (local, not pushed);
+the Windows packaging rehearsal is the one open item.** This page is the operator's summary. The evidence lives in
 [`v1-verification.md`](v1-verification.md); the remaining procedure is
 [`windows-handoff.md`](windows-handoff.md); the running record is
 [`program-ledger.md`](program-ledger.md).

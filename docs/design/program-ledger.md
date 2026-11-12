@@ -141,6 +141,11 @@ below ladders to that; one round completes one major item end to end.
   journey, how it is verified, the sweep's numbers, and the known boundaries (Windows rehearsal,
   loopback `/api/panel`, installer reproducibility, the two audit windows).
 
+- 2026-11-13 — v1 landed on `main`: a fast-forward from `hub/v1` (1328 commits, `main` and `hub/v1` now
+  equal) after `scripts/check.sh --fast` passed on `main`. This is the local merge the operator asked
+  for at the start of the program; nothing was pushed to `origin`, so the deploy act (push / PR) is
+  theirs to make.
+
 ## Next (in order)
 
 1. Windows handoff — build the installer on a Windows runner, silent install/uninstall, run
