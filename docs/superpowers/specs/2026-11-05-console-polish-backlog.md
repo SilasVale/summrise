@@ -6193,6 +6193,19 @@ from the fleet list, marks a failed call, and reads no new source: it is the str
     before the probe   Now: monitor.list on DESKTOP-84T3LIN · 5 s ago
     after one call     Now: host.facts on DESKTOP-9VH92BJ · 3 s ago
 
+## The hundred-and-ninety-fifth list (SHIPPED 2026-11-12 — the Now line is a door into the call's own record)
+
+The line shipped in the previous list names a call; the next question is always "and what happened". It is a button now:
+
+    ● Now: runs.exec on DESKTOP-9VH92BJ · 12 s ago ›      →   Activity, filtered to that tool on that machine
+
+**NO NEW STATE, NO SECOND READ**: Activity already owns the tool filter and the machine filter; the door sets both and switches the
+page. The line keeps the sentence's own look (a button with no chrome), so the page still reads as prose — the affordance is the
+chevron and the underline on hover.
+
+**LIVE AFTER `-ux248`**: the line read `Now: host.facts on DESKTOP-9VH92BJ · 4 s ago ›`, and clicking it landed on `#activity` with
+the search box set to `host.facts`.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
