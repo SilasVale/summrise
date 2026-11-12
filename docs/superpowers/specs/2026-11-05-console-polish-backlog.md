@@ -1080,6 +1080,21 @@ measurement of each rule against the console as it is, so the list starts with w
 | 11 limited radii | `one_spacing_rhythm_and_the_canonical_radii` — the five canonical radii are asserted |
 | 15 no pure black on light surfaces | `--ink:#18181b`, `--canvas` is a mix of ink, and the dark block is restated rather than inherited (`the_dark_surfaces_are_restated_not_inherited`) |
 
+**STATE 2026-11-12, after the hundred-and-fifty-seventh list — three rules gained a gate, and the table above is no longer the
+whole picture.**
+
+| Rule | Now held by | Measured |
+|---|---|---|
+| 5 hierarchy from size/weight/colour | **`head.nameWhenClaim` + `head.nameWhenRepeated`** (contract, both repos) and a **rendered** browser-gate step | Home's name 13/500 vs its claim 22/600; the picker 22/700; the tabbed device head 13/500 |
+| 5 (continued) | `layoutContract.test.ts` on the console AND the panel | the panel's Memory/Plugins names 13/500 with a claim, 22/700 without |
+| 11/12 radii and borders | **`footnote` atom** (contract, both repos) + the browser gate's Home leg | the installer draws corner 0 / a 1 px top edge / no surface; `.attention` and `.table-wrap` keep the card's 14/16 |
+| 19 empty/loading/failed | unchanged (browser gate + jsdom) | the installer's footnote is still a state when the file is missing |
+
+**WHAT IS STILL NOT GATED, SAID PLAINLY**: rule 6/14 (colour carries meaning) is partly held — the `.dot` plus a WORD is asserted
+in both surfaces, but nothing stops a new alarm colour; rule 16 (shadows) is held only as a FAMILY SIZE by the scale pass (`≤ 6`
+distinct shadows), not by kind; rule 17 (icons) has no gate at all and no icon set to gate. Those three are the audit's remaining
+debt and each would need its own measurement before a number could be written down.
+
 **Also held, not by a Rust gate: rule 19.** Empty / loading / failed states are asserted one by one
 in `browser-gate.mjs` (the failed fleet read, the failed tools read, the offline machine, the empty
 registry) and in the jsdom suites, because a state is a sentence and a sentence is measured where it
