@@ -52,7 +52,8 @@ function calledNames(): Map<string, string[]> {
 
 /**
  * The vocabulary as it stands, 2026-11-12. One name is the device's (`forward_list`); the rest are this page's dotted
- * spelling, recorded with the open question above rather than quietly normalised.
+ * spelling, recorded with the open question above rather than quietly normalised. The memory pair joined with the
+ * hundred-and-seventy-first list: the device has advertised `memory.list`/`memory.search` since the plugin landed.
  */
 const INVENTORY = [
   "browser.close",
@@ -68,6 +69,8 @@ const INVENTORY = [
   "files.write",
   "forward.list",
   "host.restart",
+  "memory.list",
+  "memory.search",
   "plugins.add",
   "plugins.inspect",
   "plugins.list",

@@ -31,6 +31,7 @@ import { RunsPage } from "./RunsPage";
 import { parseRunLink, runLink } from "./run-link";
 import { parseSurfaceHash, surfaceHash } from "./surface-link";
 import { ScreenPage } from "./ScreenPage";
+import { MemoryPage } from "./MemoryPage";
 import { SystemPage } from "./SystemPage";
 import { HomePage, type FleetRead } from "./HomePage";
 import { OverviewPage } from "./OverviewPage";
@@ -1634,6 +1635,11 @@ export function App() {
                       setScreenView("browser");
                     }}
                   />
+                ) : null}
+                {tab === "memory" && grant ? (
+                  <section className="tab-body">
+                    <MemoryPage grant={grant} deviceOnline={chosen?.online} />
+                  </section>
                 ) : null}
                 {tab === "machine" && grant ? (
                   <section className="tab-body">

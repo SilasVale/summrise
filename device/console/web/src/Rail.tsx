@@ -14,6 +14,7 @@ export type DeviceTab =
   | "files"
   | "runs"
   | "tools"
+  | "memory"
   | "machine";
 
 /// What each destination is called in the rail, the document title and each page's one `h1`.
@@ -30,6 +31,7 @@ export const DEVICE_TAB_LABELS: Record<DeviceTab, string> = {
   files: "Files",
   runs: "Runs",
   tools: "Tools",
+  memory: "Memory",
   machine: "Machine"
 };
 
@@ -44,6 +46,7 @@ export const DEVICE_TABS: readonly DeviceTab[] = [
   "files",
   "runs",
   "tools",
+  "memory",
   "machine"
 ];
 

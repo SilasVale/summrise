@@ -4019,6 +4019,25 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .installer-strip .btn { flex: none; }
 .installer-strip .hint { margin: 0 0 0 auto; font-size: var(--fs-xs); }
 
+/* ── Memory: what the AI wrote down on this machine, read-only ─────────────────────────────────
+   The device has carried the memory family since the plugin landed and the console had no door (measured 2026-11-12:
+   46 tools advertised, 32 wired, six of the missing were memory). A record is a title, its provenance and its text:
+   the title is the row's voice, the meta its date, and the body is clamped so a long record cannot push the list. */
+.memory-search { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin: 0 0 var(--sp-3); }
+.memory-search input { flex: 1 1 16rem; min-width: 0; }
+.memory-count { margin: 0 0 var(--sp-3); font-size: var(--fs-xs); color: var(--ink-muted); }
+.memory-list { list-style: none; margin: 0; padding: 0; }
+.memory-entry { padding: var(--sp-3) 0; border-top: 1px solid var(--line); }
+.memory-entry:first-child { border-top: 0; padding-top: 0; }
+.memory-head { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; }
+.memory-title { margin: 0; font-size: var(--fs-base); font-weight: var(--fw-semi); }
+.memory-meta { font-size: var(--fs-xs); color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.memory-body {
+  margin: var(--sp-1) 0 0; font-size: var(--fs-sm); color: var(--ink);
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.memory-tags { display: flex; gap: var(--sp-1-5); flex-wrap: wrap; margin: var(--sp-2) 0 0; }
+
 /* ── Home: the selected machine is highlighted, not repeated ───────────────────────────────────
    The fleet's verdict, attention rows and table stay Home's; the machine's own live page is
    Device → Overview. The selected row is highlighted with the accent tint; the section below keeps
