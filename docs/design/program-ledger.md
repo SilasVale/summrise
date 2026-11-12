@@ -28,9 +28,13 @@ below ladders to that; one round completes one major item end to end.
   `reset{snapshot_seq, lost_from, lost_to}`, and an atomic `snapshot-<seq>.json` every 1 000 events.
   12 bus tests.
 
+- 2026-11-13 — S5 shipped (`3ff2311`): `scripts/check-architecture.mjs` reads `cargo metadata
+  --no-deps`, rejects an upward edge by name, has an in-memory self-test and a `--metadata` fixture
+  mode; CI runs it before the cache. 12 packages, 18 workspace edges, 0 upward. The supervisor may
+  not import the device (the earlier allowance was unused and is gone).
+
 ## In flight (branch `feat/s2-journal`)
 
-- S5 dependency gate: `scripts/check-architecture.mjs` + CI (sub-agent C).
 - S3 plugin lifecycle events on the bus (sub-agent D).
 
 ## Next (order may change as the work teaches us)
