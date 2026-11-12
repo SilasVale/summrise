@@ -2047,4 +2047,45 @@ describe("the layout contract", () => {
       .map(({ selector, rem }) => `${selector} (flex basis ${rem}rem)`);
     expect(unfolded, "a wide rem flex-basis with no 639 fold for its selector").toEqual([]);
   });
+
+  it("puts every 639 fold AFTER the rule it refines, because the cascade does not read intent", () => {
+    // **MEASURED, NOT THEORISED (the hundred-and-ninety-third list).** The processes filter's fold was written into the sheet's
+    // FIRST 639 block — four hundred lines above `.system-field.filter { flex: 1 1 16rem; }` — and the base rule won: the phone still
+    // drew the field and `Refresh` stacked, and the deployment that claimed otherwise had to be corrected the next round. Both rules
+    // were individually right; the ORDER was wrong, and nothing in a stylesheet says "I meant the later one".
+    const sheet = css();
+    const foldRanges: { from: number; to: number }[] = [];
+    for (const media of sheet.matchAll(/@media \(max-width: 639px\)[^{]*\{/g)) {
+      // The block ends at the matching brace; a stylesheet's folds are one level deep, so counting braces is enough.
+      let depth = 1;
+      let cursor = media.index! + media[0].length;
+      while (cursor < sheet.length && depth > 0) {
+        if (sheet[cursor] === "{") depth += 1;
+        else if (sheet[cursor] === "}") depth -= 1;
+        cursor += 1;
+      }
+      foldRanges.push({ from: media.index!, to: cursor });
+    }
+    const inFold = (at: number) => foldRanges.some((range) => at > range.from && at < range.to);
+    // **ONLY THE PROPERTY THAT BIT US.** The sheet has nineteen folds that sit above a later base rule and are CORRECT — they
+    // refine a different property, or a more specific selector. A blanket order rule would be red on the tree it is meant to protect,
+    // so this one asks the narrow question the week's defects turned on: a rule that sets `flex` must reach its fold first.
+    type Occurrence = { selector: string; at: number; folded: boolean };
+    const seen: Occurrence[] = [];
+    for (const rule of sheet.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const selector = rule[1].trim().replace(/\s+/g, " ");
+      if (selector.startsWith("@media") || selector.startsWith("@keyframes")) continue;
+      if (!/(^|;)\s*flex\s*:/.test(rule[2])) continue;
+      seen.push({ selector, at: rule.index!, folded: inFold(rule.index!) });
+    }
+    const outOfOrder: string[] = [];
+    for (const base of seen.filter((entry) => !entry.folded)) {
+      const folds = seen.filter((entry) => entry.folded && entry.selector === base.selector);
+      if (folds.length === 0) continue; // no fold: the fold gate above is what asks for one
+      if (folds.every((fold) => fold.at < base.at)) {
+        outOfOrder.push(`${base.selector} (fold at ${folds[0].at}, base at ${base.at})`);
+      }
+    }
+    expect(outOfOrder, "a 639 fold written before the rule it refines — the base wins the cascade").toEqual([]);
+  });
 });
