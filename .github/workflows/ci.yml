@@ -57,6 +57,12 @@ jobs:
       # boots", which no test that only calls functions can prove.
       - name: the device core serves on Linux
         run: ./scripts/device-unix-smoke.sh
+      # **THE PRODUCT LOOP, NOT A UNIT TEST.** The smoke above proves the device boots; this one adds
+      # the console binary, the panel's meta token, an MCP initialize/tools/list/tools/call over
+      # streamable HTTP, the audit lines for that call and the journal's device.started. It catches
+      # wiring that the in-process tests cannot, and it is the same script a developer runs locally.
+      - name: the product loop, the real binaries
+        run: ./scripts/smoke-local.sh
       # The systemd unit is what makes that binary a service; verify its syntax and ExecStart with
       # the binary this job just built, without root or a running systemd.
       - name: the Linux service unit is valid
