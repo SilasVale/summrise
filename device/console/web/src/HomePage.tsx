@@ -599,8 +599,11 @@ function FleetHome(props: HomePageProps) {
           )}
           {watches !== null && watches.total > 0 && (
             <p className="hint home-services">
+              {/* **THE MACHINE COUNT IS NOT SAID, BECAUSE IT WOULD BE A DIFFERENT FACT.** The read answers for every ONLINE machine,
+                  so "across 2 machines" counted the machines that answered, not the machines that watch something — measured live:
+                  one watch, two online machines, and the sentence read as if the service spanned both. */}
               {watches.down.length === 0
-                ? `Watching ${watches.total} ${watches.total === 1 ? "service" : "services"} across ${watches.machines} ${watches.machines === 1 ? "machine" : "machines"} · all up`
+                ? `Watching ${watches.total} ${watches.total === 1 ? "service" : "services"} · all up`
                 : `${watches.down.length} ${watches.down.length === 1 ? "service is" : "services are"} down: ${watches.down.join(", ")}`}
             </p>
           )}
