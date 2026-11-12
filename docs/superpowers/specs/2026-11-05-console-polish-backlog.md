@@ -5024,6 +5024,21 @@ installer strip below it is a third block of the same weight. The roster is a RE
 ANSWER. The browser gate currently pins `fleet name 17/600` (measured, and it refused the 14 I tried first), so changing it
 means changing that pin and arguing in the same place — which is the next round's work, not this one's.
 
+## The hundred-and-forty-third list (CLOSED 2026-11-12 — the roster was louder than the answer)
+
+The same eye that found the two headlines found the second inversion: on `0.3.274-ux194` the fleet table drew a machine's
+name at **17/600** while the warning card six pixels above it drew the SAME fact at **14/600**. The reference block was the
+loudest body text on the page, and the page's answer (verdict → warning → door) was quieter than its index.
+
+**FIX.** `.fleet-name` takes `--fs-md` (14), the rung the attention row already gives a machine's name; the browser gate's
+pin moved with it and its comment carries the measurement. The page's ladder is now **22 (verdict) > 14 (names) > 12
+(facts) > 10 (headers)** with nothing competing in between. `9202254`, deployed as `0.3.274-ux195`.
+
+**THE MUTATION THAT DID NOT COUNT, AND WHY IT IS WRITTEN DOWN.** The first attempt changed the stylesheet and ran the gate:
+it PASSED. **The gate drives the built page** (`dist/index.html`), so a source-only edit is invisible to it — the mutation
+had to rebuild first, and then it failed with `the fleet name read 17px/600, not the object rung's 14px/600`. A mutation
+that does not reach the artifact proves nothing about the artifact.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
