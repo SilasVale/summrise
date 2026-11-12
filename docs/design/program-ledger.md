@@ -39,9 +39,15 @@ below ladders to that; one round completes one major item end to end.
 - 2026-11-13 — `feat/s2-journal` merged into `hub/v1` (fast-forward): S2 + S3 + S5 + the Activity
   device events. Boundary checks: bus 12, console lib 170.
 
-## In flight (branch `feat/s4-page`)
+- 2026-11-13 — S4 first slice shipped and merged (`hub/v1`): `page.rs` owns `/`, `/app`, the icon and
+  `/events`; `Page` holds only the page, the icon, `Audit`, `Running` and the clock, enforced by a
+  source-scanning guard test; the `/events` operator gate stays in control; the device-event replay
+  ring moved to `Audit`. 171 console tests. `/health` and the read-only JSON routes stay in control.
 
-- S4: a page module that holds no keys (static, SSE, health), extracted from the console binary.
+## In flight (branch `feat/s6-desktop`)
+
+- S6: cross-check the Windows build, the shell's panel fallback when the console is unreachable, and
+  the packaging path (installer/release workflows).
 
 ## Next (order may change as the work teaches us)
 
