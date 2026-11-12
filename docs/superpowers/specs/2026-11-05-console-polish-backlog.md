@@ -5552,7 +5552,7 @@ whether the panel this audit keeps in step with is ever going to be shipped to a
 
 **AND THE TWO RULES STILL WITHOUT A GATE**, unchanged from the hundred-and-sixty-second list: shadow KINDS (16) and icons (17).
 
-## The hundred-and-sixty-seventh list (OPENED 2026-11-12 — three of the sheet's six shadow families are declared outside the token system)
+## The hundred-and-sixty-seventh list (CLOSED 2026-11-12 — the boxes are counted, the families are an inventory, and rule 16 was never as bare as the table said)
 
 Rule 16 (shadows, used sparingly and from one family) was the audit's remaining ungated rule, so it was measured rather than
 argued about. `app.css` declares **47** `box-shadow` values; grouped by what they resolve to:
@@ -5572,6 +5572,20 @@ argued about. `app.css` declares **47** `box-shadow` values; grouped by what the
 control's raised sheet (`--elev-segment`), the popover's deep shadow (`--elev-2`, with its own dark value), and the focus ring
 (`--ring`). The generated sheet builds the other three from `device/ui/src/lib.rs`, and the Rust token gate already knows about
 these three because they are USED on the page (it counts `var(token)` uses), which is why nothing was red.
+
+**AND RULE 16 TURNED OUT TO BE MOSTLY HELD ALREADY — THE TABLE WAS WRONG, NOT THE SHEET.** `device/console/tests/tokens.rs` has
+enforced two halves of it since it grew them: **every `box-shadow` must name a `var(--…)`** (so a literal shadow panics by name),
+and **a declared elevation token must be used** (so a fourth family cannot be declared and forgotten). The audit's table said
+rule 16 was held "only as a family size by the scale pass" — that sentence described the browser gate and ignored the Rust one.
+
+**WHAT WAS GENUINELY MISSING** is the drift those two cannot see: a NEW value that names a token and is used once. Measured
+2026-11-12: `app.css` draws **15** distinct shadows — `none`, two transparent rings, two `color-mix` halos, `inset 3px 0 0
+var(--accent)`, `0 0 0 1px var(--accent) inset`, `0 0 0 4px var(--canvas)`, and six elevation families (`--shadow-1`, `--shadow-2`,
+`--shadow-pop`, `--elev-segment`, `--elev-2`, `--ring`). Those 15 are now a literal inventory in `layoutContract.test.ts`: an
+addition fails by name and has to be argued for in the diff. `67b9c0c`.
+
+**MUTATION**: `box-shadow: 0 2px 6px rgba(0,0,0,.08)` on `.card:hover` -> `draws shadows from an inventory, not from whatever the
+page needs` FAILED; restored, 60/60 in that file and 1,141 in the suite.
 
 **WHY IT WAS NOT MOVED IN THIS ROUND.** The tokens are GENERATED (`scripts/generate-tokens.sh` from `device/ui/src/lib.rs`), and
 `device/console/tests/tokens.rs` measures the sheet it produces — including the rule that *a ring is not an elevation and never
