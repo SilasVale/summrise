@@ -137,6 +137,10 @@ below ladders to that; one round completes one major item end to end.
   found `cargo fmt --check` red on the previous round's clippy fix — fixed; the gate now exits 0 with
   both smokes green.
 
+- 2026-11-13 — `docs/design/v1-release-notes.md` is the operator's summary: what ships, the five-step
+  journey, how it is verified, the sweep's numbers, and the known boundaries (Windows rehearsal,
+  loopback `/api/panel`, installer reproducibility, the two audit windows).
+
 ## Next (in order)
 
 1. Windows handoff — build the installer on a Windows runner, silent install/uninstall, run
