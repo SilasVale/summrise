@@ -84,12 +84,18 @@ below ladders to that; one round completes one major item end to end.
   Finding: `/api/panel` is loopback-only, not panel-token-gated (the mutating panel routes are); with
   one operator on their own machine that is the right trade, but it is a contract worth knowing.
 
+- 2026-11-13 — Docs refreshed (`a6a3824`): the architecture's §6 table now names the bus, the two
+  extracted crates, the journal's segments/reset, the subscription and the shell fallback; the status
+  callout and §7 say what shipped as slices and point at this ledger; I7 records the page's crate
+  boundary and I8 the gate's numbers. RELEASE.md names the three library crates and the four exes.
+
 ## Next (in order)
 
-1. Docs — refresh the architecture doc's §6 current-state table to the shipped code and RELEASE.md
-   for the new crates. This is the last item verifiable on this machine.
-2. Windows handoff — build the installer on a Windows runner, silent install/uninstall, run
-   `summrise-shell.exe --check-window` with the console down, sign the four exes.
+1. Windows handoff — build the installer on a Windows runner, silent install/uninstall, run
+   `summrise-shell.exe --check-window` with the console down, sign the four exes. This is the only
+   item left in the v1 checklist that this Linux machine cannot verify.
+2. After Windows: keep improving from what the operator hits (the ledger's rules still apply — one
+   major item a round, green merges into `hub/v1`).
 
 ## Rules
 
