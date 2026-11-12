@@ -51,11 +51,13 @@ below ladders to that; one round completes one major item end to end.
   `--target x86_64-pc-windows-gnu` pass; plain msvc `cargo check` needs MSVC's `lib.exe`. Shell 24
   tests. What still needs Windows: link/NSIS/signing and an interactive `--check-window`.
 
-## Next (in order)
+## In flight (branch `feat/s2-resume`)
 
-1. S2 close-out — the `reset` frame end to end: device sends `reset{snapshot_seq, lost}` when a
-   cursor falls off, console subscribes from its last device seq instead of live-only, page shows the
-   gap.
+- S2 close-out — the `reset` frame end to end: device sends `reset{snapshot_seq, lost}` when a
+  cursor falls off, console subscribes from its last device seq instead of live-only, page shows the
+  gap.
+
+## Next (in order)
 2. S4b — extract `console-page` as a crate so "the page holds no keys" is a compile-time boundary.
 3. S3b — extract `plugin-host` as a crate; the lifecycle events are already on the bus.
 4. UI — the Device page's live tail (sessions, plugins) from the journal.
