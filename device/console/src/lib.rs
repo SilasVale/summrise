@@ -33,6 +33,7 @@ mod hex;
 mod http;
 mod jsonl;
 mod mcp;
+mod page;
 mod running;
 mod setup;
 mod store;

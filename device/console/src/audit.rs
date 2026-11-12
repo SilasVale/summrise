@@ -42,8 +42,9 @@
 //! The file is capped at [`AUDIT_MAX_BYTES`] with one rotation to `audit.1.jsonl`; the discipline is
 //! [`JsonLines`]'s.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::Path;
+use std::sync::Mutex;
 
 use serde::Serialize;
 use serde_json::Value;
@@ -302,10 +303,21 @@ pub(crate) struct Audit {
     /// A broadcast and not a queue: a page that falls behind is told it lagged and asks for the file's
     /// newest lines again, instead of the console holding a per-subscriber backlog nobody bounded.
     live: tokio::sync::broadcast::Sender<Value>,
+    /// The newest relayed device events, so a page that reconnects with a `Last-Event-ID` can be
+    /// handed what it missed instead of only a snapshot. Bounded: a device event older than this is
+    /// still in the device's journal, but the console does not ask for it during S1.
+    ///
+    /// It lives here because device events already travel through [`Audit::publish`]: the page's
+    /// reconnect buffer is a property of the stream the page follows, not of the channel registry.
+    /// Shared by every clone, like the broadcast.
+    recent_device_events: std::sync::Arc<Mutex<VecDeque<Value>>>,
 }
 
 /// How many appended lines the live stream may carry before a slow subscriber is told it lagged.
 pub(crate) const LIVE_AUDIT_CAPACITY: usize = 256;
+
+/// How many relayed device events the page's reconnect buffer keeps.
+pub(crate) const DEVICE_EVENT_REPLAY_CAPACITY: usize = 512;
 
 impl Audit {
     /// The audit file under `data`, capped at `max_bytes`.
@@ -314,6 +326,7 @@ impl Audit {
         Audit {
             file: std::sync::Arc::new(JsonLines::new(data.join(AUDIT_FILE), max_bytes)),
             live,
+            recent_device_events: std::sync::Arc::new(Mutex::new(VecDeque::new())),
         }
     }
 
@@ -327,8 +340,44 @@ impl Audit {
 
     /// Publish one live event (already humanised) to every open `/events`. No subscriber is fine: the
     /// stream is for whoever is watching, and nobody watching is not an error.
+    ///
+    /// A relayed device event is also remembered for the page's `Last-Event-ID` reconnect: the
+    /// broadcast is not replayable, and the reconnect buffer is the page's history where the
+    /// snapshot is not. Activity lines and a call's `started`/`finished` frames are broadcast only.
     pub(crate) fn publish(&self, value: Value) {
+        if value.get("device_event").is_some() {
+            let mut events = self
+                .recent_device_events
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if events.len() == DEVICE_EVENT_REPLAY_CAPACITY {
+                events.pop_front();
+            }
+            events.push_back(value.clone());
+        }
         let _ = self.live.send(value);
+    }
+
+    /// The buffered device events for one device after `seq`, oldest first.
+    ///
+    /// A page that reconnects with `Last-Event-ID: device:<device>:<seq>` gets these before the live
+    /// stream. Past the buffer the answer is a snapshot: S1 does not re-open the device journal.
+    pub(crate) fn events_after(&self, device: &str, seq: u64) -> Vec<Value> {
+        let events = self
+            .recent_device_events
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        events
+            .iter()
+            .filter(|value| {
+                let event = &value["device_event"];
+                event["device"].as_str() == Some(device)
+                    && event["event"]["seq"]
+                        .as_u64()
+                        .map_or(false, |row| row > seq)
+            })
+            .cloned()
+            .collect()
     }
 
     /// Follow the audit as it is written. Subscribe BEFORE reading the newest lines: a line written
@@ -815,6 +864,27 @@ mod tests {
             text.push('\n');
         }
         std::fs::write(dir.join(AUDIT_FILE), text).expect("the audit file is writable");
+    }
+
+    /// The page keeps the newest device events so a reconnect can be handed what it missed.
+    #[test]
+    fn buffered_device_events_replay_after_a_cursor() {
+        let dir = TempDir::new("replay");
+        let audit = Audit::new(&dir.0, AUDIT_MAX_BYTES);
+        for (device, seq) in [("a", 1u64), ("a", 2), ("b", 1)] {
+            audit.publish(serde_json::json!({
+                "device_event": { "device": device, "event": { "seq": seq } }
+            }));
+        }
+        let replayed = audit.events_after("a", 1);
+        assert_eq!(replayed.len(), 1);
+        assert_eq!(replayed[0]["device_event"]["event"]["seq"], 2);
+        assert!(audit.events_after("a", 2).is_empty());
+        assert_eq!(audit.events_after("b", 0).len(), 1);
+
+        // A clone is the same index: the page and the console's control role share one stream.
+        let other = audit.clone();
+        assert_eq!(other.events_after("b", 0).len(), 1);
     }
 
     #[test]

@@ -1,5 +1,10 @@
-//! The HTTP surface: the operator page, login, enrollment, the device registry, grant signing,
-//! permanent-token management and health.
+//! The control surface: login, enrollment, the device registry, grant signing, permanent-token
+//! management and health.
+//!
+//! It holds the keys (architecture of record, §0.4): the operator secret, the grant key, the
+//! session list and the device channels. The page role is [`crate::page`]; this module builds it,
+//! mounts its routes, and keeps the operator gate in front of the one page route that needs a
+//! caller it can authenticate.
 //!
 //! One router, built once from a loaded [`Console`]. The handlers are thin on purpose: the decisions
 //! live in `auth`, `codes`, `devices` and `grants`, and the router only turns refusals into status
@@ -14,10 +19,10 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use axum::extract::ws::WebSocketUpgrade;
-use axum::extract::{ConnectInfo, Path, Query, State};
+use axum::extract::{ConnectInfo, FromRequestParts, Path, Query, State};
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
-use axum::response::{Html, IntoResponse, Redirect, Response};
+use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use ed25519_dalek::{Signature, SigningKey};
@@ -38,6 +43,7 @@ use crate::devices::{self, Device, DeviceRegistry, RegisterError};
 use crate::grants::{self, GrantEnvelope, GrantError, VerifyError};
 use crate::hex;
 use crate::mcp::DeviceRef;
+use crate::page::Page;
 use crate::tokens::{Token, TokenError, TokenKind, TokenMeta, Tokens};
 
 /// How far a device's clock may be from the console's when it registers: five minutes.
@@ -75,32 +81,6 @@ const PROXY_IDENTITY_HEADER: &str = "x-forwarded-user";
 
 /// How long the console tells an operator's client to wait before retrying a reconnecting device.
 const RETRY_AFTER_MS: u64 = 1_000;
-
-/// The React console page, embedded as one self-contained file.
-///
-/// `/` and `/app` both serve it. The build is committed and gated, so a stale page cannot compile
-/// and ship.
-const REACT_PAGE: &str = include_str!("../web/dist/index.html");
-
-/// **THE PAGE KNOWS WHICH BUILD IT IS (the hundred-and-ninety-ninth list).** A tab left open across a deploy kept calling the routes of
-/// an older page — measured: `monitor.add`, `memory.list` and `monitor.status` refusals in the audit, all `caller: console`, all from a
-/// bundle that had already been fixed. The page is stamped at start with this build's version, so it can compare itself with `/health`
-/// and offer a Reload rather than keep asking in an older language.
-fn stamped_page() -> &'static str {
-    use std::sync::OnceLock;
-    static STAMPED: OnceLock<String> = OnceLock::new();
-    STAMPED.get_or_init(|| {
-        let version = PAGE_VERSION.get().map(String::as_str).unwrap_or("");
-        if version.is_empty() {
-            // A console built without a version (a test binary) serves the page as it was: a placeholder in a `<meta>` is not a claim.
-            return REACT_PAGE.replace("__CONSOLE_VERSION__", "");
-        }
-        REACT_PAGE.replace("__CONSOLE_VERSION__", version)
-    })
-}
-
-/// The build this process serves; set once, when the console is constructed.
-static PAGE_VERSION: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 /// How many sessions the store keeps.
 ///
@@ -149,7 +129,8 @@ struct Inner {
     denials: Denials,
     /// The calls the proxy is still waiting on, for the live stream's running line. Memory only:
     /// it is not the audit and nothing here is written to a file.
-    running: crate::running::Running,
+    /// Shared with the page role, whose `/events` snapshot names the same in-flight calls.
+    running: Arc<crate::running::Running>,
     mcp_timeout: Duration,
     now: Now,
     started: Instant,
@@ -231,7 +212,7 @@ impl Console {
         let audit = Audit::new(&config.data, audit_max_bytes);
 
         // The page is stamped with this build's version before it is ever served (the hundred-and-ninety-ninth list).
-        let _ = PAGE_VERSION.set(config.version.clone());
+        crate::page::stamp_version(&config.version);
         Ok(Console {
             inner: Arc::new(Inner {
                 operator_token,
@@ -245,7 +226,7 @@ impl Console {
                 channels: ChannelRegistry::recording(audit.clone(), now.clone()),
                 audit,
                 denials: Denials::new(&config.data),
-                running: crate::running::Running::new(RUNS_MAX_PROXY_WAIT),
+                running: Arc::new(crate::running::Running::new(RUNS_MAX_PROXY_WAIT)),
                 mcp_timeout,
                 now,
                 started: Instant::now(),
@@ -269,34 +250,19 @@ impl Console {
     }
 
     /// Build the router. It carries no socket and no runtime: the caller decides where it listens.
+    ///
+    /// Two roles, one router. The control routes below hold the keys; the page role is built from the
+    /// only three handles it may hold (the audit, the calls in flight, the clock) and mounted from
+    /// [`crate::page::router`]. Its one gated route, `/events`, is wrapped here by
+    /// [`page_operator_gate`]: only the control role can tell an operator from a stranger.
     pub fn router(&self) -> Router {
-        Router::new()
-            .route("/", get(root))
-            // The conventional favicon path: a browser asks for it on every page, and a 404 there is a
-            // console error in every page that does not declare an icon. It is the same PNG.
-            .route(
-                "/favicon.ico",
-                get(|| async {
-                    (
-                        [(header::CONTENT_TYPE, "image/png")],
-                        axum::body::Bytes::from_static(assets::ICON),
-                    )
-                }),
-            )
-            .route(
-                "/assets/icon.png",
-                get(|| async {
-                    (
-                        [
-                            (header::CONTENT_TYPE, "image/png"),
-                            (header::CACHE_CONTROL, "public, max-age=86400"),
-                        ],
-                        axum::body::Bytes::from_static(assets::ICON),
-                    )
-                }),
-            )
+        let page = Arc::new(Page::new(
+            self.inner.audit.clone(),
+            self.inner.running.clone(),
+            self.inner.now.clone(),
+        ));
+        let control: Router = Router::new()
             .route("/health", get(health))
-            .route("/app", get(react_page))
             .route("/auth", post(authenticate))
             // The one `/next` route that survives: `--login-link` prints a URL whose `code`
             // query the React page does not redeem, and `GET /` still sends that query here.
@@ -374,12 +340,6 @@ impl Console {
             // cuts at. The hub's day line and Activity's header read it; the window sentence keeps
             // describing the fetched window.
             .route("/audit/day", get(audit_day))
-            // **THE ACTIVITY AS IT HAPPENS.** The page drew "Recent calls" from a fetch, so a call that
-            // happened after the last refresh was invisible until the next one — no sense of the AI
-            // working now. This is the same index, streamed: a snapshot of the newest lines, then one
-            // event per line as it is written. It is the operator's own audit, so it needs the same
-            // session `/audit` does.
-            .route("/events", get(event_stream))
             // **THE FRAME ITSELF, NOT A DATA URL.** A screenshot can be megabytes; the event carries
             // a same-origin path and this route answers the bytes, behind the same operator gate the
             // page and `/audit` already use. The store is memory only, so an id that a restart or an
@@ -389,12 +349,20 @@ impl Console {
             // log holds what probing looks like, and it is surfaced read-only.
             .route("/denials", get(list_denials))
             .fallback(not_found)
+            .with_state(self.inner.clone());
+        control
+            .merge(crate::page::router(page))
+            // The page holds no credential and cannot authenticate anyone. The operator gate belongs
+            // to this role's state, and it asks only the page route that needs it.
+            .layer(axum::middleware::from_fn_with_state(
+                self.inner.clone(),
+                page_operator_gate,
+            ))
             .layer(axum::middleware::from_fn(no_store))
             .layer(axum::middleware::from_fn_with_state(
                 self.inner.clone(),
                 access_sign_in,
             ))
-            .with_state(self.inner.clone())
     }
 }
 
@@ -1367,31 +1335,6 @@ struct Health {
     version: String,
 }
 
-/// The static assets behind `/assets/`.
-mod assets {
-    /// The brand mark at 128 px: the browser tab's icon and the console's face in a task switcher.
-    /// The React build already points at `/assets/icon.png`, so this route is the page's, not the
-    /// deleted surface's.
-    pub(super) const ICON: &[u8] = include_bytes!("../assets/icon.png");
-}
-
-/// `GET /`: the React workspace. A `code` query still goes to `/next`, because `--login-link`
-/// puts a one-time code there and the React page does not redeem it; dropping the query would
-/// turn a working link into a page with no explanation. Every other query stays on the React
-/// page: a cache-bust or a shared link must not become a redirect.
-async fn root(uri: axum::http::Uri) -> Response {
-    let login_code = uri.query().is_some_and(|query| {
-        query
-            .split('&')
-            .any(|part| part == "code" || part.starts_with("code="))
-    });
-    if login_code {
-        Redirect::to(&format!("/next?{}", uri.query().unwrap_or_default())).into_response()
-    } else {
-        Html(stamped_page()).into_response()
-    }
-}
-
 #[derive(Deserialize)]
 struct LoginLinkQuery {
     /// The one-time code `--login-link` put in the URL; spent, never displayed.
@@ -1428,6 +1371,33 @@ async fn login_link(
         session_cookie(&token, secure_request(&headers)),
     );
     response
+}
+
+/// The operator's gate over the page role's one authenticated route.
+///
+/// The page cannot authenticate a caller and holds no credential to try: [`crate::page::router`]
+/// mounts `/events` without a check, and this layer — installed by the control router, where the
+/// identity lives — asks the same [`OperatorSession`] every other operator route asks, on that path
+/// only. The page and its assets stay public by design; the audit stream is not.
+///
+/// The request is rebuilt rather than cloned: `OperatorSession` reads the peer address out of the
+/// extensions, so the parts it inspected are the parts the handler receives.
+async fn page_operator_gate(
+    State(app): State<AppState>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    if request.uri().path() != "/events" {
+        return next.run(request).await;
+    }
+    let (mut parts, body) = request.into_parts();
+    match OperatorSession::from_request_parts(&mut parts, &app).await {
+        Ok(_) => {
+            next.run(axum::extract::Request::from_parts(parts, body))
+                .await
+        }
+        Err(refusal) => refusal.into_response(),
+    }
 }
 
 /// Every answer this console gives is for one request, and a cache that disagrees is how a browser
@@ -1535,14 +1505,6 @@ async fn access_sign_in(
         .headers_mut()
         .append(header::SET_COOKIE, session_cookie(&token, secure));
     response
-}
-
-/// `GET /health`: unauthenticated, and deliberately so — a supervisor and a human need one route
-/// that answers before any credential has been presented. It reads only counts, never a secret.
-/// `GET /app`: the React console page, one embedded file. It carries no data of its own; the page
-/// authenticates with the console's own session and calls the JSON routes that already exist.
-async fn react_page() -> Html<&'static str> {
-    Html(stamped_page())
 }
 
 /// Any path the router does not own. **A TYPED OR SHARED PATH IS A PERSON, NOT A BOT** (the hundred-and-forty-fourth list).
@@ -1741,6 +1703,11 @@ async fn installer_download(State(app): State<AppState>, _: OperatorSession) -> 
         .into_response()
 }
 
+/// `GET /health`: unauthenticated, and deliberately so — a supervisor and a human need one route
+/// that answers before any credential has been presented. It reads only counts, never a secret.
+///
+/// It is control, not page: it reports the registry's count, each channel's liveness, the peak
+/// outbound queue and whether Access is configured — facts the page role must not hold.
 async fn health(State(app): State<AppState>) -> Json<Health> {
     let devices = lock(&app.devices);
     let online = devices
@@ -5914,128 +5881,6 @@ async fn activity_shot(
     }
 }
 
-/// `GET /events`: the audit as a stream of server-sent events.
-///
-/// A `snapshot` carries the newest lines so the page opens with context, then each appended line is
-/// an `activity` event. A slow client is told it `lagged` rather than given a growing backlog: it
-/// refetches `/audit`, which is the same index from the same file.
-async fn event_stream(
-    State(app): State<AppState>,
-    _: OperatorSession,
-    headers: HeaderMap,
-) -> Response {
-    // Subscribe BEFORE reading the newest lines: a line written between the two would otherwise be in
-    // neither the snapshot nor the stream.
-    let live = app.audit.follow();
-    // The calls in flight are not in the file, so a page that reconnects reads them here. The same
-    // cut the page applies is applied by the registry: an entry whose clear was dropped expires.
-    let running = app.running.current((app.now)());
-    let recent: Vec<Value> = app
-        .audit
-        .newest(40)
-        .await
-        .into_iter()
-        .map(|mut line| {
-            let sentence = crate::activity::line_sentence(&line);
-            line["sentence"] = json!(sentence);
-            line
-        })
-        .collect();
-    // Oldest first, like the file: a page prepends each live event and gets a newest-first list.
-    let recent: Vec<Value> = recent.into_iter().rev().collect();
-    let snapshot = futures_util::stream::once(async move {
-        let body = json!({ "lines": recent, "running": running });
-        Ok::<Event, Infallible>(
-            Event::default()
-                .event("snapshot")
-                .id(format!("{}:0", boot_epoch()))
-                .data(body.to_string()),
-        )
-    });
-    // A page that reconnects with a device cursor gets the buffered rows it missed before the live
-    // stream. The audit side needs no replay: the snapshot re-describes its history.
-    let replayed = match headers
-        .get("last-event-id")
-        .and_then(|value| value.to_str().ok())
-        .and_then(parse_device_cursor)
-    {
-        Some((device, seq)) => futures_util::stream::iter(
-            app.channels
-                .events_after(device, seq)
-                .into_iter()
-                .map(|value| {
-                    let device = value["device_event"]["device"]
-                        .as_str()
-                        .unwrap_or_default()
-                        .to_owned();
-                    let seq = value["device_event"]["event"]["seq"].as_u64().unwrap_or(0);
-                    Ok::<Event, Infallible>(
-                        Event::default()
-                            .event("device")
-                            .id(format!("device:{device}:{seq}"))
-                            .data(value.to_string()),
-                    )
-                })
-                .collect::<Vec<_>>(),
-        ),
-        None => futures_util::stream::iter(Vec::new()),
-    };
-    let live_events = futures_util::stream::unfold(live, |mut live| async move {
-        match live.recv().await {
-            Ok(value) => {
-                // A call's announcement and clear share the audit's broadcast, but they are not
-                // activity lines: the page listens for their own names and keeps them out of the
-                // record. Everything else is an activity line.
-                let (name, id) = if let Some(device_event) = value.get("device_event") {
-                    let device = device_event
-                        .get("device")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default();
-                    let seq = device_event
-                        .get("event")
-                        .and_then(|event| event.get("seq"))
-                        .and_then(Value::as_u64)
-                        .unwrap_or(0);
-                    ("device", format!("device:{device}:{seq}"))
-                } else {
-                    let name = if value.get("started").is_some() {
-                        "started"
-                    } else if value.get("finished").is_some() {
-                        "finished"
-                    } else {
-                        "activity"
-                    };
-                    (name, format!("{}:{}", boot_epoch(), next_event_id()))
-                };
-                Some((
-                    Ok::<Event, Infallible>(
-                        Event::default().event(name).id(id).data(value.to_string()),
-                    ),
-                    live,
-                ))
-            }
-            Err(tokio::sync::broadcast::error::RecvError::Lagged(dropped)) => {
-                let body = json!({ "dropped": dropped });
-                Some((
-                    Ok::<Event, Infallible>(
-                        Event::default().event("lagged").data(body.to_string()),
-                    ),
-                    live,
-                ))
-            }
-            Err(tokio::sync::broadcast::error::RecvError::Closed) => None,
-        }
-    });
-    let tail = futures_util::StreamExt::chain(replayed, live_events);
-    let mut response = Sse::new(futures_util::StreamExt::chain(snapshot, tail))
-        .keep_alive(KeepAlive::default().interval(Duration::from_secs(15)))
-        .into_response();
-    response
-        .headers_mut()
-        .insert("x-accel-buffering", HeaderValue::from_static("no"));
-    response
-}
-
 /// `GET /denials`: unauthenticated refusals, newest first, one JSON line each.
 ///
 /// Operator-only and read-only. The log's write path keeps its rate limit, cap and rotation; this
@@ -6056,41 +5901,6 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// Parse `device:<device>:<seq>` from a `Last-Event-ID`; anything else is not a device cursor.
-fn parse_device_cursor(id: &str) -> Option<(&str, u64)> {
-    let rest = id.strip_prefix("device:")?;
-    let (device, seq) = rest.rsplit_once(':')?;
-    Some((device, seq.parse().ok()?))
-}
-
-#[cfg(test)]
-mod cursor_tests {
-    use super::parse_device_cursor;
-
-    #[test]
-    fn a_device_cursor_parses_and_anything_else_does_not() {
-        assert_eq!(parse_device_cursor("device:9vh:42"), Some(("9vh", 42)));
-        assert_eq!(parse_device_cursor("device:9vh"), None);
-        assert_eq!(parse_device_cursor("9vh:42"), None);
-        assert_eq!(parse_device_cursor("device:9vh:not-a-number"), None);
-    }
-}
-
-/// This boot's prefix for SSE ids.
-///
-/// A page that reconnects with a `Last-Event-ID` from another boot is told to start over by the
-/// epoch mismatch instead of being handed the wrong range.
-fn boot_epoch() -> &'static str {
-    static EPOCH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    EPOCH.get_or_init(|| format!("{:x}{:x}", std::process::id(), system_now_ms()))
-}
-
-/// A console-wide monotonic id for events that are not a device's own.
-fn next_event_id() -> usize {
-    static NEXT: AtomicUsize = AtomicUsize::new(1);
-    NEXT.fetch_add(1, Ordering::SeqCst)
-}
-
 fn system_now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -6101,25 +5911,6 @@ fn system_now_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[tokio::test]
-    async fn root_sends_only_login_codes_to_the_login_link() {
-        use axum::http::{StatusCode, Uri};
-
-        let page = root(Uri::from_static("/")).await;
-        assert_eq!(page.status(), StatusCode::OK);
-
-        // A cache-bust or any other query is still the React page.
-        let cache_bust = root(Uri::from_static("/?v=236")).await;
-        assert_eq!(cache_bust.status(), StatusCode::OK);
-
-        let code = root(Uri::from_static("/?code=abc&next=%2F")).await;
-        assert_eq!(code.status(), StatusCode::SEE_OTHER);
-        assert_eq!(
-            code.headers().get("location").unwrap(),
-            "/next?code=abc&next=%2F"
-        );
-    }
 
     /// **A TYPED PATH LANDS ON THE PAGE IT NAMES; AN API PATH STAYS A 404** (the hundred-and-forty-fourth list). Measured
     /// live 2026-11-12: `GET /activity` answered 404 with an empty body, because this console routes in the hash.
