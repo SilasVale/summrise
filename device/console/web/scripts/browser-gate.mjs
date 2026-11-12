@@ -1801,6 +1801,43 @@ try {
   }
   step('Home draws its name as context and its verdict as the headline');
 
+  // **THE PAGE PAINTS FROM THE TOKEN PALETTE, AND FROM NOTHING ELSE (rules 1 and 6, the hundred-and-sixty-second list).**
+  // Measured live 2026-11-12 at 1440 in both themes: Home drew **5** text inks and Activity **6**, and every one of them is a
+  // token (`--ink`, `--muted`, `--faint`, `--danger`, `--warn`, `--accent-on-soft`, `--accent-fg`). A palette rule that is only
+  // written down is a rule that a `#8a2be2` can break in one line; this reads the resolved computed colours, so a literal is a
+  // failure by name.
+  const palette = await page.evaluate(() => {
+    const probe = document.createElement('span');
+    probe.style.display = 'none';
+    document.body.appendChild(probe);
+    const names = ['--ink', '--muted', '--faint', '--danger', '--warn', '--accent-on-soft', '--accent-fg'];
+    const allowed = new Set();
+    for (const name of names) {
+      probe.style.color = `var(${name})`;
+      const value = getComputedStyle(probe).color;
+      if (value && !value.includes('var(')) allowed.add(value);
+    }
+    probe.remove();
+    const seen = new Map();
+    for (const element of document.querySelectorAll('main *')) {
+      if (element.children.length > 0) continue;
+      if (!(element.textContent ?? '').trim()) continue;
+      const colour = getComputedStyle(element).color;
+      seen.set(colour, (seen.get(colour) ?? 0) + 1);
+    }
+    const stray = [...seen.keys()].filter((colour) => !allowed.has(colour));
+    return { allowed: [...allowed].sort(), inks: [...seen.keys()].sort(), stray };
+  });
+  if (palette.allowed.length < 6) {
+    throw new Error(`the palette probe resolved only ${palette.allowed.length} tokens: ${JSON.stringify(palette)}`);
+  }
+  if (palette.stray.length > 0) {
+    throw new Error(
+      `Home paints text in colours that are not tokens: ${JSON.stringify(palette.stray)} (allowed ${JSON.stringify(palette.allowed)})`
+    );
+  }
+  step(`Home's ${palette.inks.length} text inks are all tokens`);
+
   const selectedHome = await page.evaluate(() => {
     const summary = document.querySelector('.machine-summary');
     const current = document.querySelector('tr.fleet-row.is-current');

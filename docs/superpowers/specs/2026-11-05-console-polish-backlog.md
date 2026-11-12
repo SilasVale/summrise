@@ -1090,10 +1090,10 @@ whole picture.**
 | 11/12 radii and borders | **`footnote` atom** (contract, both repos) + the browser gate's Home leg | the installer draws corner 0 / a 1 px top edge / no surface; `.attention` and `.table-wrap` keep the card's 14/16 |
 | 19 empty/loading/failed | unchanged (browser gate + jsdom) | the installer's footnote is still a state when the file is missing |
 
-**WHAT IS STILL NOT GATED, SAID PLAINLY**: rule 6/14 (colour carries meaning) is partly held — the `.dot` plus a WORD is asserted
-in both surfaces, but nothing stops a new alarm colour; rule 16 (shadows) is held only as a FAMILY SIZE by the scale pass (`≤ 6`
-distinct shadows), not by kind; rule 17 (icons) has no gate at all and no icon set to gate. Those three are the audit's remaining
-debt and each would need its own measurement before a number could be written down.
+**WHAT IS STILL NOT GATED, SAID PLAINLY**: rule 16 (shadows) is held only as a FAMILY SIZE by the scale pass (`≤ 6` distinct
+shadows), not by kind; rule 17 (icons) has no gate at all and no icon set to gate. Each would need its own measurement before a
+number could be written down. *(**Rule 6 is now gated too** — the hundred-and-sixty-second list: every text ink Home paints must
+resolve to a token, measured live at 5 inks in the light theme and 5 in the dark.)*
 
 **Also held, not by a Rust gate: rule 19.** Empty / loading / failed states are asserted one by one
 in `browser-gate.mjs` (the failed fleet read, the failed tools read, the offline machine, the empty
@@ -5428,6 +5428,26 @@ what rule 15's gate (`the_dark_surfaces_are_restated_not_inherited`) asserts in 
 All three pass AA for their sizes (4.5:1), and the muted pair — the one that carries every label on both surfaces — is **1.5×
 the threshold in the dark theme and 1.07× in the light one**. The light pair is the tighter of the two and is exactly what
 `every_text_pair_reads_on_the_surface_it_sits_on` has pinned since the twenty-sixth list.
+
+## The hundred-and-sixtieth-second list (CLOSED 2026-11-12 — the palette is enforced on the rendered page, not in a table)
+
+Rules 1 and 6 say the page paints from a small named palette, and the audit's own table said that nothing stopped a new colour
+from arriving. Measured live 2026-11-12 at 1440:
+
+    Home     5 text inks   --ink · --muted · --faint · --danger · --accent-on-soft · --accent-fg (white)
+    Activity 6 text inks   the same five plus --warn
+
+Every one of them is a token — the sheet was already doing the right thing, and nothing was watching it. **The browser gate now
+resolves the tokens into computed colours and refuses any text ink that is not one of them**, on the page where the reader sees
+it. 105 steps become 106.
+
+**MUTATION**: `.fleet-name { color: #8a2be2 }` + a rebuild ->
+
+    FAIL — Home paints text in colours that are not tokens: ["rgb(138, 43, 226)"]
+           (allowed ["rgb(105, 106, 116)", "rgb(113, 113, 122)", "rgb(156, 58, 10)", "rgb(156, 90, 8)",
+                     "rgb(179, 38, 30)", "rgb(24, 24, 27)", "rgb(255, 255, 255)"])
+
+and the failure prints the whole allowed palette, so the next person does not have to go looking for the sheet.
 
 ## How a round goes
 
