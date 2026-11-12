@@ -125,6 +125,12 @@ below ladders to that; one round completes one major item end to end.
   and both the console audit and the device journal carry the call; neither file holds the secret.
   1.6 s warm; the device job runs it after the product smoke.
 
+- 2026-11-13 — The Windows handoff is ready to execute: `docs/design/windows-handoff.md` (trigger, the
+  five pieces of evidence, the interactive `--check-window` with the console down and up, signature
+  and uninstall checks), and `installer.yml` now signs the four exes before `makensis` when a
+  certificate is configured — it used to sign only the setup, so a signed install shipped four
+  unsigned executables. The adapter is CI-only (13 steps, YAML valid).
+
 ## Next (in order)
 
 1. Windows handoff — build the installer on a Windows runner, silent install/uninstall, run

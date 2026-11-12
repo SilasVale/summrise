@@ -98,6 +98,29 @@ jobs:
             }
           done
 
+      # **THE BINARIES INSIDE THE SETUP ARE SIGNED TOO, AND BEFORE MAKENSIS COPIES THEM.**
+      # `publish-canary.bash` signs all four exes for the canary update path; the installer build used
+      # to sign only the setup, so a signed install shipped four unsigned executables. Signing is
+      # still opt-in: without the certificate secret this prints and continues.
+      - name: sign the four exes, when a certificate is configured
+        shell: bash
+        env:
+          PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX }}
+          PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PFX_BASE64:-}" ]; then
+            echo "no signing certificate configured; the four exes are unsigned"
+            exit 0
+          fi
+          pfx="$RUNNER_TEMP/signing.pfx"
+          printf '%s' "$PFX_BASE64" | base64 -d > "$pfx"
+          for exe in summrise-launch summrise-device summrise-console summrise-shell; do
+            signtool sign /f "$pfx" /p "$PFX_PASSWORD" /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 \
+              "device/target/release/$exe.exe"
+          done
+          rm -f "$pfx"
+
       # The sidecar is the launcher key's statement that this exact binary is the first generation.
       - name: sign the first-generation sidecar
         shell: bash

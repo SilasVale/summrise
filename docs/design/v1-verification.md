@@ -30,7 +30,8 @@ root unless it says otherwise.
 
 ## What this machine cannot prove
 
-The Windows handoff:
+The Windows handoff — the exact procedure and the evidence to keep are in
+[`windows-handoff.md`](windows-handoff.md):
 
 - the four `+crt-static` exes link and the NSIS installer compiles on a Windows runner;
 - a silent install/uninstall leaves the service and the tray correct;
