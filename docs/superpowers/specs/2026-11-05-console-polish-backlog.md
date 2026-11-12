@@ -6206,6 +6206,21 @@ chevron and the underline on hover.
 **LIVE AFTER `-ux248`**: the line read `Now: host.facts on DESKTOP-9VH92BJ · 4 s ago ›`, and clicking it landed on `#activity` with
 the search box set to `host.facts`.
 
+## The hundred-and-ninety-sixth list (SHIPPED 2026-11-12 — a finished run's Now line opens the run itself)
+
+The Now line's door opened Activity scoped to the call — right for a read, wrong for a **run**. `runs.exec` names its run in the
+detail (`run <id> exited 0 in 42 ms`), and what a person wants next is that run's OUTPUT, which the Device page's Runs tab already
+focuses by id.
+
+    ● Now: runs.exec on DESKTOP-9VH92BJ · 12 s ago ›   →  Device → Runs, focused on that run
+    ● Now: files.read on DESKTOP-9VH92BJ · 8 s ago ›   →  Activity, filtered to that tool on that machine
+
+**ONE REGEX, ONE MEANING**: the page hands the line's detail to the app, which applies the same `/^run (\S+) /` rule the audit table
+uses to draw a run link — so a run id is read one way in both places.
+
+**LIVE AFTER `-ux249`**: a real `runs.exec` (`cmd.exe /c echo hi`, exit 0, `run-1794488232172-547`) drew
+`Now: runs.exec on DESKTOP-9VH92BJ · 3 s ago ›`, and clicking it landed on `#run/<device>/run-179448…` with the runs view drawn.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
