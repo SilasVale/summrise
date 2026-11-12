@@ -1,3 +1,14 @@
+# THE FACTS A TREE CANNOT SHOW (moved here when AGENTS.md was deleted, 2026-11-12):
+#   · PASS LINES DIFFER PER SUITE. cargo: `test result: ok. N passed`; gateway `npm test`: `ℹ pass N`;
+#     panel-react `npx vitest run`: `Tests N passed`. Grep the wrong line and a silent suite looks green.
+#   · WINDOWS IS THE TARGET. The lifecycle suite runs on `windows-latest` only; on Linux
+#     `cargo xwin check --workspace --target x86_64-pc-windows-msvc` is a compile check, not execution proof.
+#   · THE PAGE'S LOOK IS CHECKED BY EYE AS WELL AS BY GATE: `node device/console/web/scripts/screenshot.mjs <tag>`
+#     writes light/dark/390 renders to /tmp/console-react-shot/<tag>/ — look at them.
+#   · THE DISK IS THE CONSTRAINT (one HDD). `device/target` grows after a full run; clean it.
+#   · THE PAGE'S PURE DECISIONS ARE RUST-RUN. `cargo test --manifest-path device/console-logic/Cargo.toml` and
+#     `node scripts/check-console-logic.mjs` — the wasm artifact is committed and the check fails when it is stale.
+
 name: ci
 
 on:
