@@ -1090,9 +1090,9 @@ whole picture.**
 | 11/12 radii and borders | **`footnote` atom** (contract, both repos) + the browser gate's Home leg | the installer draws corner 0 / a 1 px top edge / no surface; `.attention` and `.table-wrap` keep the card's 14/16 |
 | 19 empty/loading/failed | unchanged (browser gate + jsdom) | the installer's footnote is still a state when the file is missing |
 
-**WHAT IS STILL NOT GATED, SAID PLAINLY**: rule 16 (shadows) is held only as a FAMILY SIZE by the scale pass (`≤ 6` distinct
-shadows), not by kind; rule 17 (icons) has no gate at all and no icon set to gate. Each would need its own measurement before a
-number could be written down. *(**Rule 6 is now gated too** — the hundred-and-sixty-second list: every text ink Home paints must
+**NOTHING IS LEFT UNGATED (2026-11-12).** rule 16 is held by the Rust token gate's two halves plus a 15-value inventory
+(`67b9c0c`); rule 17 is held by the browser gate's icon count and labelling (`f1e69ce`). All twenty rules now have a gate or a
+recorded number; the table above is the map. *(**Rule 6 is now gated too** — the hundred-and-sixty-second list: every text ink Home paints must
 resolve to a token, measured live at 5 inks in the light theme and 5 in the dark.)*
 
 **Also held, not by a Rust gate: rule 19.** Empty / loading / failed states are asserted one by one
@@ -5596,6 +5596,42 @@ exists to prevent. **The change is written down with its shape rather than start
 **THE PLAN FOR IT (next round):** add `--elev-segment`, `--elev-2` and `--ring` to both blocks of `device/ui/src/lib.rs`, run
 `scripts/generate-tokens.sh`, delete `app.css:2518-2530`'s local declarations, then `cargo test -p summrise-console` (tokens +
 the elevation count) and the browser gate — and finally a rule-16 gate that refuses a `box-shadow` outside the six families.
+
+## The hundred-and-sixty-ninth list (CLOSED 2026-11-12 — the last ungated rule, and all twenty are now held)
+
+Rule 17 (icons, used sparingly and never alone) was the audit's last ungated rule. Measured live 2026-11-12 at 1440:
+
+    Home       5 <svg>   4 aria-hidden   0 unlabelled
+    Activity   5 <svg>   4 aria-hidden   0 unlabelled
+    Device     6 <svg>   4 aria-hidden   0 unlabelled
+
+The surface was already right — five glyphs, every one either decorative or inside a control that carries text. **Nothing was
+watching it**, which is how a product ends up with forty glyphs nobody named.
+
+**THE GATE**: every `<svg>` on Home — at most **8**, and none that is neither `aria-hidden` nor inside a named control. 106 steps
+become 107. `f1e69ce`.
+
+**MUTATION, AND TWO FALSE MUTATIONS FIRST.** Injecting an unlabelled `<svg>` into the sign-in card, then into a component Home
+never renders, both PASSED — the icon never reached the page under test. The third (into the rail, which every page draws) failed
+by name: `Home draws icons that are neither hidden nor labelled: ["rail"]`. **A mutation that never reaches the page proves
+nothing** — the third time this week that lesson has cost a round's worth of confidence, and it is worth writing down again.
+
+**THE LEDGER, CLOSED:**
+
+    1 system             tokens.rs (generated sheet)
+    3 fewer sizes        tokens.rs (seven sizes)
+    4 fewer weights      tokens.rs (four weights)
+    5 hierarchy          head.nameWhenClaim / nameWhenRepeated + the rendered gate
+    6 colour for meaning the palette gate (5-6 inks, all tokens)
+    11 fewer radii       tokens.rs (five canonical radii)
+    12 fewer borders     the footnote atom + the card grammar in the gate
+    13 readable text     tokens.rs (15 named pairs, AA, both themes)
+    15 no pure black     tokens.rs + the dark block's restatement
+    16 shadows           tokens.rs (names a token, declared is used) + the 15-value inventory
+    17 icons             the browser gate (≤ 8, none unlabelled)
+    18 reduced motion    five prefers-reduced-motion blocks, asserted
+    19 empty states      browser gate + jsdom, one state at a time
+    20 rhythm            tokens.rs (rem and px) + the scale pass
 
 ## How a round goes
 
