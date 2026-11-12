@@ -496,4 +496,27 @@ describe("BrowserPane", () => {
       vi.useRealTimers();
     }
   });
+
+
+  it("does not ask a machine twice for a browser it already failed to start", async () => {
+    // **THE CONSOLE'S OWN FAILED CALLS WERE POLLUTING THE RECORD (the hundred-and-ninety-eighth list).** `browser.list` STARTS the
+    // browser, so on a machine where chrome cannot come up every visit fired one doomed call — three `browser.list` failures in a
+    // single audit window, all the console's own. The second visit says what the first learned and fires NOTHING.
+    const launchFailure = new ToolError(
+      "browser.list: the browser did not start: chrome exited with exit code: 1002 before it answered http://127.0.0.1:1/json/version; no stderr output",
+      200,
+      null,
+      true
+    );
+    callToolMock.mockRejectedValue(launchFailure);
+    const first = render(<BrowserPane grant={grant} deviceId="machine-remembered" />);
+    await screen.findByText(/did not come up/i);
+    expect(callToolMock).toHaveBeenCalledTimes(1);
+    first.unmount();
+
+    const second = render(<BrowserPane grant={grant} deviceId="machine-remembered" />);
+    await screen.findByText(/did not come up/i);
+    expect(callToolMock).toHaveBeenCalledTimes(1); // the visit cost nothing
+    second.unmount();
+  });
 });

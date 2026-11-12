@@ -54,7 +54,26 @@ function browserStartSentence(raw: string): string | null {
 
 // The device drives a real Chrome over CDP; the page's half of that is an <img>. `browser.screenshot`
 // answers a base64 PNG, which needs no plugin, no second port and no native window.
-export function BrowserPane({ grant, deviceOnline }: { grant: Grant; deviceOnline?: boolean }) {
+/**
+ * **A LAUNCH THAT FAILED IS NOT RETRIED ON EVERY VISIT (the hundred-and-ninety-eighth list).** `browser.list` STARTS the browser on the
+ * device, so on a machine where chrome cannot come up, every look at this view fired a doomed call — measured: three
+ * `browser.list` failures in one audit window, all the console's own. The pane remembers the machine whose launch failed, shows that
+ * machine's own answer, and waits for the operator's `Refresh pages` instead of asking again by itself.
+ */
+const launchFailed = new Set<string>();
+/** The machine's own words for its failed launch, kept beside the memory so the sentence has its evidence. */
+const launchFailure = new Map<string, string>();
+
+export function BrowserPane({
+  grant,
+  deviceId = null,
+  deviceOnline
+}: {
+  grant: Grant;
+  /** The machine this view draws, so a failed launch is remembered per machine. */
+  deviceId?: string | null;
+  deviceOnline?: boolean;
+}) {
   const offline = deviceOnline === false;
   const [targets, setTargets] = useState<Target[]>([]);
   const [target, setTarget] = useState("");
@@ -106,6 +125,11 @@ export function BrowserPane({ grant, deviceOnline }: { grant: Grant; deviceOnlin
       }
       const next = prefer && pages.some((entry) => entry.id === prefer) ? prefer : pages[0].id;
       setTarget(next);
+      // A launch that worked retires the memory: the next visit asks again.
+      if (deviceId !== null) {
+        launchFailed.delete(deviceId);
+        launchFailure.delete(deviceId);
+      }
       say(`${pages.length} ${pages.length === 1 ? "page" : "pages"}.`);
       return pages;
     } catch (cause) {
@@ -113,6 +137,10 @@ export function BrowserPane({ grant, deviceOnline }: { grant: Grant; deviceOnlin
       if (listGate.stale(ticket)) return null;
       const raw = toolFailure(cause);
       const mapped = browserStartSentence(raw);
+      if (mapped !== null && deviceId !== null) {
+        launchFailed.add(deviceId);
+        launchFailure.set(deviceId, raw);
+      }
       // The device's loopback port and exit status are evidence, not the line: the mapped sentence
       // says only what the answer proves and names the two controls that can try again.
       say(mapped ?? "List failed: " + raw, mapped ? raw : null);
@@ -287,8 +315,17 @@ export function BrowserPane({ grant, deviceOnline }: { grant: Grant; deviceOnlin
       say(OFFLINE);
       return;
     }
+    // **A MACHINE WHOSE LAUNCH ALREADY FAILED IS NOT ASKED AGAIN BY ITSELF.** The sentence it earned stays on screen, and the operator's
+    // `Refresh pages` is the retry — one call per attempt instead of one per visit.
+    if (deviceId !== null && launchFailed.has(deviceId)) {
+      setTargets([]);
+      setTarget("");
+      setShot(null);
+      say(BROWSER_DOWN, launchFailure.get(deviceId) ?? null);
+      return;
+    }
     void list();
-  }, [offline]);
+  }, [offline, deviceId]);
 
   useEffect(() => {
     if (!live) {

@@ -23,6 +23,7 @@ type Shot = { dataUrl: string; width: number; height: number; capturedAt: Date }
  */
 export function ScreenPage({
   grant,
+  deviceId,
   view,
   onViewChange,
   deviceOnline,
@@ -31,6 +32,8 @@ export function ScreenPage({
   sessions
 }: {
   grant: Grant;
+  /** The machine the pane is about, so a launch that failed is remembered for THAT machine (the hundred-and-ninety-eighth list). */
+  deviceId?: string | null;
   view: "desktop" | "browser";
   onViewChange: (view: "desktop" | "browser") => void;
   /** The fleet's reachability, as the other device pages take it; `false` is the only fact. */
@@ -210,7 +213,7 @@ export function ScreenPage({
       </div>
 
       {view === "browser" ? (
-        <BrowserPane grant={grant} deviceOnline={deviceOnline} />
+        <BrowserPane grant={grant} deviceOnline={deviceOnline} deviceId={deviceId ?? null} />
       ) : (
         <>
           {error && <p className="error">{error}</p>}

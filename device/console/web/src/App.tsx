@@ -1653,6 +1653,7 @@ export function App() {
                   <section className="panel">
                     <ScreenPage
                       grant={grant}
+                      deviceId={chosen?.id ?? null}
                       view={screenView}
                       onViewChange={setScreenView}
                       deviceOnline={chosen?.online}
