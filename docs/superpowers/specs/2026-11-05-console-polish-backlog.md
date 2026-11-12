@@ -6125,6 +6125,24 @@ were fine. The defects were inside the parts:
 **AFTER `-ux241` and `-ux242`**: `Memory` is fully legible in the strip, the search is one row, and the page still reports 0 px of
 overflow. Screenshots: `/tmp/live-*.png`, the round's own captures at 390 x 844.
 
+## The hundred-and-ninetieth list (SHIPPED 2026-11-12 — the services card at 390: a phantom gap and buttons inside a sentence)
+
+Two defects, both measured at 390 x 844 on the Machine page:
+
+1. **A closed `<details>` reserved its content's space.** The disclosure's box was **44 px** while its `<form>` still computed
+   **201 px** — the form's own `display: flex` keeps it laid out in this engine, and the card drew a void under
+   `Watch a host and port`. Fixed by stating the hiding rather than inheriting it:
+   `.service-add:not([open]) > *:not(summary) { display: none; }`. After: the form computes `display: none`, **0 px**.
+2. **The row's controls sat inside the sentence.** The card read `100% up in the window HTTP 200 Probe now Stop watching` — two
+   buttons mid-text. They start a row of their own now (`.service-actions`), so a row reads as facts, then what a person can do
+   about them.
+
+**AFTER `-ux243`**: the card's children measure `DETAILS h=44 → P.hint → UL.service-list`, the phantom 201 px is gone, and the two
+controls sit on their own line under the facts.
+
+**A NOTE ON WHAT LOOKED BIGGER THAN IT WAS**: the remaining ~68 px between the disclosure and the first row is the disclosure's own
+box (44) plus its margins (12 + 6) — the card's rhythm, not a void. The void was the 201 px that is now zero.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
