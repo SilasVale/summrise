@@ -5039,6 +5039,29 @@ it PASSED. **The gate drives the built page** (`dist/index.html`), so a source-o
 had to rebuild first, and then it failed with `the fleet name read 17px/600, not the object rung's 14px/600`. A mutation
 that does not reach the artifact proves nothing about the artifact.
 
+## The hundred-and-forty-fourth list (CLOSED 2026-11-12 — a typed path answered nothing, and Activity's head had Home's tie)
+
+**A TYPED URL WAS A BLANK PAGE.** Found while auditing Activity on the live console:
+
+    GET /           200  text/html  1,007,983 bytes
+    GET /activity   404  —          0 bytes
+
+The page routes in the URL's HASH (`#activity`, `#device/<tab>`), which is right for the links the page makes and a trap for
+every link a person types, pastes or shares. The fallback now answers `303` to `/#<fragment>` for a path that looks like a
+destination, and keeps a plain 404 for `/api/…`, `/mcp`, the device/audit/installer namespaces and any path whose last segment
+carries a dot — a client probing an API must not be handed the page.
+
+**AND THE FRAGMENT SPELLING WAS A SECOND MEASUREMENT.** The first version emitted `/#/activity`; the browser landed on
+`#home`, because the page's own spelling has no slash. Measured in a browser one round after the redirect "worked" — the HTTP
+status was right and the destination was wrong, which is why the check is a rendered page and not a status code.
+
+**ACTIVITY'S HEAD HAD THE SAME TIE AS HOME'S.** Measured live after Home's fix: `Activity` 22/700 above `Today: 153 client
+calls, 10 failed.` at 17/600 — the shape `head.nameWhenClaim` refuses. The rule is about a HEAD WITH A CLAIM, so both pages
+take it; the two older `.activity-page .page-head h1` overrides (which re-declared 22 over the generic 22) are gone. After:
+`Activity` 13/500 muted, the day's sentence 17/600 ink.
+
+**SHIPPED:** `2159fa9` (the redirect), `c12c749` (Activity's head) — deployed as `0.3.274-ux197` and `0.3.274-ux198`.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
