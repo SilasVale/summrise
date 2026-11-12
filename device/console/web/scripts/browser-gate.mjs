@@ -1682,10 +1682,13 @@ try {
   if (fleet1440.rows.length !== 4) {
     throw new Error(`the fleet drew ${fleet1440.rows.length} rows at 1440`);
   }
-  if (fleet1440.rows[0].nameSize !== 17 || fleet1440.rows[0].nameWeight !== '600') {
+  // **14, NOT 17 (the hundred-and-forty-third list).** Measured on the live page 2026-11-12: the roster drew a
+  // machine's name at 17/600 while the warning card above it drew the same fact at 14/600 — the reference block louder
+  // than the answer. One object, one rung; this gate holds the roster's name to the rung the attention row uses.
+  if (fleet1440.rows[0].nameSize !== 14 || fleet1440.rows[0].nameWeight !== '600') {
     throw new Error(
       `the fleet name read ${fleet1440.rows[0].nameSize}px/${fleet1440.rows[0].nameWeight}, ` +
-        "not the scale's 17px/600"
+        "not the object rung's 14px/600"
     );
   }
   for (const row of fleet1440.rows) {

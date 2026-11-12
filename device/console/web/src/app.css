@@ -3879,8 +3879,13 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
   background: transparent; color: var(--ink); text-align: left;
 }
 .fleet-open:hover { background: transparent; color: var(--accent); border-color: transparent; }
+/* **THE ROSTER IS REFERENCE; THE VERDICT AND THE WARNING ARE THE ANSWER (the hundred-and-forty-third list).** Measured on
+   the LIVE page 2026-11-12 (`0.3.274-ux194`, 1440): the roster's machine names drew **17/600** while the warning card
+   directly above them drew the SAME fact at **14/600** — so the quieter block shouted louder, and after the head was fixed
+   the roster was the biggest body text on the page. A machine's name is one object at one rung (14, the rung the attention
+   row already gives it); what makes a row readable is its position in the table, not a size no other block uses. */
 .fleet-name {
-  font-size: var(--fs-lg); font-weight: var(--fw-semi); letter-spacing: var(--tracking-tight);
+  font-size: var(--fs-md); font-weight: var(--fw-semi); letter-spacing: var(--tracking-tight);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .fleet-chevron { color: var(--ink-faint); font-size: var(--fs-md); line-height: var(--lh-mark); }
