@@ -9,7 +9,13 @@ Three version streams ship from this repository and none of them is deployed by 
 | **console page** | React 19, built into one HTML file and embedded in the console binary | inside the console binary — no separate deploy, no Node at runtime |
 
 They share a version number because they are released together, but a *device* release does not redeploy a
-*console*, and a console deploy does not touch a device. `verify-release.sh` is the tool that keeps those
+*console*, and a console deploy does not touch a device.
+
+Three library crates ship inside those binaries rather than as artifacts of their own: `summrise-bus` (the
+journal and its sequence), `summrise-plugin-host` (the supervised plugin host) and `summrise-console-page` (the
+page role). The workspace's unit-test and clippy jobs name every crate, and the installer builds the four exes
+— `summrise-launch`, `summrise-device`, `summrise-console`, `summrise-shell` — with an existence check before
+`makensis` runs. `verify-release.sh` is the tool that keeps those
 facts straight (see "Proving it landed").
 
 ## The browser is headless unless someone asks to watch
