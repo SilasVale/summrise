@@ -5994,6 +5994,26 @@ heading names the machine. **No watch is invented when nothing is down**: the at
 and the block is unchanged — measured live after `-ux235`: `3 of 4 online · 2 need attention`, `Watching 1 service · all up`, and the
 same two rows as before.
 
+## The hundred-and-eighty-third list (SHIPPED 2026-11-12 — the tool inventory is measured, not typed)
+
+The engineering debt named earlier in the week, paid. `toolNames.test.ts` carried **forty tool names as literals**, added by hand one
+round at a time — forty chances to mistype a name that only a live device can refute.
+
+**THE INVENTORY IS A SNAPSHOT NOW**: `device/console/web/src/device-tools.snapshot.json`, taken from the live fleet
+(`GET /fleet/<id>/tools`, **46 tools, 0.3.292**, each with its `required` and `props`), refreshed by one command —
+
+    bash scripts/device-tools-snapshot.sh <device-id-or-name> [release]
+
+The test fails on **a name this page calls that no measured catalogue has shown**. The one exemption — `forward.list`, because no
+live build carries the forward plugin — is a named constant with its own test: **it must still be called, and it must still be ABSENT
+from the catalogue**, so a device that ships the plugin makes the exemption fail rather than linger for a year.
+
+**MUTATION-PROVEN**: deleting `memory.list` from the snapshot fails the gate with `a name this page calls that no measured catalogue
+has shown: expected [ 'memory.list' ] to deeply equal []`; restoring it passes.
+
+**THE RED LINE HELD**: the snapshot records NAMES AND SCHEMAS, never answer SHAPES. The fleet answers older shapes than the source
+tree — generating TYPES from the tree would re-introduce the five defects that made the wire-shapes file necessary.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
