@@ -992,6 +992,35 @@ describe("the layout contract", () => {
     expect(remWidths.length, 'a width query must name pixels, which the contract lists').toBe(0);
   });
 
+  it("draws shadows from an inventory, not from whatever the page needs", () => {
+    // **RULE 16, AS AN INVENTORY (the hundred-and-sixty-eighth list).** `device/console/tests/tokens.rs` already holds two
+    // halves of this rule — every `box-shadow` must NAME a token, and a declared elevation token must be used — so the drift
+    // this test catches is the one those two cannot see: a NEW value that names a token and is used once. Measured 2026-11-12:
+    // `app.css` draws **15** distinct shadows (five are states or rings: `none`, `0 0 0 0 transparent`, `0 0 0 6px transparent`, and the two `color-mix` halos). The list is the inventory; an
+    // addition is a decision, not a keystroke.
+    const drawn = [...css().matchAll(/box-shadow:\s*([^;}]+)/g)]
+      .map((match) => match[1].trim())
+      .sort();
+    const distinct = [...new Set(drawn)];
+    expect(distinct, "the shadow inventory").toEqual([
+      "0 0 0 0 color-mix(in srgb, var(--ok) 45%, transparent)",
+      "0 0 0 0 transparent",
+      "0 0 0 1px var(--accent) inset",
+      "0 0 0 3px color-mix(in srgb, var(--ok) 18%, transparent)",
+      "0 0 0 3px color-mix(in srgb, var(--warn) 16%, transparent)",
+      "0 0 0 4px var(--canvas)",
+      "0 0 0 6px transparent",
+      "inset 3px 0 0 var(--accent)",
+      "none",
+      "var(--elev-2)",
+      "var(--elev-segment)",
+      "var(--ring)",
+      "var(--shadow-1)",
+      "var(--shadow-2)",
+      "var(--shadow-pop)"
+    ].sort());
+  });
+
   it("draws a head's name as context when that head carries a claim", () => {
     // **TWO HEADLINES AT ONE SIZE IS NO HIERARCHY (the hundred-and-forty-second list).** Measured on the live console
     // 2026-11-12 (`0.3.274-ux193`, 1440): `Home` drew 22/700 and the claim under it 22/600, six pixels apart. The
