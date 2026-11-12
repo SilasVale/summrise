@@ -1558,15 +1558,29 @@ async fn react_page() -> Html<&'static str> {
 async fn not_found(uri: axum::http::Uri) -> Response {
     let path = uri.path();
     const NOT_A_PAGE: &[&str] = &[
-        "/api", "/mcp", "/devices", "/fleet", "/audit", "/tokens", "/grants", "/events", "/installer", "/mesh", "/terminal",
-        "/denials", "/health", "/app", "/next", "/session", "/logout", "/enroll", "/activity/shot", "/favicon",
+        "/api",
+        "/mcp",
+        "/devices",
+        "/fleet",
+        "/audit",
+        "/tokens",
+        "/grants",
+        "/events",
+        "/installer",
+        "/mesh",
+        "/terminal",
+        "/denials",
+        "/health",
+        "/app",
+        "/next",
+        "/session",
+        "/logout",
+        "/enroll",
+        "/activity/shot",
+        "/favicon",
     ];
     let looks_like_a_page = !NOT_A_PAGE.iter().any(|prefix| path.starts_with(prefix))
-        && !path
-            .rsplit('/')
-            .next()
-            .unwrap_or("")
-            .contains('.');
+        && !path.rsplit('/').next().unwrap_or("").contains('.');
     if !looks_like_a_page {
         return StatusCode::NOT_FOUND.into_response();
     }
@@ -1578,7 +1592,9 @@ async fn not_found(uri: axum::http::Uri) -> Response {
     let fragment = path.trim_start_matches('/');
     match format!("/#{fragment}").parse() {
         Ok(location) => {
-            response.headers_mut().insert(axum::http::header::LOCATION, location);
+            response
+                .headers_mut()
+                .insert(axum::http::header::LOCATION, location);
             response
         }
         // A path that cannot be a header is not a page this console can name; the plain answer is the safe one.
@@ -5925,7 +5941,12 @@ async fn event_stream(State(app): State<AppState>, _: OperatorSession) -> Respon
     let recent: Vec<Value> = recent.into_iter().rev().collect();
     let snapshot = futures_util::stream::once(async move {
         let body = json!({ "lines": recent, "running": running });
-        Ok::<Event, Infallible>(Event::default().event("snapshot").data(body.to_string()))
+        Ok::<Event, Infallible>(
+            Event::default()
+                .event("snapshot")
+                .id(format!("{}:0", boot_epoch()))
+                .data(body.to_string()),
+        )
     });
     let live_events = futures_util::stream::unfold(live, |mut live| async move {
         match live.recv().await {
@@ -5933,15 +5954,31 @@ async fn event_stream(State(app): State<AppState>, _: OperatorSession) -> Respon
                 // A call's announcement and clear share the audit's broadcast, but they are not
                 // activity lines: the page listens for their own names and keeps them out of the
                 // record. Everything else is an activity line.
-                let name = if value.get("started").is_some() {
-                    "started"
-                } else if value.get("finished").is_some() {
-                    "finished"
+                let (name, id) = if let Some(device_event) = value.get("device_event") {
+                    let device = device_event
+                        .get("device")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    let seq = device_event
+                        .get("event")
+                        .and_then(|event| event.get("seq"))
+                        .and_then(Value::as_u64)
+                        .unwrap_or(0);
+                    ("device", format!("device:{device}:{seq}"))
                 } else {
-                    "activity"
+                    let name = if value.get("started").is_some() {
+                        "started"
+                    } else if value.get("finished").is_some() {
+                        "finished"
+                    } else {
+                        "activity"
+                    };
+                    (name, format!("{}:{}", boot_epoch(), next_event_id()))
                 };
                 Some((
-                    Ok::<Event, Infallible>(Event::default().event(name).data(value.to_string())),
+                    Ok::<Event, Infallible>(
+                        Event::default().event(name).id(id).data(value.to_string()),
+                    ),
                     live,
                 ))
             }
@@ -5984,6 +6021,21 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// This boot's prefix for SSE ids.
+///
+/// A page that reconnects with a `Last-Event-ID` from another boot is told to start over by the
+/// epoch mismatch instead of being handed the wrong range.
+fn boot_epoch() -> &'static str {
+    static EPOCH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    EPOCH.get_or_init(|| format!("{:x}{:x}", std::process::id(), system_now_ms()))
+}
+
+/// A console-wide monotonic id for events that are not a device's own.
+fn next_event_id() -> usize {
+    static NEXT: AtomicUsize = AtomicUsize::new(1);
+    NEXT.fetch_add(1, Ordering::SeqCst)
 }
 
 fn system_now_ms() -> u64 {
@@ -6031,7 +6083,13 @@ mod tests {
         assert_eq!(nested.headers().get("location").unwrap(), "/#device/abc");
 
         // The API, the transport and files keep the honest answer.
-        for path in ["/api/nope", "/mcp", "/fleet/x/y", "/files/a.png", "/activity/shot/d/1"] {
+        for path in [
+            "/api/nope",
+            "/mcp",
+            "/fleet/x/y",
+            "/files/a.png",
+            "/activity/shot/d/1",
+        ] {
             let answer = not_found(Uri::from_static(path)).await;
             assert_eq!(answer.status(), StatusCode::NOT_FOUND, "{path}");
         }

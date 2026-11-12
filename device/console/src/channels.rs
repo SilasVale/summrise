@@ -476,6 +476,13 @@ impl ChannelRegistry {
                                 if let Some(update) = frame.update {
                                     self.announce_update(&device_id, update);
                                 }
+                                if let Some(event) = frame.events {
+                                    if let Some(audit) = &self.audit {
+                                        audit.publish(json!({
+                                            "device_event": { "device": device_id, "event": event }
+                                        }));
+                                    }
+                                }
                             }
                         }
                     }
@@ -920,6 +927,8 @@ enum DeviceBody {
 struct Unsolicited {
     host: Option<serde_json::Value>,
     update: Option<serde_json::Value>,
+    /// A pushed event from the device's own journal, relayed to the page's stream.
+    events: Option<serde_json::Value>,
 }
 
 /// Hand one inbound text frame to whoever is waiting for it.
@@ -955,10 +964,18 @@ fn deliver(
         }
         return None;
     }
+    if let Some(event) = value.get("evt") {
+        return Some(Unsolicited {
+            host: None,
+            update: None,
+            events: Some(event.clone()),
+        });
+    }
     if value.get("id").is_none() {
         return Some(Unsolicited {
             host: value.get("host").cloned(),
             update: value.get("update").cloned(),
+            events: None,
         });
     }
     let frame: DeviceFrame = match serde_json::from_value(value) {
@@ -1162,6 +1179,22 @@ mod tests {
             pending.lock().expect("the pending set").is_empty(),
             "a status frame must not be mistaken for an answer"
         );
+    }
+
+    /// A pushed journal event is carried back to the stream, never mistaken for an answer.
+    #[test]
+    fn a_pushed_event_comes_back_for_the_stream() {
+        let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
+        let streams: Mutex<HashMap<u64, mpsc::Sender<Value>>> = Mutex::new(HashMap::new());
+        let frame = deliver(
+            &pending,
+            &streams,
+            r#"{"evt":{"sub":3,"event":{"v":1,"seq":5,"type":"session.opened"}}}"#,
+        )
+        .expect("a pushed event comes back for the stream");
+        let event = frame.events.expect("the event section is carried");
+        assert_eq!(event["sub"], 3);
+        assert_eq!(event["event"]["seq"], 5);
     }
 
     /// The update section has its own slot on the stored frame. It is not folded into the host facts
