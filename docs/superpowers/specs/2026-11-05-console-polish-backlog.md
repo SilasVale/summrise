@@ -6143,6 +6143,21 @@ controls sit on their own line under the facts.
 **A NOTE ON WHAT LOOKED BIGGER THAN IT WAS**: the remaining ~68 px between the disclosure and the first row is the disclosure's own
 box (44) plus its margins (12 + 6) — the card's rhythm, not a void. The void was the 201 px that is now zero.
 
+## The hundred-and-ninety-first list (SHIPPED 2026-11-12 — the run form is one field per row on a phone)
+
+The Tools tab at 390 x 844: the command field took a row and the working directory (`flex: 1 1 10rem`) and timeout (`7.5rem`) shared
+the next one, so the form read as **two unequal columns on a screen with no room for columns**.
+
+    @media (max-width: 639px) { .runs-field.command, .runs-field.cwd, .runs-field.timeout { flex: 1 1 100%; } }
+
+**AND THE CONTRACT GATE REFUSED THE FIRST DRAFT**: `no width is claimed by both query forms: expected [ 640 ] to deeply equal []` —
+the sheet folds at **639**, I wrote **640**, and one pixel would have been claimed by both sides of the fold. The gate exists because
+the panel made exactly that mistake; it caught mine before the build did.
+
+**ALSO MEASURED ON THE SAME PASS, AND FOUND FINE**: the Tools list (`46 tools · 11 capabilities`, a group header, each tool's own row)
+and the Processes table (four columns, the fourth labelled for a screen reader because it holds `Protected` or a Kill control) both
+report 0 px of horizontal overflow at 390 and read cleanly.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
