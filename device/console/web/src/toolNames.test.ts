@@ -51,74 +51,53 @@ function calledNames(): Map<string, string[]> {
 }
 
 /**
- * The vocabulary as it stands, 2026-11-12. One name is the device's (`forward_list`); the rest are this page's dotted
- * spelling, recorded with the open question above rather than quietly normalised. The memory pair joined with the
- * hundred-and-seventy-first list: the device has advertised `memory.list`/`memory.search` since the plugin landed.
+ * **THE INVENTORY IS MEASURED NOW, NOT TYPED (the hundred-and-eighty-third list).** Every name below used to be a literal in this
+ * file, added by hand one round at a time — forty chances to mistype a name that only a live device can refute. It is a
+ * SNAPSHOT of what a device actually advertises (`device-tools.snapshot.json`, taken from `GET /fleet/<id>/tools`), refreshed by
+ * one command: `bash scripts/device-tools-snapshot.sh <device> <release>`.
+ *
+ * **The snapshot records NAMES AND SCHEMAS, never answer shapes** — the fleet answers older shapes than the source tree, and
+ * `docs/superpowers/specs/2026-11-12-device-wire-shapes.md` is the file that holds those.
  */
-const INVENTORY = [
-  "browser.close",
-  "browser.eval",
-  "browser.list",
-  "browser.navigate",
-  "browser.open",
-  "browser.screenshot",
-  "browser.shutdown",
-  "files.list",
-  "files.mkdir",
-  "files.read",
-  "files.write",
-  "forward.list",
-  "host.facts",
-  "host.restart",
-  "memory.list",
-  "memory.search",
-  "monitor.add",
-  "monitor.list",
-  "monitor.probe",
-  "monitor.remove",
-  "plugins.add",
-  "plugins.inspect",
-  "plugins.list",
-  "plugins.logs",
-  "plugins.remove",
-  "plugins.restart",
-  "state.get",
-  "runs.exec",
-  "runs.get",
-  "runs.list",
-  "screen.capture",
-  "system.net_test",
-  "system.process_kill",
-  "system.process_list",
-  "terminal.close",
-  "terminal.create",
-  "terminal.screen",
-  "terminal.list",
-  "terminal.read",
-  "terminal.resize",
-  "terminal.write"
-] as const;
+type SnapshotTool = { name: string; required: string[]; props: string[] };
+const SNAPSHOT = JSON.parse(
+  readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "device-tools.snapshot.json"), "utf8")
+) as { release: string; measured_at: string; tools: SnapshotTool[] };
+
+/**
+ * **THE ONE NAME NO LIVE BUILD HAS SHOWN.** `forward.list` is called by the Forward section, and no device on this fleet carries the
+ * forward plugin (`0.3.292` advertises 46 tools, none of them `forward.*`). It is listed here rather than quietly accepted, so the
+ * exemption is visible in the diff if a future device ships the plugin and this entry should go.
+ */
+const NOT_IN_ANY_LIVE_CATALOGUE = ["forward.list"] as const;
 
 describe("the console's tool vocabulary", () => {
   it("reads names at all — a scan over nothing must not pass", () => {
-    const names = calledNames();
-    expect(names.size).toBeGreaterThan(20);
+    expect(calledNames().size).toBeGreaterThan(20);
   });
 
-  it("is exactly the recorded inventory, so a new name cannot slip in", () => {
-    const found = [...calledNames().keys()].sort();
-    const recorded: string[] = [...INVENTORY].sort();
-    const added = found.filter((name) => !recorded.includes(name));
-    const removed = recorded.filter((name) => !found.includes(name));
-    expect(added, "a name this page calls that the inventory does not record").toEqual([]);
-    expect(removed, "an inventory name this page no longer calls").toEqual([]);
+  it("draws every name it calls from the MEASURED snapshot, or names the exemption", () => {
+    const catalogue = new Set(SNAPSHOT.tools.map((tool) => tool.name));
+    const exempt = new Set<string>(NOT_IN_ANY_LIVE_CATALOGUE);
+    const unknown = [...calledNames().keys()].filter((name) => !catalogue.has(name) && !exempt.has(name)).sort();
+    expect(unknown, "a name this page calls that no measured catalogue has shown").toEqual([]);
   });
 
-  it("keeps the one name the device declares, and it is still the device's", () => {
-    // **MEASURED ON A LIVE DEVICE, 2026-11-12** (`GET /fleet/<id>/tools` on DESKTOP-9VH92BJ, 0.3.292): 46 tools,
-    // every one namespaced with a dot — `terminal.read`, `files.read`, `plugins.list`, `system.process_list` — and
-    // the console's list matches 31 of them exactly. The name that does NOT appear is `forward` itself: that build
-    // has no forward plugin, so the Forward section's `forward.list` is this vocabulary's one unverified entry.
-    expect(calledNames().has("forward.list")).toBe(true);
+  it("keeps the one exemption honest — it is still called, and still absent from the catalogue", () => {
+    for (const name of NOT_IN_ANY_LIVE_CATALOGUE) {
+      expect(calledNames().has(name), `${name} is exempted but no longer called`).toBe(true);
+      expect(SNAPSHOT.tools.some((tool) => tool.name === name), `${name} is now in the catalogue — drop the exemption`).toBe(
+        false
+      );
+    }
+  });
+
+  it("names the release the snapshot was measured from, so a stale one is visible", () => {
+    expect(SNAPSHOT.release).not.toBe("");
+    expect(SNAPSHOT.measured_at).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(SNAPSHOT.tools.length).toBeGreaterThan(30);
+    // A snapshot with a duplicate name is one a refresh went wrong on.
+    const names = SNAPSHOT.tools.map((tool) => tool.name);
+    expect(new Set(names).size).toBe(names.length);
   });
 });

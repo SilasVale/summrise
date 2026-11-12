@@ -1,0 +1,432 @@
+{
+  "source": "console /fleet/<device>/tools, device 4c718d6e44c83388c7e07bd0d811fa0b7cf22e2fced85d35d0021dd26b11f687",
+  "release": "0.3.292",
+  "measured_at": "2026-11-12",
+  "note": "Measured from the FLEET, not from the source tree. Refresh with scripts/device-tools-snapshot.sh.",
+  "tools": [
+    {
+      "name": "browser.cast",
+      "required": [
+        "target"
+      ],
+      "props": [
+        "target"
+      ]
+    },
+    {
+      "name": "browser.close",
+      "required": [
+        "target"
+      ],
+      "props": [
+        "target"
+      ]
+    },
+    {
+      "name": "browser.eval",
+      "required": [
+        "target",
+        "expression"
+      ],
+      "props": [
+        "expression",
+        "target"
+      ]
+    },
+    {
+      "name": "browser.list",
+      "required": [],
+      "props": []
+    },
+    {
+      "name": "browser.navigate",
+      "required": [
+        "target",
+        "url"
+      ],
+      "props": [
+        "target",
+        "url"
+      ]
+    },
+    {
+      "name": "browser.open",
+      "required": [
+        "url"
+      ],
+      "props": [
+        "url"
+      ]
+    },
+    {
+      "name": "browser.screenshot",
+      "required": [
+        "target"
+      ],
+      "props": [
+        "target"
+      ]
+    },
+    {
+      "name": "browser.shutdown",
+      "required": [],
+      "props": []
+    },
+    {
+      "name": "files.list",
+      "required": [
+        "path"
+      ],
+      "props": [
+        "path"
+      ]
+    },
+    {
+      "name": "files.mkdir",
+      "required": [
+        "path"
+      ],
+      "props": [
+        "path",
+        "root"
+      ]
+    },
+    {
+      "name": "files.read",
+      "required": [
+        "path"
+      ],
+      "props": [
+        "encoding",
+        "path",
+        "root"
+      ]
+    },
+    {
+      "name": "files.write",
+      "required": [
+        "path",
+        "content"
+      ],
+      "props": [
+        "content",
+        "encoding",
+        "path",
+        "root"
+      ]
+    },
+    {
+      "name": "host.facts",
+      "required": [],
+      "props": []
+    },
+    {
+      "name": "host.restart",
+      "required": [],
+      "props": []
+    },
+    {
+      "name": "memory.append",
+      "required": [
+        "text"
+      ],
+      "props": [
+        "tags",
+        "text"
+      ]
+    },
+    {
+      "name": "memory.delete",
+      "required": [
+        "id"
+      ],
+      "props": [
+        "id"
+      ]
+    },
+    {
+      "name": "memory.export",
+      "required": [],
+      "props": []
+    },
+    {
+      "name": "memory.list",
+      "required": [],
+      "props": [
+        "limit",
+        "tag"
+      ]
+    },
+    {
+      "name": "memory.search",
+      "required": [
+        "query"
+      ],
+      "props": [
+        "limit",
+        "query"
+      ]
+    },
+    {
+      "name": "memory.update",
+      "required": [
+        "id",
+        "text",
+        "tags"
+      ],
+      "props": [
+        "id",
+        "tags",
+        "text"
+      ]
+    },
+    {
+      "name": "monitor.add",
+      "required": [
+        "kind",
+        "host",
+        "port",
+        "interval_ms"
+      ],
+      "props": [
+        "expect",
+        "host",
+        "interval_ms",
+        "kind",
+        "path",
+        "port"
+      ]
+    },
+    {
+      "name": "monitor.list",
+      "required": [],
+      "props": []
+    },
+    {
+      "name": "monitor.probe",
+      "required": [
+        "id"
+      ],
+      "props": [
+        "id"
+      ]
+    },
+    {
+      "name": "monitor.remove",
+      "required": [
+        "id"
+      ],
+      "props": [
+        "id"
+      ]
+    },
+    {
+      "name": "monitor.status",
+      "required": [
+        "id"
+      ],
+      "props": [
+        "id"
+      ]
+    },
+    {
+      "name": "plugins.add",
+      "required": [
+        "path"
+      ],
+      "props": [
+        "path"
+      ]
+    },
+    {
+      "name": "plugins.inspect",
+      "required": [
+        "path"
+      ],
+      "props": [
+        "path"
+      ]
+    },
+    {
+      "name": "plugins.list",
+      "required": [],
+      "props": []
+    },
+    {
+      "name": "plugins.logs",
+      "required": [
+        "namespace"
+      ],
+      "props": [
+        "lines",
+        "namespace"
+      ]
+    },
+    {
+      "name": "plugins.remove",
+      "required": [
+        "namespace"
+      ],
+      "props": [
+        "namespace"
+      ]
+    },
+    {
+      "name": "plugins.restart",
+      "required": [
+        "namespace"
+      ],
+      "props": [
+        "namespace"
+      ]
+    },
+    {
+      "name": "runs.exec",
+      "required": [
+        "command"
+      ],
+      "props": [
+        "args",
+        "command",
+        "cwd",
+        "env",
+        "shell",
+        "timeout_ms"
+      ]
+    },
+    {
+      "name": "runs.get",
+      "required": [
+        "id"
+      ],
+      "props": [
+        "id"
+      ]
+    },
+    {
+      "name": "runs.list",
+      "required": [],
+      "props": [
+        "limit"
+      ]
+    },
+    {
+      "name": "screen.capture",
+      "required": [],
+      "props": []
+    },
+    {
+      "name": "state.get",
+      "required": [],
+      "props": []
+    },
+    {
+      "name": "system.net_test",
+      "required": [
+        "host",
+        "port"
+      ],
+      "props": [
+        "host",
+        "port",
+        "timeout_ms"
+      ]
+    },
+    {
+      "name": "system.process_kill",
+      "required": [],
+      "props": [
+        "name",
+        "pid"
+      ]
+    },
+    {
+      "name": "system.process_list",
+      "required": [],
+      "props": [
+        "name"
+      ]
+    },
+    {
+      "name": "terminal.close",
+      "required": [
+        "id"
+      ],
+      "props": [
+        "id"
+      ]
+    },
+    {
+      "name": "terminal.create",
+      "required": [
+        "kind"
+      ],
+      "props": [
+        "auth",
+        "baud",
+        "cols",
+        "data_bits",
+        "host",
+        "host_key",
+        "kind",
+        "parity",
+        "port",
+        "rows",
+        "shell",
+        "stop_bits",
+        "user"
+      ]
+    },
+    {
+      "name": "terminal.list",
+      "required": [],
+      "props": []
+    },
+    {
+      "name": "terminal.read",
+      "required": [
+        "id"
+      ],
+      "props": [
+        "cursor",
+        "id",
+        "limit",
+        "wait_ms"
+      ]
+    },
+    {
+      "name": "terminal.resize",
+      "required": [
+        "id",
+        "rows",
+        "cols"
+      ],
+      "props": [
+        "cols",
+        "id",
+        "rows"
+      ]
+    },
+    {
+      "name": "terminal.screen",
+      "required": [
+        "id"
+      ],
+      "props": [
+        "id",
+        "lines"
+      ]
+    },
+    {
+      "name": "terminal.write",
+      "required": [
+        "id",
+        "data"
+      ],
+      "props": [
+        "data",
+        "id"
+      ]
+    }
+  ]
+}
