@@ -75,20 +75,21 @@ below ladders to that; one round completes one major item end to end.
   is green. 1 182 page tests, layout contract included.
 - 2026-11-13 — CI now tests and lints `summrise-plugin-host` and `summrise-console-page` (`9104933`).
 
-## In flight (branch `feat/local-smoke`)
-
-- A Linux smoke script: the standalone device boots, serves its panel, answers MCP and journals
-  `device.started`; the console serves its page and health.
+- 2026-11-13 — The local smoke shipped and merged (`a988d37`): `scripts/smoke-local.sh` starts the real
+  device and console on free ports with temp data and asserts 22 things across the product loop —
+  the install token format, `/api/health`, `/panel` and its meta token, `/api/panel`, an MCP
+  `initialize`/`tools/list`/`tools/call` (`host.facts`) over the streamable-http flow, the audit
+  lines for that call, `device.started` in `journal/000001.seg`, and the console's `/health` and
+  embedded page. It always builds incrementally first, so it tests HEAD rather than a stale binary.
+  Finding: `/api/panel` is loopback-only, not panel-token-gated (the mutating panel routes are); with
+  one operator on their own machine that is the right trade, but it is a contract worth knowing.
 
 ## Next (in order)
 
-1. Linux end-to-end smoke — a standalone device and a local console, register, mint a token, one MCP
-   call, then read it in Activity and in the device's journal. This is the product loop, not unit
-   tests; it is the last thing that can be verified on this machine.
+1. Docs — refresh the architecture doc's §6 current-state table to the shipped code and RELEASE.md
+   for the new crates. This is the last item verifiable on this machine.
 2. Windows handoff — build the installer on a Windows runner, silent install/uninstall, run
    `summrise-shell.exe --check-window` with the console down, sign the four exes.
-3. Docs — refresh the architecture doc's §6 current-state table to the shipped code and RELEASE.md
-   for the new crates.
 
 ## Rules
 
