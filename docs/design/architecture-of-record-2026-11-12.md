@@ -1,7 +1,10 @@
 # Architecture of Record: the two-plane kernel
 
 > **Status: architecture of record, 2026-11-12. Approved by the operator: plugins are trusted (no
-> signature or sandbox); the desktop surface is the shell, not Electron. Nothing here is built yet.**
+> signature or sandbox); the desktop surface is the shell, not Electron. Implemented as slices on
+> `hub/v1`: the bus and its bounded journal, the `plugin-host` and `console-page` crates, the
+> dependency gate, and the shell's panel fallback. `docs/design/program-ledger.md` is the record of
+> what is green and what remains — chiefly the Windows packaging rehearsal.**
 > This is the architecture `summrise-product` implements from here on. It is argued from
 > `docs/PRODUCT.md` (what the product is) and `docs/design/capability-hub-2026-11-02.md` (the plan of
 > record); it replaces neither. The first slice that proves it is §8.
@@ -65,8 +68,8 @@ OS sandbox; that section is withdrawn (§9).
 | I4 | The journal is bounded; state is derived and rebuildable | retention job; `state.json` can be rebuilt from journal + snapshot on recovery |
 | I5 | The operator sees everything; a client token sees its tools | one operator session; tokens are tool scopes, not topic scopes |
 | I6 | A plugin is trusted; its process is supervised | restart with backoff, mark failed, kill on close — availability, not isolation |
-| I7 | The page holds no keys | module boundary + CI check |
-| I8 | Dependencies point one way | target: `scripts/check-architecture.mjs` in CI (S5); nothing enforces it today |
+| I7 | The page holds no keys | crate boundary (`summrise-console-page`, no workspace dependency) + a source guard test |
+| I8 | Dependencies point one way | `scripts/check-architecture.mjs` reads `cargo metadata --no-deps` and runs in CI before the build: 14 packages, 22 edges, 0 upward |
 | I9 | Failure domains restart independently | process domains: device, launch, console, plugin children; the page may be a module and restarts with the console |
 | I10 | One UI, one auth path | desktop is a surface of the console, never a second device auth |
 | I11 | A destructive call runs only for the owner on loopback, or under a token that carries destructive consent; otherwise it is refused with a reason | `allow_destructive` on the token; a refusal row naming the fix |
@@ -249,19 +252,20 @@ starts in `PRODUCT.md`.
 
 | Target | Today |
 |---|---|
-| `core` | `device/core` — registry, grants, sessions, state; already the pure half |
-| `bus` | does not exist. `device/console/src/audit.rs` has the only fan-out (a broadcast); the device has no event stream |
-| `plugin-host` | `device/device/src/plugins` — a module inside the app, not a supervised subsystem |
-| `console` + `console-page` | one binary doing enroll, tokens, channel, proxy and page |
-| journal | `events.jsonl`: capped at 64 MiB, rotated to `events.1.jsonl` (one generation, older lines discarded — `mcp.rs:89`); each line carries a per-process `id` that resets to 1, so it is not a cursor; `summrise-launch` also appends (`launch/src/lib.rs:1956`) — two writers today |
-| subscription | terminal only (`device/device/src/console.rs:919` → `device/console/src/http.rs:2412`); the page's SSE has a snapshot and `lagged` but no `id:` (`http.rs:5906`); the device audit carries a per-process `id`, the console audit carries none |
-| Activity | reads only the console audit; a call made from the device's panel, the mesh or loopback lives in the device journal and reaches the page only when S1 subscribes |
-| desktop | `device/shell`: tray + WebView2; the Electron client lives in the legacy repo |
-| dependency gate | does not exist; S5 adds it |
+| `core` | `device/core` — registry, grants, sessions, state; the pure half, no workspace dependency |
+| `bus` | `device/bus` — one writer, one sequence; `%06d.seg` at 4 MiB, 64 MiB retention, fsync per publish, a snapshot every 1 000 events; `oldest_seq` and `reset{snapshot_seq, lost}`; 12 tests |
+| `plugin-host` | `device/plugin-host` — its own crate (core + bus only); supervised; publishes `plugin.starting/.ready/.stopped/.failed/.tools_changed` on the bus |
+| `console` + `console-page` | `summrise-console` (control: keys, channel, proxy, audit) and `summrise-console-page` (the page role; no workspace dependency, `PageSource`); one binary hosts both |
+| journal | `journal/%06d.seg` beside `events.jsonl`; a cursor that falls off gets `reset{snapshot_seq, lost}` and the retained rows; `device.started`, `session.opened` and `session.closed`, and the plugin lifecycle are rows |
+| subscription | channel `{"events":{"from_seq"}}` with `evt`/`reset` frames; the console subscribes from `last + 1` (live-only on a first connect) and relays `device` and `reset` SSE events; every SSE event carries an `id:`, and `Last-Event-ID` replays the page's buffer |
+| Activity | the console audit plus device events through the channel; a reset shows as a gap and triggers a reread; the Device page shows the machine's own journal strip |
+| desktop | `device/shell`: tray + WebView2; resolves the console from env/`console.json`/build default and opens `/panel` when it does not answer; Electron stays in the legacy repo |
+| dependency gate | `scripts/check-architecture.mjs`, in CI before the cache and any build |
 
 ## 7. Migration
 
-Each stage ships alone; none requires the next.
+Each stage ships alone; none requires the next. Slices of all six have shipped on `hub/v1`; the
+ledger records the order, the commits and the tests, and names what remains.
 
 - **S1 — L1, the control-plane slice.** `bus` crate (envelope, journal, hub); `session.opened|closed` and
   `device.started` published; channel `sub/evt/unsub` with `from_seq`, an operator-scoped subscription and
