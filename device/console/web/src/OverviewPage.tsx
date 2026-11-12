@@ -424,6 +424,24 @@ export function OverviewPage(props: OverviewPageProps) {
         <div>
           <h2>{name}</h2>
           <p className="page-sub">{statusLine}</p>
+          {/* **THE COUNTS ARE THE MACHINE'S OWN LINE, NOT A FOURTH BLOCK (the hundred-and-forty-sixth list).** Measured at
+              1440 on the live page 2026-11-12: this page drew FOUR bordered blocks stacked in one column — the machine card,
+              the Now band, this counts chip and the day row — four borders around four single lines, which is what makes a
+              page read as four things instead of one. The counts answer "what can this machine do", so they belong in the
+              card that names it; the chip's own grammar (a button to the Tools tab) does not change. */}
+          {offline ? (
+            <p className="hint">Tool counts are unavailable while the machine is offline.</p>
+          ) : read === "reading" ? (
+            <p className="hint" role="status">
+              Reading the tool list…
+            </p>
+          ) : read === "failed" ? null : (
+            <button type="button" className="counts-line" onClick={props.onTools}>
+              {plural(live.tools.length, "tool")} · {plural(capabilities, "capability", "capabilities")}
+              {plugins !== null ? ` · ${plural(plugins, "plugin")}` : ""}
+              {live.stale ? " · stale" : ""} <span aria-hidden="true">→</span>
+            </button>
+          )}
         </div>
         {/* The device's own account of its last start, in the machine's head beside the name it
             describes (audit-44 F1). It used to be the shell's first line, above the h1 and 35 px
@@ -471,30 +489,6 @@ export function OverviewPage(props: OverviewPageProps) {
           running={liveRunning}
           state={props.liveState ?? "connecting"}
         />
-      )}
-
-      {/* **THE CAPABILITY LINE IS ABOVE THE DAY.** The line answers "what can this machine do
-          now", so it sits with the Now band, not after the day it describes. */}
-      {offline ? (
-        <p className="hint">Tool counts are unavailable while the machine is offline.</p>
-      ) : read === "reading" ? (
-        // THE ZERO WAS A READ THAT HAD NOT ANSWERED. The measured 84T read `0 tools · 0
-        // capabilities` at 300 ms and `46 tools · 11 capabilities` at 800 ms; the line now says
-        // what it is doing until the machine answers (audit-42 F5).
-        <p className="hint" role="status">
-          Reading the tool list…
-        </p>
-      ) : read === "failed" ? (
-        // **THE NOTICE ABOVE IS THE FAILURE'S ONE STATEMENT (audit-43 F9).** The line that used to
-        // say `Tool counts are unavailable…` repeated it 40 px lower; the notice already says the
-        // counts are not shown, and it carries the one Retry.
-        null
-      ) : (
-        <button type="button" className="counts-line" onClick={props.onTools}>
-          {plural(live.tools.length, "tool")} · {plural(capabilities, "capability", "capabilities")}
-          {plugins !== null ? ` · ${plural(plugins, "plugin")}` : ""}
-          {live.stale ? " · stale" : ""} <span aria-hidden="true">→</span>
-        </button>
       )}
 
       {/* **THE DAY IS ONE LINE, NOT ACTIVITY'S CARD.** The measured page ended in a 29-row copy of
