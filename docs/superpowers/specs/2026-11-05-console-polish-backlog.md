@@ -5715,6 +5715,36 @@ A label that does not move for five seconds reads as a hang.
 **WIRED NOW: 35 of 46.** Remaining eleven: memory writes (3), monitor writes (4), `browser.cast`, `state.get`, `terminal.screen`,
 `forward.list` (needs a device that ships the forward plugin).
 
+## The hundred-and-seventy-fourth list (SHIPPED 2026-11-12 — the watch list can be written, and the schema said so)
+
+Fourth SHIP-FAST feature: `monitor.add` and `monitor.remove` were two of the eleven unwired tools, and starting a watch meant
+opening a terminal on the machine.
+
+    Machine → Services this machine watches → [Watch a host and port]
+        Host to watch · Port to watch · Path to watch (optional — makes it an HTTP GET) → [Start watching]
+    each row → [Stop watching] → "Stop watching 127.0.0.1:19000? Its series is discarded. [Stop] [Keep]"
+
+**BOTH WRITES NAME THEIR SHADOW WHERE THE OPERATOR READS IT**: a watch is PERSISTED on the machine and survives a restart (said
+in the form), and stopping one DISCARDS its series (said in the confirmation, before the click).
+
+**AND THE LIVE ADD FOUND THE SCHEMA.** `-ux219` shipped and the first real click answered `monitor.add: the arguments do not match
+the tool's input schema`. Measured from the catalogue:
+
+    monitor.add  required: ["kind", "host", "port", "interval_ms"]  ·  additionalProperties: false
+
+The page sent `{host, port, path}`. `-ux220` sends `kind` (following the path the operator gave) and `interval_ms` (the device's
+own 15 s, named). The live proof after `-ux220`:
+
+    Watching 127.0.0.1:19000/health — the machine probes it every 15 s.
+    One target · 127.0.0.1:19000/health · Not probed · [Stop watching]
+
+**THE WATCH IS STILL THERE.** It was created on DESKTOP-9VH92BJ to prove the feature and it watches the console's own `/health`;
+the operator can stop it with the button this round shipped. Named here rather than removed, because a watch on the console's
+own health is worth having.
+
+**WIRED NOW: 37 of 46.** Remaining nine: memory writes (3), `browser.cast`, `state.get`, `terminal.screen`, `forward.list` (needs
+a device that ships the forward plugin), and `monitor.probe`/`monitor.status` (the list already carries what they report).
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
