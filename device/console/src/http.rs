@@ -1523,10 +1523,45 @@ async fn react_page() -> Html<&'static str> {
     Html(REACT_PAGE)
 }
 
-/// Any path the router does not own: a 404. The React page owns its own routes, so the console
-/// does not render a fallback page for a path it does not serve.
-async fn not_found() -> StatusCode {
-    StatusCode::NOT_FOUND
+/// Any path the router does not own. **A TYPED OR SHARED PATH IS A PERSON, NOT A BOT** (the hundred-and-forty-fourth list).
+///
+/// Measured 2026-11-12 against the live console: `GET /activity` answered **404 with an empty body** — a blank page. The page
+/// routes in the URL's HASH (`/#/activity`), which is a fine decision for links this page makes and a trap for every link a
+/// person types, pastes or shares: the URL names a destination and the console answers nothing at all. A path that LOOKS like a
+/// destination now answers a redirect to `/#<path>`, so the page a person asked for is the page they get.
+///
+/// **AND EVERYTHING ELSE IS STILL A PLAIN 404.** A client probing an API must not be handed the page: `/api/…`, `/mcp`, the
+/// device and audit namespaces and any path whose last segment carries a dot (a file) keep the old answer, which is the
+/// honest one.
+async fn not_found(uri: axum::http::Uri) -> Response {
+    let path = uri.path();
+    const NOT_A_PAGE: &[&str] = &[
+        "/api", "/mcp", "/devices", "/fleet", "/audit", "/tokens", "/grants", "/events", "/installer", "/mesh", "/terminal",
+        "/denials", "/health", "/app", "/next", "/session", "/logout", "/enroll", "/activity/shot", "/favicon",
+    ];
+    let looks_like_a_page = !NOT_A_PAGE.iter().any(|prefix| path.starts_with(prefix))
+        && !path
+            .rsplit('/')
+            .next()
+            .unwrap_or("")
+            .contains('.');
+    if !looks_like_a_page {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let mut response = Response::new(axum::body::Body::empty());
+    *response.status_mut() = StatusCode::SEE_OTHER;
+    // **THE PAGE'S OWN FRAGMENT SPELLING** (`surface-link.ts`: `#activity`, `#device/<tab>`), not a path with a slash: the
+    // first version of this redirect emitted `/#/activity`, the page did not recognise it and silently fell back to `#home`
+    // — measured 2026-11-12 in a browser, one round after the redirect landed.
+    let fragment = path.trim_start_matches('/');
+    match format!("/#{fragment}").parse() {
+        Ok(location) => {
+            response.headers_mut().insert(axum::http::header::LOCATION, location);
+            response
+        }
+        // A path that cannot be a header is not a page this console can name; the plain answer is the safe one.
+        Err(_) => StatusCode::NOT_FOUND.into_response(),
+    }
 }
 
 /// One installer the selection rule found: the file both installer routes answer with.
@@ -5957,6 +5992,27 @@ mod tests {
             code.headers().get("location").unwrap(),
             "/next?code=abc&next=%2F"
         );
+    }
+
+    /// **A TYPED PATH LANDS ON THE PAGE IT NAMES; AN API PATH STAYS A 404** (the hundred-and-forty-fourth list). Measured
+    /// live 2026-11-12: `GET /activity` answered 404 with an empty body, because this console routes in the hash.
+    #[tokio::test]
+    async fn a_typed_path_lands_on_its_page_and_an_api_path_stays_a_404() {
+        use axum::http::{StatusCode, Uri};
+
+        let typed = not_found(Uri::from_static("/activity")).await;
+        assert_eq!(typed.status(), StatusCode::SEE_OTHER);
+        assert_eq!(typed.headers().get("location").unwrap(), "/#activity");
+
+        // A nested destination keeps its whole path; nothing is guessed away.
+        let nested = not_found(Uri::from_static("/device/abc")).await;
+        assert_eq!(nested.headers().get("location").unwrap(), "/#device/abc");
+
+        // The API, the transport and files keep the honest answer.
+        for path in ["/api/nope", "/mcp", "/fleet/x/y", "/files/a.png", "/activity/shot/d/1"] {
+            let answer = not_found(Uri::from_static(path)).await;
+            assert_eq!(answer.status(), StatusCode::NOT_FOUND, "{path}");
+        }
     }
 
     /// A parked call's wait follows the argument the client sent; everything else leaves the
