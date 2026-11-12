@@ -6108,6 +6108,23 @@ Chasing the `runs.exec` cluster meant reading every row of one tool, and the rec
 
 **LIVE AFTER `-ux240`**: the first row's evidence shows `runs.exec` + `[All rows]`; clicking it sets the search to `runs.exec`.
 
+## The hundred-and-eighty-ninth list (SHIPPED 2026-11-12 — the first 390 measurement of this week's tabs, and two fixes it earned)
+
+The week's new tabs (Memory, Machine with its services and its own record) had never been looked at on a phone.
+
+**MEASURED at 390 x 844**: both pages report **0 px of horizontal overflow** and no element wider than the viewport — the page's boxes
+were fine. The defects were inside the parts:
+
+1. **The tab strip's right chevron sat ON the selected tab.** With `Memory` selected the label read `Memor›`: the page had scrolled
+   the tab into view and then drawn "there is more to the right" on top of it. The scroll now keeps clear of the chevron's own width
+   (measured at runtime) and re-runs one frame later, because the chevron is drawn by the first pass's `syncEdges` and cannot be
+   measured before it exists.
+2. **The memory search stacked into two blocks.** The field's `flex: 1 1 16rem` basis is wider than a phone's row, so the button
+   wrapped onto its own line. A 12 rem basis keeps field and button on one row down to 390.
+
+**AFTER `-ux241` and `-ux242`**: `Memory` is fully legible in the strip, the search is one row, and the page still reports 0 px of
+overflow. Screenshots: `/tmp/live-*.png`, the round's own captures at 390 x 844.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
