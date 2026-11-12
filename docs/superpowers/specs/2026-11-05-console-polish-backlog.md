@@ -6014,6 +6014,20 @@ has shown: expected [ 'memory.list' ] to deeply equal []`; restoring it passes.
 **THE RED LINE HELD**: the snapshot records NAMES AND SCHEMAS, never answer SHAPES. The fleet answers older shapes than the source
 tree — generating TYPES from the tree would re-introduce the five defects that made the wire-shapes file necessary.
 
+## The hundred-and-eighty-fourth list (SHIPPED 2026-11-12 — Activity's Timeline can show only the failures)
+
+Activity's header says `Today: 529 client calls, 51 failed …` and the Timeline — the page's default view — had no way to show only those
+rows: the Table carried a status filter, the Timeline did not. Measured live: the controls were `Timeline | Table | Live | Pause`,
+`MACHINES`, `CALLERS: Clients only`, `SEARCH ACTIVITY`.
+
+    CALLERS: [Clients only] [Failures only]
+
+The page owns the choice (shared with the Table, so a view switch cannot drop it); the timeline applies it over the same `auditFailed`
+rule the row's warning uses — **the derived outcome, not the HTTP status**, because a device's JSON-RPC error arrives as a 200. The
+narrowing counts toward the collapsed-filters number, so a hidden control that still filters cannot exist.
+
+**LIVE AFTER `-ux236`**: `Failures only` present, pressed on click, and the Timeline's rows went **120 → 62**.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
