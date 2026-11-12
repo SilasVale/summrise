@@ -271,6 +271,12 @@ function Evidence(props: {
   tokenNames: ReadonlyMap<string, string>;
   onWatch?: (deviceId: string) => void;
   onManageToken?: (tokenId: string) => void;
+  /**
+   * **ONE CLICK FROM A ROW TO ITS TOOL (the hundred-and-eighty-eighth list).** Chasing an integration that keeps failing means
+   * reading every row of one tool, and the record had no way from a single row to that set: the tool was a fact to read. The
+   * button in the evidence panel sets the page's own tool filter.
+   */
+  onFilterTool?: (tool: string) => void;
 }) {
   const line = props.line;
   const evidence = line.evidence;
@@ -345,6 +351,11 @@ function Evidence(props: {
               <dt>Tool</dt>
               <dd className="mono" title={line.tool}>
                 {line.tool}
+                {props.onFilterTool && (
+                  <button type="button" className="mini" onClick={() => props.onFilterTool?.(line.tool as string)}>
+                    All rows
+                  </button>
+                )}
               </dd>
             </div>
           )}
@@ -501,6 +512,7 @@ function Row(props: {
   onToggle: () => void;
   onWatch?: (deviceId: string) => void;
   onManageToken?: (tokenId: string) => void;
+  onFilterTool?: (tool: string) => void;
 }) {
   const line = props.line;
   const kind = tone(line);
@@ -569,6 +581,7 @@ function Row(props: {
           tokenNames={props.tokenNames}
           onWatch={props.onWatch}
           onManageToken={props.onManageToken}
+          onFilterTool={props.onFilterTool}
         />
       )}
     </li>
@@ -667,6 +680,8 @@ export function ActivityTimeline(props: {
   onWatch?: (deviceId: string) => void;
   /** Open the Connect sheet on the token a record names. */
   onManageToken?: (tokenId: string) => void;
+  /** Set the page's tool filter from a row's evidence (the hundred-and-eighty-eighth list). */
+  onFilterTool?: (tool: string) => void;
   empty?: string;
   /**
    * A fixed clock, for a page that is paused: the age column stops at this moment instead of
@@ -1249,6 +1264,7 @@ export function ActivityTimeline(props: {
                           onToggle={() => setOpenKey((current) => (current === key ? null : key))}
                           onWatch={props.onWatch}
                           onManageToken={props.onManageToken}
+                          onFilterTool={props.onFilterTool}
                         />
                       </Fragment>
                     );

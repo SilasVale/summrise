@@ -1484,4 +1484,12 @@ describe("ActivityTimeline's day door", () => {
     expect(screen.queryByText("A call that worked")).toBeNull();
     expect(screen.getByText("A call that failed")).toBeInTheDocument();
   });
+  it("goes from ONE row to all of its tool, with a button in the evidence", () => {
+    const onFilterTool = vi.fn();
+    const lines = [line({ ts_ms: Date.UTC(2026, 10, 5, 9, 0, 0), device_id: alpha, sentence: "Ran a command", tool: "runs.exec" })];
+    render(<ActivityTimeline lines={lines} devices={devices} onFilterTool={onFilterTool} />);
+    fireEvent.click(screen.getByText("Ran a command"));
+    fireEvent.click(screen.getByRole("button", { name: "All rows" }));
+    expect(onFilterTool).toHaveBeenCalledWith("runs.exec");
+  });
 });
