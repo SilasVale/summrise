@@ -234,6 +234,10 @@ pub(crate) struct ChannelRegistry {
     /// The live terminal subscriptions, by the frame id that opened each one. A `term` frame on the
     /// channel is delivered here and never mistaken for an answer.
     streams: Mutex<HashMap<u64, mpsc::Sender<Value>>>,
+    /// The last device journal sequence seen per device, so a reconnect asks for the row after it
+    /// rather than starting live-only. This outlives a channel: the socket closing is not the
+    /// device's journal ending.
+    event_seqs: Mutex<HashMap<String, u64>>,
     /// Wakes a request waiting for a channel to open.
     changed: Notify,
     send_timeout: Duration,
@@ -267,6 +271,7 @@ impl ChannelRegistry {
             updates: Mutex::new(HashMap::new()),
             caps: Mutex::new(HashMap::new()),
             streams: Mutex::new(HashMap::new()),
+            event_seqs: Mutex::new(HashMap::new()),
             audit: None,
             now: std::sync::Arc::new(system_now_ms),
             changed: Notify::new(),
@@ -405,6 +410,26 @@ impl ChannelRegistry {
         lock(&self.last_frames).get(device_id).copied()
     }
 
+    /// The sequence a reopening subscription should ask the device for: one after the last row
+    /// this console saw, or [`u64::MAX`] when it has seen none (a first connect is live-only).
+    fn events_from(&self, device_id: &str) -> u64 {
+        lock(&self.event_seqs)
+            .get(device_id)
+            .map_or(u64::MAX, |seq| seq.saturating_add(1))
+    }
+
+    /// Remember the last journal sequence a device pushed, so its next channel resumes after it.
+    ///
+    /// The sequence is monotonic, so a late frame from a replaced socket cannot move the cursor
+    /// backwards.
+    fn record_event_seq(&self, device_id: &str, seq: u64) {
+        let mut seqs = lock(&self.event_seqs);
+        let entry = seqs.entry(device_id.to_owned()).or_insert(seq);
+        if *entry < seq {
+            *entry = seq;
+        }
+    }
+
     /// Note that a frame arrived on the channel `generation` opened.
     ///
     /// Any frame counts — a host report, an answer, a ping — because presence is transport-level:
@@ -429,10 +454,12 @@ impl ChannelRegistry {
 
         // Subscribe to the device's own journal before serving requests: every session event the
         // device publishes arrives as a `{"evt":...}` frame and is relayed to the page's stream.
-        // The cursor is past the end on purpose: the console wants what happens from now, not a
-        // replay of the device's whole retained journal on every reconnect.
+        // A first connect is live-only; a reconnect resumes one past the last row this console saw,
+        // so the rows written while the socket was down are not lost. A cursor retention has passed
+        // is answered by the device with a reset frame.
         let events_id = self.next_request.fetch_add(1, Ordering::SeqCst);
-        let subscribe = json!({ "id": events_id, "events": { "from_seq": u64::MAX } }).to_string();
+        let from_seq = self.events_from(&device_id);
+        let subscribe = json!({ "id": events_id, "events": { "from_seq": from_seq } }).to_string();
         if socket.send(Message::Text(subscribe)).await.is_err() {
             self.close(&device_id, open.generation, &open.pending).await;
             return;
@@ -487,7 +514,23 @@ impl ChannelRegistry {
                                 if let Some(update) = frame.update {
                                     self.announce_update(&device_id, update);
                                 }
+                                if let Some(reset) = frame.reset {
+                                    // Retention took a range the page can no longer replay from
+                                    // the journal; the reset names what is missing, so the page
+                                    // can refetch rather than silently show a gap.
+                                    let value = json!({
+                                        "device_reset": { "device": device_id, "reset": reset }
+                                    });
+                                    if let Some(audit) = &self.audit {
+                                        audit.publish(value);
+                                    }
+                                }
                                 if let Some(event) = frame.events {
+                                    if let Some(seq) =
+                                        event.pointer("/event/seq").and_then(Value::as_u64)
+                                    {
+                                        self.record_event_seq(&device_id, seq);
+                                    }
                                     let value = json!({
                                         "device_event": { "device": device_id, "event": event }
                                     });
@@ -943,6 +986,9 @@ struct Unsolicited {
     update: Option<serde_json::Value>,
     /// A pushed event from the device's own journal, relayed to the page's stream.
     events: Option<serde_json::Value>,
+    /// The range retention took from a subscription, which is not an event: it carries no journal
+    /// sequence and is published as its own notice.
+    reset: Option<serde_json::Value>,
 }
 
 /// Hand one inbound text frame to whoever is waiting for it.
@@ -979,10 +1025,19 @@ fn deliver(
         return None;
     }
     if let Some(event) = value.get("evt") {
+        if let Some(reset) = event.get("reset") {
+            return Some(Unsolicited {
+                host: None,
+                update: None,
+                events: None,
+                reset: Some(reset.clone()),
+            });
+        }
         return Some(Unsolicited {
             host: None,
             update: None,
             events: Some(event.clone()),
+            reset: None,
         });
     }
     if value.get("id").is_none() {
@@ -990,6 +1045,7 @@ fn deliver(
             host: value.get("host").cloned(),
             update: value.get("update").cloned(),
             events: None,
+            reset: None,
         });
     }
     let frame: DeviceFrame = match serde_json::from_value(value) {
@@ -1209,6 +1265,46 @@ mod tests {
         let event = frame.events.expect("the event section is carried");
         assert_eq!(event["sub"], 3);
         assert_eq!(event["event"]["seq"], 5);
+    }
+
+    /// A reset names what retention took; it has no journal sequence, so it must not be handed to
+    /// the page as an event with a made-up one.
+    #[test]
+    fn a_reset_frame_comes_back_apart_from_an_event() {
+        let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
+        let streams: Mutex<HashMap<u64, mpsc::Sender<Value>>> = Mutex::new(HashMap::new());
+        let frame = deliver(
+            &pending,
+            &streams,
+            r#"{"evt":{"sub":3,"reset":{"snapshot_seq":4,"lost":{"from":1,"to":4}}}}"#,
+        )
+        .expect("a reset comes back for the stream");
+        assert!(frame.events.is_none(), "a reset is not a journal event");
+        let reset = frame.reset.expect("the reset section is carried");
+        assert_eq!(reset["snapshot_seq"], 4);
+        assert_eq!(reset["lost"]["from"], 1);
+        assert_eq!(reset["lost"]["to"], 4);
+    }
+
+    /// The event cursor outlives a channel: a first connect is live-only, and every later one asks
+    /// for the row after the last sequence this console saw.
+    #[test]
+    fn the_event_cursor_resumes_after_the_last_sequence_seen() {
+        let registry = ChannelRegistry::new();
+        let id = device_id();
+        assert_eq!(
+            registry.events_from(&id),
+            u64::MAX,
+            "a first connect is live-only"
+        );
+        registry.record_event_seq(&id, 5);
+        assert_eq!(registry.events_from(&id), 6);
+        registry.record_event_seq(&id, 4);
+        assert_eq!(
+            registry.events_from(&id),
+            6,
+            "the cursor never moves backwards"
+        );
     }
 
     /// The update section has its own slot on the stored frame. It is not folded into the host facts

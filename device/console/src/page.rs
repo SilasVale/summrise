@@ -229,8 +229,30 @@ async fn event_stream(State(page): State<Arc<Page>>, headers: HeaderMap) -> Resp
             Ok(value) => {
                 // A call's announcement and clear share the audit's broadcast, but they are not
                 // activity lines: the page listens for their own names and keeps them out of the
-                // record. Everything else is an activity line.
-                let (name, id) = if let Some(device_event) = value.get("device_event") {
+                // record. A retention reset is likewise its own event, not a device row. Everything
+                // else is an activity line.
+                let (name, id, data) = if let Some(reset) = value.get("device_reset") {
+                    let device = reset
+                        .get("device")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    let snapshot_seq = reset
+                        .pointer("/reset/snapshot_seq")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(0);
+                    let body = json!({
+                        "device": device,
+                        "snapshot_seq": snapshot_seq,
+                        "lost": reset.pointer("/reset/lost").cloned().unwrap_or(Value::Null),
+                    });
+                    // The id names the reset itself: the same reset replayed to a reconnecting
+                    // page is not a new row, and anything else is an ordinary stream id.
+                    (
+                        "reset",
+                        format!("reset:{device}:{snapshot_seq}"),
+                        body.to_string(),
+                    )
+                } else if let Some(device_event) = value.get("device_event") {
                     let device = device_event
                         .get("device")
                         .and_then(Value::as_str)
@@ -240,7 +262,11 @@ async fn event_stream(State(page): State<Arc<Page>>, headers: HeaderMap) -> Resp
                         .and_then(|event| event.get("seq"))
                         .and_then(Value::as_u64)
                         .unwrap_or(0);
-                    ("device", format!("device:{device}:{seq}"))
+                    (
+                        "device",
+                        format!("device:{device}:{seq}"),
+                        value.to_string(),
+                    )
                 } else {
                     let name = if value.get("started").is_some() {
                         "started"
@@ -249,12 +275,14 @@ async fn event_stream(State(page): State<Arc<Page>>, headers: HeaderMap) -> Resp
                     } else {
                         "activity"
                     };
-                    (name, format!("{}:{}", boot_epoch(), next_event_id()))
+                    (
+                        name,
+                        format!("{}:{}", boot_epoch(), next_event_id()),
+                        value.to_string(),
+                    )
                 };
                 Some((
-                    Ok::<Event, Infallible>(
-                        Event::default().event(name).id(id).data(value.to_string()),
-                    ),
+                    Ok::<Event, Infallible>(Event::default().event(name).id(id).data(data)),
                     live,
                 ))
             }

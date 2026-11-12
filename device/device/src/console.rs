@@ -951,7 +951,32 @@ fn spawn_events(
                 .await;
             return;
         };
-        let mut subscription = match bus.subscribe(from_seq) {
+        // A cursor older than the retained window is told what retention took before any retained
+        // row arrives. The reset is a frame of its own, not an event: it has no journal sequence and
+        // must not be mistaken for one.
+        let reset = bus.reset(from_seq);
+        if let Some(reset) = &reset {
+            let pushed = json!({
+                "evt": {
+                    "sub": id,
+                    "reset": {
+                        "snapshot_seq": reset.snapshot_seq,
+                        "lost": { "from": reset.lost_from, "to": reset.lost_to },
+                    },
+                },
+            });
+            if outgoing.send(Outbound::Answer(pushed)).await.is_err() {
+                return;
+            }
+        }
+        // After a reset the subscriber starts at the oldest retained row, so the rows that survived
+        // still arrive; without one it starts exactly at the cursor the console named.
+        let subscribe_from = if reset.is_some() {
+            bus.oldest_seq()
+        } else {
+            from_seq
+        };
+        let mut subscription = match bus.subscribe(subscribe_from) {
             Ok(subscription) => subscription,
             Err(error) => {
                 let _ = outgoing
@@ -1904,6 +1929,85 @@ mod tests {
         assert_eq!(first["evt"]["sub"], 7);
         assert_eq!(first["evt"]["event"]["seq"], 2);
         assert_eq!(first["evt"]["event"]["type"], "b");
+
+        for _ in 0..100 {
+            if lock_streams(&streams).contains_key(&7) {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        let stop = lock_streams(&streams)
+            .remove(&7)
+            .expect("the subscription is registered");
+        let _ = stop.send(());
+    }
+
+    /// A cursor retention has passed is told what was lost before any retained row arrives, and the
+    /// retained rows still follow from the oldest one instead of the cursor that no longer exists.
+    #[tokio::test]
+    async fn device_events_report_a_retention_reset_before_the_retained_rows() {
+        let dir = std::env::temp_dir().join(format!(
+            "summrise-console-reset-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let journal = dir.join("journal");
+        let bus =
+            Arc::new(summrise_bus::Bus::open_with(&journal, 200, 300).expect("the journal opens"));
+        for index in 0..10 {
+            bus.publish("e", json!({ "i": index })).unwrap();
+        }
+        assert!(
+            !journal.join("000001.seg").exists(),
+            "retention should have dropped the first segment"
+        );
+
+        let (outgoing, mut frames) = mpsc::channel(16);
+        let streams = Arc::new(Mutex::new(HashMap::new()));
+        let frame: remote::RemoteFrame =
+            serde_json::from_value(json!({ "id": 7, "events": { "from_seq": 1 } }))
+                .expect("the frame parses");
+        spawn_events(
+            frame,
+            Some(Arc::clone(&bus)),
+            outgoing,
+            Arc::clone(&streams),
+        );
+
+        let first = frames
+            .recv()
+            .await
+            .expect("the reset is the first frame")
+            .release()
+            .0;
+        assert_eq!(first["evt"]["sub"], 7);
+        assert!(
+            first["evt"].get("event").is_none(),
+            "a reset is not a journal event: {first}"
+        );
+        let reset = &first["evt"]["reset"];
+        let snapshot_seq = reset["snapshot_seq"]
+            .as_u64()
+            .expect("the reset names the snapshot sequence");
+        assert!(snapshot_seq > 0, "retention lost at least one row");
+        assert_eq!(reset["lost"]["from"], 1);
+        assert_eq!(reset["lost"]["to"], snapshot_seq);
+
+        let later = frames
+            .recv()
+            .await
+            .expect("a retained row follows the reset")
+            .release()
+            .0;
+        assert!(
+            later["evt"].get("reset").is_none(),
+            "only the first frame is the reset: {later}"
+        );
+        assert_eq!(later["evt"]["event"]["seq"], snapshot_seq + 1);
 
         for _ in 0..100 {
             if lock_streams(&streams).contains_key(&7) {
