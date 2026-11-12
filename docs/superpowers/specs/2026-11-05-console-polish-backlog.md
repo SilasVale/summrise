@@ -5062,6 +5062,22 @@ take it; the two older `.activity-page .page-head h1` overrides (which re-declar
 
 **SHIPPED:** `2159fa9` (the redirect), `c12c749` (Activity's head) — deployed as `0.3.274-ux197` and `0.3.274-ux198`.
 
+## The hundred-and-forty-fifth list (CLOSED 2026-11-12 — a silent machine drew a broken-looking chart)
+
+Auditing the third destination (Device → Overview) on the live console found the Now band drawing **thirty 3-px buckets at
+2 px each** when nothing had happened for five minutes — under the sentence `no calls in the last minute`, which made the
+sparkline read as a DASHED PLACEHOLDER, i.e. a chart that failed to load. The DOM's own `aria-label` said the busiest bucket
+was 0: the page knew the window was empty and drew thirty gaps anyway.
+
+**FIX:** zero has one honest shape and it is the axis — a single hairline (119 x 2) when every bucket is empty, one bar per
+ten seconds otherwise. `94691e7`, deployed as `0.3.274-ux199`; the after-shot is `list145/after-ux199.png`.
+
+**WHAT THE SAME PAGE STILL IS, AND THE NEXT LIST.** Measured at 1440: the Overview page is **four full-width blocks stacked in
+one column** — a machine card (name / online / started), a Now band, a chip row (`46 tools · 11 capabilities · 0 plugins`),
+and a Today row — with roughly **500 px of empty page under them**. Four borders around four single lines is what makes it read
+as four separate things rather than one document; the page's own content would fit in one card. That is a structural change
+(JSX + CSS + the gates that count blocks), not a rung, so it is the next round's work rather than this one's.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
