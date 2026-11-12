@@ -44,24 +44,38 @@ const row = (value: unknown): ForwardRow | null => {
   if (value === null || typeof value !== "object") return null;
   const raw = value as Record<string, unknown>;
   const name = typeof raw.name === "string" ? raw.name : "";
-  // A row without a name cannot be removed and cannot be identified in a refusal, so it is not a
-  // row this page can act on: dropping it is the only answer that does not invent one.
+  // A row without a name cannot be identified in a refusal, so it is not a row this page can show:
+  // dropping it is the only answer that does not invent one.
   if (name === "") return null;
+  // **THE LIVE STATE IS NESTED, AND THIS READER EXPECTED IT FLAT (the hundred-and-fortieth list).** The
+  // device's `forward_list` answers `{rules: [{name, listen, target, via, state: {…}}]}` — the row plus the
+  // executor's own `ForwardState`. This reader was written against a bare array of FLAT rows, a shape the
+  // device has never sent, so every state field it looked for was undefined and a bound rule would draw as
+  // a rule that is not listening. The shape below is read from `agent/src/plugins/forward/tools.rs` and
+  // `forward::ForwardState`, not from this page's own fixture.
+  const state = (raw.state !== null && typeof raw.state === "object" ? raw.state : {}) as Record<
+    string,
+    unknown
+  >;
+  // `since_ms` is 0 when the executor has NEVER listened (the device's own doc on the field): a 1970
+  // timestamp is not a fact about this machine, and "bound 56 years" is not a sentence anyone can act on.
+  const since = typeof state.since_ms === "number" && state.since_ms > 0 ? state.since_ms : null;
+  const count = (value: unknown) => (Number.isFinite(Number(value)) ? Number(value) : 0);
   return {
     name,
     listen: String(raw.listen ?? ""),
     target: String(raw.target ?? ""),
     via: String(raw.via ?? ""),
-    listening: raw.listening === true,
-    since_ms: typeof raw.since_ms === "number" ? raw.since_ms : null,
-    attempts: Number.isFinite(Number(raw.attempts)) ? Number(raw.attempts) : 0,
-    connections: Number.isFinite(Number(raw.connections)) ? Number(raw.connections) : 0,
-    last_error: raw.last_error == null ? null : String(raw.last_error)
+    listening: state.listening === true,
+    since_ms: since,
+    attempts: count(state.attempts),
+    connections: count(state.connections),
+    last_error: state.last_error == null ? null : String(state.last_error)
   };
 };
 
 /**
- * Parse the answer to `forward.list`.
+ * Parse the answer to `forward_list`.
  *
  * `[]` and `null` are different answers and must stay different: an empty array is "this machine
  * carries no rules", and `null` is "the device said something this page cannot read". Rendering the
@@ -74,69 +88,25 @@ export function forwardRows(text: string): ForwardRow[] | null {
   } catch {
     return null;
   }
-  if (!Array.isArray(parsed)) return null;
-  return parsed.map(row).filter((entry): entry is ForwardRow => entry !== null);
+  // The device wraps the list: `{ "rules": [...] }`. A bare array is what this page USED to expect and the
+  // device has never sent it; an answer with no `rules` array is `null` — "this page cannot read it" — which
+  // is a different fact from "the machine carries no rules".
+  const listed =
+    parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>).rules
+      : undefined;
+  if (!Array.isArray(listed)) return null;
+  return listed.map(row).filter((entry): entry is ForwardRow => entry !== null);
 }
 
 export async function listForwards(grant: Grant): Promise<ForwardRead> {
-  const text = await callTool(grant, "forward.list", {});
+  const text = await callTool(grant, "forward_list", {});
   const rows = forwardRows(text);
-  if (rows === null) throw new Error("the machine answered forward.list without a list");
+  if (rows === null) throw new Error("the machine answered forward_list without a list");
   // **READ AFTER THE ANSWER, NOT BEFORE THE CALL.** `Date.now()` before the call would date the
   // rows by a moment that is already older than the answer; after it, the age of a bound listener is
   // measured from the moment the page learned it was bound.
   return { rows, readAtMs: Date.now() };
-}
-
-/**
- * The five values a rule is, plus the credential that makes the connection.
- *
- * `host_key` is optional and absent means "the device's `known_hosts` decides". The device refuses a
- * pin of the wrong shape at creation rather than at the first connection, so a form that sends a
- * mangled one is refused where the operator can still see it.
- */
-export type NewForward = {
-  name: string;
-  listen: string;
-  target: string;
-  via: string;
-  auth: { kind: "password"; password: string } | { kind: "key"; path: string };
-  host_key?: string;
-};
-
-export async function addForward(grant: Grant, rule: NewForward): Promise<ForwardRow> {
-  const args: Record<string, unknown> = {
-    name: rule.name,
-    listen: rule.listen,
-    target: rule.target,
-    via: rule.via,
-    auth: rule.auth
-  };
-  // Omitted when empty, not sent as "": the device's own schema says `host_key` optionally pins a
-  // fingerprint, and an empty string is a shape it refuses.
-  if (rule.host_key !== undefined && rule.host_key !== "") args.host_key = rule.host_key;
-  const added = row(JSON.parse(await callTool(grant, "forward.add", args)) as unknown);
-  if (added === null) throw new Error("the machine added the rule without returning it");
-  return added;
-}
-
-/** `removed` says whether a rule was there; `false` is an answer, not a failure. */
-export async function removeForward(grant: Grant, name: string): Promise<boolean> {
-  const text = await callTool(grant, "forward.remove", { name });
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    throw new Error("the machine answered forward.remove with something this page cannot read");
-  }
-  const removed =
-    parsed !== null && typeof parsed === "object"
-      ? (parsed as Record<string, unknown>).removed
-      : undefined;
-  if (typeof removed !== "boolean") {
-    throw new Error("the machine answered forward.remove without saying whether a rule was removed");
-  }
-  return removed;
 }
 
 /**
