@@ -4959,6 +4959,24 @@ different name than its page spelled, or a build between then and now renamed th
 console's label rather than the device's name. **Settle it on a live device before rewriting 30 names**: one `tools/list` from a
 device answers the whole question, and the console's own `/api/devices/:id/tools` (or the Tools page) draws it.
 
+**MEASURED AGAIN 2026-11-12, three more facts — and the question is still open:**
+
+1. **No dotted name has ever existed in the agent.** `git log -S'"terminal.read"' -- agent/src` returns nothing: the device has
+   never declared, aliased or normalised a dotted tool name. `register()` keys `by_name` by `ToolDef.name` exactly, and
+   `find_tool` is `by_name.get(name)`.
+2. **The DEPLOYED console sends the same dotted names.** `0.3.273-ux192` is commit `900efd5`; `git show 900efd5:…TerminalWorkspace.tsx`
+   reads `callTool(grantRef.current, "terminal.read")`, `"terminal.list"`, `"terminal.resize"`. So this is not a branch regression —
+   the live build carries it.
+3. **The agent already records the answer.** `agent/src/mcp/server.rs` logs every `tools/call` it receives (the tool's name and
+   whether it succeeded) to the same 1 MB-rotated `mcp_diag.log` the outgoing bridge uses — *because the device had no way to
+   answer "does anything call this?"*. **That log is the settlement**: one device's `mcp_diag.log` names what the console
+   actually sent and whether the device resolved it, with no source reading required.
+
+So the contradiction (`terminal.read` answered at the 15 s wait bound on 2026-11-06) needs a device, not more grepping: either
+the log shows `terminal.read` succeeding — and something outside this repo's source translates it — or it shows the call arriving
+and failing, and the console's device pages have never worked against the agent while every console gate used a mock that accepts
+any name.
+
 **PLAN (next round, M or L):** read one live device's `tools/list`; build the console↔agent name map from it; add the console-side
 equivalent of `panel_tool_names.rs` — a fixture list of the agent's declared names, a scan of every `callTool("…")` in
 `device/console/web/src`, and a mutation that renames one call. The rewrite itself is mechanical once the map is proven.
