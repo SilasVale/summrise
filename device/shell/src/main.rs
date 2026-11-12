@@ -24,6 +24,10 @@ fn main() {
 
 #[cfg(windows)]
 mod app;
+// Which page a window opens: the console when one is configured and answers, the device's own
+// panel otherwise. Portable so the decision's tests run in CI's Linux job, where the tray cannot.
+#[cfg_attr(not(windows), allow(dead_code))]
+mod console;
 // Portable on purpose: the probe's and the helper channel's tests run in CI's Linux job, where the
 // tray itself cannot.
 #[cfg_attr(not(windows), allow(dead_code))]

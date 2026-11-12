@@ -19,12 +19,10 @@ use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIconBuilder, TrayIconEvent};
 use wry::WebViewBuilder;
 
+use crate::console;
 use crate::health::{self, State};
 use crate::helper;
 
-/// Where the product console lives: the 0.3.4x console (fleet, terminal), not the legacy SPA. The shell and the device sit on the same tailnet; a public hostname, when there is one, is
-/// the console's to publish.
-const CONSOLE: &str = "http://100.74.250.98:7736/";
 /// Where the device's own panel lives: what works when the console does not. This is the product's
 /// panel (0.3.49 lists the live terminal sessions), never the legacy panel.
 ///
@@ -32,6 +30,12 @@ const CONSOLE: &str = "http://100.74.250.98:7736/";
 /// that dials a constant reports "not running" for a device that is serving.
 fn panel() -> &'static str {
     crate::port::panel_url()
+}
+/// Which page a window opens: the console if [`console::configured`] names one that answers,
+/// otherwise [`panel`]. Resolved per window, because a console that was down at boot can be up at
+/// the next click and the fallback is not a permanent downgrade.
+fn window_target() -> String {
+    console::window_url()
 }
 /// The loopback address the health probe asks.
 fn health_addr() -> &'static str {
@@ -439,8 +443,9 @@ fn ensure_reconnect_task() {}
 /// Build the console window once, then exit — the menu's own code path without a menu.
 ///
 /// Answers through the log (which a headless machine can be asked for) and through the exit code: 0
-/// means a window and a WebView2 view were created for [`CONSOLE`], 1 means one of the two failed and
-/// the log names which. The event loop runs for a moment because a tao window is only real once it is
+/// means a window and a WebView2 view were created for the same target the menu would open — the
+/// console when it answers, the local panel otherwise — 1 means one of the two failed and the log
+/// names which. The event loop runs for a moment because a tao window is only real once it is
 /// pumping messages.
 #[cfg(windows)]
 pub fn check_window() -> i32 {
@@ -458,6 +463,11 @@ pub fn check_window() -> i32 {
         }
         Some(_) => {}
     }
+    // The same decision the menu makes, recorded before the event loop so a headless caller can
+    // read which page this run proves. A console probe can wait up to its connect timeout; that is
+    // the price of not opening an error page.
+    let page = window_target();
+    crate::note(&format!("check-window: opening {page}"));
     // `build()` is not fallible in tao 0.34; the call can panic on a thread that already owns an
     // event loop, which is a programming error this diagnostic cannot see from inside.
     let event_loop = EventLoopBuilder::<Wake>::with_user_event().build();
@@ -483,14 +493,14 @@ pub fn check_window() -> i32 {
                 let mut context = profile_dir().map(|dir| wry::WebContext::new(Some(dir)));
                 let built = match context.as_mut() {
                     Some(context) => WebViewBuilder::new_with_web_context(context)
-                        .with_url(CONSOLE)
+                        .with_url(page.as_str())
                         .build(&window),
-                    None => WebViewBuilder::new().with_url(CONSOLE).build(&window),
+                    None => WebViewBuilder::new().with_url(page.as_str()).build(&window),
                 };
                 match built {
-                    Ok(_view) => crate::note(&format!(
-                        "check-window: window and view built for {CONSOLE}"
-                    )),
+                    Ok(_view) => {
+                        crate::note(&format!("check-window: window and view built for {page}"))
+                    }
                     Err(error) => {
                         crate::note(&format!("check-window: no WebView2 view: {error}"));
                         std::process::exit(1);
@@ -620,6 +630,15 @@ fn open_console(
         window.set_focus();
         return;
     }
+    // **WHICH PAGE, DECIDED BEFORE THE WINDOW EXISTS.** The console is probed once per open; an
+    // unreachable (or absent) console opens the device's own panel instead of a WebView2 error page.
+    // Resolving here rather than in `run` means a console that came back is used on the next click.
+    let page = window_target();
+    if page == panel() {
+        crate::note("console unreachable or not configured; opening the local panel");
+    } else {
+        crate::note(&format!("opening the console at {page}"));
+    }
     let (width, height, position) = saved_window_geometry();
     let mut builder = WindowBuilder::new()
         .with_title("Summrise console")
@@ -644,27 +663,34 @@ fn open_console(
         Some(dir) => {
             let context = profile.get_or_insert_with(|| wry::WebContext::new(Some(dir)));
             WebViewBuilder::new_with_web_context(context)
-                .with_url(CONSOLE)
+                .with_url(page.as_str())
                 .build(&window)
         }
-        None => WebViewBuilder::new().with_url(CONSOLE).build(&window),
+        None => WebViewBuilder::new().with_url(page.as_str()).build(&window),
     };
     match built {
         Ok(view) => {
             // A click that worked leaves a line too: without it, "the menu does nothing" and "the
             // menu opened a window I closed" look the same from this side of the machine.
-            crate::note(&format!("console window built for {CONSOLE}"));
+            crate::note(&format!("window built for {page}"));
             *ui = Some((window, view))
         }
         Err(error) => {
             // WebView2 is part of Windows 10 and later, but a machine can have the runtime removed
             // or broken; without this line the window closes itself and the menu looks dead.
             crate::note(&format!(
-                "cannot build the WebView2 view for {CONSOLE}: {error}"
+                "cannot build the WebView2 view for {page}: {error}"
             ));
             window.set_visible(false);
         }
     }
+}
+
+/// The console this process is configured to use, in words, without probing. A machine with no
+/// console is a supported deployment (the panel is the whole surface), so it says that rather than
+/// showing an empty field.
+fn console_label() -> String {
+    console::configured().unwrap_or_else(|| "(none: the local panel)".to_owned())
 }
 
 /// A small, native About box: the product, the build, and the two addresses this shell opens.
@@ -673,7 +699,8 @@ fn show_about() {
     use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONINFORMATION, MB_OK};
 
     let text = format!(
-        "Summrise {VERSION}\n\nDevice tray and console window.\nConsole: {CONSOLE}\nLocal panel: {}\n\nThe device service runs separately; this process holds no credential.",
+        "Summrise {VERSION}\n\nDevice tray and console window.\nConsole: {}\nLocal panel: {}\n\nThe device service runs separately; this process holds no credential.",
+        console_label(),
         panel()
     );
     let wide = |value: &str| -> Vec<u16> {
@@ -856,7 +883,8 @@ fn copy_diagnostics() {
         })
         .unwrap_or_else(|| "(no LOCALAPPDATA)".to_owned());
     let text = format!(
-        "Summrise shell {VERSION}\nhealth: {state:?}\nconsole: {CONSOLE}\nlocal panel: {}\nlog: {log}\n",
+        "Summrise shell {VERSION}\nhealth: {state:?}\nconsole: {}\nlocal panel: {}\nlog: {log}\n",
+        console_label(),
         panel()
     );
     copy_text(&text, "diagnostics");
@@ -1178,14 +1206,15 @@ mod tests {
     }
     #[test]
     fn the_default_targets_are_the_product_surfaces() {
+        let console = console::DEFAULT_CONSOLE;
         assert!(
-            CONSOLE.contains(":7736"),
-            "the product console, not the legacy SPA: {CONSOLE}"
+            console.contains(":7736"),
+            "the product console, not the legacy SPA: {console}"
         );
-        assert!(!CONSOLE.contains("console.saisi.online"), "{CONSOLE}");
+        assert!(!console.contains("console.saisi.online"), "{console}");
         assert!(
-            panel().ends_with(&format!(":{}/", crate::port::device_port())),
-            "the device's own panel follows its port: {}",
+            panel().ends_with(&format!(":{}/panel", crate::port::device_port())),
+            "the device's own panel follows its port and names /panel: {}",
             panel()
         );
     }

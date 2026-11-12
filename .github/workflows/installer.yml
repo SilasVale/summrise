@@ -81,8 +81,22 @@ jobs:
           RUSTFLAGS: -C target-feature=+crt-static
         run: |
           set -euo pipefail
+          # **EVERY BINARY THE NSIS SCRIPT COPIES, OR MAKENSIS FAILS BY NAME.** `summrise-shell.exe`
+          # is installer-owned (the updater never swaps it), but it is still built here: the setup
+          # copies it at device/installer/summrise.nsi:630 and the tray is what a person sees. This
+          # list and that File line must stay in step; a new shipped binary belongs in both.
           cargo build --release --manifest-path device/Cargo.toml \
-            -p summrise-launch -p summrise-device -p summrise-console
+            -p summrise-launch -p summrise-device -p summrise-console -p summrise-shell
+          # A NAMED FAILURE BEATS MAKENSIS'S "File: ... not found" LATER. A stale
+          # `target/release/summrise-shell.exe` from an earlier build would otherwise be packaged
+          # silently on a developer's machine while a clean runner fails; this checks freshly built
+          # files, so both see the same verdict.
+          for exe in summrise-launch summrise-device summrise-console summrise-shell; do
+            test -f "device/target/release/$exe.exe" || {
+              echo "::error::$exe.exe was not built but summrise.nsi ships it"
+              exit 1
+            }
+          done
 
       # The sidecar is the launcher key's statement that this exact binary is the first generation.
       - name: sign the first-generation sidecar

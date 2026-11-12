@@ -260,7 +260,7 @@ impl Bus {
     /// Write `snapshot-<seq>.json` when this sequence is due one. An existing snapshot is never
     /// rewritten, and the file appears atomically: write the `.tmp` sibling, fsync, rename.
     fn write_snapshot(&self, seq: u64, ts: &str) -> io::Result<()> {
-        if self.snapshot_every == 0 || seq % self.snapshot_every != 0 {
+        if self.snapshot_every == 0 || !seq.is_multiple_of(self.snapshot_every) {
             return Ok(());
         }
         let path = self.dir.join(snapshot_name(seq));

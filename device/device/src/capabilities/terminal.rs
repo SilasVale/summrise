@@ -2512,8 +2512,7 @@ mod tests {
     async fn a_session_publishes_opened_and_closed() {
         let fixture = Fixture::new("publish");
         let bus = Arc::new(
-            summrise_bus::Bus::open(fixture._dir.join("journal"))
-                .expect("the journal opens"),
+            summrise_bus::Bus::open(fixture._dir.join("journal")).expect("the journal opens"),
         );
         fixture.registry.attach_bus(Arc::clone(&bus));
 

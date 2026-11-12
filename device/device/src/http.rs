@@ -239,6 +239,7 @@ async fn require_install_token(
 ///
 /// Binding loopback is the local half of the security model (§9.1): the token makes `Owner` mean
 /// something, but only this address keeps the endpoint off the network in the first place.
+#[allow(clippy::too_many_arguments)] // one argument per capability the process owns, like `router_with`
 pub async fn serve(
     config: Config,
     store: Store,
