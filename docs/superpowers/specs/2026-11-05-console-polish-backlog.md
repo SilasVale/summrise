@@ -4840,6 +4840,35 @@ the cause (`Could not read this device's sessions: …`) would have said `/mcp` 
 and every future page that names its own read — the same class of defect as the transport's, caught one layer earlier
 because the transport's measurement said where to look.
 
+## P0 — the hundred-and-thirty-eighth list (CLOSED 2026-11-12 — three suspicions measured, three disproved, one rule pinned)
+
+A round spent looking for something to fix. Three candidates were measured, and all three were wrong — recorded here so
+nobody "fixes" them later.
+
+1. **"The panel's 86 leadless `font:` shorthands leave their text at `normal`."** The count is true: measured on
+   `agent/resources/panel/panel.css`, **112 `font:` shorthands, 26 carry a leading, 86 do not** (10 of the 86 are
+   `font: inherit`, which inherits the rhythm). The OUTCOME is false: a walk of every text-bearing element on
+   Terminal, Memory and History found **0 at `normal`** and ratios of exactly **1 / 1.3 / 1.5** over **21 / 22 / 26**
+   elements. The rules that matter state their `line-height` where the text is. And the one off-atom ratio the walk
+   produced on the panel — **1.15** on `"d1 shell ready"`, a 13 px line in a 15 px box — is **xterm's own cell**
+   grid; `leading-gate.mjs` excludes `.xterm` **by name** and already scans every text element, not a sample.
+2. **"The device tab strip's nudge is 26 px wide — under the thumb rule."** The rule the console wrote for itself in
+   the twenty-ninth list is **44 px tall**, and the control measures **26 × 44**. It complies; narrowing it is a
+   design decision, not a defect.
+3. **"Six of Home's 38 controls have no focus ring."** False, and the probe is the reason: `el.focus()` from script
+   does not match `:focus-visible` in this browser, so a chip focused by a test reads as ringless while a chip
+   focused by a keyboard draws its ring. The page carries one blanket rule naming every native control type.
+
+**What survives is a guarantee that had nothing holding it:** the blanket focus rule can be deleted by a stylesheet
+edit and no test fails. **Fix — console `cc5c074` (pushed; NOT deployed — the console deploy waits on the operator's
+word):** `layoutContract.test.ts` pins the rule — it must exist, carry `2px solid var(--focus-ring)` at offset 2, and
+name **all six** native control types. **Mutation:** `summary` dropped from the selector ->
+`one rule names every native control: expected null not to be null`.
+
+**A ROUND WITH NO SCREEN CHANGE, AND WHY IT IS STILL A ROUND.** The program's instruction is a rule either enforced by
+a gate or recorded with its numbers; this round produced three records with their numbers and one gate for the thing
+that everyone assumed was already guaranteed. The next list starts from the surfaces' own counts, not from suspicion.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
