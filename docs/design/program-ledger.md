@@ -63,10 +63,15 @@ below ladders to that; one round completes one major item end to end.
   Also fixed the integration harness that the S1 subscription frame had broken (the fake device now
   skips `events`/`unsubscribe` frames); the full console integration suite passes (254).
 
-## In flight (branch `feat/s3b-plugin-crate`)
+- 2026-11-13 — S3b shipped and merged (`22f2ad8`): `summrise-plugin-host` owns the host, the session reader and
+  the logs, depending only on core and bus; the device re-exports it as `plugins`. A `test-support`
+  feature carries the scripted launcher for device tests. 32 plugin-host tests, 9 device plugin tests,
+  gate 14 packages / 22 edges / 0 upward.
 
-- S3b: extract `summrise-plugin-host` as a crate (core + bus only), so the supervised plugin host is a
-  subsystem rather than a module inside the device.
+## In flight (branch `feat/console-surface`)
+
+- The console's operator surface: a freshly minted token defaults to destructive consent, and the
+  Device page shows the machine's journal events (sessions, plugin lifecycle).
 
 ## Next (in order)
 2. S4b — extract `console-page` as a crate so "the page holds no keys" is a compile-time boundary.
