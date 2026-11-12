@@ -85,14 +85,23 @@ export function DevicePageShell({
     const bring = () => {
       const band = strip.getBoundingClientRect();
       const tab = current.getBoundingClientRect();
+      // **THE CHEVRON IS DRAWN OVER THE BAND, SO IT MUST NOT COVER THE ACTIVE TAB (the hundred-and-eighty-ninth list).**
+      // Measured at 390 x 844 with `Memory` selected: the chip's right edge sat under the right chevron and the label read
+      // `Memor›` — a tab the page had just brought into view, hidden by the control that brought it. The scroll keeps clear of the
+      // chevron's width when one is shown, and falls back to the plain edge once nothing is to the right.
+      const nudge = (strip.parentElement?.querySelector<HTMLElement>(".device-tabs-nudge.right")?.offsetWidth ?? 0);
       if (tab.left < band.left) strip.scrollLeft -= band.left - tab.left;
+      else if (tab.right > band.right - nudge && nudge > 0) strip.scrollLeft += tab.right - (band.right - nudge);
       else if (tab.right > band.right) strip.scrollLeft += tab.right - band.right;
       syncEdges();
     };
     bring();
+    // The first pass runs before the chevron exists (it is drawn by `syncEdges`); the frame after it, `bring` can measure it.
+    const settled = window.requestAnimationFrame(() => bring());
     window.addEventListener("resize", bring);
     strip.addEventListener("scroll", syncEdges, { passive: true });
     return () => {
+      window.cancelAnimationFrame(settled);
       window.removeEventListener("resize", bring);
       strip.removeEventListener("scroll", syncEdges);
     };
