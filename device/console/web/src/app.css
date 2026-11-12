@@ -1163,11 +1163,24 @@ main.terminal-main:has(.terminal-workspace-empty) { grid-template-rows: auto aut
 }
 .terminal-section-head h3 { margin: 0; font-size: var(--fs-base); font-weight: var(--fw-semi); }
 .terminal-section-head .hint { margin: 0; }
+/* **A DISCLOSURE INSIDE A CARD IS A ROW, NOT A SECOND CARD (the hundred-and-forty-eighth list).** Measured on the LIVE
+   console 2026-11-12 (`0.3.274-ux201`, 1440, Device -> Terminal, no session open): `Saved connections` drew a full-width
+   bordered band with `--surface-recessed` behind it and a 12/600 ink label — a box inside the card's box, and the heaviest
+   thing on the screen after the accent button, for a control nobody opens yet. The product already HAS the disclosure
+   grammar (`.card-details`: no fill, a muted label, a triangle that turns); this one takes it. */
 .terminal-presets {
-  border: 1px solid var(--line); border-radius: var(--radius-xs);
-  padding: var(--sp-2) var(--sp-3); background: var(--surface-recessed);
+  border: 0; border-top: 1px solid var(--line); border-radius: 0;
+  padding: var(--sp-2) 0 0; background: transparent;
 }
-.terminal-presets > summary { cursor: pointer; font-size: var(--fs-sm); font-weight: var(--fw-semi); }
+.terminal-presets > summary {
+  cursor: pointer; font-size: var(--fs-sm); font-weight: var(--fw-medium); color: var(--ink-muted);
+  list-style: none; display: flex; align-items: center; gap: var(--sp-1);
+}
+.terminal-presets > summary::-webkit-details-marker { display: none; }
+.terminal-presets > summary::before {
+  content: "▸"; display: inline-block; transition: transform var(--dur-interaction) ease;
+}
+.terminal-presets[open] > summary::before { transform: rotate(90deg); }
 .terminal-presets .picker { margin-top: var(--sp-2); }
 .tabbar {
   display: flex;
