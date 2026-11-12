@@ -64,7 +64,7 @@ const REPAIR_TASK_ABSENT_TITLE =
  * is not left with a bare `Windows`. Architecture and core count join with the same separator, and
  * a fact the frame did not carry is omitted rather than printed as `undefined` or `0 cores`.
  */
-function platformLine(host: HostFacts): string | null {
+export function platformLine(host: HostFacts): string | null {
   const name =
     host.os?.release?.trim() ||
     [host.os?.name?.trim(), host.os?.version?.trim()].filter(Boolean).join(" ");
@@ -428,7 +428,7 @@ function repairTime(at_ms: number): string {
   return Number.isNaN(date.getTime()) ? `${at_ms} ms` : date.toISOString();
 }
 
-function gib(bytes?: number): string {
+export function gib(bytes?: number): string {
   if (!bytes) return "0 GiB";
   return `${(bytes / 1024 ** 3).toFixed(1)} GiB`;
 }

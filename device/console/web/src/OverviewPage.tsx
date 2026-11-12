@@ -14,6 +14,7 @@ import { auditFailed } from "./auditFilter";
 import { spanText } from "./age";
 import { RecoveryLine } from "./RecoveryLine";
 import { StartedLine } from "./StartedLine";
+import { gib, platformLine } from "./HostFacts";
 
 /**
  * The selected machine's own page: the `Overview` tab of Device.
@@ -412,6 +413,15 @@ export function OverviewPage(props: OverviewPageProps) {
         : "The machine is running. The console could not read its tool list, so these counts may be stale."
       : null;
 
+  // The machine's own account of itself: platform and cores from the frame, memory when reported. No build — the topbar
+  // owns the version.
+  const metaFacts = [
+    device.host ? platformLine(device.host) : null,
+    device.host?.memory?.total_bytes ? `${gib(device.host.memory.available_bytes)} free` : null
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join(" · ");
+
   // The day line is the band's second half; it is built once, here, so the card below can place it.
   const dayLine = (
     <div className="home-day">
@@ -435,6 +445,14 @@ export function OverviewPage(props: OverviewPageProps) {
         <div>
           <h2>{name}</h2>
           <p className="page-sub">{statusLine}</p>
+          {/* **WHAT MACHINE THIS IS, ON THE PAGE THAT NAMES IT (the hundred-and-sixty-third list, candidate 1).** Measured at
+              1440: this card held a name, one word (`online`) and a chip row, and the page's other 600 px were empty — while
+              the facts that answer "what machine am I looking at" were already on the payload (`device.host`, read from the
+              device's own frame and shown in full on the Machine tab). Only the facts this build actually reported are drawn;
+              a device that never sent them draws no line at all. The BUILD is deliberately not among them: the topbar's
+              picker and the Account menu own the version (the sixty-first list), and a third place would be the defect that
+              list removed. */}
+          {metaFacts !== "" && <p className="overview-meta">{metaFacts}</p>}
           {/* **THE COUNTS ARE THE MACHINE'S OWN LINE, NOT A FOURTH BLOCK (the hundred-and-forty-sixth list).** Measured at
               1440 on the live page 2026-11-12: this page drew FOUR bordered blocks stacked in one column — the machine card,
               the Now band, this counts chip and the day row — four borders around four single lines, which is what makes a
