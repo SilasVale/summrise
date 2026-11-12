@@ -2021,4 +2021,30 @@ describe("the layout contract", () => {
     expect(tokenPx(tokens(), pad)).toBe(contract.card.pad);
     expect(tokenPx(tokens(), gap)).toBe(contract.card.gap);
   });
+
+  it("folds every WIDE rem flex-basis at the phone breakpoint, so no column is carried into 390", () => {
+    // **THE WEEK'S FOUR MOBILE DEFECTS HAD ONE SHAPE (the hundred-and-ninety-second list): a width chosen for a desktop row carried
+    // into a phone.** The chevron covered the selected tab, the memory search stacked, the run form read as two unequal columns, and a
+    // closed disclosure kept its form's height. This rule takes the widest of them by the throat: a `flex` basis in rem wider than
+    // the phone's usable row (~300 px after the page's own padding) must appear inside the `max-width: 639px` fold as well.
+    const sheet = css();
+    const wide: { selector: string; rem: number }[] = [];
+    for (const rule of sheet.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const selector = rule[1].trim().replace(/\s+/g, " ");
+      if (selector.startsWith("@media")) continue;
+      for (const flex of rule[2].matchAll(/flex:\s*[^;]*?(\d+(?:\.\d+)?)rem/g)) {
+        const rem = Number(flex[1]);
+        if (rem * 16 > 300) wide.push({ selector, rem });
+      }
+    }
+    // A sheet with no wide basis at all would pass this vacuously; the rule exists because there IS one.
+    expect(wide.length, "no wide rem flex-basis found — the scan is not reading the sheet").toBeGreaterThan(0);
+    const folds = [...sheet.matchAll(/@media \(max-width: 639px\)[^{]*\{([\s\S]*?)\n\}/g)]
+      .map((match) => match[1])
+      .join("\n");
+    const unfolded = wide
+      .filter(({ selector }) => !selector.split(",").some((part) => folds.includes(part.trim())))
+      .map(({ selector, rem }) => `${selector} (flex basis ${rem}rem)`);
+    expect(unfolded, "a wide rem flex-basis with no 639 fold for its selector").toEqual([]);
+  });
 });

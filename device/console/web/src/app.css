@@ -1551,6 +1551,10 @@ button.chip-tag:hover {
   .runs-field.command,
   .runs-field.cwd,
   .runs-field.timeout { flex: 1 1 100%; }
+  /* **THE FILTER AND ITS BUTTON SHARE THE PHONE'S ROW (the hundred-and-ninety-second list).** The processes filter's 16 rem basis left
+     no room for `Refresh` beside it, so the card read as field-then-button stacked, the same shape the memory search had before its
+     own fold. A refined basis keeps both on one row down to 390. */
+  .system-field.filter { flex: 1 1 8rem; }
 }
 
 .runs-result header .mono { margin-left: auto; }
