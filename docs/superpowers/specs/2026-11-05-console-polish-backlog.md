@@ -5155,6 +5155,27 @@ the same lesson as the mutation that missed the built page: the check has to be 
 **WHAT THE SWEEP LEFT FOR THE NEXT LIST.** Device → Machine carries **12,338 characters** at 1440 — nine times the Overview tab it
 sits beside — and it has never been through the rung audit. That is the next round's subject, with its own numbers.
 
+## The hundred-and-fiftieth list (CLOSED 2026-11-12 — the panel inside the app card read as its sibling)
+
+Machine is the busiest tab (12,338 characters at 1440) and had never been through the rung audit. Its ladder is mostly right —
+labels 12 muted, values 13 ink, an eyebrow where a group starts — with one inversion:
+
+    before  .system-update > header strong   "Updates"   14 / 600 / ink   (the rung of `This machine` and `The app on this
+                                                                          machine` — the cards that CONTAIN it)
+    after   same label                       "UPDATES"   10 / 600 / muted / 0.5 px tracked (the shared eyebrow atom)
+
+A group of four rows was drawn as a sibling card, and the recessed panel under it as a third surface level. The fix is the
+atom, not a fifth restatement — **and the contract's gates said so twice**: the first attempt added a rule of its own and the
+eyebrow gate refused it (`the eyebrow is ONE rule, not twelve: expected 5 to be less than or equal to 4`); the second put the
+explanatory comment INSIDE the selector list and the label gate refused that (`the label is drawn at the eyebrow's size` — its
+matcher reads the properties within 400 characters of the first selector). Both refusals were right. `c77fded`, deployed as
+`0.3.274-ux203`.
+
+**THE REST OF THE TAB, MEASURED AND LEFT ALONE.** 1,375 elements at 13/400 (the row values), 550 at 11/400 (the memory and disk
+buckets), 263 at 12/500 in the alarm colour (`Restart app` — the one destructive door, correctly the only red thing), 262 at
+14/400 muted (the `⋯` row menus). **Three red rows for one door is not a hierarchy fault; it is the alarm doing its job.**
+Nothing else on this tab spends a rung it does not need.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
