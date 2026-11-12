@@ -2513,11 +2513,10 @@ span.files-name {
      the page really draws. Measured: #d6dae0 on #14161a is 12.4:1 (AA needs 4.5). */
   --evidence-bg: #14161a;
   --evidence-ink: #d6dae0;
-  /* Two elevations and one raised control. `--elev-1` was declared here and used ZERO times
-     (measured 2026-11-09): it is gone rather than kept as a fourth family nobody draws with. */
-  --elev-segment: 0 1px 2px rgba(0, 0, 0, 0.1);
-  --elev-2: 0 24px 60px -18px rgba(0, 0, 0, 0.38), 0 2px 8px rgba(0, 0, 0, 0.08);
-  --ring: 0 0 0 4px color-mix(in srgb, var(--focus-ring) 22%, transparent);
+  /* **THE THREE FAMILIES THAT LIVED HERE ARE THE SHEET'S NOW (the hundred-and-seventieth list).** They were declared in this
+     block while `tokens.css` is GENERATED, so the generator could not see them and `tokens.rs` could only count their uses —
+     measured 2026-11-12, six elevation families of which three were hand-written here. They moved to `device/ui/src/lib.rs`
+     with the same values, and this block keeps only what is genuinely the page's (the evidence pair above). */
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -2527,7 +2526,6 @@ span.files-name {
     --row-current: color-mix(in srgb, #fff 9%, transparent);
     --control-bg: color-mix(in srgb, #fff 8%, transparent);
     --control-hover-bg: color-mix(in srgb, #fff 12%, transparent);
-    --elev-2: 0 24px 60px -18px rgba(0, 0, 0, 0.75), 0 2px 8px rgba(0, 0, 0, 0.5);
   }
 }
 

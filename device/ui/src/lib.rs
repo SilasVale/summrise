@@ -57,6 +57,14 @@ pub const TOKENS: &str = r#":root {
   --shadow-pop:0 1px 1px rgba(24,32,54,0.04),0 4px 10px -4px rgba(24,32,54,0.06),0 18px 40px -24px rgba(24,32,54,0.2);
   --shadow-1:var(--shadow);
   --shadow-2:0 6px 24px -18px rgba(16,23,33,.45);
+  /* **THE THREE FAMILIES THE CONSOLE DECLARED BY HAND ARE THE SHEET'S NOW (the hundred-and-seventieth list).** Measured
+     2026-11-12: `app.css` drew six elevation families, and three of them — the segmented control's raised sheet, the deep pane,
+     and the focus ring — were declared in the page's own local block, out of reach of the generator. `tokens.rs` could only
+     count their USES. They are here now, with the values they had, so the sheet answers "what may a box float on" in one place.
+     `--ring` is a refractive halo built from `--focus-ring`, so it needs no dark value; `--elev-2` does, and has one. */
+  --elev-segment:0 1px 2px rgba(0,0,0,.1);
+  --elev-2:0 24px 60px -18px rgba(0,0,0,.38),0 2px 8px rgba(0,0,0,.08);
+  --ring:0 0 0 4px color-mix(in srgb, var(--focus-ring) 22%, transparent);
   --radius:14px; --radius-sm:10px; --radius-sm2:8px; --radius-xs:6px;
   --radius-lg:20px; --radius-pill:999px;
   --font:-apple-system,"SF Pro Text","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Segoe UI",Roboto,sans-serif;
@@ -153,6 +161,8 @@ pub const TOKENS: &str = r#":root {
     --shadow-pop:0 1px 1px rgba(0,0,0,.5),0 6px 14px -6px rgba(0,0,0,.5),0 22px 48px -28px rgba(0,0,0,.8);
     --shadow-1:var(--shadow);
     --shadow-2:0 8px 24px -18px rgba(0,0,0,.8);
+    /* The pane's deep drop carries its own dark value, as the console's local block did. */
+    --elev-2:0 24px 60px -18px rgba(0,0,0,.75),0 2px 8px rgba(0,0,0,.5);
     --hover:#2a2b32;
     --term-canvas:#0f1014; --term-selection:rgba(255,163,107,.24);
     --term-black:#2a2c33; --term-white:#e8e9ec;

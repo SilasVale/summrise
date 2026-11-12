@@ -513,7 +513,9 @@ fn every_border_radius_is_a_radius_token_or_zero() {
 fn every_box_shadow_is_an_elevation_token_or_none() {
     // Measured 2026-11-09: 15 distinct `box-shadow` values. `--shadow`, `--shadow-lg`, `--shadow-1`
     // and `--shadow-2` live in the generated sheet; `--elev-1`, `--elev-2` and `--ring` in `app.css`'s
-    // local block — and `--elev-1` was used ZERO times. Three declarations wrote the raised segment's
+    // local block — and `--elev-1` was used ZERO times. **THE LAST THREE MOVED INTO THE SHEET** (the
+    // hundred-and-seventieth list, measured 2026-11-12: six families, three hand-written), so the
+    // elevation family is now one place: `device/ui/src/lib.rs`. Three declarations wrote the raised segment's
     // shadow by hand (`0 1px 2px rgba(0, 0, 0, 0.1)`) and the rest were rings. The elevation family
     // is three names now (`--elev-segment`, `--elev-2`, and the token sheet's four), and a declared
     // elevation token nobody draws with fails here rather than accumulating.
@@ -543,9 +545,9 @@ fn every_box_shadow_is_an_elevation_token_or_none() {
         }
         panic!("box-shadow {value:?} names no elevation token: {line}");
     }
-    // A declared elevation token that nothing draws with is a family waiting to happen. These are
-    // the two `app.css` declares locally (the generated sheet's four are asserted by the drift gate
-    // and the contrast tests); `--elev-1` was the third and is deleted with this change.
+    // A declared elevation token that nothing draws with is a family waiting to happen. These two
+    // are the ones the page raises a control and a pane with, and they live in the generated sheet
+    // now — a declaration nothing draws with fails here rather than accumulating.
     for token in ["--elev-segment", "--elev-2"] {
         let uses = APP.matches(&format!("var({token})")).count();
         assert!(uses > 0, "{token} is declared and used {uses} times");
