@@ -5449,7 +5449,7 @@ it. 105 steps become 106.
 
 and the failure prints the whole allowed palette, so the next person does not have to go looking for the sheet.
 
-## The hundred-and-sixty-third list (OPENED 2026-11-12 — Device -> Overview delivers 345 characters in a 900 px window)
+## The hundred-and-sixty-third list (CLOSED 2026-11-12 — one activity card, and two candidates still open)
 
 Measured on the live console (`0.3.274-ux209`, 1440, a machine selected):
 
@@ -5460,6 +5460,18 @@ Measured on the live console (`0.3.274-ux209`, 1440, a machine selected):
 The whole page is: the machine's name and `online`, `started 4d 8h ago`, a chip row (`46 tools · 11 capabilities · 0 plugins →`),
 `Now ● Quiet — no calls in the last minute`, and `Today 5 client calls · spanning 4 h 18 m — All activity →`. **Three surfaces for
 three sentences**, one per card, and then nothing.
+
+**CANDIDATE 2 IS DONE (`e8cb177`, `0.3.274-ux210`).** The Now band and the day line were two bordered panels 12 px apart, each
+holding one sentence. They could not simply share a surface because `.live-now` painted `--panel` / 1 px `--line` / `--radius`
+**by hand** — a card in everything but its class, which is why the atom could not reach it:
+
+    before   .live-now   --panel · 1 px --line · radius 10 · padding 14/16   (a hand-painted card)
+             .home-day   .panel                                            (a second panel)
+    after    .overview-activity  .card                                    (ONE surface)
+             .live-now   no surface, layout only — name and no-doors rule kept
+             .home-day   a hairline above, inside the card
+
+The page now draws **two** surfaces where it drew three: the machine's identity, and its activity (Now + today + the door).
 
 **WHY IT WAS NOT CHANGED IN THE SAME ROUND.** Filling it means choosing what the machine's landing page is FOR, and every
 candidate needs a fact the page does not fetch yet: the build (`0.3.292` is on Home's row and on the Machine tab), the platform
