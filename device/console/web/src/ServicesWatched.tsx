@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { monitorFailure, readMonitors, type MonitorTarget } from "./monitorApi";
+import { addWatch, monitorFailure, readMonitors, removeWatch, type MonitorTarget } from "./monitorApi";
 import type { Grant } from "./terminal";
 
 /**
@@ -19,6 +19,56 @@ export function ServicesWatched(props: { grant: Grant; online?: boolean }) {
   const [failed, setFailed] = useState<string | null>(null);
   const [reading, setReading] = useState(false);
   const generation = useRef(0);
+  // **A WATCH IS A WRITE THAT OUTLIVES THE CALLER (the hundred-and-seventy-fourth list).** `monitor.add` persists on the machine
+  // and `monitor.remove` DISCARDS the series, so the page names both facts where the operator can read them, and removing asks
+  // first. The form's state is dropped once the add lands.
+  const [host, setHost] = useState("");
+  const [port, setPort] = useState("");
+  const [path, setPath] = useState("");
+  const [writing, setWriting] = useState(false);
+  const [writeError, setWriteError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<string | null>(null);
+
+  const add = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const wantedPort = Number(port);
+    if (host.trim() === "" || !Number.isInteger(wantedPort) || wantedPort < 1 || wantedPort > 65535) {
+      setWriteError("Name the host and a port between 1 and 65535.");
+      return;
+    }
+    setWriting(true);
+    setWriteError(null);
+    setNotice(null);
+    try {
+      await addWatch(props.grant, { host: host.trim(), port: wantedPort, path: path.trim() });
+      setNotice(`Watching ${host.trim()}:${wantedPort}${path.trim() === "" ? "" : path.trim()} — the machine probes it every 15 s.`);
+      setHost("");
+      setPort("");
+      setPath("");
+      await read();
+    } catch (error) {
+      setWriteError(monitorFailure(error).replace(/^The services could not be read — /, ""));
+    } finally {
+      setWriting(false);
+    }
+  };
+
+  const stop = async (id: string) => {
+    setWriting(true);
+    setWriteError(null);
+    setNotice(null);
+    try {
+      await removeWatch(props.grant, id);
+      setNotice(`Stopped watching ${id}. Its series is gone.`);
+      setConfirming(null);
+      await read();
+    } catch (error) {
+      setWriteError(monitorFailure(error).replace(/^The services could not be read — /, ""));
+    } finally {
+      setWriting(false);
+    }
+  };
 
   const read = useCallback(async () => {
     const mine = ++generation.current;
@@ -48,6 +98,48 @@ export function ServicesWatched(props: { grant: Grant; online?: boolean }) {
   return (
     <section className="system-section" aria-labelledby="system-services">
       <h3 id="system-services">Services this machine watches</h3>
+      {/* **THE TWO FACTS A WRITE OWES THE READER.** A watch is PERSISTED on the machine (it outlives this page), and stopping one
+          DISCARDS its series — both said here, in the form and in the confirmation, not in a tool description nobody reads. */}
+      {props.online !== false && (
+        <details className="card-details service-add">
+          <summary>Watch a host and port</summary>
+          <form className="service-form" onSubmit={add}>
+            <label>
+              Host to watch
+              <input value={host} onChange={(event) => setHost(event.target.value)} placeholder="127.0.0.1" />
+            </label>
+            <label>
+              Port to watch
+              <input
+                value={port}
+                onChange={(event) => setPort(event.target.value)}
+                inputMode="numeric"
+                placeholder="19000"
+              />
+            </label>
+            <label>
+              Path to watch <span className="muted">(optional — makes it an HTTP GET)</span>
+              <input value={path} onChange={(event) => setPath(event.target.value)} placeholder="/health" />
+            </label>
+            <button type="submit" className="btn" disabled={writing}>
+              {writing ? "Saving…" : "Start watching"}
+            </button>
+            <p className="hint">
+              The watch lives on the machine and survives a restart. The console only asks it to be made.
+            </p>
+          </form>
+        </details>
+      )}
+      {notice !== null && (
+        <p className="hint service-notice" role="status">
+          {notice}
+        </p>
+      )}
+      {writeError !== null && (
+        <p className="error" role="alert">
+          {writeError}
+        </p>
+      )}
       {failed !== null && (
         <div className="notice" role="status">
           <span>{failed}</span>
@@ -98,6 +190,21 @@ export function ServicesWatched(props: { grant: Grant; online?: boolean }) {
                 )}
                 {target.summary.lastStatus !== null && (
                   <span className="service-meta">HTTP {target.summary.lastStatus}</span>
+                )}
+                {confirming === target.id ? (
+                  <span className="service-confirm">
+                    Stop watching {target.id}? Its series is discarded.{" "}
+                    <button type="button" className="link" disabled={writing} onClick={() => void stop(target.id)}>
+                      Stop
+                    </button>{" "}
+                    <button type="button" className="link" onClick={() => setConfirming(null)}>
+                      Keep
+                    </button>
+                  </span>
+                ) : (
+                  <button type="button" className="link service-stop" onClick={() => setConfirming(target.id)}>
+                    Stop watching
+                  </button>
                 )}
               </li>
             ))}

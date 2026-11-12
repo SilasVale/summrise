@@ -4022,6 +4022,14 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 /* ── Services this machine watches ───────────────────────────────────────────────────────────────
    The device probes host:port on its own timer; this is the operator's view of it. An address is a MONO fact, the state is a
    chip with a word (never a colour alone), and the summary facts sit on one muted line under it. */
+.service-add { margin: 0 0 var(--sp-3); }
+.service-form { display: flex; flex-wrap: wrap; align-items: end; gap: var(--sp-2) var(--sp-3); margin: var(--sp-2) 0 0; }
+.service-form label { display: grid; gap: var(--sp-1); font-size: var(--fs-xs); color: var(--ink-muted); }
+.service-form input { width: 9rem; }
+.service-form .hint { flex-basis: 100%; margin: 0; }
+.service-notice { margin: 0 0 var(--sp-2); }
+.service-confirm { font-size: var(--fs-xs); color: var(--ink-muted); }
+.service-stop { font-size: var(--fs-xs); }
 .service-list { list-style: none; margin: var(--sp-1) 0 0; padding: 0; }
 .service-row { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; padding: var(--sp-2) 0; border-top: 1px solid var(--line); }
 .service-row:first-child { border-top: 0; }

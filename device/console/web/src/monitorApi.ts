@@ -110,3 +110,46 @@ export function monitorFailure(error: unknown): string {
     ? `The services could not be read — ${error.message.trim()}`
     : "The services could not be read.";
 }
+
+/**
+ * **START WATCHING, AND STOP (the hundred-and-seventy-fourth list).** `monitor.add` takes `{host, port}` and an optional
+ * `path`/`expect`; `monitor.remove` takes the id the list carries (`host:port`). Both answer `{ok: …}` — a refusal carries the
+ * device's own sentence, which is the one a person needs when the port is wrong.
+ *
+ * THE WATCH IS PERSISTED ON THE MACHINE: it survives an agent restart, and removing one discards its series. That is why the
+ * page asks before it removes.
+ */
+export async function addWatch(
+  grant: Grant,
+  input: { host: string; port: number; path?: string }
+): Promise<void> {
+  const args: Record<string, unknown> = { host: input.host, port: input.port };
+  if (input.path !== undefined && input.path !== "") args.path = input.path;
+  const body = await callTool(grant, "monitor.add", args);
+  const answer = parseAnswer(body, "monitor.add");
+  if (answer.ok === false) throw new Error(refusalOf(answer, "the machine refused the watch"));
+}
+
+export async function removeWatch(grant: Grant, id: string): Promise<void> {
+  const body = await callTool(grant, "monitor.remove", { id });
+  const answer = parseAnswer(body, "monitor.remove");
+  if (answer.ok === false) throw new Error(refusalOf(answer, "the machine refused to stop watching"));
+}
+
+function parseAnswer(body: string, tool: string): Record<string, unknown> {
+  try {
+    const parsed: unknown = JSON.parse(body);
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error(`the machine answered ${tool} without an object`);
+    }
+    return parsed as Record<string, unknown>;
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("the machine answered")) throw error;
+    throw new Error(`the machine answered ${tool} with text`);
+  }
+}
+
+function refusalOf(answer: Record<string, unknown>, fallback: string): string {
+  const text = typeof answer.error === "string" ? answer.error.trim() : "";
+  return text !== "" ? text : fallback;
+}

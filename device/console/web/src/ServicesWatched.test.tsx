@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ServicesWatched } from "./ServicesWatched";
 import { callTool, type Grant } from "./terminal";
@@ -92,6 +92,34 @@ describe("ServicesWatched — what the device probes", () => {
       expect(screen.getByText(/the watch list is unreadable/)).toBeInTheDocument()
     );
     expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+  });
+
+  it("adds a watch through the device, and says where the watch lives", async () => {
+    mocked.mockResolvedValueOnce(answer([])).mockResolvedValueOnce(JSON.stringify({ ok: true }));
+    mocked.mockResolvedValue(answer([UP]));
+    render(<ServicesWatched grant={GRANT} />);
+    await waitFor(() =>
+      expect(screen.getByText("This machine watches no services.")).toBeInTheDocument()
+    );
+    fireEvent.change(screen.getByLabelText("Host to watch"), { target: { value: "127.0.0.1" } });
+    fireEvent.change(screen.getByLabelText("Port to watch"), { target: { value: "19000" } });
+    fireEvent.click(screen.getByRole("button", { name: "Start watching" }));
+    await waitFor(() =>
+      expect(mocked).toHaveBeenCalledWith(GRANT, "monitor.add", { host: "127.0.0.1", port: 19000 })
+    );
+    await waitFor(() => expect(screen.getByText(/the machine probes it every 15 s/)).toBeInTheDocument());
+  });
+
+  it("asks before it stops a watch, and names what stopping discards", async () => {
+    mocked.mockResolvedValue(answer([UP]));
+    render(<ServicesWatched grant={GRANT} />);
+    await waitFor(() => expect(screen.getByText("Up")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Stop watching" }));
+    expect(screen.getByText(/Its series is discarded/)).toBeInTheDocument();
+    expect(mocked).not.toHaveBeenCalledWith(GRANT, "monitor.remove", expect.anything());
+    mocked.mockResolvedValueOnce(JSON.stringify({ ok: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    await waitFor(() => expect(mocked).toHaveBeenCalledWith(GRANT, "monitor.remove", { id: UP.id }));
   });
 
   it("drops a target it cannot address, rather than drawing a blank row", async () => {
