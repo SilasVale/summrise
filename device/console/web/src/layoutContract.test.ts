@@ -1023,8 +1023,15 @@ describe("the layout contract", () => {
     // control the same head renders, so the title's rung is spent on a second copy. Same rung, different reason.
     const repeated = contract.head.nameWhenRepeated;
     expect(repeated.size, "the contract names the step").toBe("base");
-    const deviceRules = [...css().matchAll(/(\.device-head h1)[^{]*\{\n([\s\S]*?)\n\}/g)].map((m) => m[2]);
-    expect(deviceRules.length, "the device head is drawn once").toBe(1);
+    // **AND ONLY THE TABBED HEAD IS THE CONTEXT RUNG (the hundred-and-fifty-eighth list).** The condition is a control in
+    // the same head; a head with no strip (the picker's `Choose a machine`) keeps the title's rung. So the rule's selector
+    // must carry the class the shell adds only when a machine is chosen.
+    const deviceRules = [...css().matchAll(/(\.device-head h1\.as-context)[^{]*\{\n([\s\S]*?)\n\}/g)].map((m) => m[2]);
+    expect(deviceRules.length, "the device head is drawn once, and scoped").toBe(1);
+    expect(
+      readFileSync(path.join(here, "DevicePageShell.tsx"), "utf8"),
+      "the shell adds the class only when a machine is chosen"
+    ).toContain('className={chosen ? "as-context" : undefined}');
     const deviceSize = tokenFor(tokens(), 13, "fs");
     expect(deviceRules[0]).toContain(`font-size: var(--${deviceSize})`);
     expect(deviceRules[0]).toContain("font-weight: var(--fw-medium)");

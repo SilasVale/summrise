@@ -111,7 +111,14 @@ export function DevicePageShell({
   return (
     <div className="page device-page">
       <header className="page-head device-head">
-        <h1>{chosen ? DEVICE_TAB_LABELS[tab] : "Choose a machine"}</h1>
+        {/* **ONLY THE TABBED HEAD TAKES THE CONTEXT RUNG (the hundred-and-fifty-eighth list).** The contract's
+            `head.nameWhenRepeated` is conditional — a name a CONTROL in the same head already says. When a machine is
+            chosen this head carries the tab strip, whose selected tab IS the name; when none is, the head is `Choose a
+            machine` with no strip and nothing repeating it, so it keeps the title's rung. Measured live 2026-11-12: the
+            demotion had been applied unconditionally and the PICKER's only sentence became a 13 px grey caption. */}
+        <h1 className={chosen ? "as-context" : undefined}>
+          {chosen ? DEVICE_TAB_LABELS[tab] : "Choose a machine"}
+        </h1>
         {chosen && (
           <div className="device-tabs-wrap">
             {edges.left && (

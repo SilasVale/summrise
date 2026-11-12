@@ -3767,7 +3767,7 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
    carried `Overview` as the SELECTED tab at 12/600 — the page named itself twice, and the second copy took the title's rung.
    The contract records the condition (`head.nameWhenRepeated`); the machine's name in the card below is the page's subject and
    now leads at 17. */
-.device-head h1 {
+.device-head h1.as-context {
   font-size: var(--fs-base); font-weight: var(--fw-medium);
   color: var(--ink-muted); letter-spacing: var(--tracking-none);
 }
