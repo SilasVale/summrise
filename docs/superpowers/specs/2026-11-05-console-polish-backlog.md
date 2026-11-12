@@ -5958,6 +5958,27 @@ tool, and the rule that follows — **read the live answer before trusting the s
 4. **TS types generated from Rust.** The engineering debt named earlier in the week and not yet paid: the tool-name inventory and the
    tab list are hand-kept copies of things Rust already knows. **This is the next round's first job.**
 
+## The hundred-and-eighty-first list (SHIPPED 2026-11-12 — the fleet table opens the week's two pages)
+
+Round 1 of the continued program. The console can watch a service on a machine and read what its AI learned there, and **neither was
+reachable from the table a person uses to PICK a machine** — Home's rows offered Copy diagnostics, Rename and Remove.
+
+    ⋯ → Watch a service   → that machine's Machine tab (where the watch form is)
+        Read its memory   → that machine's Memory tab
+
+The menu is where a row's management already lives, so the doors went there rather than into a new column. **LIVE after `-ux234`**:
+`["Copy diagnostics","Watch a service","Read its memory","Rename","Remove"]`, and clicking *Read its memory* lands on
+`#device/memory` with the panel drawn.
+
+**AND THE ROUND'S FIRST FINDING IS A FLEET FACT, NOT A CONSOLE DEFECT**: the device's browser cannot start —
+
+    browser.list → "the browser did not start: chrome exited with exit code: 1002 before it answered
+                    http://127.0.0.1:65224/json/version; no stderr output"
+
+The Screen page's Browser view already says exactly that (`The device's answer` line), so `browser.cast` stays unwired until a browser
+can run: **a live view of a browser that cannot start is a door to a wall.** The sentence belongs to the device's upgrade, which the
+operator holds.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
