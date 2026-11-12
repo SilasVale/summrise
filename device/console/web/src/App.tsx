@@ -1381,6 +1381,11 @@ export function App() {
             liveLines={live.lines}
             liveState={live.state}
             liveRunning={live.running}
+            onFailedToday={() => {
+              // **THE DAY'S FAILURES, ONE CLICK (the two-hundredth list).** Activity's own filters, set the way the number was counted.
+              setActivityFilter((current) => ({ ...current, status: "failed" }));
+              setPage("activity");
+            }}
             onNow={(call) => {
               // **A FINISHED RUN'S LINE OPENS THE RUN (the hundred-and-ninety-sixth list).** `runs.exec` names its run in the detail, and
               // the run's own result is what a person wants next — the Device page's Runs tab already focuses a run by id.

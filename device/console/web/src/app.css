@@ -4083,6 +4083,10 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .home-now { display: flex; align-items: center; gap: var(--sp-2); margin: var(--sp-1) 0 0; font-size: var(--fs-xs); color: var(--ink-muted); }
 .home-now .dot { width: 0.45rem; height: 0.45rem; }
 .home-now .mono { color: var(--ink); }
+/* The day's failures: a count that is also the door to its rows. */
+.home-today-failed { display: flex; align-items: center; gap: var(--sp-2); margin: var(--sp-1) 0 0; border: 0; background: none; padding: 0; font: inherit; font-size: var(--fs-xs); color: var(--ink-muted); cursor: pointer; text-align: left; }
+.home-today-failed:hover { color: var(--ink); }
+.dot-bad { background: var(--bad); }
 /* The same line as a door: a button with the line's own look, so it reads as the sentence it is. */
 .home-now-door { border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; text-align: left; }
 .home-now-door:hover .mono { text-decoration: underline; }

@@ -1,7 +1,7 @@
 import { readMonitors, type MonitorTarget } from "./monitorApi";
 import type { LiveLine, StartedCall } from "./liveActivity";
 import { useEffect, useRef, useState } from "react";
-import { type Device, type Installer } from "./api";
+import { api, type Device, type Installer } from "./api";
 import { DeviceCard } from "./DeviceCard";
 import { copyText } from "./copy";
 import { presenceText, seenAgo, shortId } from "./format";
@@ -604,6 +604,28 @@ function FleetHome(props: HomePageProps) {
    * names a CLIENT call when one happened, and falls back to whatever the newest row is only when nothing else is recent. The age
    * tick comes from `tick` (the page's own clock) so the sentence ages without a re-render storm.
    */
+  /**
+   * **THE DAY'S FAILURES, ONE READ (the two-hundredth list).** No device id: this is the fleet's day, the same answer Activity's
+   * default scope shows. A failed read draws nothing rather than a zero — the page does not claim "no failures" from a silence.
+   */
+  const [todayFailed, setTodayFailed] = useState<number | null>(null);
+  const [todayTotal, setTodayTotal] = useState<number | null>(null);
+  useEffect(() => {
+    let current = true;
+    void (async () => {
+      try {
+        const day = await api.auditDay();
+        if (!current) return;
+        setTodayFailed(day.failed);
+        setTodayTotal(day.client_calls);
+      } catch {
+        /* a silence is not a zero */
+      }
+    })();
+    return () => {
+      current = false;
+    };
+  }, []);
   const inFlight = (() => {
     if (props.liveState !== "live") return null;
     const rows = (props.liveRunning ?? []).filter((call) => call.tool !== "");
@@ -700,6 +722,21 @@ function FleetHome(props: HomePageProps) {
                 {` · ${Math.max(1, Math.round(newestLive.ageMs / 1000))} s ago`}
               </span>
             </p>
+          )}
+          {todayFailed !== null && todayFailed > 0 && props.onFailedToday !== undefined && (
+            // **A COUNT IS A DOOR.** The verdict names the day's failures; the button opens Activity with the failures filter already on.
+            <button
+              type="button"
+              className="page-sub home-today-failed"
+              title="Open today's failed calls in Activity"
+              onClick={() => props.onFailedToday?.()}
+            >
+              <span className="dot dot-bad" aria-hidden="true" />
+              <span>
+                Today {todayFailed} of {todayTotal ?? 0} calls failed
+                <span aria-hidden="true"> ›</span>
+              </span>
+            </button>
           )}
           {watches !== null && watches.total > 0 && (
             <p className="hint home-services">
@@ -969,6 +1006,12 @@ export type HomePageProps = FleetProps & {
    * a door rather than a caption.
    */
   onNow?: (call: { tool: string; deviceId: string | null; detail: string | null }) => void;
+  /**
+   * **THE FLEET'S DAY IS PART OF ITS VERDICT (the two-hundredth list).** Home said what needs a person and what is there; the day's
+   * failures — the number the operator acts on — lived only on Activity. One read of `/audit/day` for the whole fleet puts the count
+   * on the verdict line, with a door that opens Activity already narrowed to the failures.
+   */
+  onFailedToday?: () => void;
   onConnect: () => void;
   onTools: () => void;
 };
