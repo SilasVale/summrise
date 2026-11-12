@@ -20,13 +20,17 @@ exercised.
 | console | └ `layoutContract.test.ts` | **60** | the contract with the panel, hash-pinned; page heads, the card, the footnote atom, the palette, the shadow inventory |
 | console | └ `toolNames.test.ts` | **3** | the 32 device tool names, both directions (an addition fails, a removal fails) |
 | console | `npm run gate:browser` | **107 steps** | the RENDERED page: Home's name 13/500 and its verdict 22/600, the palette (every text ink resolves to a token), icons (≤ 8, none unlabelled), the installer's footnote corner, 390 and 1440 layouts, export, terminal, reconnect |
-| panel | `npx vitest run` (in `agent/resources/panel-react`) | **1,065** in **120 files** | the desktop panel |
+| panel | `npx vitest run` (in `agent/resources/panel-react`) | **1,066** in **120 files** | the desktop panel |
 | panel | └ `layoutContract.test.ts` | **67** | the same contract, its own side |
 | panel | `cargo test --test panel_sheet_freshness` | **1** | the built sheet is fresh against its source |
 | panel | └ `--test spacing_scale` · `--test stylesheet_hygiene` | **2** · **5** | rhythm, and the sheet's hygiene |
 
 **THE SHARED PIN**: `docs/superpowers/specs/layout-contract.json`, byte-identical in both repositories, **sha256
 `51abc1dfd3c4c926df500497662c854dd7f06169d8abaaaebd300136178d12b2`**, pinned by a literal in BOTH `layoutContract.test.ts` files.
+
+**REFRESH IT WITH `bash scripts/gate-ledger.sh`** — it runs the console's four commands in the order above and prints their
+counts, and it already earned its keep the day it was written: the panel's suite read **1,066**, not the 1,065 this table had
+carried since the round that added a test to it. A snapshot nobody re-takes is a memory.
 
 **AND ALL TWENTY RULES HAVE A HOLDER** — the ledger at the hundred-and-sixty-ninth list names each one (tokens for 1/3/4/11/13/15/16/
 18/20; the head fields and the rendered gate for 5; the palette gate for 6; the footnote atom for 12; the icon gate for 17; the
