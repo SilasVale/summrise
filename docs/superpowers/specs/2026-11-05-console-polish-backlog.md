@@ -6221,6 +6221,26 @@ uses to draw a run link — so a run id is read one way in both places.
 **LIVE AFTER `-ux249`**: a real `runs.exec` (`cmd.exe /c echo hi`, exit 0, `run-1794488232172-547`) drew
 `Now: runs.exec on DESKTOP-9VH92BJ · 3 s ago ›`, and clicking it landed on `#run/<device>/run-179448…` with the runs view drawn.
 
+## The hundred-and-ninety-seventh list (SHIPPED 2026-11-12 — Home shows the call that has NOT answered yet)
+
+The console's live stream knows what is IN FLIGHT — a `started` frame without its `finished`, dropped by the proxy's own cut when a
+device goes silent — and Home drew only what had already happened. A long `runs.exec` therefore looked like an idle fleet until it
+answered.
+
+    ● Running: runs.exec on DESKTOP-9VH92BJ · 7 s in
+
+**A CALL IN FLIGHT OUTRANKS ONE THAT ALREADY ANSWERED**: the band draws the run and steps the finished line aside, so the page has one
+pulse at a time, and the age keeps counting from the page's own clock. A start older than two minutes is dropped — the proxy's own
+cut is the authority, and a stale "running" would be a lie.
+
+**THE SHADOW INVENTORY REFUSED THE FIRST DRAFT** — `the shadow inventory: expected [ …(16) ] to deeply equal [ …(15) ]`: the pulse dot
+had been given a glow. The pulse is said in the word `Running:`; the dot is the accent, no glow, no new shadow.
+
+**LIVE AFTER `-ux250`**, one slow call, read twice:
+
+    during   Running: runs.exec on DESKTOP-9VH92BJ · 1 s in
+    after    Now: runs.exec on DESKTOP-9VH92BJ · 1 s ago ›
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
