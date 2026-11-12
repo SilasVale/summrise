@@ -199,6 +199,14 @@ describe("ConnectSheet", () => {
   it("creates a token, shows it once with the warning, and forgets it when the sheet closes", async () => {
     const first = draw();
     fireEvent.click(screen.getByRole("tab", { name: "Tokens" }));
+    // The approved default (architecture of record §4.7): opening the form is consent to
+    // destructive tools, and the sentence below the toggle says so.
+    expect(
+      within(tokenForm()).getByRole("checkbox", { name: "Allow destructive tools" })
+    ).toBeChecked();
+    expect(
+      within(tokenForm()).getByText("This token allows destructive tools.")
+    ).toBeInTheDocument();
     fireEvent.change(within(tokenForm()).getByLabelText("Name"), { target: { value: "laptop" } });
     fireEvent.click(screen.getByRole("button", { name: "Create token" }));
 
@@ -207,7 +215,7 @@ describe("ConnectSheet", () => {
         name: "laptop",
         device_id: WORKSHOP.id,
         tools: ["files.read", "terminal.write"],
-        allow_destructive: false
+        allow_destructive: true
       })
     );
     expect(await screen.findByText("Copy this token now. It is not shown again.")).toBeInTheDocument();
@@ -217,6 +225,36 @@ describe("ConnectSheet", () => {
     draw();
     expect(document.body.textContent).not.toContain(CREATED.token);
     expect(screen.queryByText("Copy this token now. It is not shown again.")).not.toBeInTheDocument();
+  });
+
+  it("mints read-only when the operator turns destructive consent off", async () => {
+    draw({ initialSection: "tokens" });
+    const consent = within(tokenForm()).getByRole("checkbox", {
+      name: "Allow destructive tools"
+    });
+    expect(consent).toBeChecked();
+    fireEvent.click(consent);
+    expect(consent).not.toBeChecked();
+    expect(within(tokenForm()).queryByText(/This token allows destructive tools/)).toBeNull();
+    // The explanation of what unticking means stays on screen while it is off.
+    expect(
+      within(tokenForm()).getByText(
+        "Without this, the machine refuses anything that changes it; read-only tools still work."
+      )
+    ).toBeInTheDocument();
+    fireEvent.change(within(tokenForm()).getByLabelText("Name"), {
+      target: { value: "no-destructive" }
+    });
+    fireEvent.click(within(tokenForm()).getByRole("button", { name: "Create token" }));
+
+    await waitFor(() =>
+      expect(mocks.createToken).toHaveBeenCalledWith({
+        name: "no-destructive",
+        device_id: WORKSHOP.id,
+        tools: ["files.read", "terminal.write"],
+        allow_destructive: false
+      })
+    );
   });
 
   it("offers Read-only and Choose tools presets, and scopes the token to what is chosen", async () => {
@@ -765,7 +803,7 @@ describe("ConnectSheet's one credential list", () => {
         name: "fleet",
         device_ids: [WORKSHOP.id, ATTIC.id],
         tools: ["files.read", "terminal.write"],
-        allow_destructive: false
+        allow_destructive: true
       })
     );
     const row = await screen.findByRole("row", { name: /fleet/ });

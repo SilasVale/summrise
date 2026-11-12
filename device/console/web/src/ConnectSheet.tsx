@@ -343,7 +343,10 @@ function TokensSection({
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const [touched, setTouched] = useState(false);
   const [tokenExpiry, setTokenExpiry] = useState(0);
-  const [destructive, setDestructive] = useState(false);
+  // **A TOKEN MINTED HERE STARTS WITH DESTRUCTIVE CONSENT ON (architecture of record §4.7).**
+  // The console's default is a working credential; the operator turns this off in one click to
+  // mint read-only, and the sentence below the toggle states which consent the button will send.
+  const [destructive, setDestructive] = useState(true);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [created, setCreated] = useState<Created | null>(null);
@@ -1008,6 +1011,9 @@ function TokensSection({
             />
             Allow destructive tools
           </label>
+          {destructive && (
+            <p className="hint">This token allows destructive tools.</p>
+          )}
           <p className="hint">
             Without this, the machine refuses anything that changes it; read-only tools still work.
           </p>
