@@ -1551,10 +1551,6 @@ button.chip-tag:hover {
   .runs-field.command,
   .runs-field.cwd,
   .runs-field.timeout { flex: 1 1 100%; }
-  /* **THE FILTER AND ITS BUTTON SHARE THE PHONE'S ROW (the hundred-and-ninety-second list).** The processes filter's 16 rem basis left
-     no room for `Refresh` beside it, so the card read as field-then-button stacked, the same shape the memory search had before its
-     own fold. A refined basis keeps both on one row down to 390. */
-  .system-field.filter { flex: 1 1 8rem; }
 }
 
 .runs-result header .mono { margin-left: auto; }
@@ -1897,6 +1893,13 @@ span.files-name {
   min-width: 0;
 }
 .system-field.filter { flex: 1 1 16rem; }
+/* **THE FOLD MUST SIT AFTER THE RULE IT REFINES (the hundred-and-ninety-second list, second pass).** The first version put this in the
+   file's first 639 block, four hundred lines ABOVE the base rule, so the base won the cascade and the phone still drew the field and
+   `Refresh` stacked — measured at 390 after `-ux245`. The extra `.system-toolbar` is specificity's belt as well as the position's
+   braces. */
+@media (max-width: 639px) {
+  .system-toolbar .system-field.filter { flex: 1 1 8rem; }
+}
 .system-field.host { flex: 1 1 13rem; }
 .system-field > label {
   font-size: var(--fs-xs);
