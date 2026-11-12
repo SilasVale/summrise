@@ -5511,6 +5511,26 @@ copied**, so the two pages cannot disagree about what "Platform" means.
 rows refused, what remains to fill it is what the machine is FOR (a call to action on the AI's own door), which is a product
 decision rather than a layout one.
 
+## The hundred-and-sixty-fifth list (CLOSED 2026-11-12 — the first screen said it most quietly)
+
+The audit had never drawn the sign-in page. The gate's own screenshot (1280 × 900) showed the card's name at **17 / 700** — while
+Home's verdict draws 22 and Activity's claim 17: **the one screen a person meets BEFORE they are inside said its purpose more
+quietly than every screen inside.**
+
+    before   .login h1   17 / 700
+    after    .login h1   22 / 600, the display step      (.login h2 keeps 17 for the token disclosure)
+
+**WHY THIS IS THE CONTRACT AND NOT A TASTE CALL**: `head.nameWhenClaim` and `head.nameWhenRepeated` are both CONDITIONAL, and
+neither condition holds here — the head has no claim under it and no control repeating it, so the name IS the claim and takes the
+`title` atom. It is the same rule the picker's `Choose a machine` keeps (22/700) and the tabbed device head drops (13/500).
+
+**AND A TYPOGRAPHIC DEFECT IN THE SAME BLOCK**: the sentence read `the console's  --operator-token-file  names` — the `<code>`
+carried its own leading and trailing spaces inside the element and JSX's line break added a third. Spaces moved outside the
+element; the line now reads `… the console's --operator-token-file names`.
+
+**AND THE 390 CHECK OF THE PREVIOUS ROUND'S CHANGE**: Device -> Overview at 390 draws the facts line at y=248, `scrollW == 390`,
+and the one element past the right edge is `.device-tab` at 460 — the tab strip, which is a scroll container by design.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
