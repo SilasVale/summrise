@@ -5275,6 +5275,26 @@ contract's `columns` stop (1088) decides the frame.
    row's highlight is `--accent-soft` (the selection's own colour, not the alarm's). Two facts, two jobs: the card is the
    selected machine's DOORS, the row is the roster's place in the fleet. **Left alone.**
 
+## The hundred-and-fifty-sixth list (ABANDONED 2026-11-12 — the installer's box is a recorded decision, not a stray card)
+
+Attempted: demote Home's installer strip from a bordered card to a footnote (hairline, no surface), because the page drew three
+titled blocks with three title treatments — the warning card an eyebrow, the roster none, the strip a card title on its own box.
+
+**THREE THINGS THE ATTEMPT MEASURED, ALL WORTH KEEPING.**
+
+1. **A rule at the wrong specificity is a rule that never ran.** The first version added `.installer-strip { border: 0; … }`
+   (0,1,0) at line 712; the strip's own `.installer.installer-strip` (0,2,0) sits at line 3966 and won. Measured on the deployed
+   page: `background rgb(255,255,255)`, `radius 14px` — the change was in the bundle and had no effect.
+2. **AND THE PAGE'S OWN GATE REFUSED IT WHEN IT DID RUN**: `Home's .installer corner is 0px, the contract says 14px` — the
+   strip's box is pinned to the `card` atom, with the comment that says why (*"THE STRIP IS THE CARD, IN ONE ROW"*).
+3. **SO THE DEMOTION IS A CONTRACT DECISION, NOT A PAGE TWEAK.** Making the installer a footnote means changing `card`'s
+   applicability (both surfaces) and the gate that enforces it — the same size of change as `nameWhenClaim`, which took two
+   rounds and a hash. **Not done in a round's last ten minutes.** The tree is back at `ux203`'s stylesheet, redeployed clean as
+   `0.3.274-ux205`.
+
+**WHAT THIS LEAVES, STATED PLAINLY.** Home's three title treatments are a real inconsistency and they are in the record now,
+with the reason they were not changed: a pinned decision with an argument beats a tidier page with none.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
