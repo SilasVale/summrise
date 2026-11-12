@@ -2214,10 +2214,10 @@ mod tests {
     use serde_json::Value;
 
     use super::*;
-    use crate::plugins::test_support::{
+    use crate::test_support::TempDir;
+    use crate::test_support::{
         host, options as test_options, plugin_dir, wait_until, ScriptedLauncher,
     };
-    use crate::test_support::TempDir;
 
     #[test]
     fn a_missing_directory_asks_for_the_path_not_another_plugins_add() {

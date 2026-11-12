@@ -30,7 +30,9 @@ mod lock;
 mod mcp;
 mod mesh;
 mod panel;
-mod plugins;
+// The supervised plugin subsystem is its own crate; the alias keeps every `crate::plugins::...`
+// path in this binary unchanged.
+pub use summrise_plugin_host as plugins;
 mod remote;
 mod repair_task;
 mod restart;
@@ -1265,7 +1267,7 @@ fn ensure_state(store: &Store, claimed: bool, started_at_ms: u64) -> std::io::Re
 mod test_support {
     //! Test-only filesystem and HTTP plumbing shared by the module tests.
 
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
     use std::sync::Arc;
 
@@ -1444,6 +1446,12 @@ mod test_support {
 
         pub(crate) fn join(&self, name: &str) -> PathBuf {
             self.path.join(name)
+        }
+    }
+
+    impl AsRef<Path> for TempDir {
+        fn as_ref(&self) -> &Path {
+            &self.path
         }
     }
 

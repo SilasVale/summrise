@@ -5,7 +5,9 @@
 //! The switches are the interesting failures: a handshake that errors, pings that are ignored, a
 //! peer that dies during a call, a slow call that never answers.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::sync::atomic::AtomicU64;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -13,14 +15,13 @@ use std::time::{Duration, Instant};
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-use crate::plugins::host::{ChildProcess, LaunchSpec, Launched, Launcher, Options, PluginHost};
-use crate::plugins::session::Session;
-use crate::test_support::TempDir;
+use crate::host::{ChildProcess, LaunchSpec, Launched, Launcher, Options, PluginHost};
+use crate::session::Session;
 
 /// A launcher whose children are duplex peers.
-pub(crate) struct ScriptedLauncher {
+pub struct ScriptedLauncher {
     /// How many times a plugin was started.
-    pub(crate) launches: AtomicUsize,
+    pub launches: AtomicUsize,
     /// How many times a child was killed.
     pub(crate) kills: Arc<AtomicUsize>,
     /// Whether `initialize` answers with an error.
@@ -41,7 +42,7 @@ pub(crate) struct ScriptedLauncher {
 
 impl ScriptedLauncher {
     /// A launcher that advertises `tools` on every launch.
-    pub(crate) fn new(tools: Vec<Value>) -> Arc<ScriptedLauncher> {
+    pub fn new(tools: Vec<Value>) -> Arc<ScriptedLauncher> {
         Arc::new(ScriptedLauncher {
             launches: AtomicUsize::new(0),
             kills: Arc::new(AtomicUsize::new(0)),
@@ -56,7 +57,7 @@ impl ScriptedLauncher {
     }
 
     /// The common fixture: one read-only `greet` tool.
-    pub(crate) fn hello() -> Arc<ScriptedLauncher> {
+    pub fn hello() -> Arc<ScriptedLauncher> {
         ScriptedLauncher::new(vec![json!({
             "name": "greet",
             "title": "Greet someone",
@@ -215,15 +216,15 @@ pub(crate) fn options() -> Options {
 }
 
 /// A host over a fresh data directory, with a scripted launcher.
-pub(crate) fn host(temp: &TempDir, launcher: Arc<ScriptedLauncher>) -> PluginHost {
-    let data = temp.join("data");
+pub fn host(temp: impl AsRef<Path>, launcher: Arc<ScriptedLauncher>) -> PluginHost {
+    let data = temp.as_ref().join("data");
     std::fs::create_dir_all(&data).expect("the data directory is creatable");
     PluginHost::with_launcher(&data, launcher, options())
 }
 
 /// A plugin directory whose manifest names `namespace` and a command that exists (this test binary).
-pub(crate) fn plugin_dir(temp: &TempDir, namespace: &str) -> PathBuf {
-    let directory = temp.join("plugins").join(namespace);
+pub fn plugin_dir(temp: impl AsRef<Path>, namespace: &str) -> PathBuf {
+    let directory = temp.as_ref().join("plugins").join(namespace);
     std::fs::create_dir_all(&directory).expect("the plugin directory is creatable");
     let command = std::env::current_exe().expect("the test binary has a path");
     let manifest = json!({
@@ -241,7 +242,7 @@ pub(crate) fn plugin_dir(temp: &TempDir, namespace: &str) -> PathBuf {
 
 /// Wait until `check` is true, or the deadline passes. The condition is re-checked at the deadline so
 /// a call that settles exactly then is not a flake.
-pub(crate) async fn wait_until<F, Fut>(deadline: Duration, mut check: F) -> bool
+pub async fn wait_until<F, Fut>(deadline: Duration, mut check: F) -> bool
 where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = bool>,
@@ -255,5 +256,48 @@ where
             return false;
         }
         tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+}
+
+/// A unique temporary directory for this crate's tests, removed on drop.
+///
+/// The host is its own crate now, so it cannot borrow the app's `crate::test_support::TempDir`; this
+/// is the same discipline locally: a name that includes the pid and a process-wide counter cannot
+/// collide between test binaries, and `Drop` removes what the test created.
+#[cfg(test)]
+pub(crate) struct TempDir {
+    path: PathBuf,
+}
+
+#[cfg(test)]
+impl TempDir {
+    pub(crate) fn new(label: &str) -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let unique = NEXT.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "summrise-plugin-host-test-{}-{unique}-{label}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&path);
+        std::fs::create_dir_all(&path).expect("the test directory is creatable");
+        Self { path }
+    }
+
+    pub(crate) fn join(&self, name: &str) -> PathBuf {
+        self.path.join(name)
+    }
+}
+
+#[cfg(test)]
+impl AsRef<Path> for TempDir {
+    fn as_ref(&self) -> &Path {
+        &self.path
+    }
+}
+
+#[cfg(test)]
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.path);
     }
 }

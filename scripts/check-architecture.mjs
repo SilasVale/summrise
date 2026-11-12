@@ -50,6 +50,11 @@ const RULES = {
   // the target's, so the bus can take core without touching this table.
   "summrise-bus": { mayUse: ["summrise-core"] },
 
+  // The supervised plugin subsystem. It names core's manifest rules and the bus it publishes
+  // lifecycle events to, and nothing above them: the host is a unit so it can be proven without the
+  // app that starts it.
+  "summrise-plugin-host": { mayUse: ["summrise-core", "summrise-bus"] },
+
   // The lower leaves. They name no workspace crate; an edge out of one is an inversion.
   "summrise-winsec": { mayUse: [] },
   "summrise-winsys": { mayUse: [] },
@@ -79,6 +84,7 @@ const RULES = {
       "summrise-bus",
       "summrise-core",
       "summrise-mesh",
+      "summrise-plugin-host",
       "summrise-release",
       "summrise-ui",
       "summrise-winsec",
@@ -386,6 +392,8 @@ function runSelfTest(rules) {
   const packages = new Set(rules.keys());
   const edges = [
     ["summrise-bus", "summrise-core"],
+    ["summrise-plugin-host", "summrise-bus"],
+    ["summrise-plugin-host", "summrise-core"],
     ["summrise-mesh", "summrise-core"],
     ["summrise-release", "summrise-core"],
     ["summrise-release", "summrise-launch", "dev"],
@@ -394,6 +402,8 @@ function runSelfTest(rules) {
     ["summrise-device", "summrise-bus"],
     ["summrise-device", "summrise-core"],
     ["summrise-device", "summrise-mesh"],
+    ["summrise-device", "summrise-plugin-host"],
+    ["summrise-device", "summrise-plugin-host", "dev"],
     ["summrise-device", "summrise-release"],
     ["summrise-device", "summrise-ui"],
     ["summrise-device", "summrise-winsec"],

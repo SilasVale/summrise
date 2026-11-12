@@ -4880,6 +4880,7 @@ dependencies = [
  "summrise-core",
  "summrise-launch",
  "summrise-mesh",
+ "summrise-plugin-host",
  "summrise-release",
  "summrise-ui",
  "summrise-winsec",
@@ -4922,6 +4923,17 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tower",
+]
+
+[[package]]
+name = "summrise-plugin-host"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "summrise-bus",
+ "summrise-core",
+ "tokio",
 ]
 
 [[package]]
