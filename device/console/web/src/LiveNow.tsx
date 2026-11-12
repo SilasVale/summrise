@@ -110,7 +110,14 @@ export function LiveNow(props: {
         role="img"
         aria-label={`Client calls per ten seconds over the last five minutes; the busiest bucket had ${peak === 1 && counts.every((count) => count === 0) ? 0 : peak}.`}
       >
-        {counts.map((count, index) => {
+        {/* **A SILENT FIVE MINUTES IS ONE FLAT LINE, NOT THIRTY GAPS (the hundred-and-forty-fifth list).** Measured on the
+            live console 2026-11-12 (`0.3.274-ux198`, 1440, a quiet machine): thirty 3-px buckets at 2 px each drew what read
+            as a DASHED PLACEHOLDER under `no calls in the last minute` — a broken chart where the fact was "zero, for five
+            minutes". The one honest shape for zero is the axis itself: a single hairline, and the sentence above it. */}
+        {counts.every((count) => count === 0) ? (
+          <rect x={0} y={30} width={BUCKETS * 4 - 1} height={2} rx={1} className="spark-off" />
+        ) : (
+          counts.map((count, index) => {
           const height = count === 0 ? 2 : Math.max(3, Math.round((count / peak) * 30));
           return (
             <rect
@@ -123,7 +130,8 @@ export function LiveNow(props: {
               className={count > 0 ? "spark-on" : "spark-off"}
             />
           );
-        })}
+          })
+        )}
       </svg>
 
       {running.length > 0 && (

@@ -69,6 +69,23 @@ describe("LiveNow", () => {
     expect(screen.queryByRole("button", { name: /All activity/ })).toBeNull();
   });
 
+  it("draws a silent five minutes as one flat line, not thirty gaps", () => {
+    // **A DASHED BASELINE READS AS A BROKEN CHART, NOT AS ZERO** (the hundred-and-forty-fifth list). Measured on the live
+    // console 2026-11-12: a quiet machine drew thirty 3-px buckets at 2 px each under `no calls in the last minute`. Zero
+    // for five minutes has exactly one honest shape — the axis — and the sentence above it says the rest.
+    render(<LiveNow {...base} lines={[]} />);
+
+    const bars = document.querySelectorAll(".live-spark rect");
+    expect(bars).toHaveLength(1);
+    expect(bars[0].getAttribute("width")).toBe("119");
+    expect(bars[0].getAttribute("class")).toBe("spark-off");
+  });
+
+  it("still draws one bucket per ten seconds when there were calls", () => {
+    render(<LiveNow {...base} lines={[line({ caller: "client" })]} />);
+    expect(document.querySelectorAll(".live-spark rect")).toHaveLength(30);
+  });
+
   it("treats a line without a caller as unknown, not as a client's", () => {
     // An old console's line, or a snapshot from before the field existed: it is not evidence of the
     // AI working, and guessing the other way is exactly the bug this band was fixed for.
