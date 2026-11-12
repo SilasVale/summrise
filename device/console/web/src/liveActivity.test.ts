@@ -250,4 +250,52 @@ describe("the live activity stream", () => {
     source.emit("device", {});
     expect(handlers.device).not.toHaveBeenCalled();
   });
+
+  it("hands a journal reset to the page with the gap it names", () => {
+    const source = new FakeSource("/events");
+    const handlers = {
+      snapshot: vi.fn(),
+      activity: vi.fn(),
+      lagged: vi.fn(),
+      error: vi.fn(),
+      reset: vi.fn()
+    };
+    openLiveActivity(handlers, () => source);
+
+    // The journal dropped rows this page still needs; the frame names the machine, the snapshot it
+    // resumed at, and the range that is gone.
+    source.emit("reset", {
+      device: "abc",
+      snapshot_seq: 1000,
+      lost: { from: 41, to: 999 }
+    });
+
+    expect(handlers.reset).toHaveBeenCalledWith({
+      device: "abc",
+      snapshot_seq: 1000,
+      lost: { from: 41, to: 999 }
+    });
+  });
+
+  it("ignores a reset frame it cannot read, without throwing", () => {
+    const source = new FakeSource("/events");
+    const handlers = {
+      snapshot: vi.fn(),
+      activity: vi.fn(),
+      lagged: vi.fn(),
+      error: vi.fn(),
+      reset: vi.fn()
+    };
+    openLiveActivity(handlers, () => source);
+    const listener = source.listeners.get("reset")!;
+
+    // Malformed bytes, a missing range, a missing sequence, and a range that is not numbers are all
+    // silence: a reset the page cannot read must not take the stream down with it.
+    expect(() => listener({ data: "not json" } as MessageEvent)).not.toThrow();
+    source.emit("reset", { device: "abc", snapshot_seq: 1000 });
+    source.emit("reset", { device: "abc", lost: { from: 41, to: 999 } });
+    source.emit("reset", { device: "abc", snapshot_seq: 1000, lost: { from: "41", to: 999 } });
+    source.emit("reset", {});
+    expect(handlers.reset).not.toHaveBeenCalled();
+  });
 });

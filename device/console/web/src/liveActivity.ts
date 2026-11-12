@@ -113,6 +113,23 @@ export type DeviceEvent = {
 };
 
 /**
+ * One reset of a device's journal: the rows this page still needs are no longer retained.
+ *
+ * The console sends it when the journal has moved past the point this page's record resumes from.
+ * `snapshot_seq` is where the journal now stands, and `lost` is the inclusive range of sequence
+ * numbers the page can no longer read. The stream cannot refill them, so the caller has to reread the
+ * record — the same answer a `lagged` frame needs.
+ */
+export type DeviceReset = {
+  /** The device whose journal reset. */
+  device: string;
+  /** The journal's sequence the snapshot resumed at. */
+  snapshot_seq: number;
+  /** The inclusive range of sequence numbers the journal no longer retains. */
+  lost: { from: number; to: number };
+};
+
+/**
  * The proxy's own cut on one call: the longest a `started` entry may stand without a `finished`.
  *
  * The proxy stops waiting at ninety seconds for a run and sooner for everything else. A page that
@@ -145,6 +162,11 @@ export type LiveHandlers = {
    * `seq` of its own and no HTTP status, so the page reads the envelope rather than the record.
    */
   device?: (device: string, event: DeviceEvent) => void;
+  /**
+   * A device's journal no longer retains rows this page needs. The inclusive `lost` range is a hole
+   * the stream cannot refill, so the caller must reread the record as it would after `lagged`.
+   */
+  reset?: (reset: DeviceReset) => void;
   /** The connection dropped. `EventSource` retries on its own. */
   error: () => void;
   /**
@@ -245,12 +267,17 @@ export function openLiveActivity(
     const parsed = asDeviceEvent(parse(event.data));
     if (parsed) handlers.device?.(parsed.device, parsed.event);
   };
+  const onReset = (event: MessageEvent) => {
+    const reset = asReset(parse(event.data));
+    if (reset) handlers.reset?.(reset);
+  };
   source.addEventListener("snapshot", onSnapshot);
   source.addEventListener("activity", onActivity);
   source.addEventListener("lagged", onLagged);
   source.addEventListener("started", onStarted);
   source.addEventListener("finished", onFinished);
   source.addEventListener("device", onDevice);
+  source.addEventListener("reset", onReset);
   source.onerror = () => {
     if (closed) return;
     dropped = true;
@@ -367,6 +394,37 @@ function asDevicePayload(value: unknown): DevicePayload {
     ...(typeof raw.id === "string" ? { id: raw.id } : {}),
     ...(typeof raw.kind === "string" ? { kind: raw.kind } : {})
   };
+}
+
+/**
+ * One journal reset, or `null` when the frame does not name the machine, the sequence that resumed,
+ * and the range that is gone.
+ *
+ * Unlike a relayed device event, this frame is flat: the reset is the whole payload. A frame missing
+ * any of its three facts is refused, because a page cannot report a gap it cannot size.
+ */
+function asReset(frame: Record<string, unknown> | null): DeviceReset | null {
+  if (!frame) return null;
+  const device = typeof frame.device === "string" && frame.device !== "" ? frame.device : null;
+  const snapshotSeq =
+    typeof frame.snapshot_seq === "number" && Number.isFinite(frame.snapshot_seq)
+      ? frame.snapshot_seq
+      : null;
+  const lost = frame.lost;
+  if (
+    device === null ||
+    snapshotSeq === null ||
+    !lost ||
+    typeof lost !== "object" ||
+    Array.isArray(lost)
+  ) {
+    return null;
+  }
+  const range = lost as Record<string, unknown>;
+  const from = typeof range.from === "number" && Number.isFinite(range.from) ? range.from : null;
+  const to = typeof range.to === "number" && Number.isFinite(range.to) ? range.to : null;
+  if (from === null || to === null) return null;
+  return { device, snapshot_seq: snapshotSeq, lost: { from, to } };
 }
 
 /** The id a `finished` frame clears, or `null` when it names none. */

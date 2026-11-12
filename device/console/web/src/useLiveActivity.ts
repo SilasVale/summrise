@@ -147,6 +147,18 @@ export function useLiveActivity(
       if (!cancelled) setLagged(0);
     };
 
+    /**
+     * Note a hole in the record and ask for the reread that fills it.
+     *
+     * `lagged` and `reset` are the same fact from two planes: the console's buffer dropped lines, or
+     * a device's journal no longer retains them. Both counts are cumulative until a reread answers,
+     * so both take this one path.
+     */
+    const noteGap = (lost: number) => {
+      setLagged((current) => current + lost);
+      void catchUp();
+    };
+
     const feed = openLiveActivity({
       // The snapshot is oldest first; the page draws newest first. A reconnect's running list is
       // the console's registry, so it replaces this page's copy rather than adding to it.
@@ -181,9 +193,12 @@ export function useLiveActivity(
         setLines((current) => [deviceLine(device, event), ...current].slice(0, LIVE_LIMIT));
         setState("live");
       },
-      lagged: (dropped) => {
-        setLagged((current) => current + dropped);
-        void catchUp();
+      lagged: noteGap,
+      // A journal reset is a hole the stream cannot refill: the rows between this page's record and
+      // the device's snapshot are gone. It takes the lagged path — count the missing rows, reread
+      // the record — and leaves `lines` alone, because only the reread's snapshot replaces them.
+      reset: (reset) => {
+        noteGap(Math.max(0, reset.lost.to - reset.lost.from + 1));
       },
       // A lag is a healthy connection that lost lines, not a lost connection: the state stays
       // `live`, and `lagged` is what tells the page the record has a hole.

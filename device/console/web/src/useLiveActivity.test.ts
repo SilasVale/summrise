@@ -76,6 +76,42 @@ describe("following the live activity", () => {
     await waitFor(() => expect(result.current.lagged).toBe(0));
   });
 
+  it("counts the rows a journal reset lost and rereads the record once", async () => {
+    let answer!: () => void;
+    const reread = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          answer = resolve;
+        })
+    );
+    const { result } = renderHook(() => useLiveActivity(true, reread));
+    const source = FakeSource.instances[0];
+
+    act(() => {
+      source.emit("snapshot", { lines: [line(10, "Read `notes.txt`")] });
+    });
+    act(() => {
+      // The journal dropped 41..999, so the page is missing 959 rows even though the stream is
+      // healthy. It is the same hole `lagged` reports, and it takes the same reread.
+      source.emit("reset", {
+        device: "abc",
+        snapshot_seq: 1000,
+        lost: { from: 41, to: 999 }
+      });
+    });
+
+    expect(result.current.lagged).toBe(959);
+    // The reset does not clear what the page already has; only the reread's snapshot replaces it.
+    expect(result.current.lines).toHaveLength(1);
+    await waitFor(() => expect(reread).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      answer();
+    });
+    await waitFor(() => expect(result.current.lagged).toBe(0));
+    expect(reread).toHaveBeenCalledTimes(1);
+  });
+
   it("adds a second dropped frame while the first reread is still in flight", async () => {
     const answers: Array<() => void> = [];
     const reread = vi.fn(
