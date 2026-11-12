@@ -72,6 +72,7 @@ const INVENTORY = [
   "host.restart",
   "memory.list",
   "memory.search",
+  "memory.update",
   "monitor.add",
   "monitor.list",
   "monitor.remove",
