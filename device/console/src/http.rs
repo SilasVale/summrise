@@ -5919,7 +5919,11 @@ async fn activity_shot(
 /// A `snapshot` carries the newest lines so the page opens with context, then each appended line is
 /// an `activity` event. A slow client is told it `lagged` rather than given a growing backlog: it
 /// refetches `/audit`, which is the same index from the same file.
-async fn event_stream(State(app): State<AppState>, _: OperatorSession) -> Response {
+async fn event_stream(
+    State(app): State<AppState>,
+    _: OperatorSession,
+    headers: HeaderMap,
+) -> Response {
     // Subscribe BEFORE reading the newest lines: a line written between the two would otherwise be in
     // neither the snapshot nor the stream.
     let live = app.audit.follow();
@@ -5948,6 +5952,34 @@ async fn event_stream(State(app): State<AppState>, _: OperatorSession) -> Respon
                 .data(body.to_string()),
         )
     });
+    // A page that reconnects with a device cursor gets the buffered rows it missed before the live
+    // stream. The audit side needs no replay: the snapshot re-describes its history.
+    let replayed = match headers
+        .get("last-event-id")
+        .and_then(|value| value.to_str().ok())
+        .and_then(parse_device_cursor)
+    {
+        Some((device, seq)) => futures_util::stream::iter(
+            app.channels
+                .events_after(device, seq)
+                .into_iter()
+                .map(|value| {
+                    let device = value["device_event"]["device"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_owned();
+                    let seq = value["device_event"]["event"]["seq"].as_u64().unwrap_or(0);
+                    Ok::<Event, Infallible>(
+                        Event::default()
+                            .event("device")
+                            .id(format!("device:{device}:{seq}"))
+                            .data(value.to_string()),
+                    )
+                })
+                .collect::<Vec<_>>(),
+        ),
+        None => futures_util::stream::iter(Vec::new()),
+    };
     let live_events = futures_util::stream::unfold(live, |mut live| async move {
         match live.recv().await {
             Ok(value) => {
@@ -5994,7 +6026,8 @@ async fn event_stream(State(app): State<AppState>, _: OperatorSession) -> Respon
             Err(tokio::sync::broadcast::error::RecvError::Closed) => None,
         }
     });
-    let mut response = Sse::new(futures_util::StreamExt::chain(snapshot, live_events))
+    let tail = futures_util::StreamExt::chain(replayed, live_events);
+    let mut response = Sse::new(futures_util::StreamExt::chain(snapshot, tail))
         .keep_alive(KeepAlive::default().interval(Duration::from_secs(15)))
         .into_response();
     response
@@ -6021,6 +6054,26 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Parse `device:<device>:<seq>` from a `Last-Event-ID`; anything else is not a device cursor.
+fn parse_device_cursor(id: &str) -> Option<(&str, u64)> {
+    let rest = id.strip_prefix("device:")?;
+    let (device, seq) = rest.rsplit_once(':')?;
+    Some((device, seq.parse().ok()?))
+}
+
+#[cfg(test)]
+mod cursor_tests {
+    use super::parse_device_cursor;
+
+    #[test]
+    fn a_device_cursor_parses_and_anything_else_does_not() {
+        assert_eq!(parse_device_cursor("device:9vh:42"), Some(("9vh", 42)));
+        assert_eq!(parse_device_cursor("device:9vh"), None);
+        assert_eq!(parse_device_cursor("9vh:42"), None);
+        assert_eq!(parse_device_cursor("device:9vh:not-a-number"), None);
+    }
 }
 
 /// This boot's prefix for SSE ids.

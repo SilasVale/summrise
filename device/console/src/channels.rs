@@ -234,6 +234,10 @@ pub(crate) struct ChannelRegistry {
     /// The live terminal subscriptions, by the frame id that opened each one. A `term` frame on the
     /// channel is delivered here and never mistaken for an answer.
     streams: Mutex<HashMap<u64, mpsc::Sender<Value>>>,
+    /// The newest relayed device events, so a page that reconnects with a `Last-Event-ID` can be
+    /// handed what it missed instead of only a snapshot. Bounded: a device event older than this is
+    /// still in the device's journal, but the console does not ask for it during S1.
+    recent_events: Mutex<std::collections::VecDeque<Value>>,
     /// Wakes a request waiting for a channel to open.
     changed: Notify,
     send_timeout: Duration,
@@ -267,6 +271,7 @@ impl ChannelRegistry {
             updates: Mutex::new(HashMap::new()),
             caps: Mutex::new(HashMap::new()),
             streams: Mutex::new(HashMap::new()),
+            recent_events: Mutex::new(std::collections::VecDeque::new()),
             audit: None,
             now: std::sync::Arc::new(system_now_ms),
             changed: Notify::new(),
@@ -288,6 +293,35 @@ impl ChannelRegistry {
             now,
             ..Self::new()
         }
+    }
+
+    /// Keep the newest relayed device events, dropping the oldest past the cap.
+    fn remember_event(&self, value: serde_json::Value) {
+        const CAP: usize = 512;
+        let mut events = lock(&self.recent_events);
+        if events.len() == CAP {
+            events.pop_front();
+        }
+        events.push_back(value);
+    }
+
+    /// The buffered device events for one device after `seq`, oldest first.
+    ///
+    /// A page that reconnects with `Last-Event-ID: device:<device>:<seq>` gets these before the live
+    /// stream. Past the buffer the answer is a snapshot: S1 does not re-open the device journal.
+    pub(crate) fn events_after(&self, device: &str, seq: u64) -> Vec<serde_json::Value> {
+        let events = lock(&self.recent_events);
+        events
+            .iter()
+            .filter(|value| {
+                let event = &value["device_event"];
+                event["device"].as_str() == Some(device)
+                    && event["event"]["seq"]
+                        .as_u64()
+                        .map_or(false, |row| row > seq)
+            })
+            .cloned()
+            .collect()
     }
 
     /// The deepest any outbound queue has been since the console started.
@@ -429,9 +463,10 @@ impl ChannelRegistry {
 
         // Subscribe to the device's own journal before serving requests: every session event the
         // device publishes arrives as a `{"evt":...}` frame and is relayed to the page's stream.
-        // From 0 replays what the journal still retains; the console does not need a cursor yet.
+        // The cursor is past the end on purpose: the console wants what happens from now, not a
+        // replay of the device's whole retained journal on every reconnect.
         let events_id = self.next_request.fetch_add(1, Ordering::SeqCst);
-        let subscribe = json!({ "id": events_id, "events": { "from_seq": 0 } }).to_string();
+        let subscribe = json!({ "id": events_id, "events": { "from_seq": u64::MAX } }).to_string();
         if socket.send(Message::Text(subscribe)).await.is_err() {
             self.close(&device_id, open.generation, &open.pending).await;
             return;
@@ -487,10 +522,12 @@ impl ChannelRegistry {
                                     self.announce_update(&device_id, update);
                                 }
                                 if let Some(event) = frame.events {
+                                    let value = json!({
+                                        "device_event": { "device": device_id, "event": event }
+                                    });
+                                    self.remember_event(value.clone());
                                     if let Some(audit) = &self.audit {
-                                        audit.publish(json!({
-                                            "device_event": { "device": device_id, "event": event }
-                                        }));
+                                        audit.publish(value);
                                     }
                                 }
                             }
@@ -1189,6 +1226,22 @@ mod tests {
             pending.lock().expect("the pending set").is_empty(),
             "a status frame must not be mistaken for an answer"
         );
+    }
+
+    /// The console keeps the newest device events so a reconnect can be handed what it missed.
+    #[test]
+    fn buffered_device_events_replay_after_a_cursor() {
+        let registry = ChannelRegistry::new();
+        for (device, seq) in [("a", 1u64), ("a", 2), ("b", 1)] {
+            registry.remember_event(json!({
+                "device_event": { "device": device, "event": { "seq": seq } }
+            }));
+        }
+        let replayed = registry.events_after("a", 1);
+        assert_eq!(replayed.len(), 1);
+        assert_eq!(replayed[0]["device_event"]["event"]["seq"], 2);
+        assert!(registry.events_after("a", 2).is_empty());
+        assert_eq!(registry.events_after("b", 0).len(), 1);
     }
 
     /// A pushed journal event is carried back to the stream, never mistaken for an answer.
