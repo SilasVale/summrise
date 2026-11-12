@@ -6091,6 +6091,23 @@ catalogue has no such tool.
 
 **LIVE AFTER `-ux239`**: opening a failed `runs.exec` row draws exactly `command · required args cwd env shell timeout_ms`.
 
+## The hundred-and-eighty-eighth list (SHIPPED 2026-11-12 — one row goes to all rows of its tool)
+
+Chasing the `runs.exec` cluster meant reading every row of one tool, and the record had no way from a single row to that set.
+
+    Tool  runs.exec  [All rows]   →  the page's own tool filter, set from the row
+
+**AND THE ATTRIBUTION IS MEASURED NOW** (the 400-row window read directly, not the page's 600):
+
+    failures in the window                                     21
+      runs.exec   13 — every one from token b7bd1473… on fe209… (DESKTOP-84T3LIN, 0.3.291)
+      browser.list 3 · monitor.status 2 · monitor.add 2 · memory.list 1 — the console's own probes, unattributed
+
+**Eight of the window's twenty-one failures are this week's own rounds** (the probes that measured the fleet), and the whole
+`runs.exec` cluster is ONE client token sending wrong arguments to ONE tool — not a fleet failure, and not a console defect.
+
+**LIVE AFTER `-ux240`**: the first row's evidence shows `runs.exec` + `[All rows]`; clicking it sets the search to `runs.exec`.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
