@@ -278,6 +278,7 @@ pub(crate) fn service_with_terminal(
     let browser = Arc::clone(&server.browser);
     if let Some(bus) = &bus {
         terminal.attach_bus(Arc::clone(bus));
+        server.plugins.attach_bus(Arc::clone(bus));
     }
     // A rule created in an earlier boot must be LISTENING before any client asks about it, so the
     // executors start with the device rather than with the first `forward.list`.

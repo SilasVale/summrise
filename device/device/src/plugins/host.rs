@@ -32,7 +32,7 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -692,6 +692,9 @@ impl tokio::io::AsyncWrite for ChildStdio {
 /// The installed plugins and their supervisor.
 pub struct PluginHost {
     inner: Arc<Inner>,
+    /// The process's event bus, attached once the process has one. A host without it is silent,
+    /// which is what tests and standalone callers want.
+    bus: OnceLock<Arc<summrise_bus::Bus>>,
 }
 
 impl PluginHost {
@@ -728,7 +731,24 @@ impl PluginHost {
                 wake: Arc::new(tokio::sync::Notify::new()),
                 stopping: Arc::new(AtomicBool::new(false)),
                 supervisor: Mutex::new(None),
+                bus: OnceLock::new(),
             }),
+            bus: OnceLock::new(),
+        }
+    }
+
+    /// Attach the process's event bus. The first attach wins; a second is ignored.
+    pub fn attach_bus(&self, bus: Arc<summrise_bus::Bus>) {
+        if self.bus.set(Arc::clone(&bus)).is_ok() {
+            let _ = self.inner.bus.set(bus);
+        }
+    }
+
+    /// Publish one lifecycle event when a bus is attached. The journal's failure is not the
+    /// plugin's failure: the transition already happened.
+    fn publish(&self, kind: &str, payload: Value) {
+        if let Some(bus) = self.bus.get() {
+            let _ = bus.publish(kind, payload);
         }
     }
 
@@ -943,13 +963,19 @@ impl PluginHost {
                 status.path
             ));
         }
+        if status.tools > 0 {
+            self.publish(
+                "plugin.tools_changed",
+                json!({ "id": &status.id, "namespace": &status.namespace }),
+            );
+        }
         Ok((status.clone(), status.tools))
     }
 
     /// Forget the record and stop the process. The source directory is never touched (v1 registers a
     /// path; removal forgets it).
     pub async fn remove(&self, namespace: &str) -> Result<PluginStatus, PluginError> {
-        let (live, status, log) = {
+        let (live, had_live, removed_tools, id, status, log) = {
             let mut state = self.inner.state();
             if !state.plugins.contains_key(namespace) {
                 return Err(PluginError::NotFound {
@@ -971,13 +997,28 @@ impl PluginHost {
                 .remove(namespace)
                 .expect("the entry was just found under the same lock");
             let live = entry.live.take();
+            let had_live = live.is_some();
+            let removed_tools = entry.tools.len();
+            let id = entry.record.manifest.id.clone();
             entry.phase = Phase::Stopped;
             entry.tools.clear();
             let log = entry.log.clone();
-            (live, status_of(&entry), log)
+            (live, had_live, removed_tools, id, status_of(&entry), log)
         };
         if let Some(live) = live {
             stop_live(live, self.inner.options.stop_grace).await;
+        }
+        if had_live {
+            self.publish(
+                "plugin.stopped",
+                json!({ "id": &id, "namespace": &status.namespace }),
+            );
+        }
+        if removed_tools > 0 {
+            self.publish(
+                "plugin.tools_changed",
+                json!({ "id": &id, "namespace": &status.namespace }),
+            );
         }
         log.line(format!(
             "summrise: plugin {namespace} removed from the device; its files were not touched"
@@ -988,26 +1029,50 @@ impl PluginHost {
     /// Stop and start one plugin now, resetting the start budget. A manual restart is the operator's
     /// answer to "failed until restarted".
     pub async fn restart(&self, namespace: &str) -> Result<PluginStatus, PluginError> {
-        let (live, log) = {
+        let (live, had_live, id, before, log) = {
             let mut state = self.inner.state();
             let Some(entry) = state.plugins.get_mut(namespace) else {
                 return Err(PluginError::NotFound {
                     namespace: namespace.to_owned(),
                 });
             };
+            let before = registered_tool_names(entry);
             let live = entry.live.take();
+            let had_live = live.is_some();
+            let id = entry.record.manifest.id.clone();
             entry.phase = Phase::Stopped;
             entry.tools.clear();
             entry.starts.clear();
             entry.failures = 0;
             entry.last_error = None;
-            (live, entry.log.clone())
+            (live, had_live, id, before, entry.log.clone())
         };
         if let Some(live) = live {
             stop_live(live, self.inner.options.stop_grace).await;
         }
+        if had_live {
+            self.publish(
+                "plugin.stopped",
+                json!({ "id": &id, "namespace": namespace }),
+            );
+        }
         log.line(format!("summrise: plugin {namespace} restart asked for"));
-        self.inner.attempt_start(namespace, true).await
+        let result = self.inner.attempt_start(namespace, true).await;
+        let after = {
+            let state = self.inner.state();
+            state
+                .plugins
+                .get(namespace)
+                .map(registered_tool_names)
+                .unwrap_or_default()
+        };
+        if before != after {
+            self.publish(
+                "plugin.tools_changed",
+                json!({ "id": &id, "namespace": namespace }),
+            );
+        }
+        result
     }
 
     /// The last `lines` lines of a plugin's log.
@@ -1111,6 +1176,7 @@ impl PluginHost {
         {
             handle.abort();
         }
+        let mut stopped = Vec::new();
         let lives: Vec<Live> = {
             let mut state = self.inner.state();
             state
@@ -1119,7 +1185,14 @@ impl PluginHost {
                 .filter_map(|entry| {
                     entry.phase = Phase::Stopped;
                     entry.tools.clear();
-                    entry.live.take()
+                    let live = entry.live.take();
+                    if live.is_some() {
+                        stopped.push((
+                            entry.record.manifest.id.clone(),
+                            entry.record.manifest.namespace.clone(),
+                        ));
+                    }
+                    live
                 })
                 .collect()
         };
@@ -1131,6 +1204,12 @@ impl PluginHost {
             });
         }
         while stopping.join_next().await.is_some() {}
+        for (id, namespace) in stopped {
+            self.publish(
+                "plugin.stopped",
+                json!({ "id": id, "namespace": namespace }),
+            );
+        }
     }
 }
 
@@ -1161,6 +1240,9 @@ struct Inner {
     wake: Arc<tokio::sync::Notify>,
     stopping: Arc<AtomicBool>,
     supervisor: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    /// The same bus as the host's. The supervisor task holds only a `Weak<Inner>`, so it cannot
+    /// reach the `PluginHost` handle; [`PluginHost::attach_bus`] sets both and the first attach wins.
+    bus: OnceLock<Arc<summrise_bus::Bus>>,
 }
 
 impl Inner {
@@ -1168,6 +1250,14 @@ impl Inner {
         self.state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Publish one lifecycle event when a bus is attached. The journal's failure is not the
+    /// plugin's failure: the transition already happened.
+    fn publish(&self, kind: &str, payload: Value) {
+        if let Some(bus) = self.bus.get() {
+            let _ = bus.publish(kind, payload);
+        }
     }
 
     /// Spawn the one supervisor task, if it is not running.
@@ -1370,18 +1460,29 @@ impl Inner {
                 now.saturating_duration_since(*started) <= self.options.start_window
             });
             if entry.starts.len() >= self.options.max_starts {
+                let reason = format!(
+                    "failed {} times in {} s; fix the failure, then restart it",
+                    entry.starts.len(),
+                    self.options.start_window.as_secs()
+                );
                 entry.phase = Phase::Failed {
                     retry_at: None,
                     permanent: true,
                 };
-                entry.last_error = Some(format!(
-                    "failed {} times in {} s; fix the failure, then restart it",
-                    entry.starts.len(),
-                    self.options.start_window.as_secs()
-                ));
+                entry.last_error = Some(reason.clone());
                 entry.log.line(format!(
                     "summrise: plugin {namespace} failed too often; not restarting until a manual restart"
                 ));
+                // The state lock is released right after this return; the publish is the same
+                // transition, and the bus is not touched from the child's I/O loop.
+                self.publish(
+                    "plugin.failed",
+                    json!({
+                        "id": &entry.record.manifest.id,
+                        "namespace": namespace,
+                        "reason": reason,
+                    }),
+                );
                 return Ok(status_of(entry));
             }
             entry.starts.push_back(now);
@@ -1395,6 +1496,10 @@ impl Inner {
         if let Some(previous) = previous {
             stop_live(previous, self.options.stop_grace).await;
         }
+        self.publish(
+            "plugin.starting",
+            json!({ "id": &record.manifest.id, "namespace": namespace }),
+        );
 
         let spec = LaunchSpec {
             command: record.manifest.command.clone(),
@@ -1580,10 +1685,19 @@ impl Inner {
         let _ = live_session;
 
         match post {
-            PostStart::Running | PostStart::Stopped => {
-                if matches!(post, PostStart::Stopped) {
-                    launched.child.kill();
-                }
+            PostStart::Running => {
+                self.publish(
+                    "plugin.ready",
+                    json!({ "id": &record.manifest.id, "namespace": namespace }),
+                );
+                self.status_or_not_found(namespace)
+            }
+            PostStart::Stopped => {
+                launched.child.kill();
+                self.publish(
+                    "plugin.stopped",
+                    json!({ "id": &record.manifest.id, "namespace": namespace }),
+                );
                 self.status_or_not_found(namespace)
             }
             PostStart::Collision(error) => {
@@ -1602,7 +1716,8 @@ impl Inner {
 
     /// Put a plugin into `Failed` with a backoff (or permanently, when the budget is spent).
     async fn record_failure(&self, namespace: &str, error: PluginError) {
-        let live = {
+        let reason = error.to_string();
+        let (live, id) = {
             let mut state = self.state();
             let Some(entry) = state.plugins.get_mut(namespace) else {
                 return;
@@ -1610,10 +1725,10 @@ impl Inner {
             let live = entry.live.take();
             entry.tools.clear();
             entry.failures = entry.failures.saturating_add(1);
-            entry.last_error = Some(error.to_string());
+            entry.last_error = Some(reason.clone());
             entry
                 .log
-                .line(format!("summrise: plugin {namespace} failed: {error}"));
+                .line(format!("summrise: plugin {namespace} failed: {reason}"));
 
             let now = Instant::now();
             entry.starts.retain(|started| {
@@ -1637,16 +1752,20 @@ impl Inner {
                     delay.as_millis()
                 )
             });
-            live
+            (live, entry.record.manifest.id.clone())
         };
         if let Some(live) = live {
             stop_live(live, Duration::ZERO).await;
         }
+        self.publish(
+            "plugin.failed",
+            json!({ "id": id, "namespace": namespace, "reason": reason }),
+        );
     }
 
     /// A running plugin died or stopped answering: take it out of `Running` now, schedule the retry.
     async fn fail_restart(&self, namespace: &str, reason: &str) {
-        let live = {
+        let (live, id) = {
             let mut state = self.state();
             let Some(entry) = state.plugins.get_mut(namespace) else {
                 return;
@@ -1685,11 +1804,15 @@ impl Inner {
                     delay.as_millis()
                 )
             });
-            live
+            (live, entry.record.manifest.id.clone())
         };
         if let Some(live) = live {
             stop_live(live, Duration::ZERO).await;
         }
+        self.publish(
+            "plugin.failed",
+            json!({ "id": id, "namespace": namespace, "reason": reason }),
+        );
     }
 
     /// The backoff for the `failures`-th consecutive failure: base, 2x, 4x... capped.
@@ -1884,6 +2007,18 @@ fn view_of(entry: &Entry, tool: &PluginTool) -> PluginToolView {
 /// The advertised name of one stored tool, or `None` if the stored name is somehow illegal.
 fn advertised_name(entry: &Entry, tool: &PluginTool) -> Option<String> {
     tool_name(&entry.record.manifest.namespace, &tool.name).ok()
+}
+
+/// The namespaced names a running plugin contributes; empty for a plugin that is not running.
+fn registered_tool_names(entry: &Entry) -> BTreeSet<String> {
+    if !entry.is_running() {
+        return BTreeSet::new();
+    }
+    entry
+        .tools
+        .iter()
+        .filter_map(|tool| advertised_name(entry, tool))
+        .collect()
 }
 
 /// Close stdin, wait the grace, then kill whatever is left.
@@ -2188,6 +2323,77 @@ mod tests {
         assert_eq!(registry["version"], 1);
         assert_eq!(registry["plugins"][0]["manifest"]["namespace"], "hello");
         assert_eq!(registry["plugins"][0]["path"], status.path);
+    }
+
+    #[tokio::test]
+    async fn a_plugin_lifecycle_is_published_on_the_bus() {
+        let dir = TempDir::new("plugin-bus");
+        let launcher = ScriptedLauncher::hello();
+        let host = host(&dir, Arc::clone(&launcher));
+        let bus =
+            Arc::new(summrise_bus::Bus::open(dir.join("journal")).expect("the journal opens"));
+        host.attach_bus(Arc::clone(&bus));
+        let mut events = bus.subscribe(1).expect("the journal replays");
+
+        host.add(&plugin_dir(&dir, "hello"))
+            .await
+            .expect("the plugin starts");
+
+        let expected = json!({ "id": "com.example.hello", "namespace": "hello" });
+        let starting = events.next().await.expect("plugin.starting");
+        assert_eq!(starting.kind, "plugin.starting");
+        assert_eq!(starting.payload, expected);
+
+        let ready = events.next().await.expect("plugin.ready");
+        assert_eq!(ready.kind, "plugin.ready");
+        assert_eq!(ready.payload, expected);
+
+        let registered = events.next().await.expect("plugin.tools_changed");
+        assert_eq!(registered.kind, "plugin.tools_changed");
+        assert_eq!(registered.payload, expected);
+
+        host.remove("hello").await.expect("the plugin is removed");
+
+        let stopped = events.next().await.expect("plugin.stopped");
+        assert_eq!(stopped.kind, "plugin.stopped");
+        assert_eq!(stopped.payload, expected);
+
+        let unregistered = events.next().await.expect("plugin.tools_changed");
+        assert_eq!(unregistered.kind, "plugin.tools_changed");
+        assert_eq!(unregistered.payload, expected);
+    }
+
+    #[tokio::test]
+    async fn a_failed_start_publishes_its_reason_on_the_bus() {
+        let dir = TempDir::new("plugin-bus-failure");
+        let launcher = ScriptedLauncher::hello();
+        launcher.fail_initialize.store(true, Ordering::SeqCst);
+        let host = host(&dir, Arc::clone(&launcher));
+        let bus =
+            Arc::new(summrise_bus::Bus::open(dir.join("journal")).expect("the journal opens"));
+        host.attach_bus(Arc::clone(&bus));
+        let mut events = bus.subscribe(1).expect("the journal replays");
+
+        let (status, tools) = host
+            .add(&plugin_dir(&dir, "hello"))
+            .await
+            .expect("a failed handshake is a status, not a failed install");
+        assert_eq!(status.state, PluginState::Failed);
+        assert_eq!(tools, 0);
+
+        let starting = events.next().await.expect("plugin.starting");
+        assert_eq!(starting.kind, "plugin.starting");
+        let failed = events.next().await.expect("plugin.failed");
+        assert_eq!(failed.kind, "plugin.failed");
+        assert_eq!(failed.payload["id"], "com.example.hello");
+        assert_eq!(failed.payload["namespace"], "hello");
+        assert!(
+            failed.payload["reason"]
+                .as_str()
+                .is_some_and(|reason| reason.contains("handshake")),
+            "the reason is the sentence the code already has: {:?}",
+            failed.payload["reason"]
+        );
     }
 
     #[tokio::test]
