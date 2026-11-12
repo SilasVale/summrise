@@ -5320,6 +5320,28 @@ occurrence is the one that wins, and the first is a dead declaration from the ab
 **AND THE DEAD DECLARATION IS GONE**: the `.installer-strip` block that lost to `.installer.installer-strip` on specificity was
 removed, so the sheet no longer carries a rule that cannot run.
 
+## The hundred-and-fifty-eighth list (CLOSED 2026-11-12 — my own rule was applied unconditionally, and the picker paid)
+
+Sweeping the one device surface the audit had not drawn — the picker, with **no machine chosen** — found the hundred-and-forty-
+seventh list's rule applied where its own condition did not hold:
+
+    `.device-head h1` was scoped to 13/500 for EVERY device head, including the one that draws `Choose a machine` and no tab
+    strip at all. Measured live on `#device`: the picker's only sentence was a **13 px grey caption** above four rows.
+
+The contract's `head.nameWhenRepeated` is conditional — *a name a CONTROL in the same head already says* — and the picker's head
+has no control to repeat it. The shell now marks the head only when a machine is chosen (`className={chosen ? "as-context" :
+undefined}`) and the rule follows the mark.
+
+    picker, no machine    `Choose a machine`   22 / 700, no class
+    a machine chosen      `Overview`           13 / 500, `as-context`
+
+**THE TEST HOLDS THE CONDITION, NOT JUST THE NUMBERS**: it reads the rule's `.as-context` selector AND the shell's ternary, so a
+later round that drops the condition fails by name. `55bda45`, deployed as `0.3.274-ux207`.
+
+**THE LESSON IS THE ONE THIS PROGRAM KEEPS RELEARNING.** A rule that a page cannot satisfy is not a rule applied everywhere — it
+is a rule applied where its condition holds. The forty-seventh list wrote the condition down and then the sheet ignored it for
+five rounds.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
