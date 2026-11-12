@@ -5696,6 +5696,25 @@ services.`
 **WIRED NOW: 34 of 46.** The remaining twelve: the memory writes (3), the monitor writes (4), `browser.cast`, `host.facts`,
 `state.get`, `terminal.screen`, `forward.list` (that last one needs a device that ships the forward plugin).
 
+## The hundred-and-seventy-third list (SHIPPED 2026-11-12 — the machine can be asked, and the page says which answer it drew)
+
+Third SHIP-FAST feature, and the first one where the console stops trusting the frame: everything the Machine tab says about the
+hardware is the device's last **frame**, which can be hours old and says so. `host.facts` had been on the device all along.
+
+    Machine → This machine → [Read the machine now]
+        the block redraws from the live answer, and says: "Read from the machine just now." + [Show the last frame again]
+
+**DELIBERATELY NOT AUTOMATIC** — a live read costs a round trip and the frame is usually fresh; the case it exists for is a wedged
+channel with a live process, where a five-hour-old frame misleads. `HostFactsBlock.readFrom` gained its third member (`read`) rather
+than letting the two answers mix.
+
+**AND THE LIVE CHECK MEASURED THE WAIT**: the first version's button said `Reading the machine…` and did not move for **more than
+four seconds** (`host.facts` enumerates disks, sessions and the helper on Windows). `-ux218` counts: `Reading the machine… 6 s`.
+A label that does not move for five seconds reads as a hang.
+
+**WIRED NOW: 35 of 46.** Remaining eleven: memory writes (3), monitor writes (4), `browser.cast`, `state.get`, `terminal.screen`,
+`forward.list` (needs a device that ships the forward plugin).
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
