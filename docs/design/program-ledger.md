@@ -146,6 +146,10 @@ below ladders to that; one round completes one major item end to end.
   for at the start of the program; nothing was pushed to `origin`, so the deploy act (push / PR) is
   theirs to make.
 
+- 2026-11-13 — The release gate on `main` (`67e08cf`): full `scripts/check.sh` exit 0 with both smokes,
+  1 182 page tests and `tsc`, the page-staleness gate, and the release rehearsal (five ok, installer
+  built, 133 s). Recorded in `v1-verification.md`.
+
 ## Next (in order)
 
 1. Windows handoff — build the installer on a Windows runner, silent install/uninstall, run

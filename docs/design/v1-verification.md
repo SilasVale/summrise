@@ -31,6 +31,19 @@ root unless it says otherwise.
   failing files then were timing-sensitive; the suite is not run in parallel with the Rust build in
   CI (different jobs, different machines). Worth remembering if a page test fails alone under load.
 
+## Release gate on `main`
+
+After `main` was fast-forwarded to the v1 tree (`67e08cf` on both branches), the whole gate ran once
+more on that commit:
+
+| check | result |
+|---|---|
+| `scripts/check.sh` (full: tests, fmt, clippy, gate, device smoke, product smoke, enrol smoke, linux unit, macOS plist, browser pack, deploy preflight) | exit 0; `SMOKE OK`, `ENROLL SMOKE OK`, gate 14/22/0 |
+| `npx vitest run` | 70 files, 1 182 passed |
+| `npx tsc --noEmit` | clean |
+| `bash scripts/build-web.sh --check` | the committed page is current |
+| `bash scripts/rehearse-release.sh --version 0.3.993` | five `ok` lines including device acceptance; installer built; PASS in 133 s |
+
 ## What this machine cannot prove
 
 The Windows handoff — the exact procedure and the evidence to keep are in
