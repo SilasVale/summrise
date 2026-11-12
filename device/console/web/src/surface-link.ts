@@ -1,4 +1,4 @@
-import type { DeviceTab, Page } from "./Rail";
+import { DEVICE_TABS, type DeviceTab, type Page } from "./Rail";
 import { parseRangeQuery, rangeQuery, type AuditRange } from "./auditTime";
 
 /**
@@ -20,7 +20,10 @@ export type Surface = {
 };
 
 const PAGES: readonly Page[] = ["home", "activity", "device"];
-const TABS: readonly DeviceTab[] = ["overview", "terminal", "screen", "files", "runs", "tools", "machine"];
+// **THE LIST IS THE TYPE'S LIST (the hundred-and-seventy-first list).** This was a second copy of `DeviceTab`, so a tab added to
+// `Rail.tsx` was routable nowhere: `#device/memory` fell through to the overview and the page it names looked broken. The rail's
+// own list is the authority now — one list, one route table.
+const TABS: readonly DeviceTab[] = DEVICE_TABS;
 
 /**
  * The fragments the previous shell shipped. A bookmark, a runbook link or a browser history entry
