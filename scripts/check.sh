@@ -2,8 +2,8 @@
 # The local gate: the commands ci.yml's `device` job runs, read out of that file instead of copied
 # beside it. A change to CI cannot leave this script testing yesterday's commands.
 #
-#   scripts/check.sh              # the same commands CI runs, from the repository root
-#   scripts/check.sh --fast       # skip the test run (format and lints only)
+#   scripts/check.sh              # the same portable steps CI runs, from the repository root
+#   scripts/check.sh --fast       # skip the test run and the smokes (format and lints only)
 #   scripts/check.sh --windows    # also cross-compile the Windows target (needs cargo-xwin)
 #
 # It is the *portable* half. The Windows lifecycle suite only runs on Windows, in CI's
@@ -60,6 +60,23 @@ for command in "${commands[@]}"; do
     # The line is CI's own `run:` value, unquoted by the workflow parser; word splitting is exactly
     # how GitHub's runner would hand it to the shell.
     eval "$command"
+done
+
+# THE REST OF THE DEVICE JOB'S PORTABLE STEPS: the layering gate and the shell scripts. They are read
+# from the same workflow for the same reason as the cargo lines, but only the single-line `run:`
+# values: a multi-line `run: |` block is not a command this script can replay safely.
+mapfile -t script_steps < <(
+    printf '%s\n' "$job" |
+        sed -n 's/^        run: //p' |
+        grep -E '^(\./scripts/|node scripts/check-architecture\.mjs$)'
+)
+for step in "${script_steps[@]}"; do
+    if ((fast)) && [[ "$step" == ./scripts/*smoke* || "$step" == ./scripts/device-unix-smoke.sh ]]; then
+        echo "== skipped (--fast): $step"
+        continue
+    fi
+    echo "== $step"
+    $step
 done
 
 if ((windows)); then

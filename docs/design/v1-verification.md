@@ -23,6 +23,9 @@ root unless it says otherwise.
 - **A real CI failure:** `device/console/src/audit.rs` had `map_or(false, …)`, which clippy rejects
   under `-D warnings`; the console lib was the only crate the CI clippy list could not finish. Fixed
   as `is_some_and` in `e61ff51`, and the full list is green.
+- **Formatting slipped after the sweep:** `scripts/check.sh` (extended this round to the whole
+  portable device job) caught `cargo fmt --check` red on the clippy fix's line wrapping. Fixed — the
+  one-command gate is what would have caught it a round earlier.
 - **One flake, not a regression:** the page suite reported 5 failures the first time it ran
   *concurrently with the cargo suite* on this box, and passed 1 182/1 182 on two clean runs. The
   failing files then were timing-sensitive; the suite is not run in parallel with the Rust build in
@@ -45,6 +48,9 @@ above exercises the publish and the device's acceptance of the signed document.
 
 ## Re-running it
 
-The ten commands are the sweep; nothing else is needed. The one prerequisite is a built workspace
-(`cargo build --manifest-path device/Cargo.toml --workspace`); `smoke-local.sh` and
-`rehearse-release.sh` build what they need themselves.
+`scripts/check.sh` now runs the device job's portable steps — the cargo test/fmt/clippy commands, the
+layer gate, the device smoke, the product smoke, the enrol smoke and the other shell steps — so it is
+the one command to start with. The page suite (`npx vitest run` + `npx tsc --noEmit`) and the release
+rehearsal are the two parts it does not cover. The one prerequisite is a built workspace
+(`cargo build --manifest-path device/Cargo.toml --workspace`); the smokes and the rehearsal build what
+they need themselves.

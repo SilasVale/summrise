@@ -131,6 +131,12 @@ below ladders to that; one round completes one major item end to end.
   certificate is configured — it used to sign only the setup, so a signed install shipped four
   unsigned executables. The adapter is CI-only (13 steps, YAML valid).
 
+- 2026-11-13 — `scripts/check.sh` is one command for the device job's portable half: it reads the
+  single-line `run:` steps from `ci.yml` too, so the gate, the device smoke, the product smoke and the
+  enrol smoke run with the cargo commands (and `--fast` skips tests and smokes). Running it end to end
+  found `cargo fmt --check` red on the previous round's clippy fix — fixed; the gate now exits 0 with
+  both smokes green.
+
 ## Next (in order)
 
 1. Windows handoff — build the installer on a Windows runner, silent install/uninstall, run

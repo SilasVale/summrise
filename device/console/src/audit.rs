@@ -372,9 +372,7 @@ impl Audit {
             .filter(|value| {
                 let event = &value["device_event"];
                 event["device"].as_str() == Some(device)
-                    && event["event"]["seq"]
-                        .as_u64()
-                        .is_some_and(|row| row > seq)
+                    && event["event"]["seq"].as_u64().is_some_and(|row| row > seq)
             })
             .cloned()
             .collect()
