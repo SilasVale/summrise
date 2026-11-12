@@ -107,6 +107,13 @@ below ladders to that; one round completes one major item end to end.
   0.3.995)` in 26 s. Negative: edit the document's version and the device check fails with `the release
   signature does not verify`, while the mirror checks stay ok.
 
+- 2026-11-13 — v1 verification sweep shipped (`docs/design/v1-verification.md`): at `e61ff51`, 1 487
+  tests across every shipped crate, clippy and fmt clean, the gate at 14 packages / 22 edges / 0
+  upward, `build-web --check` green, 1 182 page tests and `tsc` clean, the local smoke 22 PASS, and the
+  release rehearsal five ok including device acceptance. The sweep caught one real clippy failure
+  (`map_or` in `audit.rs`) and one load-only page-suite flake. What remains is the Windows handoff and
+  nothing else on the v1 checklist.
+
 ## Next (in order)
 
 1. Windows handoff — build the installer on a Windows runner, silent install/uninstall, run
