@@ -4056,6 +4056,10 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .service-address { font-size: var(--fs-base); }
 .service-meta { font-size: var(--fs-xs); color: var(--ink-muted); font-variant-numeric: tabular-nums; }
 
+/* The failures' concentration: the header's number, broken by tool, each chip one click from its rows. */
+.activity-failures { display: flex; gap: var(--sp-2); flex-wrap: wrap; align-items: baseline; margin: var(--sp-1) 0 0; font-size: var(--fs-xs); color: var(--ink-muted); }
+.activity-failures button { font-size: var(--fs-xs); }
+
 /* ── The machine's doors ─────────────────────────────────────────────────────────────────────────
    The landing page ends with three doors into the things a person does next with a machine. Each is a card in the same grammar
    as every other card (the atom decides the box), so the row reads as part of the page and not as a toolbar. */

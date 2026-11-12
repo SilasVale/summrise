@@ -17,7 +17,7 @@ import { retrySentence } from "./logic";
 import { recordVitals, type VitalsSample } from "./vitals";
 import { AUDIT_WINDOW, AuditTable, type AuditScope } from "./AuditTable";
 import { type AuditRange, type RangeFacts } from "./auditTime";
-import type { AuditFilter } from "./auditFilter";
+import { auditFailed, type AuditFilter } from "./auditFilter";
 import { mergeActivityWindow, type WindowCounts } from "./activityMerge";
 import { activityDaySentence } from "./activitySummary";
 import { ActivityTimeline } from "./ActivityTimeline";
@@ -312,6 +312,22 @@ export function App() {
     activityPaused && pausedAt !== null
       ? activityLines.filter((line) => line.ts_ms > pausedAt).length
       : 0;
+  /**
+   * **WHERE THE FAILURES CONCENTRATE (the hundred-and-eighty-sixth list).** The header says how many failed; nothing said WHERE. A
+   * person reading `51 failed` needs the three tools doing most of it before they can act, and the window already holds them — this
+   * groups the failed client exchanges by tool name, newest window, and draws the top three. Each is a button that sets the tool
+   * filter AND the failures filter, so the number is one click from its rows (the same two filter fields the controls own).
+   */
+  const failureTools = (() => {
+    const counts = new Map<string, number>();
+    for (const line of shownActivity) {
+      if (!auditFailed(line)) continue;
+      const name = line.tool ?? "";
+      if (name === "") continue;
+      counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3);
+  })();
   const pauseActivity = () => {
     if (activityPaused) {
       setActivityPaused(false);
@@ -1384,6 +1400,25 @@ export function App() {
                 {/* **THE FAILED READ HAS ONE SENTENCE, AND IT IS THE BANNER'S.** This line is
                     the page's state (following, reading, paused, lagging) and is absent when the
                     only thing to say would be the failure again (audit-40 F4). */}
+                {failureTools.length > 0 && (
+                  // **THE NUMBER GETS A PLACE (the hundred-and-eighty-sixth list).** Each chip narrows to that tool AND to the
+                  // failures, so the sentence stops being a fact with no door.
+                  <p className="page-sub activity-failures">
+                    <span>Failures by tool:</span>
+                    {failureTools.map(([tool, count]) => (
+                      <button
+                        key={tool}
+                        type="button"
+                        className="link"
+                        onClick={() => {
+                          setActivityFilter((current) => ({ ...current, tool, status: "failed" }));
+                        }}
+                      >
+                        {tool} · {count}
+                      </button>
+                    ))}
+                  </p>
+                )}
                 {activityStatus !== null && (
                   <p className="page-sub activity-status">{activityStatus}</p>
                 )}
