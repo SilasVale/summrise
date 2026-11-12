@@ -4031,6 +4031,10 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
    The device probes host:port on its own timer; this is the operator's view of it. An address is a MONO fact, the state is a
    chip with a word (never a colour alone), and the summary facts sit on one muted line under it. */
 .service-add { margin: 0 0 var(--sp-3); }
+/* **A CLOSED DISCLOSURE MUST NOT OCCUPY ITS CONTENT'S SPACE (the hundred-and-ninetieth list).** Measured at 390: the `<details>` was
+   closed (44 px) while its `<form>` still computed 201 px, and the card drew ~100 px of void under "Watch a host and port". The
+   content's own `display: flex` is what keeps it laid out in this engine, so the hiding is stated rather than inherited from the UA. */
+.service-add:not([open]) > *:not(summary) { display: none; }
 .service-form { display: flex; flex-wrap: wrap; align-items: end; gap: var(--sp-2) var(--sp-3); margin: var(--sp-2) 0 0; }
 .service-form label { display: grid; gap: var(--sp-1); font-size: var(--fs-xs); color: var(--ink-muted); }
 .service-form input { width: 9rem; }
@@ -4038,6 +4042,10 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .service-notice { margin: 0 0 var(--sp-2); }
 .service-confirm { font-size: var(--fs-xs); color: var(--ink-muted); }
 .service-stop, .service-probe { font-size: var(--fs-xs); }
+/* **THE ACTIONS ARE NOT PART OF THE SENTENCE (the hundred-and-ninetieth list).** At 390 the meta facts wrapped and the two controls
+   landed INSIDE the run of text (`100% up in the window HTTP 200 Probe now Stop watching`). They start a row of their own now, after
+   the facts — the card reads as facts, then what a person can do about them. */
+.service-actions { flex-basis: 100%; display: flex; gap: var(--sp-3); }
 /* ── The machine's own record ────────────────────────────────────────────────────────────────────
    A diagnostic the machine writes about itself: health and release on one line, then its last ten events as a compact list. The
    time is mono, the event is the row's voice, and the decision/transport/outcome sit muted after it. */

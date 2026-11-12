@@ -211,6 +211,7 @@ export function ServicesWatched(props: { grant: Grant; online?: boolean }) {
                 {target.summary.lastStatus !== null && (
                   <span className="service-meta">HTTP {target.summary.lastStatus}</span>
                 )}
+                <span className="service-actions">
                 <button
                   type="button"
                   className="link service-probe"
@@ -235,6 +236,7 @@ export function ServicesWatched(props: { grant: Grant; online?: boolean }) {
                     Stop watching
                   </button>
                 )}
+                </span>
               </li>
             ))}
           </ul>
