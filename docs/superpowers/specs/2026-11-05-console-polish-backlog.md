@@ -6176,6 +6176,23 @@ filter and `Refresh` stacked, **after `-ux245` had already been deployed**. Both
 Found by looking at the 390 screenshot, not by the tests. `-ux246` puts the fold directly after the rule it refines, with the extra
 `.system-toolbar` as specificity's belt: measured after it, the field ends at x=283 and `Refresh` begins at x=291 on the same row.
 
+## The hundred-and-ninety-fourth list (SHIPPED 2026-11-12 — Home says what is happening right now, in one line)
+
+The operator's note that the mobile work is not urgent took the program back to the product's own question. Home answered "what needs
+me" (the verdict, the attention rows) and "what is there" (the fleet table); it never answered **"is anything happening right now"**,
+which lived a whole page away on Activity.
+
+    ● Now: runs.exec on DESKTOP-9VH92BJ · 12 s ago
+
+**ONE LINE, AND IT DISAPPEARS**: drawn only while the console's live stream is `live` AND the newest call is younger than two minutes —
+a quiet fleet shows nothing rather than a stale sentence. It skips channel boundaries (`device.left` is not work), names the machine
+from the fleet list, marks a failed call, and reads no new source: it is the stream Activity and the Machine page already follow.
+
+**LIVE AFTER `-ux247`**, measured twice in one session:
+
+    before the probe   Now: monitor.list on DESKTOP-84T3LIN · 5 s ago
+    after one call     Now: host.facts on DESKTOP-9VH92BJ · 3 s ago
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
