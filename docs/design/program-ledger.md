@@ -63,6 +63,11 @@ below ladders to that; one round completes one major item end to end.
   Also fixed the integration harness that the S1 subscription frame had broken (the fake device now
   skips `events`/`unsubscribe` frames); the full console integration suite passes (254).
 
+## In flight (branch `feat/s3b-plugin-crate`)
+
+- S3b: extract `summrise-plugin-host` as a crate (core + bus only), so the supervised plugin host is a
+  subsystem rather than a module inside the device.
+
 ## Next (in order)
 2. S4b — extract `console-page` as a crate so "the page holds no keys" is a compile-time boundary.
 3. S3b — extract `plugin-host` as a crate; the lifecycle events are already on the bus.
