@@ -5794,6 +5794,30 @@ than a toolbar bolted to the bottom.
 with the memory panel drawn. **The remaining space below is breathing room, not a gap to fill with rows** — that decision is the
 sixty-second list's and this round does not reopen it.
 
+## The hundred-and-seventy-seventh list (SHIPPED 2026-11-12 — the machine's own record)
+
+Everything else on the Machine tab is the console's claim about the machine; `state.get` is the MACHINE's claim about itself —
+health, release, pid, whether its own state document is readable, and the last ten events it recorded. One of the tools the console
+never called.
+
+    Machine → What the machine says about itself → [The machine's own record]
+        ok · release 0.3.292 · pid 20072 · [Read again]
+        10:08:32 begin state.get        allow · console
+        10:08:32 end                   console · ok
+
+**A POISONED DOCUMENT IS DRAWN, NOT THROWN**: `state: null` with `status: "degraded"` is exactly the state worth seeing, so the page
+says `its state document could not be read` instead of an empty record that reads like "nothing to say".
+
+**AND THE LIVE READ FOUND THE NESTED HEALTH.** `-ux227` shipped and the section drew **`unknown`** beside ten real events: the
+shipped device answers `{health: {pid, poisoned, status, version}, state, events}`, and the page looked for those fields flat.
+`-ux228` reads both, nested first. Live after it: `ok · release 0.3.292 · pid 20072`.
+
+**THE FOURTH WIRE SHAPE THIS WEEK** that the fleet answers differently from this tree's source (`monitor.list`, `memory.list`, `monitor.add`,
+`state.get`). The pattern is now the round's rule: **read the live answer before trusting the source.**
+
+**WIRED NOW: 38 of 46.** Remaining eight: memory writes (3), `browser.cast`, `terminal.screen`, `forward.list` (needs a device that
+ships the forward plugin), `monitor.probe`, `monitor.status`.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
