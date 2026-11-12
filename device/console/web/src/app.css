@@ -2848,7 +2848,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 .session-card-screen { margin: var(--sp-2) 0 0; }
 .session-card-screen .session-card-label { display: flex; gap: var(--sp-2); align-items: baseline; }
 .session-screen {
-  margin: var(--sp-1) 0 0; padding: var(--sp-2); border-radius: var(--r-sm);
+  margin: var(--sp-1) 0 0; padding: var(--sp-2); border-radius: var(--radius-sm2);
   background: var(--surface-sunken); color: var(--ink); font-family: var(--font-mono);
   font-size: var(--fs-xs); line-height: var(--lh-tight); max-height: 12rem; overflow: auto; white-space: pre-wrap;
 }

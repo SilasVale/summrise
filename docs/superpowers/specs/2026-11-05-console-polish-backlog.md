@@ -30,7 +30,7 @@ exercised.
 |---|---|---|---|
 | console | `cargo test -p summrise-console` | **437** | `tokens.rs` **15 named gates** (seven sizes, four weights, five radii, fifteen contrast pairs, the rem-and-px rhythm, the dark restatement, "every box-shadow names a token", "a declared elevation is used", the tracking tokens); `console.rs` **10** (routing and HTTP behaviour, e.g. a typed path lands on its page); **167** unit tests of the logic |
 | console | `cargo test -p summrise-ui` | **2** | the token SOURCE the sheet is generated from — where the six elevation families live since the hundred-and-seventieth list |
-| console | `npm test` | **1,141** in **67 files** | components, logic, and the shared contract |
+| console | `npm test` | **1,166** in **70 files** | components, logic, and the shared contract |
 | console | └ `layoutContract.test.ts` | **60** | the contract with the panel, hash-pinned; page heads, the card, the footnote atom, the palette, the shadow inventory |
 | console | └ `toolNames.test.ts` | **3** | the 32 device tool names, both directions (an addition fails, a removal fails) |
 | console | `npm run gate:browser` | **107 steps** | the RENDERED page: Home's name 13/500 and its verdict 22/600, the palette (every text ink resolves to a token), icons (≤ 8, none unlabelled), the installer's footnote corner, 390 and 1440 layouts, export, terminal, reconnect |
@@ -6027,6 +6027,31 @@ rule the row's warning uses — **the derived outcome, not the HTTP status**, be
 narrowing counts toward the collapsed-filters number, so a hidden control that still filters cannot exist.
 
 **LIVE AFTER `-ux236`**: `Failures only` present, pressed on click, and the Timeline's rows went **120 → 62**.
+
+## The hundred-and-eighty-fifth list (2026-11-12 — the ledger re-take found a RED gate the deployments had walked past)
+
+**`bash scripts/gate-ledger.sh` was written to re-take a snapshot. This round it found a gate that was actually red.**
+
+    cargo test -p summrise-console   437 passed
+    …
+      test result: FAILED. 14 passed; 1 failed
+    LEDGER: RED — a suite above failed; the ledger's row for it is wrong until it is fixed.
+
+The failure was mine, from the session-screen round:
+
+    border-radius word "var(--r-sm)" is not a radius token or 0:
+      margin: var(--sp-1) 0 0; padding: var(--sp-2); border-radius: var(--r-sm);
+
+`--r-sm` does not exist in this sheet — the radius tokens are `--radius`, `--radius-sm`, `--radius-sm2`, `--radius-xs`,
+`--radius-lg`, `--radius-pill`. So the declaration was INVALID, the radius fell back to 0, and **`-ux231` shipped with a square panel
+where a 10 px one was meant**. The radius gate had been red since that round, and I had run vitest and the browser gate but not the
+Rust suite.
+
+**FIXED** (`var(--radius-sm2)`), the suite is green (**437 · 2 · 1,166 · 107 steps**), and the ledger's own row is updated.
+
+**THE LESSON IS THE TOOL'S**: a deployment is not a verification. The browser gate reads the RENDERED page and cannot see an invalid
+CSS declaration (the browser drops it silently); the Rust token gate can, and it only runs when someone runs it. `gate-ledger.sh`
+exists to be that someone.
 
 ## How a round goes
 
