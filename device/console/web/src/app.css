@@ -4086,6 +4086,9 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 /* The same line as a door: a button with the line's own look, so it reads as the sentence it is. */
 .home-now-door { border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; text-align: left; }
 .home-now-door:hover .mono { text-decoration: underline; }
+/* A call in flight: the line's own shape, the accent's dot, no new shadow — the sheet's shadow inventory is a list, and a pulse is
+   said in the word `Running:` rather than in a glow. */
+.dot-busy { background: var(--accent); }
 
 /* The failures' concentration: the header's number, broken by tool, each chip one click from its rows. */
 /* The machine's own field list, beside a schema refusal: required fields first, the rest after. */

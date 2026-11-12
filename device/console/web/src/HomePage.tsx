@@ -1,5 +1,5 @@
 import { readMonitors, type MonitorTarget } from "./monitorApi";
-import type { LiveLine } from "./liveActivity";
+import type { LiveLine, StartedCall } from "./liveActivity";
 import { useEffect, useRef, useState } from "react";
 import { type Device, type Installer } from "./api";
 import { DeviceCard } from "./DeviceCard";
@@ -604,6 +604,16 @@ function FleetHome(props: HomePageProps) {
    * names a CLIENT call when one happened, and falls back to whatever the newest row is only when nothing else is recent. The age
    * tick comes from `tick` (the page's own clock) so the sentence ages without a re-render storm.
    */
+  const inFlight = (() => {
+    if (props.liveState !== "live") return null;
+    const rows = (props.liveRunning ?? []).filter((call) => call.tool !== "");
+    if (rows.length === 0) return null;
+    // The newest start is the one a person is waiting on; a call the console itself started is not the AI's work to watch.
+    const newest = [...rows].sort((a, b) => b.at_ms - a.at_ms)[0];
+    const ageMs = Date.now() - newest.at_ms;
+    if (ageMs > 120_000) return null;
+    return { call: newest, ageMs };
+  })();
   const newestLive = (() => {
     if (props.liveState !== "live") return null;
     const rows = (props.liveLines ?? []).filter((line) => line.kind !== "left" && line.kind !== "joined");
@@ -636,7 +646,21 @@ function FleetHome(props: HomePageProps) {
               {verdict}
             </p>
           )}
-          {newestLive !== null && props.onNow !== undefined && (
+          {inFlight !== null && (
+            // **A CALL IN FLIGHT OUTRANKS ONE THAT ALREADY ANSWERED.** It is the only sentence on the page that is unfinished, and the
+            // age is how long the wait has been — drawn from the page's own clock, so it keeps counting without a new frame.
+            <p className="page-sub home-now home-now-running">
+              <span className="dot dot-busy" aria-hidden="true" />
+              <span>
+                Running: <span className="mono">{inFlight.call.tool}</span>
+                {inFlight.call.device_id
+                  ? ` on ${props.devices.find((d) => d.id === inFlight.call.device_id)?.name ?? inFlight.call.device_id.slice(0, 8)}`
+                  : ""}
+                {` · ${Math.max(1, Math.round(inFlight.ageMs / 1000))} s in`}
+              </span>
+            </p>
+          )}
+          {newestLive !== null && inFlight === null && props.onNow !== undefined && (
             <button
               type="button"
               className="page-sub home-now home-now-door"
@@ -664,7 +688,7 @@ function FleetHome(props: HomePageProps) {
               </span>
             </button>
           )}
-          {newestLive !== null && props.onNow === undefined && (
+          {newestLive !== null && inFlight === null && props.onNow === undefined && (
             <p className="page-sub home-now">
               <span className="dot dot-ok" aria-hidden="true" />
               <span>
@@ -933,6 +957,12 @@ export type HomePageProps = FleetProps & {
    */
   liveLines?: readonly LiveLine[];
   liveState?: string;
+  /**
+   * **A CALL THAT HAS NOT ANSWERED IS THE MOST "NOW" THING THERE IS (the hundred-and-ninety-seventh list).** The console's live stream
+   * also knows what is IN FLIGHT — a `started` frame without its `finished`, dropped by the proxy's own cut when a device goes silent.
+   * Home drew only what had already happened, so a long `runs.exec` looked like an idle fleet until it answered.
+   */
+  liveRunning?: readonly StartedCall[];
   /**
    * **FROM THE PULSE TO ITS RECORD (the hundred-and-ninety-fifth list).** The Now line named a call; the next question is always "and
    * what happened". This opens Activity scoped to that machine and that tool — the two filters the page already owns — so the line is
