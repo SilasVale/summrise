@@ -96,6 +96,16 @@ fn router_with(
     // One audit for the process: the MCP service writes it, and the panel shares it so a session
     // opened from the device's own page is in the same file as a call an AI client made.
     let audit = std::sync::Arc::new(crate::mcp::Audit::new(&config.data));
+    // The device's event journal: one writer, one sequence, under the data directory. A journal that
+    // cannot be opened leaves the device serving without events rather than refusing to start.
+    let bus: Option<std::sync::Arc<summrise_bus::Bus>> =
+        match summrise_bus::Bus::open(config.data.join("journal").join("000001.seg")) {
+            Ok(bus) => Some(std::sync::Arc::new(bus)),
+            Err(error) => {
+                eprintln!("summrise-device: the event journal is unavailable: {error}");
+                None
+            }
+        };
     let (mcp_service, terminal, browser) = crate::mcp::service_with_terminal(
         config,
         limits,
@@ -105,7 +115,11 @@ fn router_with(
         restart.clone(),
         plugins,
         update_check,
+        bus.clone(),
     );
+    if let Some(bus) = &bus {
+        let _ = bus.publish("device.started", serde_json::json!({ "port": config.port }));
+    }
     let state = AppState {
         token: load_token(&config.token_file),
         store,

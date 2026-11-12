@@ -54,7 +54,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::io::{self, Read, Write};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -1077,6 +1077,9 @@ pub struct PtyRegistry {
     state_lock: Arc<tokio::sync::Mutex<()>>,
     clock: Clock,
     limits: Limits,
+    /// The process's event bus, attached once the process has one. A registry without it is silent,
+    /// which is what tests and standalone callers want.
+    bus: OnceLock<Arc<summrise_bus::Bus>>,
 }
 
 impl PtyRegistry {
@@ -1108,6 +1111,20 @@ impl PtyRegistry {
             state_lock,
             clock,
             limits,
+            bus: OnceLock::new(),
+        }
+    }
+
+    /// Attach the process's event bus. The first attach wins; a second is ignored.
+    pub fn attach_bus(&self, bus: Arc<summrise_bus::Bus>) {
+        let _ = self.bus.set(bus);
+    }
+
+    /// Publish one event when a bus is attached. The journal's failure is not the call's failure:
+    /// a session that opened is open even when its record could not be written.
+    fn publish(&self, kind: &str, payload: serde_json::Value) {
+        if let Some(bus) = self.bus.get() {
+            let _ = bus.publish(kind, payload);
         }
     }
 
@@ -1203,6 +1220,11 @@ impl PtyRegistry {
         // leaving a live one the state document does not know about.
         self.append_row(&row)?;
         sessions.insert(id.clone(), session);
+        drop(sessions);
+        self.publish(
+            "session.opened",
+            serde_json::json!({ "id": id.as_str(), "kind": kind.as_str() }),
+        );
 
         Ok(id)
     }
@@ -1471,6 +1493,9 @@ impl PtyRegistry {
         // need to hold the audit lock.
         drop(state_guard);
         drop(session);
+        if result.is_ok() {
+            self.publish("session.closed", serde_json::json!({ "id": id.as_str() }));
+        }
         result
     }
 
@@ -2481,6 +2506,35 @@ mod tests {
                 .expect("the state document loads")
                 .sessions
         }
+    }
+
+    #[tokio::test]
+    async fn a_session_publishes_opened_and_closed() {
+        let fixture = Fixture::new("publish");
+        let bus = Arc::new(
+            summrise_bus::Bus::open(fixture._dir.join("journal").join("000001.seg"))
+                .expect("the journal opens"),
+        );
+        fixture.registry.attach_bus(Arc::clone(&bus));
+
+        let id = fixture
+            .registry
+            .create(CreateTarget::Pty { shell: None }, 24, 80)
+            .await
+            .expect("the session opens");
+        let mut subscription = bus.subscribe(1).expect("the journal replays");
+        let opened = subscription.next().await.expect("session.opened");
+        assert_eq!(opened.kind, "session.opened");
+        assert_eq!(opened.payload["id"], id.as_str());
+
+        fixture
+            .registry
+            .close(&id)
+            .await
+            .expect("the session closes");
+        let closed = subscription.next().await.expect("session.closed");
+        assert_eq!(closed.kind, "session.closed");
+        assert_eq!(closed.payload["id"], id.as_str());
     }
 
     /// A pseudo-terminal pair standing in for a serial line.

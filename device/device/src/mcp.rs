@@ -261,6 +261,7 @@ pub(crate) fn service_with_terminal(
     restart: restart::Hook,
     plugins: Arc<PluginHost>,
     update_check: Option<Arc<crate::update_check::UpdateChecker>>,
+    bus: Option<Arc<summrise_bus::Bus>>,
 ) -> (
     StreamableHttpService<DeviceServer, LocalSessionManager>,
     Arc<terminal::PtyRegistry>,
@@ -272,6 +273,9 @@ pub(crate) fn service_with_terminal(
         .with_update_check(update_check);
     let terminal = Arc::clone(&server.terminal);
     let browser = Arc::clone(&server.browser);
+    if let Some(bus) = &bus {
+        terminal.attach_bus(Arc::clone(bus));
+    }
     // A rule created in an earlier boot must be LISTENING before any client asks about it, so the
     // executors start with the device rather than with the first `forward.list`.
     server.forwards.start();

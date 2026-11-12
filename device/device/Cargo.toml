@@ -6,6 +6,7 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
+summrise-bus = { path = "../bus" }
 summrise-ui = { path = "../ui" }
 # The panel's Timeline cuts at this machine's local midnight, the same cut the console's Activity
 # timeline draws. `clock` is only the local-timezone lookup; the panel keeps no calendar of its own.
