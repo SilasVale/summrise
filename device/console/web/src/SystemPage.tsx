@@ -608,6 +608,20 @@ export function SystemPage({
   const [liveFacts, setLiveFacts] = useState<HostFacts | null>(null);
   const [factsError, setFactsError] = useState<string | null>(null);
   const [readingFacts, setReadingFacts] = useState(false);
+  // **THE WAIT IS MEASURED, NOT MYSTERIOUS (the hundred-and-seventy-third list, second pass).** Measured live 2026-11-12: the
+  // button said `Reading the machine…` and stayed there for **more than four seconds** — `host.facts` enumerates disks, sessions
+  // and the helper on Windows, and a label that does not move for five seconds reads as a hang. A seconds counter is the honest
+  // answer: it says the console is still waiting, and for how long.
+  const [readingFor, setReadingFor] = useState(0);
+  useEffect(() => {
+    if (!readingFacts) {
+      setReadingFor(0);
+      return;
+    }
+    const started = Date.now();
+    const timer = window.setInterval(() => setReadingFor(Math.round((Date.now() - started) / 1000)), 1000);
+    return () => window.clearInterval(timer);
+  }, [readingFacts]);
   const readFactsNow = async () => {
     setReadingFacts(true);
     setFactsError(null);
@@ -668,7 +682,11 @@ export function SystemPage({
             title={offline ? "The machine is offline; its facts cannot be read" : undefined}
             onClick={() => void readFactsNow()}
           >
-            {readingFacts ? "Reading the machine…" : "Read the machine now"}
+            {readingFacts
+              ? readingFor > 0
+                ? `Reading the machine… ${readingFor} s`
+                : "Reading the machine…"
+              : "Read the machine now"}
           </button>
         </div>
         {device && (
