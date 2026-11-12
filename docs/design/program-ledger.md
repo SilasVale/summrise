@@ -57,10 +57,11 @@ below ladders to that; one round completes one major item end to end.
   range to its existing gap count and rereads. Commits `30baf09` (page) and `bd72800` (Rust).
   Tests: console 173, device console 30, page 24.
 
-## In flight (branch `feat/s4b-page-crate`)
-
-- S4b: extract `console-page` as a crate with a `PageSource` trait, so "the page holds no keys" is a
-  compile-time boundary; the dependency gate learns the new crate.
+- 2026-11-13 — S4b shipped and merged (`f1d5366`): `summrise-console-page` owns `PageSource`, `Page`, the
+  router and the assets; it has no workspace dependency, so it cannot name a key. The console
+  implements `PageSource` over `Audit`/`Running`; the gate reports 13 packages, 19 edges, 0 upward.
+  Also fixed the integration harness that the S1 subscription frame had broken (the fake device now
+  skips `events`/`unsubscribe` frames); the full console integration suite passes (254).
 
 ## Next (in order)
 2. S4b — extract `console-page` as a crate so "the page holds no keys" is a compile-time boundary.
