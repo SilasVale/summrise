@@ -8,6 +8,12 @@ vi.mock("./api", () => ({
   api: { installer: installerApi.installer }
 }));
 
+const monitors = vi.hoisted(() => ({ read: vi.fn() }));
+vi.mock("./monitorApi", () => ({
+  readMonitors: monitors.read,
+  monitorFailure: (e: unknown) => String(e)
+}));
+
 const live = vi.hoisted(() => ({ value: {} as Record<string, unknown> }));
 vi.mock("./useLiveTools", () => ({ useLiveTools: () => live.value }));
 
@@ -50,6 +56,9 @@ const installerFacts = {
 
 beforeEach(() => {
   live.value = { tools, stale: false, error: null, offline: false, loading: false, retry: vi.fn() };
+  // A page that always reads the fleet's watches must have an answer in every test that does not care about them.
+  monitors.read.mockReset();
+  monitors.read.mockResolvedValue({ targets: [], intervalSecs: null });
 });
 
 /**

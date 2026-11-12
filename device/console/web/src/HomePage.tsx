@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react";
+import { readMonitors, type MonitorTarget } from "./monitorApi";
+import { useEffect, useRef, useState } from "react";
 import { type Device, type Installer } from "./api";
 import { DeviceCard } from "./DeviceCard";
 import { copyText } from "./copy";
@@ -537,6 +538,43 @@ function FleetHome(props: HomePageProps) {
   // there is no verdict to give, so the header draws none and the notice below states what the page
   // can show. A second failure sentence here made the page say one failure three times (audit-40
   // F4); the banner's title still carries the browser's cause.
+  // **THE FLEET'S WATCHES, IN ONE LINE (the hundred-and-eightieth list).** The console can now start a watch on any machine, and
+  // Home — the page that gives the fleet's verdict — said nothing about them. This reads each ONLINE machine's list once per
+  // membership change (not per poll): four machines are four cheap calls, and a page that re-read them every few seconds would
+  // spend more on this line than on the fleet itself.
+  const [watches, setWatches] = useState<{ total: number; down: string[]; machines: number } | null>(null);
+  const watchKey = props.devices.map((d) => `${d.id}:${d.online ? 1 : 0}`).join(",");
+  const watchKeyRef = useRef("");
+  useEffect(() => {
+    const online = props.devices.filter((d) => d.online);
+    if (online.length === 0) {
+      setWatches(null);
+      return;
+    }
+    if (watchKeyRef.current === watchKey) return;
+    watchKeyRef.current = watchKey;
+    let live = true;
+    void Promise.all(
+      online.map((d) =>
+        readMonitors({ deviceId: d.id, envelope: null })
+          .then((read) => ({ name: d.name ?? d.id, targets: read.targets }))
+          .catch(() => null)
+      )
+    ).then((rows) => {
+      if (!live) return;
+      type Watched = { name: string; targets: MonitorTarget[] };
+      const known = rows.filter((row): row is Watched => row !== null);
+      const total = known.reduce((n, row) => n + row.targets.length, 0);
+      const down = known.flatMap((row) =>
+        row.targets.filter((t) => t.summary.upNow === false).map((t) => `${row.name}: ${t.id}`)
+      );
+      setWatches({ total, down, machines: known.length });
+    });
+    return () => {
+      live = false;
+    };
+  }, [watchKey, props.devices]);
+
   const verdict =
     fleet.state === "reading"
       ? "Reading the machine list…"
@@ -557,6 +595,13 @@ function FleetHome(props: HomePageProps) {
           {verdict !== null && (
             <p className={"home-verdict" + (problems.length > 0 ? " has-attention" : "")}>
               {verdict}
+            </p>
+          )}
+          {watches !== null && watches.total > 0 && (
+            <p className="hint home-services">
+              {watches.down.length === 0
+                ? `Watching ${watches.total} ${watches.total === 1 ? "service" : "services"} across ${watches.machines} ${watches.machines === 1 ? "machine" : "machines"} · all up`
+                : `${watches.down.length} ${watches.down.length === 1 ? "service is" : "services are"} down: ${watches.down.join(", ")}`}
             </p>
           )}
         </div>
