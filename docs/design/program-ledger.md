@@ -89,6 +89,11 @@ below ladders to that; one round completes one major item end to end.
   callout and §7 say what shipped as slices and point at this ledger; I7 records the page's crate
   boundary and I8 the gate's numbers. RELEASE.md names the three library crates and the four exes.
 
+## In flight (branch `feat/release-rehearsal`)
+
+- A local release rehearsal: sign a canary with the archive keys, serve the mirror on loopback, and
+  verify the pointer, the document and the artifact — the update path, without a device.
+
 ## Next (in order)
 
 1. Windows handoff — build the installer on a Windows runner, silent install/uninstall, run
