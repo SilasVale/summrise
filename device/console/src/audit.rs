@@ -374,7 +374,7 @@ impl Audit {
                 event["device"].as_str() == Some(device)
                     && event["event"]["seq"]
                         .as_u64()
-                        .map_or(false, |row| row > seq)
+                        .is_some_and(|row| row > seq)
             })
             .cloned()
             .collect()
