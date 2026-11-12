@@ -5672,6 +5672,30 @@ nothing** — the third time this week that lesson has cost a round's worth of c
     19 empty states      browser gate + jsdom, one state at a time
     20 rhythm            tokens.rs (rem and px) + the scale pass
 
+## The hundred-and-seventy-first and -second lists (SHIPPED 2026-11-12 — the tool wiring gap, closed by two doors)
+
+SHIP-FAST mode's first two features, both from a measurement rather than a hunch: the LIVE catalogue (`GET /fleet/<id>/tools` on
+DESKTOP-9VH92BJ) advertises **46 tools**, the console's inventory named **32**. Fifteen had no door, and two families held most of
+them.
+
+| shipped | what it is | deploy |
+|---|---|---|
+| **Device → Memory** | the machine's memory read where an operator looks: a search box (`memory.search`), a list (`memory.list`), each entry's title, namespace · source · time, tags and a clamped body. **Read-only**: the writes (`append`/`update`/`delete`) are the next door, because a page that could delete but not restore is worse than one that cannot delete | `0.3.274-ux214` |
+| **Machine → Services this machine watches** | what the device probes on its own timer (`monitor.list`): the address, a WORD for its state (`Up` / `Down` / **`Not probed`** — a null is not a zero), up-since, up %, drops, the last HTTP status | `0.3.274-ux215`, fixed in `-ux216` |
+
+**THE LIVE CHECK EARNED ITS KEEP AGAIN.** `-ux215` shipped and the first live look said *"the machine answered monitor.list
+without a list"*. Measured through the console's own `/mcp`:
+
+    POST /mcp {"name":"monitor.list"} -> {"content":[{"text":"[]","type":"text"}]}
+
+The shipped device (0.3.292) answers a **bare array**; the newer source in this tree answers `{ok, interval_secs, targets:[…]}`.
+The page read only the newer shape, so a machine with nothing to watch reported a failure. `-ux216` reads **both**, and a test
+named for the shape only a live call could reveal pins it. `/fleet` measured after: the section says `This machine watches no
+services.`
+
+**WIRED NOW: 34 of 46.** The remaining twelve: the memory writes (3), the monitor writes (4), `browser.cast`, `host.facts`,
+`state.get`, `terminal.screen`, `forward.list` (that last one needs a device that ships the forward plugin).
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
