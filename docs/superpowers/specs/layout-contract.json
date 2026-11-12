@@ -140,6 +140,12 @@
         "condition": "xl",
         "count": "lg"
       }
+    },
+    "nameWhenClaim": {
+      "size": "base",
+      "weight": "medium",
+      "ink": "muted",
+      "$comment": "**A PAGE WHOSE HEAD CARRIES A CLAIM DRAWS ITS NAME AS CONTEXT, NOT AS A SECOND HEADLINE (the hundred-and-forty-second list).** Measured on the LIVE console 2026-11-12 (`0.3.274-ux193`, 1440 px): `Home` drew 22/700 and the claim beneath it, `3 of 4 online \u00b7 2 need attention`, drew 22/600 — two headlines at one size six pixels apart, so neither won, and the operator read the page as having no hierarchy. The claim is what the page is FOR; the name is the answer to `where am I`, and the rail already answers it. A head with a claim therefore draws its name at the `base` step (13), `medium` weight, `muted` ink, while the claim keeps `claimSlot`. `title` still governs every head with no claim."
     }
   },
   "card": {

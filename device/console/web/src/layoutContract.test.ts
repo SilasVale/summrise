@@ -68,6 +68,9 @@ type Contract = {
       ink: string;
       stepBy: { by: string; condition: string; count: string };
     };
+    // A head that carries a claim draws its name as CONTEXT, not as a second headline (the hundred-and-forty-second
+    // list): the claim keeps `claimSlot`, and the name takes this rung.
+    nameWhenClaim: { size: string; weight: string; ink: string };
     maxHeadsPerPage: number;
   };
   // A ROW inside a list (the eighty-seventh list, read by a test for the first time in the eighty-ninth).
@@ -227,7 +230,7 @@ describe("the layout contract", () => {
     // The literal below is the sha256 of BOTH copies, and it is the same literal the panel's test carries.
     const ours = createHash("sha256").update(contractText()).digest("hex");
     expect(ours).toBe(
-      "14d7dc91bf261becc03dd1ef6ea47ee454beae32cabfba57e9b61b3348725b62"
+      "0e225bb2c41e4bc98aaa007c2e18a4d7cbbcfcc34065c8be80b26b9830822417"
     );
     const sibling = path.join(here, "..", "..", "..", "..", "..", "summrise", "docs",
       "superpowers", "specs", "layout-contract.json");
@@ -986,6 +989,30 @@ describe("the layout contract", () => {
     // And nothing is hidden inside a `rem`: a width a grep cannot see is a width nobody can review.
     const remWidths = [...source.matchAll(/@media\s+\([^)]*width:\s*[0-9]+rem/g)];
     expect(remWidths.length, 'a width query must name pixels, which the contract lists').toBe(0);
+  });
+
+  it("draws a head's name as context when that head carries a claim", () => {
+    // **TWO HEADLINES AT ONE SIZE IS NO HIERARCHY (the hundred-and-forty-second list).** Measured on the live console
+    // 2026-11-12 (`0.3.274-ux193`, 1440): `Home` drew 22/700 and the claim under it 22/600, six pixels apart. The
+    // contract now records `head.nameWhenClaim`: a head that carries a claim draws its NAME at the base step, medium
+    // weight, muted ink — the claim keeps `claimSlot`. This test holds the rule to the stylesheet at BOTH widths, so a
+    // later page cannot re-inflate the name without changing the decision in the JSON first.
+    //
+    // **BOTH, BECAUSE `ruleFor` RETURNS THE LAST MATCH** (measured while mutating this rule: the desktop rule went back to
+    // `--fs-xl` and the test passed, because it had read the phone rule). A page that draws the name twice must draw it
+    // one way, and this is the width-independent way to say so.
+    const named = contract.head.nameWhenClaim;
+    const rules = [...css().matchAll(/\.home-page \.page-head h1\s*\{([\s\S]*?)\n\}/g)].map((m) => m[1]);
+    expect(rules.length, "the name is drawn at both widths").toBe(2);
+    for (const rule of rules) {
+      const size = tokenFor(tokens(), 13, "fs");
+      expect(named.size).toBe("base");
+      expect(rule, "the name takes the contract's step").toContain(`font-size: var(--${size})`);
+      expect(rule, "and its weight").toContain("font-weight: var(--fw-medium)");
+      expect(rule, "and its ink").toContain("color: var(--ink-muted)");
+    }
+    // The claim is still the page's voice, and it is still the title's rung.
+    expect(ruleFor(css(), ".home-verdict")).toContain("font-size: var(--fs-xl)");
   });
 
   it("is the page title every page of both surfaces draws", () => {

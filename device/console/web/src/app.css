@@ -3731,7 +3731,14 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
    while the page rule said 24 and the mobile rule said 18 — a third rhythm nobody had chosen,
    and the one the browser gate caught the moment it measured a rendered page instead of a
    stylesheet. A page does not get its own rhythm. */
-.home-page .page-head h1 { font-size: var(--fs-xl); }
+/* **A HEAD WITH A CLAIM DRAWS ITS NAME AS CONTEXT, NOT AS A SECOND HEADLINE (the hundred-and-forty-second list).**
+   Measured on the LIVE page 2026-11-12 (`0.3.274-ux193`, 1440): `Home` drew 22/700 and `3 of 4 online · 2 need attention`
+   beneath it drew 22/600 — two headlines at one size six pixels apart, and neither won. The rule is the contract's
+   `head.nameWhenClaim`; the claim below keeps `--fs-xl` and this page's one voice is the fleet's state. */
+.home-page .page-head h1 {
+  font-size: var(--fs-base); font-weight: var(--fw-medium);
+  color: var(--ink-muted); letter-spacing: var(--tracking-none);
+}
 /* **A SIZE GETS ONE TRACKING, AND THE VERDICT IS THE TITLE'S SIZE (the seventy-fifth list).** This rule
    read `--tracking-tight` (-0.02em, -0.44 px at 22) while the `h1` above it read `--tracking-display`
    (-0.011em, -0.242 px at 22) — two steps for one size, 20 px apart on the page, and a reader cannot
@@ -4011,7 +4018,14 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 @media (max-width: 639px) {
   /* The phone keeps the contract's rhythm; a page that changed it here was the third rhythm
      again, in the smallest window. */
-  .home-page .page-head h1 { font-size: var(--fs-xl); }
+  /* **A HEAD WITH A CLAIM DRAWS ITS NAME AS CONTEXT, NOT AS A SECOND HEADLINE (the hundred-and-forty-second list).**
+   Measured on the LIVE page 2026-11-12 (`0.3.274-ux193`, 1440): `Home` drew 22/700 and `3 of 4 online · 2 need attention`
+   beneath it drew 22/600 — two headlines at one size six pixels apart, and neither won. The rule is the contract's
+   `head.nameWhenClaim`; the claim below keeps `--fs-xl` and this page's one voice is the fleet's state. */
+.home-page .page-head h1 {
+  font-size: var(--fs-base); font-weight: var(--fw-medium);
+  color: var(--ink-muted); letter-spacing: var(--tracking-none);
+}
   .home-verdict { font-size: var(--fs-xl); max-width: none; }
   .attention { padding: 14px; }
   .attention-row {
