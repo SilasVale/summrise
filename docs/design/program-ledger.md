@@ -98,6 +98,12 @@ below ladders to that; one round completes one major item end to end.
   NSIS installer is not byte-reproducible. The device's own verifier is `summrise-device --check-update`,
   which `publish-canary.bash` runs at the end of a real publish.
 
+## In flight (branch `feat/verify-authenticity`)
+
+- `verify-release.sh` gains the device's own acceptance: a `--device` check runs
+  `summrise-device --check-update` against the mirror, and the sidecar is checked; the rehearsal passes
+  it automatically.
+
 ## Next (in order)
 
 1. `verify-release.sh` should prove what the device accepts, not merely that the mirror is
