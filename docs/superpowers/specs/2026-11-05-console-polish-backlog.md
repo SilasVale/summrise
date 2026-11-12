@@ -4892,7 +4892,7 @@ breakpoint` — a query's width must be a declared breakpoint or its neighbour (
 `max-width: 1087px`; and the 390 probe returns **no search input at all**, which is the hundred-and-thirty-fourth
 list's collapse working. Before/after strip in `.superpowers/sdd/2026-11-05-console-polish-backlog/list139/`.
 
-## P0 — the hundred-and-fortieth list (OPENED 2026-11-12 — the console's Forward page speaks a dialect the device does not)
+## P0 — the hundred-and-fortieth list (CLOSED 2026-11-12 — the console's Forward page speaks a dialect the device does not)
 
 The 59538830 line's open item was *"the forward UI's remaining measured gaps"*. Measured 2026-11-12 by reading both sides'
 source — the console's reader against the device's registered tools and their answers:
@@ -4911,11 +4911,23 @@ console's expectation, not the device's answer: a bare array with flat fields an
 `callTool`, so the fixture and the page agree with each other and with nothing else. **A fixture written from the reader is a
 test of the reader.**
 
-**PLAN (next round, S/M each):**
-1. the list read: `forward_list`, `{rules:[…]}`, nested `state`, `since_ms: 0` → "never";
-2. **Create and Remove go**: the device has no such tools by design and D6 makes a rule the operator's act on the machine —
-   the page becomes the record of what the device carries (the same shape the panel's pages take for device-owned facts);
-3. a fixture copied from the device's own `json!` block, and a test that fails when the reader and that fixture disagree.
+**DONE — console `a63beaa` (pushed; NOT deployed — the console deploy waits on the operator's word), four parts:**
+1. the list read: `forward_list`, `{rules:[…]}`, the nested `state`, and `since_ms: 0` read as "never";
+2. **the branch gate**: `supported` looked for `forward.list` — a name no device registers — so every real machine took
+   the "Older build" branch and the list was never asked for. It looks for `forward_list` now;
+3. **Create and Remove are gone**: the page reads, and its empty state says where a rule is written (`forwards.json` in
+   the machine's data directory) instead of offering a button that called a tool that must not exist;
+4. **the fixture is the device's answer** (`{rules:[…]}` with a nested `state`, copied from the device's own `json!`),
+   and a new case holds the other direction: a BARE ARRAY — the shape this page used to expect — is an unreadable
+   answer, not "no rules".
+
+**MUTATION:** `supported` back to `"forward.list"` -> every case renders "Older build" and nothing is asked; restored
+10/10. **THE PAGE SHRANK BY 486 LINES** (187 insertions, 673 deletions): two sheets and their form logic went with the
+tools they called.
+
+**NOTHING VISIBLE TO SCREENSHOT, SAID PLAINLY.** The section is reached through a live machine's tool catalogue and no
+fixture here advertises one, so the built page shows its "Older build" sentence either way; the change is proven at the
+reader (10 cases around the device's real answer) and in the branch gate.
 
 **WHY THIS ROUND SHIPPED NO CODE.** The reader fix lands with (2) or the page keeps two buttons that cannot work; and a
 half-fix that leaves Create/Remove calling absent tools would be a worse lie than the current one. The measurement is the
