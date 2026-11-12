@@ -3733,6 +3733,16 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
    Measured on the LIVE page 2026-11-12 (`0.3.274-ux193`, 1440): `Home` drew 22/700 and `3 of 4 online · 2 need attention`
    beneath it drew 22/600 — two headlines at one size six pixels apart, and neither won. The rule is the contract's
    `head.nameWhenClaim`; the claim below keeps `--fs-xl` and this page's one voice is the fleet's state. */
+/* **AND THE DEVICE HEAD'S NAME IS A CONTROL'S LABEL, SO IT IS CONTEXT (the hundred-and-forty-seventh list).** Measured on
+   the LIVE page 2026-11-12 (`0.3.274-ux200`, 1440): the h1 read `Overview` at 22/700 while the tab strip 40 px to its right
+   carried `Overview` as the SELECTED tab at 12/600 — the page named itself twice, and the second copy took the title's rung.
+   The contract records the condition (`head.nameWhenRepeated`); the machine's name in the card below is the page's subject and
+   now leads at 17. */
+.device-head h1 {
+  font-size: var(--fs-base); font-weight: var(--fw-medium);
+  color: var(--ink-muted); letter-spacing: var(--tracking-none);
+}
+
 /* **AND ACTIVITY'S HEAD CARRIES A CLAIM TOO (measured 2026-11-12, after Home's fix): `Activity` drew 22/700 above
    `Today: 153 client calls, 10 failed.` at 17/600 — the same shape the contract's `head.nameWhenClaim` refuses, one page
    over.** The rule is about a HEAD WITH A CLAIM, not about Home; both pages take it. */

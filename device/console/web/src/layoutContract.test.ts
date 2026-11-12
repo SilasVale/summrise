@@ -71,6 +71,7 @@ type Contract = {
     // A head that carries a claim draws its name as CONTEXT, not as a second headline (the hundred-and-forty-second
     // list): the claim keeps `claimSlot`, and the name takes this rung.
     nameWhenClaim: { size: string; weight: string; ink: string };
+    nameWhenRepeated: { size: string; weight: string; ink: string };
     maxHeadsPerPage: number;
   };
   // A ROW inside a list (the eighty-seventh list, read by a test for the first time in the eighty-ninth).
@@ -230,7 +231,7 @@ describe("the layout contract", () => {
     // The literal below is the sha256 of BOTH copies, and it is the same literal the panel's test carries.
     const ours = createHash("sha256").update(contractText()).digest("hex");
     expect(ours).toBe(
-      "0e225bb2c41e4bc98aaa007c2e18a4d7cbbcfcc34065c8be80b26b9830822417"
+      "9b70a26c583cd30ed047cfd206d96067901b930e9f2d1e3913258a5f689c04fc"
     );
     const sibling = path.join(here, "..", "..", "..", "..", "..", "summrise", "docs",
       "superpowers", "specs", "layout-contract.json");
@@ -1018,6 +1019,16 @@ describe("the layout contract", () => {
       expect(block.body, "and its weight").toContain("font-weight: var(--fw-medium)");
       expect(block.body, "and its ink").toContain("color: var(--ink-muted)");
     }
+    // **AND THE DEVICE HEAD, BY THE OTHER RECORDED CONDITION** (the hundred-and-forty-seventh list): its name is the label of a
+    // control the same head renders, so the title's rung is spent on a second copy. Same rung, different reason.
+    const repeated = contract.head.nameWhenRepeated;
+    expect(repeated.size, "the contract names the step").toBe("base");
+    const deviceRules = [...css().matchAll(/(\.device-head h1)[^{]*\{\n([\s\S]*?)\n\}/g)].map((m) => m[2]);
+    expect(deviceRules.length, "the device head is drawn once").toBe(1);
+    const deviceSize = tokenFor(tokens(), 13, "fs");
+    expect(deviceRules[0]).toContain(`font-size: var(--${deviceSize})`);
+    expect(deviceRules[0]).toContain("font-weight: var(--fw-medium)");
+    expect(deviceRules[0]).toContain("color: var(--ink-muted)");
     // The claim is still the page's voice, and it is still the title's rung.
     expect(ruleFor(css(), ".home-verdict")).toContain("font-size: var(--fs-xl)");
   });
