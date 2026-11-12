@@ -5342,6 +5342,37 @@ later round that drops the condition fails by name. `55bda45`, deployed as `0.3.
 is a rule applied where its condition holds. The forty-seventh list wrote the condition down and then the sheet ignored it for
 five rounds.
 
+## The hundred-and-fifty-ninth list (CLOSED 2026-11-12 — the same rule, the same mistake, one page further)
+
+After the picker's regression the question was not "is the number right" but "where else is a conditional rule applied
+unconditionally". The answer was the rule the picker's regression was about, one page over:
+
+    Activity draws `.activity-today` only while the day's count is known
+    (`activityCount !== null && activityRange === null`, App.tsx)
+    …and `.activity-page .page-head h1` was styled as context for the PAGE'S NAME, so a failed day read left the page with a
+    13 px grey caption and NO claim to caption.
+
+**THE FIX IS IN THE SELECTOR**: `.home-page .page-head:has(.home-verdict) h1`,
+`.activity-page .page-head:has(.activity-today) h1` — the condition sits where a reader and a gate can both see it, and a page
+that loses its claim stops being marked. The test now requires every such block to carry `:has(` and names Activity's own
+condition.
+
+**MEASURED LIVE AFTER `0.3.274-ux208`** (`0.3.274-ux208`, 1440):
+
+    Home      `Home`       13 / 500      (verdict present)
+    Activity  `Activity`   13 / 500      (day count present)
+    Device    `Terminal`   13 / 500      (machine chosen, tab strip present)
+    Device    `Overview`   13 / 500      (machine chosen)
+
+and the picker (no machine chosen, `ux207`) keeps 22 / 700.
+
+**MUTATION**: the selectors back to the page's name -> `Activity's head carries a claim too: … to contain
+'.activity-page .page-head:has(.activity-today) h1'`; restored, 59/59.
+
+**THE RULE THIS PROGRAM NOW CARRIES**: a rule records its CONDITION as well as its numbers. Three times this week a conditional
+rule was written down with its condition in prose and then applied to a page where the condition did not hold — the picker, and
+now Activity's failed day. The selector is the cheapest place to make a condition enforceable.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
