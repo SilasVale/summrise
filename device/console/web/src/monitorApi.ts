@@ -123,7 +123,17 @@ export async function addWatch(
   grant: Grant,
   input: { host: string; port: number; path?: string }
 ): Promise<void> {
-  const args: Record<string, unknown> = { host: input.host, port: input.port };
+  // **THE LIVE SCHEMA REQUIRES FOUR FIELDS, AND THE FIRST VERSION SENT TWO.** Measured on DESKTOP-9VH92BJ (0.3.292) through
+  // `/fleet/<id>/tools`: `monitor.add` requires `kind` (`tcp`|`http`), `host`, `port` AND `interval_ms` (≥ 5000) with
+  // `additionalProperties: false`, and the page's `{host, port, path}` came back as `the arguments do not match the tool's input
+  // schema` (found by the live add, not by a test). `kind` follows the path the operator gave — a path makes it an HTTP GET —
+  // and the interval is the device's own 15 s default, named rather than left to the tool.
+  const args: Record<string, unknown> = {
+    kind: input.path !== undefined && input.path !== "" ? "http" : "tcp",
+    host: input.host,
+    port: input.port,
+    interval_ms: 15_000
+  };
   if (input.path !== undefined && input.path !== "") args.path = input.path;
   const body = await callTool(grant, "monitor.add", args);
   const answer = parseAnswer(body, "monitor.add");

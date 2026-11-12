@@ -105,7 +105,7 @@ describe("ServicesWatched — what the device probes", () => {
     fireEvent.change(screen.getByLabelText("Port to watch"), { target: { value: "19000" } });
     fireEvent.click(screen.getByRole("button", { name: "Start watching" }));
     await waitFor(() =>
-      expect(mocked).toHaveBeenCalledWith(GRANT, "monitor.add", { host: "127.0.0.1", port: 19000 })
+      expect(mocked).toHaveBeenCalledWith(GRANT, "monitor.add", { kind: "tcp", host: "127.0.0.1", port: 19000, interval_ms: 15_000 })
     );
     await waitFor(() => expect(screen.getByText(/the machine probes it every 15 s/)).toBeInTheDocument());
   });
