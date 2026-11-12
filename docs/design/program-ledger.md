@@ -33,9 +33,15 @@ below ladders to that; one round completes one major item end to end.
   mode; CI runs it before the cache. 12 packages, 18 workspace edges, 0 upward. The supervisor may
   not import the device (the earlier allowance was unused and is gone).
 
-## In flight (branch `feat/s2-journal`)
+- 2026-11-13 — S3 shipped (`a59ec79`): plugin.starting/.ready/.stopped/.failed/.tools_changed on the
+  journal; the host mirrors the bus into the supervisor's Weak<Inner>; 37 plugin tests. The boot-order
+  gap was closed in `94e1d9d` (the journal opens in main before start_all).
+- 2026-11-13 — `feat/s2-journal` merged into `hub/v1` (fast-forward): S2 + S3 + S5 + the Activity
+  device events. Boundary checks: bus 12, console lib 170.
 
-- S3 plugin lifecycle events on the bus (sub-agent D).
+## In flight (branch `feat/s4-page`)
+
+- S4: a page module that holds no keys (static, SSE, health), extracted from the console binary.
 
 ## Next (order may change as the work teaches us)
 
