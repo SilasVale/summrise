@@ -5531,6 +5531,27 @@ element; the line now reads `… the console's --operator-token-file names`.
 **AND THE 390 CHECK OF THE PREVIOUS ROUND'S CHANGE**: Device -> Overview at 390 draws the facts line at y=248, `scrollW == 390`,
 and the one element past the right edge is `.device-tab` at 460 — the tab strip, which is a scroll container by design.
 
+## The hundred-and-sixty-sixth list (CHECK ONLY 2026-11-12 — the sign-in pair agrees, the account popover is complete, and the audit says where it has run out)
+
+Two surfaces the audit had never drawn, measured on the LIVE build (`0.3.274-ux212`):
+
+    the SIGN-IN PAIR      #signin while signed in    `You are signed in`   22 / 600   (the same h1 rule)
+                          #signin signed out         `Sign in to the console`  22 / 600   (the hundred-and-sixty-fifth list)
+    the ACCOUNT POPOVER   a `<details>` at the rail's foot — identity, `Console 0.3.274-ux212`, Connect a client, Tokens,
+                          Copy console URL, Documentation, Sign out
+
+Both are complete and consistent. Nothing was changed.
+
+**WHERE THIS AUDIT HAS RUN OUT, SAID PLAINLY.** Across the session the console has been measured page by page (Home, Activity,
+Device × 8 tabs, the picker, the sign-in pair, the account popover), at four widths (390 / 768 / 1024 / 1440), in both themes, and
+swept for runtime failure (eight pages, 0 errors, 0 failed requests). Everything the twenty rules can compare — a rung, a radius,
+a border, a colour, a rhythm, a state — is now either a gate (Rust tokens, `layoutContract` on both surfaces, the rendered browser
+gate at 106 steps) or a number in this file. **The remaining work is not polish**: it is the three things no measurement can
+settle — what Device -> Overview is FOR (its empty half), what the machine's landing page should offer the AI's own door, and
+whether the panel this audit keeps in step with is ever going to be shipped to a device (the operator's hold).
+
+**AND THE TWO RULES STILL WITHOUT A GATE**, unchanged from the hundred-and-sixty-second list: shadow KINDS (16) and icons (17).
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
