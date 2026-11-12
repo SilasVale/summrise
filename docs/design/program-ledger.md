@@ -114,6 +114,10 @@ below ladders to that; one round completes one major item end to end.
   (`map_or` in `audit.rs`) and one load-only page-suite flake. What remains is the Windows handoff and
   nothing else on the v1 checklist.
 
+- 2026-11-13 — The product smoke is a CI step: the device job runs `scripts/smoke-local.sh` after the
+  device smoke, so the panel, the MCP flow, the audit and the journal are proven on every push, not
+  only by hand.
+
 ## Next (in order)
 
 1. Windows handoff — build the installer on a Windows runner, silent install/uninstall, run

@@ -14,7 +14,7 @@ root unless it says otherwise.
 | 6 | The page is not stale | `bash scripts/build-web.sh --check` | ok — the committed `dist/index.html` is the built page |
 | 7 | Page tests | `cd device/console/web && npx vitest run` | 70 files, **1 182 passed** |
 | 8 | Page types | `cd device/console/web && npx tsc --noEmit` | clean |
-| 9 | The product loop, real binaries | `bash scripts/smoke-local.sh` | **22 PASS**, `SMOKE OK` |
+| 9 | The product loop, real binaries | `bash scripts/smoke-local.sh` (also a CI step in the device job) | **22 PASS**, `SMOKE OK` |
 | 10 | The update path | `bash scripts/rehearse-release.sh --version 0.3.994 --out /tmp/v1-sweep-rehearsal` | five `ok` lines, including *the device accepts the signed document*; installer built; **PASS in 32 s** |
 
 ## What the sweep itself found
