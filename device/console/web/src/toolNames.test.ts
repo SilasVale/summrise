@@ -92,6 +92,7 @@ const INVENTORY = [
   "system.process_list",
   "terminal.close",
   "terminal.create",
+  "terminal.screen",
   "terminal.list",
   "terminal.read",
   "terminal.resize",

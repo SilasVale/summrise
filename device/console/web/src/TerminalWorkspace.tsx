@@ -565,16 +565,90 @@ function lastTypedLine(
  * its text: the old `No keystroke recorded for this session yet` was a claim about the session the
  * page could not support. The empty state is scoped to this page's own record instead.
  */
+/**
+ * **THE SESSION'S OWN SCREEN, BEFORE THE XTERM IS TOUCHED (the hundred-and-seventy-ninth list).** `terminal.screen {id, lines}`
+ * answers the tail of a session's output AS A PERSON WOULD SEE IT — escape sequences removed, and without moving the read cursor —
+ * so the card can show what the machine's terminal looks like without attaching to it. It was the last read-only tool with an
+ * obvious use and no door.
+ *
+ * **IT IS A SNAPSHOT, NOT A WINDOW**: the card reads once per session and again when asked. A live tail belongs to the terminal
+ * below, which already streams; a second stream in the card would be two answers to one question.
+ */
+function SessionScreen({ grant, session }: { grant: Grant; session: string }) {
+  const [lines, setLines] = useState<string[] | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [reading, setReading] = useState(false);
+  const generation = useRef(0);
+
+  const read = useCallback(async () => {
+    const mine = ++generation.current;
+    setReading(true);
+    setFailed(false);
+    try {
+      const body = await callTool(grant, "terminal.screen", { id: session, lines: 8 });
+      if (generation.current !== mine) return;
+      // The device answers `{lines: [...]}`; a build that answers a bare string is drawn as one line rather than as nothing.
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(body);
+      } catch {
+        parsed = body;
+      }
+      const rows =
+        parsed !== null && typeof parsed === "object" && Array.isArray((parsed as Record<string, unknown>).lines)
+          ? ((parsed as Record<string, unknown>).lines as unknown[]).filter((l): l is string => typeof l === "string")
+          : typeof parsed === "string"
+            ? parsed.split("\n").filter((line) => line.trim() !== "")
+            : null;
+      if (rows === null) {
+        setFailed(true);
+        setLines(null);
+      } else {
+        setLines(rows);
+      }
+    } catch {
+      if (generation.current !== mine) return;
+      setFailed(true);
+      setLines(null);
+    } finally {
+      if (generation.current === mine) setReading(false);
+    }
+  }, [grant, session]);
+
+  useEffect(() => {
+    void read();
+  }, [read]);
+
+  return (
+    <div className="session-card-screen">
+      <p className="session-card-label">
+        The session's screen
+        <button type="button" className="link" disabled={reading} onClick={() => void read()}>
+          {reading ? "Reading…" : "Read again"}
+        </button>
+      </p>
+      {failed && <p className="hint">The session's screen could not be read.</p>}
+      {!failed && lines !== null && lines.length === 0 && (
+        <p className="hint">The session has produced no output yet.</p>
+      )}
+      {!failed && lines !== null && lines.length > 0 && <pre className="session-screen">{lines.join("\n")}</pre>}
+      {!failed && lines === null && <p className="hint">Reading the session's screen…</p>}
+    </div>
+  );
+}
+
 function SessionCard({
   machine,
   tab,
   liveLines,
-  deviceId
+  deviceId,
+  grant
 }: {
   machine: string;
   tab: Tab;
   liveLines: readonly LiveLine[];
   deviceId: string;
+  grant?: Grant;
 }) {
   const last = lastTypedLine(liveLines, deviceId, tab.session);
   return (
@@ -607,6 +681,8 @@ function SessionCard({
           <span className="hint">No keystroke recorded since this page opened.</span>
         )}
       </p>
+      {/* The screen tail sits under the card's facts: what the session looks like, read without attaching. */}
+      {grant !== undefined && <SessionScreen grant={grant} session={tab.session} />}
     </section>
   );
 }
@@ -2172,6 +2248,7 @@ export function TerminalWorkspace({
           tab={activeTab}
           liveLines={liveLines}
           deviceId={grant.deviceId}
+          grant={grant}
         />
       )}
 
