@@ -5841,6 +5841,25 @@ answer on the machine's loopback. A watch that reports a false Down on the opera
 **WIRED NOW: 39 of 46.** Remaining seven: memory writes (3, blocked on the shipped schema), `browser.cast`, `terminal.screen`,
 `forward.list` (blocked on a device that ships the plugin), `monitor.status`.
 
+## The hundred-and-seventy-ninth list (SHIPPED 2026-11-12 — the session card shows the session's screen)
+
+`terminal.screen {id, lines}` answers a session's tail **as a person would see it** — escape sequences removed, read cursor untouched.
+It was the last read-only tool with an obvious use and no door: the Terminal page showed the card's facts and then a black rectangle.
+
+    Terminal → the session card → "The session's screen" → the last 8 lines (mono, capped at 12rem) · [Read again]
+
+**A SNAPSHOT, NOT A WINDOW**: the card reads once per session and again when asked; a live tail belongs to the terminal below, and a
+second stream in the card would be two answers to one question. Empty and failed are sentences, not blanks.
+
+**THE CONTRACT'S GATE REFUSED THE FIRST DRAFT**: `no bare line-height survives: expected [ 'line-height: 1.45' ] to deeply equal []`
+— the sheet's `--lh-tight` is what it wanted. A gate doing its job on a CSS line I typed without thinking.
+
+**THE LIVE CHECK COULD NOT SEE IT**: the card only exists once a terminal session does, and the fleet had none open at the time
+(`terminal.list` → `[]`). Recorded as a limit rather than claimed as a screenshot: the component's own tests draw all three states.
+
+**WIRED NOW: 40 of 46.** Remaining six: memory writes (3, blocked on the shipped schema), `browser.cast`, `forward.list` (blocked on
+a device that ships the plugin), `monitor.status`.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
