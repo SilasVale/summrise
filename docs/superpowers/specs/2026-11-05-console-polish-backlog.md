@@ -6070,6 +6070,27 @@ first chip sets the search box to `runs.exec` and turns `Failures only` on (`ari
 not a display one. The console's own `browser.list` failures (3) and `monitor.status` refusals (2) are the noise this week's rounds
 created, and they are legible now.
 
+## The hundred-and-eighty-seventh list (SHIPPED 2026-11-12 — a schema refusal names what the machine expected)
+
+The failures line from the previous list said `runs.exec · 50`, so the window was read directly:
+
+    runs.exec   status 424   "runs.exec: the arguments do not match the tool's input schema"
+    caller "client", kind "mcp", token b7bd1473…, device fe209… (DESKTOP-84T3LIN, 0.3.291)
+    13 of that token's 17 runs.exec calls failed — and the same token's terminal.* calls: 138, every one ok
+
+**So it is a CLIENT sending wrong arguments to one tool, not a console defect** — but the console's row said only `runs.exec failed`,
+naming no argument, and a reader cannot fix an integration from that sentence.
+
+**THE CONSOLE ALREADY HELD THE ANSWER**: the machine's catalogue carries each tool's `inputSchema`. A row that failed on its
+arguments now shows, in its evidence panel, the fields the machine expects — required first:
+
+    This machine expects   [command · required] [args] [cwd] [env] [shell] [timeout_ms]
+
+Read through `useLiveTools`' shared 30 s cache (three refused rows on one machine cost one read), and nothing is drawn when the
+catalogue has no such tool.
+
+**LIVE AFTER `-ux239`**: opening a failed `runs.exec` row draws exactly `command · required args cwd env shell timeout_ms`.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
