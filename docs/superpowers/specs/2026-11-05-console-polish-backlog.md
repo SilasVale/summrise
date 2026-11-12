@@ -5745,6 +5745,37 @@ own health is worth having.
 **WIRED NOW: 37 of 46.** Remaining nine: memory writes (3), `browser.cast`, `state.get`, `terminal.screen`, `forward.list` (needs
 a device that ships the forward plugin), and `monitor.probe`/`monitor.status` (the list already carries what they report).
 
+## The hundred-and-seventy-fifth list (2026-11-12 — a feature REVERTED and three defects the live check found)
+
+The Memory tab shipped in `-ux214` and this round tried to add the soft delete. **It came out again**, and the reason is the round's
+first lesson:
+
+    memory.list (0.3.292, measured from /fleet/<id>/tools):  props ["limit", "tag"]   additionalProperties: false
+    memory.search (same build):                                props ["limit", "query"]
+
+The delete design needed `include_deleted: true` so a retired record would still be listed and could be restored. **This build has
+no such field**, so the Delete would have been a one-way door on the shipped fleet: the record disappears and the Restore the page
+offers can never be reached. `64b2583` reverts it; `memory.update` left the inventory with it. **The soft delete waits for a device
+build that carries the flag.**
+
+**THREE DEFECTS THE LIVE CHECK FOUND ON THE SAME PAGE, ALL FIXED:**
+
+1. **`#device/memory` drew nothing** — `surface-link.ts` kept its own copy of the tab list, so a tab the rail offers was unroutable
+   and the fragment fell through to the overview. The router reads `DEVICE_TABS` now (`691ef97`).
+2. **`the machine answered without a list`** — the shipped device answers `memory.list` with a **bare array of `{id, tags, text}`**
+   (no title, no content, no namespace, no timestamps), while the source in this tree answers `{ok, results:[{id, title, content,
+   namespace, source, created_at, updated_at, deleted}]}`. Both are read now, and a title is derived from the record's own first
+   line when the build has none (`bc12d1e`).
+3. **`no date` printed on every row** — `seconds()` turned an absent timestamp into 0 and `stamp()` printed it. An absent stamp is
+   null, and the meta line joins only the facts the record has (`34d8647`).
+
+**LIVE AFTER `-ux225`**: `5 entries · newest first`, the first reading *"summrise-agent canonical port is 7737 since 2026-11-04 (was
+18080)…"*, tags drawn, no invented date.
+
+**THE PATTERN, NAMED FOR THE NEXT ROUNDS**: the deployed fleet (0.3.292) answers THREE tools in shapes older than this tree's
+source — `monitor.list` (bare array), `memory.list` (bare array of a thinner record), `monitor.add` (four required fields). A console
+that reads only the tree's shape will keep failing on the fleet. **Read the wire, and keep a test for each wire shape found.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
