@@ -3775,8 +3775,13 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 /* **AND ACTIVITY'S HEAD CARRIES A CLAIM TOO (measured 2026-11-12, after Home's fix): `Activity` drew 22/700 above
    `Today: 153 client calls, 10 failed.` at 17/600 — the same shape the contract's `head.nameWhenClaim` refuses, one page
    over.** The rule is about a HEAD WITH A CLAIM, not about Home; both pages take it. */
-.home-page .page-head h1,
-.activity-page .page-head h1 {
+/* **THE RULE IS CONDITIONAL, AND THE SELECTOR SAYS SO (the hundred-and-fifty-eighth list's lesson, applied here).**
+   `head.nameWhenClaim` holds only when the head HAS a claim: Activity draws `.activity-today` only while the day's count is
+   known (`activityCount !== null && activityRange === null`), so a page whose day could not be read must keep its title's rung
+   rather than become a grey caption with nothing to caption. `:has()` puts the condition in the selector, where a reader and a
+   gate can both see it. */
+.home-page .page-head:has(.home-verdict) h1,
+.activity-page .page-head:has(.activity-today) h1 {
   font-size: var(--fs-base); font-weight: var(--fw-medium);
   color: var(--ink-muted); letter-spacing: var(--tracking-none);
 }
@@ -4079,8 +4084,13 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 /* **AND ACTIVITY'S HEAD CARRIES A CLAIM TOO (measured 2026-11-12, after Home's fix): `Activity` drew 22/700 above
    `Today: 153 client calls, 10 failed.` at 17/600 — the same shape the contract's `head.nameWhenClaim` refuses, one page
    over.** The rule is about a HEAD WITH A CLAIM, not about Home; both pages take it. */
-.home-page .page-head h1,
-.activity-page .page-head h1 {
+/* **THE RULE IS CONDITIONAL, AND THE SELECTOR SAYS SO (the hundred-and-fifty-eighth list's lesson, applied here).**
+   `head.nameWhenClaim` holds only when the head HAS a claim: Activity draws `.activity-today` only while the day's count is
+   known (`activityCount !== null && activityRange === null`), so a page whose day could not be read must keep its title's rung
+   rather than become a grey caption with nothing to caption. `:has()` puts the condition in the selector, where a reader and a
+   gate can both see it. */
+.home-page .page-head:has(.home-verdict) h1,
+.activity-page .page-head:has(.activity-today) h1 {
   font-size: var(--fs-base); font-weight: var(--fw-medium);
   color: var(--ink-muted); letter-spacing: var(--tracking-none);
 }

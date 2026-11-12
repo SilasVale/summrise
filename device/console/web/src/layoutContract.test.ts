@@ -1003,16 +1003,21 @@ describe("the layout contract", () => {
     // `--fs-xl` and the test passed, because it had read the phone rule). A page that draws the name twice must draw it
     // one way, and this is the width-independent way to say so.
     const named = contract.head.nameWhenClaim;
-    const blocks = [...css().matchAll(/([^{}]*\.page-head h1[^{}]*)\{\n([\s\S]*?)\n\}/g)].map((m) => ({
+    const blocks = [...css().matchAll(/([^{}]*\.page-head[^{}]*h1[^{}]*)\{\n([\s\S]*?)\n\}/g)].map((m) => ({
       selector: m[1],
       body: m[2]
     }));
-    const held = blocks.filter((block) => block.selector.includes(".home-page .page-head h1"));
+    const held = blocks.filter((block) => block.selector.includes(".home-page .page-head"));
+    // **THE CONDITION IS PART OF THE RULE.** Activity's claim is drawn only while the day's count is known, so the head is
+    // marked by `:has(.activity-today)` rather than by the page's name — the lesson of the picker's regression, in a selector.
+    for (const block of held) {
+      expect(block.selector, "the rule carries its condition").toContain(":has(");
+    }
     expect(held.length, "the rule is drawn at both widths").toBe(2);
     for (const block of held) {
       // **BOTH PAGES THAT CARRY A CLAIM** — measured 2026-11-12, one round apart: Home's tie was fixed first and Activity
       // kept drawing `Activity` 22/700 above a 17/600 claim, which is the same shape the rule refuses.
-      expect(block.selector, "Activity's head carries a claim too").toContain(".activity-page .page-head h1");
+      expect(block.selector, "Activity's head carries a claim too").toContain(".activity-page .page-head:has(.activity-today) h1");
       const size = tokenFor(tokens(), 13, "fs");
       expect(named.size).toBe("base");
       expect(block.body, "the name takes the contract's step").toContain(`font-size: var(--${size})`);
