@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ServicesWatched } from "./ServicesWatched";
 import { callTool, type Grant } from "./terminal";
@@ -47,6 +47,16 @@ describe("ServicesWatched — what the device probes", () => {
     expect(screen.getByText("1 drop")).toBeInTheDocument();
     expect(screen.getByText("HTTP 200")).toBeInTheDocument();
     expect(screen.getByText(/probed every 15 s/)).toBeInTheDocument();
+  });
+
+  it("reads the BARE ARRAY the shipped device answers with, and draws it as empty", async () => {
+    // Measured on the live fleet 2026-11-12: `monitor.list` on 0.3.292 answers `[]`, not `{ok, targets}`, and the page said
+    // "the machine answered monitor.list without a list" for a machine with nothing to watch.
+    mocked.mockResolvedValue("[]");
+    render(<ServicesWatched grant={GRANT} />);
+    await waitFor(() =>
+      expect(screen.getByText("This machine watches no services.")).toBeInTheDocument()
+    );
   });
 
   it("draws an empty watch list as a sentence, not a blank section", async () => {

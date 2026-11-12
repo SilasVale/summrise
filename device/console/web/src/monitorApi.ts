@@ -58,6 +58,7 @@ export async function readMonitors(grant: Grant): Promise<MonitorRead> {
   let answer: Record<string, unknown>;
   try {
     const parsed: unknown = JSON.parse(body);
+    // A bare array is one of the two shapes (see below), so it is kept as an array and read by `Array.isArray` there.
     answer = (parsed !== null && typeof parsed === "object" ? parsed : {}) as Record<string, unknown>;
   } catch {
     throw new Error("the machine answered with text, not a list of services");
@@ -66,10 +67,20 @@ export async function readMonitors(grant: Grant): Promise<MonitorRead> {
     const refusal = typeof answer.error === "string" ? answer.error : "";
     throw new Error(refusal !== "" ? refusal : "the machine refused the read");
   }
-  if (!Array.isArray(answer.targets)) {
+  // **TWO SHAPES, AND THE DEVICE SAYS WHICH BY ANSWERING.** Measured on the LIVE fleet 2026-11-12: `monitor.list` on
+  // DESKTOP-9VH92BJ (0.3.292) answers **`[]`** — a bare array — while the newer source in this tree answers
+  // `{ok, interval_secs, targets: […]}`. The page read only the newer one, so a machine with nothing to watch reported
+  // `the machine answered monitor.list without a list` (caught in the live check, not by a test — which is why the live check
+  // exists). Both are read here, and neither is guessed: an answer that is neither is still an error.
+  const list: unknown[] | null = Array.isArray(answer)
+    ? answer
+    : Array.isArray(answer.targets)
+      ? answer.targets
+      : null;
+  if (list === null) {
     throw new Error("the machine answered monitor.list without a list");
   }
-  const targets = answer.targets.flatMap((value): MonitorTarget[] => {
+  const targets = list.flatMap((value): MonitorTarget[] => {
     const raw = (value !== null && typeof value === "object" ? value : {}) as Record<string, unknown>;
     const host = typeof raw.host === "string" ? raw.host : "";
     const port = num(raw.port);
