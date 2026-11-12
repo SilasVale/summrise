@@ -1773,6 +1773,34 @@ try {
   if ((await page.locator('tr.fleet-row').count()) !== 4) {
     throw new Error('opening a machine hid the fleet table');
   }
+  // **A HEAD WITH A CLAIM DRAWS ITS NAME AS CONTEXT — ON THE RENDERED PAGE, NOT ONLY IN THE SHEET (the
+  // hundred-and-fifty-fifth list).** `layoutContract.test.ts` reads the stylesheet; it cannot see which rule wins at this
+  // width, and it cannot see a second 22 px line creeping back into the head. Measured here: Home's name 13/500 muted and
+  // its verdict 22/600 ink — the rule the contract records as `head.nameWhenClaim`, checked where the reader sees it.
+  const headRung = await page.evaluate(() => {
+    const title = document.querySelector('.home-page .page-head h1');
+    const claim = document.querySelector('.home-verdict');
+    const read = (el) => {
+      const cs = getComputedStyle(el);
+      return { size: cs.fontSize, weight: cs.fontWeight, color: cs.color };
+    };
+    return { title: title ? read(title) : null, claim: claim ? read(claim) : null };
+  });
+  if (headRung.title === null || headRung.claim === null) {
+    throw new Error(`Home's head or verdict is missing: ${JSON.stringify(headRung)}`);
+  }
+  if (headRung.title.size !== '13px' || headRung.title.weight !== '500') {
+    throw new Error(
+      `Home's name reads ${headRung.title.size}/${headRung.title.weight}, not the context rung 13/500`
+    );
+  }
+  if (headRung.claim.size !== '22px' || headRung.claim.weight !== '600') {
+    throw new Error(
+      `Home's verdict reads ${headRung.claim.size}/${headRung.claim.weight}, not the title's rung 22/600`
+    );
+  }
+  step('Home draws its name as context and its verdict as the headline');
+
   const selectedHome = await page.evaluate(() => {
     const summary = document.querySelector('.machine-summary');
     const current = document.querySelector('tr.fleet-row.is-current');
