@@ -6257,6 +6257,30 @@ retires the memory; another machine is another question.
     after opening Screen → Browser          5     (one call)
     after leaving and coming back           5     (no second call)
 
+## The hundred-and-ninety-ninth list (SHIPPED 2026-11-12 — a tab from before the deploy is told so)
+
+**THREE FAILURES THE AUDIT COULD ONLY EXPLAIN ONE WAY**: in a single window, `monitor.add`, `memory.list` and `monitor.status` were each
+refused with `the arguments do not match the tool's input schema`, every one `caller: console`, on a build whose own code sends the
+right arguments. A **page left open across a deploy** was calling in the language of the older bundle.
+
+    <meta name="console-version" content="0.3.274-ux254" />    stamped by the server at start
+    /health                            → {"version":"0.3.274-ux254"}
+    differ                             → "A newer console is deployed (…); this page is … Reload to use it."
+
+The server stamps the embedded page once (`stamped_page`, built from the process's own version — a process-wide `OnceLock`, so the
+handlers keep their signatures and the route tests keep passing); the page reads its `<meta>` and compares it with `/health`, re-read
+once a minute because a tab that stays open does not repeat a session probe. The placeholder survives in a `dist/` opened without a
+server, and then the page makes no claim.
+
+**AND THE LIVE PROOF FOUND WHAT THE TESTS COULD NOT** — second pass in the same round: the banner had been written INSIDE the failure
+stack, which the shell draws only when an action has failed. A page stamped `-ux200` against a console serving `-ux253` sat for eighty
+seconds with nothing, while `/health` answered the newer version in the same page. `-ux254` hoists the notice into its own stack above
+the page.
+
+**LIVE AFTER `-ux254`** (the page's own `<meta>` rewritten to an older build by the probe, the server answering the current one):
+
+    A newer console is deployed (0.3.274-ux254); this page is 0.3.274-ux200. Reload to use it.   [Reload]
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
