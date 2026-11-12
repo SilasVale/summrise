@@ -439,6 +439,12 @@ python3 -m http.server 18111 --bind 127.0.0.1 --directory /tmp/canary-rehearsal 
 scripts/verify-release.sh 0.3.167 --mirror http://127.0.0.1:18111
 ```
 
+Add `--device <path> --device-data <dir> --device-install <dir>` to that verify (a device binary built
+from the same release public key, and the data/install of a device that has booted once) and the tool runs
+the device's own `--check-update`: a document whose signature no longer covers it fails here, with the
+device's refusal, instead of on the machine. The sidecar is checked against the signed pointer when the
+mirror serves it. `scripts/rehearse-release.sh` does all of this in one command.
+
 Run 2026-10-28: the build produced `SummriseSetup-0.3.167.exe` (6 175 057 B),
 `summrise-device-0.3.167.exe` (15 967 232 B) and the signed documents; `verify-release` answered
 `ok` on the pointer, the artifact digest and the installer. A real publish is the same command with
