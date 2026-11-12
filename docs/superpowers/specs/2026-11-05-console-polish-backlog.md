@@ -5295,6 +5295,31 @@ titled blocks with three title treatments — the warning card an eyebrow, the r
 **WHAT THIS LEAVES, STATED PLAINLY.** Home's three title treatments are a real inconsistency and they are in the record now,
 with the reason they were not changed: a pinned decision with an argument beats a tidier page with none.
 
+## The hundred-and-fifty-seventh list (CLOSED 2026-11-12 — a footnote is not a card, and the atom says so)
+
+The list the hundred-and-fifty-sixth abandoned is done properly, as a contract decision rather than a page tweak.
+
+    before `ux203`   .installer-strip   surface rgb(255,255,255) · corner 14 px · padding 16 · title 13/700 on its own card
+    after  `ux206`   .installer-strip   surface transparent · corner 0 · hairline above · padding 12 0 0 · title 13/600 muted
+
+**THE ATOM:** `footnote` {radius 0, surface none, borderTop hairline, paddingTop 12, title `base` in `muted`} in
+`layout-contract.json`, byte-identical in both repos, pinned at **`51abc1df…`** by both tests. `card` still governs every block
+that IS the page's content. Home now reads as three things: the head, one warning card, one roster — then a footnote.
+
+**THE GATE LEARNED THE ATOM**, not an exception: the leg that asserted `Home's .installer corner is 14px` now reads the
+installer against the footnote's grammar (corner 0, a 1 px top edge, `12px 0px` padding) while `.attention` and
+`.fleet-table-wrap` keep the card's 14/16.
+
+**TWO MUTATIONS THAT DID NOT COUNT, AND WHY THEY ARE IN THE RECORD.** The first two attempts replaced the FIRST of the rule's
+two textual occurrences and rebuilt — and the gate PASSED, because the mutated rule never reached the bundle (the second
+occurrence is the one that wins, and the first is a dead declaration from the abandoned round). The third attempt grepped
+`dist/index.html` for the mutated rule before believing the result, and then the gate failed by name: `Home's footnote corner is
+14px, the contract says 0`. **A mutation is only a mutation once the artefact carries it** — the same lesson as the roster's
+17/600, learned a second time.
+
+**AND THE DEAD DECLARATION IS GONE**: the `.installer-strip` block that lost to `.installer.installer-strip` on specificity was
+removed, so the sheet no longer carries a rule that cannot run.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
