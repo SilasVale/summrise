@@ -135,6 +135,8 @@ pub(crate) struct DeviceServer {
     update_check: Option<Arc<crate::update_check::UpdateChecker>>,
     /// The plugin host: the `plugins.*` tools and the namespaced tools of every running plugin.
     plugins: Arc<PluginHost>,
+    /// The process's event journal, when one opened. Absent leaves event subscriptions refused.
+    bus: Option<Arc<summrise_bus::Bus>>,
 }
 
 /// Who is asking the handler to run a call.
@@ -270,7 +272,8 @@ pub(crate) fn service_with_terminal(
     let server = DeviceServer::new_with_plugins(config, limits, plugins)
         .with_restart(restart)
         .with_audit(audit)
-        .with_update_check(update_check);
+        .with_update_check(update_check)
+        .with_bus(bus.clone());
     let terminal = Arc::clone(&server.terminal);
     let browser = Arc::clone(&server.browser);
     if let Some(bus) = &bus {
@@ -389,6 +392,7 @@ impl DeviceServer {
             restart: restart::none(),
             update_check: None,
             plugins,
+            bus: None,
         }
     }
 
@@ -433,6 +437,16 @@ impl DeviceServer {
 
     /// Share the process's one audit with the panel, so a session the operator opens from the page
     /// lands in the same file as the calls an AI client makes.
+    pub(crate) fn with_bus(mut self, bus: Option<Arc<summrise_bus::Bus>>) -> DeviceServer {
+        self.bus = bus;
+        self
+    }
+
+    /// The event journal this server publishes to, when one opened.
+    pub(crate) fn bus(&self) -> Option<Arc<summrise_bus::Bus>> {
+        self.bus.clone()
+    }
+
     pub(crate) fn with_audit(mut self, audit: Arc<Audit>) -> DeviceServer {
         self.audit = audit;
         self

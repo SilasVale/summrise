@@ -36,6 +36,8 @@ pub(crate) struct RemoteFrame {
     pub(crate) mcp: Option<Value>,
     /// "Keep sending this session's output until I say stop." Absent on a plain call.
     pub(crate) subscribe: Option<Subscribe>,
+    /// "Also push this device's own events from this sequence." Absent on a plain call.
+    pub(crate) events: Option<EventsSubscribe>,
     /// "Stop the subscription with this id." The id is the `subscribe` frame's own `id`.
     pub(crate) unsubscribe: Option<Unsubscribe>,
     /// The grant the sender says authorizes the request, when it sent one.
@@ -52,6 +54,14 @@ pub(crate) struct Subscribe {
     /// The byte offset the subscriber already has; 0 replays everything retained.
     #[serde(default)]
     pub(crate) from: u64,
+}
+
+/// Where a device-event subscription starts.
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct EventsSubscribe {
+    /// The first sequence to deliver; 0 replays whatever the journal still retains.
+    #[serde(default)]
+    pub(crate) from_seq: u64,
 }
 
 /// The end of a subscription.
@@ -359,6 +369,7 @@ mod tests {
             mcp: Some(mcp),
             subscribe: None,
             unsubscribe: None,
+            events: None,
             grant,
             token: None,
         }
@@ -396,6 +407,7 @@ mod tests {
             mcp: Some(call("terminal.create")),
             subscribe: None,
             unsubscribe: None,
+            events: None,
             grant: None,
             token: Some(scope),
         };
@@ -420,6 +432,7 @@ mod tests {
             mcp: Some(call("files.read")),
             subscribe: None,
             unsubscribe: None,
+            events: None,
             grant: None,
             token: Some(TokenScope {
                 token_id: narrowed.token_id.clone(),
@@ -443,6 +456,7 @@ mod tests {
             mcp: Some(call("runs.exec")),
             subscribe: None,
             unsubscribe: None,
+            events: None,
             grant: None,
             token: Some(narrowed),
         };

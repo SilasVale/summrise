@@ -816,6 +816,35 @@ where
                                 }
                                 continue;
                             }
+                            Some(frame) if frame.events.is_some() => {
+                                // A device-event subscription shares the terminal subscriptions'
+                                // cap: both are one long-lived read on one socket.
+                                if lock_streams(&streams).len() >= MAX_SUBSCRIPTIONS {
+                                    let refusal = json!({
+                                        "id": frame.id,
+                                        "error": json!({
+                                            "jsonrpc": "2.0",
+                                            "id": frame.id,
+                                            "error": {
+                                                "code": -32000,
+                                                "message": "this device already holds the maximum number of subscriptions",
+                                            },
+                                        }),
+                                    });
+                                    let outgoing = outgoing.clone();
+                                    tokio::spawn(async move {
+                                        let _ = outgoing.send(Outbound::Answer(refusal)).await;
+                                    });
+                                } else {
+                                    spawn_events(
+                                        frame,
+                                        server.bus(),
+                                        outgoing.clone(),
+                                        Arc::clone(&streams),
+                                    );
+                                }
+                                continue;
+                            }
                             Some(frame) if frame.unsubscribe.is_some() => {
                                 let sub = frame.unsubscribe.as_ref().map(|u| u.sub).unwrap_or(0);
                                 let stopped = lock_streams(&streams).remove(&sub).is_some();
@@ -898,6 +927,59 @@ fn lock_streams(
     streams
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Follow the device's event journal from a sequence, pushing one frame per event until stopped.
+fn spawn_events(
+    frame: remote::RemoteFrame,
+    bus: Option<Arc<summrise_bus::Bus>>,
+    outgoing: tokio::sync::mpsc::Sender<Outbound>,
+    streams: Arc<Mutex<HashMap<u64, tokio::sync::oneshot::Sender<()>>>>,
+) {
+    tokio::spawn(async move {
+        let id = frame.id;
+        let from_seq = frame.events.map(|events| events.from_seq).unwrap_or(0);
+        let Some(bus) = bus else {
+            let _ = outgoing
+                .send(Outbound::Answer(json!({
+                    "id": id,
+                    "error": {
+                        "code": -32000,
+                        "message": "this device has no event journal",
+                    },
+                })))
+                .await;
+            return;
+        };
+        let mut subscription = match bus.subscribe(from_seq) {
+            Ok(subscription) => subscription,
+            Err(error) => {
+                let _ = outgoing
+                    .send(Outbound::Answer(json!({
+                        "id": id,
+                        "error": { "code": -32000, "message": error.to_string() },
+                    })))
+                    .await;
+                return;
+            }
+        };
+        let (stop, mut stopped) = tokio::sync::oneshot::channel::<()>();
+        lock_streams(&streams).insert(id, stop);
+        loop {
+            let next = tokio::select! {
+                _ = &mut stopped => break,
+                next = subscription.next() => next,
+            };
+            let Some(event) = next else {
+                break;
+            };
+            let pushed = json!({ "id": id, "evt": { "sub": id, "event": event } });
+            if outgoing.send(Outbound::Answer(pushed)).await.is_err() {
+                break;
+            }
+        }
+        lock_streams(&streams).remove(&id);
+    });
 }
 
 /// Follow one terminal session for a subscription: one audited read for the ack, then pushed frames.
@@ -1788,6 +1870,53 @@ mod tests {
             matches!(ConsoleEndpoint::from_config(&config), Ok(None)),
             "no console facts means the feature is off, not an error"
         );
+    }
+
+    #[tokio::test]
+    async fn device_events_follow_from_the_cursor() {
+        let dir = std::env::temp_dir().join(format!(
+            "summrise-console-events-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bus = Arc::new(
+            summrise_bus::Bus::open(dir.join("journal").join("000001.seg"))
+                .expect("the journal opens"),
+        );
+        bus.publish("a", json!({})).unwrap();
+        bus.publish("b", json!({})).unwrap();
+
+        let (outgoing, mut frames) = mpsc::channel(8);
+        let streams = Arc::new(Mutex::new(HashMap::new()));
+        let frame: remote::RemoteFrame =
+            serde_json::from_value(json!({ "id": 7, "events": { "from_seq": 2 } }))
+                .expect("the frame parses");
+        spawn_events(
+            frame,
+            Some(Arc::clone(&bus)),
+            outgoing,
+            Arc::clone(&streams),
+        );
+
+        let first = frames.recv().await.expect("one event").release().0;
+        assert_eq!(first["evt"]["sub"], 7);
+        assert_eq!(first["evt"]["event"]["seq"], 2);
+        assert_eq!(first["evt"]["event"]["type"], "b");
+
+        for _ in 0..100 {
+            if lock_streams(&streams).contains_key(&7) {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        let stop = lock_streams(&streams)
+            .remove(&7)
+            .expect("the subscription is registered");
+        let _ = stop.send(());
     }
 
     /// The channel coming back is the machine's wake, and the console is what tells the checker.
