@@ -63,6 +63,11 @@ jobs:
       # wiring that the in-process tests cannot, and it is the same script a developer runs locally.
       - name: the product loop, the real binaries
         run: ./scripts/smoke-local.sh
+      # **THE OPERATOR'S LOOP, WHICH NO UNIT TEST OWNS.** This enrolls a real device into a real
+      # console through the one-time code, mints a token, calls host.facts through the console's
+      # /mcp/<device>, and reads the call out of both audits — the journey §11 describes, executed.
+      - name: the operator loop, enrol and call through the console
+        run: ./scripts/smoke-enroll.sh
       # The systemd unit is what makes that binary a service; verify its syntax and ExecStart with
       # the binary this job just built, without root or a running systemd.
       - name: the Linux service unit is valid

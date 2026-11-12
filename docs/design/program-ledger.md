@@ -118,10 +118,12 @@ below ladders to that; one round completes one major item end to end.
   device smoke, so the panel, the MCP flow, the audit and the journal are proven on every push, not
   only by hand.
 
-## In flight (branch `feat/full-loop-smoke`)
-
-- A full operator-loop smoke: a real console and a real device, enroll, online in `/fleet`, mint a
-  token, one MCP call through the console, and both audits.
+- 2026-11-13 — The operator loop is a smoke and a CI step: `scripts/smoke-enroll.sh` starts a real
+  console (`--setup`, `/auth`, `POST /enroll`), a real device consumes the one-time code from
+  `console-bootstrap.json` and goes online in `/fleet`, the console mints an `srm_` token, an MCP
+  `initialize`/`tools/list`/`tools/call` goes through `POST /mcp/<device>` and returns `host.facts`,
+  and both the console audit and the device journal carry the call; neither file holds the secret.
+  1.6 s warm; the device job runs it after the product smoke.
 
 ## Next (in order)
 

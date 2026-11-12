@@ -16,6 +16,7 @@ root unless it says otherwise.
 | 8 | Page types | `cd device/console/web && npx tsc --noEmit` | clean |
 | 9 | The product loop, real binaries | `bash scripts/smoke-local.sh` (also a CI step in the device job) | **22 PASS**, `SMOKE OK` |
 | 10 | The update path | `bash scripts/rehearse-release.sh --version 0.3.994 --out /tmp/v1-sweep-rehearsal` | five `ok` lines, including *the device accepts the signed document*; installer built; **PASS in 32 s** |
+| 11 | The operator loop, real binaries | `bash scripts/smoke-enroll.sh` (also a CI step) | all PASS, **`ENROLL SMOKE OK`**: the device self-enrolls from the one-time code, is online in `/fleet`, the console mints a token, `host.facts` runs through the console, and both audits carry the call with no secret |
 
 ## What the sweep itself found
 
