@@ -1383,6 +1383,26 @@ export function App() {
                 )}
               </div>
               <div className="page-actions">
+                  <div className="seg stream-views" role="tablist" aria-label="Activity view">
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={activityView === "stream"}
+                      className={activityView === "stream" ? "seg-on" : undefined}
+                      onClick={() => setActivityView("stream")}
+                    >
+                      Timeline
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={activityView === "table"}
+                      className={activityView === "table" ? "seg-on" : undefined}
+                      onClick={() => setActivityView("table")}
+                    >
+                      Table
+                    </button>
+                  </div>
                 <span className={"live-state" + (live.state === "live" && !activityPaused ? " is-active" : "")}>
                   <span className="live-dot" aria-hidden="true" />
                   {activityPaused ? "Paused" : live.state === "live" ? "Live" : live.state === "offline" ? "Offline" : "Connecting"}
@@ -1426,33 +1446,17 @@ export function App() {
               </div>
             )}
             <section className={activityView === "stream" ? "panel activity-panel is-record" : "panel activity-panel"}>
-              <div className="stream-bar">
-                <div className="seg stream-views" role="tablist" aria-label="Activity view">
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={activityView === "stream"}
-                    className={activityView === "stream" ? "seg-on" : undefined}
-                    onClick={() => setActivityView("stream")}
-                  >
-                    Timeline
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={activityView === "table"}
-                    className={activityView === "table" ? "seg-on" : undefined}
-                    onClick={() => setActivityView("table")}
-                  >
-                    Table
-                  </button>
-                </div>
-                {activityView === "table" && (
+              {/* **THE VIEW SWITCH LIVES IN THE HEAD, NOT ON A ROW OF ITS OWN (the hundred-and-sixtieth list).** Measured at
+                  1440: the segmented control stood alone in a 40 px bar above the filters, so the record began at y=369 —
+                  the page's own switch is a page-level control and belongs beside Live/Pause, where the head already keeps
+                  the page's actions. The bar survives only for the table view's sentence. */}
+              {activityView === "table" && (
+                <div className="stream-bar">
                   <p className="hint stream-note">
                     The audit as rows, with filters and CSV or JSON Lines export.
                   </p>
-                )}
-              </div>
+                </div>
+              )}
               {activityView === "stream" ? (
                 <ActivityTimeline
                   lines={shownActivity}
