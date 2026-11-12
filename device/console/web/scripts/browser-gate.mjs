@@ -2006,7 +2006,10 @@ try {
     .catch(() => {});
   const homeCards = await page.evaluate(() => {
     const out = [];
-    for (const sel of ['.attention', '.fleet-table-wrap', '.installer']) {
+    // **THE INSTALLER IS A FOOTNOTE NOW, NOT A CARD (the hundred-and-fifty-seventh list).** The contract records the atom
+  // (`footnote`: no radius, no surface, a hairline above, 12 px of air), so it is read here as ITS OWN grammar rather than
+  // measured against the card's 14/16. The other two blocks stay cards.
+  for (const sel of ['.attention', '.fleet-table-wrap', '.installer']) {
       const element = document.querySelector(sel);
       if (!element) {
         out.push({ sel, missing: true });
@@ -2019,6 +2022,7 @@ try {
         radius: style.borderTopLeftRadius,
         padLeft: style.paddingLeft,
         padTop: style.paddingTop,
+        borderTop: style.borderTopWidth,
         // **THE STRIP IS STILL A ROW.** `.card` sets `flex-direction: column`; a child rule that
         // sets only `display: flex` keeps the column, and the title / button / sentence stack and
         // centre themselves — measured live as a 238 px block whose four children began at x=710 /
@@ -2034,6 +2038,19 @@ try {
   });
   for (const block of homeCards) {
     if (block.missing) throw new Error(`Home draws no ${block.sel}`);
+    if (block.sel === '.installer') {
+      // The footnote's own grammar, from the contract: no corner, a hairline above, no surface, 12 px of air.
+      if (block.radius !== '0px') {
+        throw new Error(`Home's footnote corner is ${block.radius}, the contract says 0`);
+      }
+      if (block.borderTop !== '1px') {
+        throw new Error(`Home's footnote top edge is ${block.borderTop}, the contract says a hairline`);
+      }
+      if (block.padTop !== '12px' || block.padLeft !== '0px') {
+        throw new Error(`Home's footnote padding is ${block.padTop} ${block.padLeft}, expected 12px 0px`);
+      }
+      continue;
+    }
     if (!block.card) throw new Error(`Home's ${block.sel} is not on the card grammar`);
     if (block.radius !== '14px') {
       throw new Error(`Home's ${block.sel} corner is ${block.radius}, the contract says 14px`);

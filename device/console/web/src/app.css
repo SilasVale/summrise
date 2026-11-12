@@ -3979,6 +3979,14 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
      rhythm is the card's and the row's spacing is the row's. */
   display: flex; flex-direction: row; align-items: center; column-gap: var(--sp-3-5);
   row-gap: var(--sp-2); flex-wrap: wrap;
+  /* **A BLOCK AT THE PAGE'S FOOT IS A FOOTNOTE, NOT A CARD (the contract's `footnote`, the hundred-and-fifty-seventh list).**
+     Measured on the LIVE Home page 2026-11-12 (`0.3.274-ux203`, 1440): three titled blocks, three title treatments, and the
+     installer was a THIRD card whose content is one sentence, one button and one filename. A footnote keeps the space it
+     needs and loses the box — a hairline above instead of a surface and a corner. **THE RULE HAS TO SIT HERE**: a
+     `.installer-strip` block earlier in this sheet lost to THIS selector (0,2,0 beats 0,1,0) and the strip kept drawing
+     `rgb(255,255,255)` at a 14 px corner. */
+  border: 0; border-top: 1px solid var(--line); border-radius: 0;
+  padding: var(--sp-3) 0 0; background: transparent;
 }
 /* **A CARD'S TITLE IS THE CONTRACT'S STEP, NOT A PARKED `normal` (the seventy-fifth list).** Measured 2026-11-10
    on Home by grouping the page by size AND weight: at 14/600 two things carried two steps — "DESKTOP-14RJCR8"
@@ -3988,8 +3996,8 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
    The card's title takes the display step, like every other title on the surface: an element that LOOKS
    like a heading and is set at the baseline is the drift this list is about. */
 .installer-strip h2 {
-  margin: 0; font-size: var(--fs-md); font-weight: var(--fw-semi);
-  letter-spacing: var(--tracking-display);
+  margin: 0; font-size: var(--fs-base); font-weight: var(--fw-semi);
+  letter-spacing: var(--tracking-display); color: var(--ink-muted);
 }
 .installer-strip .btn { flex: none; }
 .installer-strip .hint { margin: 0 0 0 auto; font-size: var(--fs-xs); }

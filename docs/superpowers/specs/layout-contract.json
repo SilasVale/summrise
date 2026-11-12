@@ -160,6 +160,15 @@
     "gap": 8,
     "headerGap": 8
   },
+  "footnote": {
+    "$comment": "**A BLOCK THAT SITS AT THE PAGE'S FOOT IS A FOOTNOTE, NOT A CARD (the hundred-and-fifty-seventh list).** Measured on the LIVE console 2026-11-12 (`0.3.274-ux203`, 1440, Home): three titled blocks drew three title treatments and two surfaces — the warning card an eyebrow on a card, the roster none on a card, and the installer a 13/700 card title on a THIRD card whose only content is one sentence, one button and one filename. A footnote is what a page says after it has finished: it keeps the space it needs, loses the card's box (a hairline above instead of a surface and a corner), and its name is a label, not a title. `card` still governs every block that IS the page's content.",
+    "radius": 0,
+    "surface": "none",
+    "borderTop": "hairline",
+    "paddingTop": 12,
+    "titleStep": "base",
+    "titleInk": "muted"
+  },
   "row": {
     "$comment": "A ROW inside a list (the eighty-seventh list). Measured 2026-11-10 across both surfaces: seven row shapes for ONE idea — heights 36/46/57/76/77/134, insets `0`, `8px 10px`, `8px 12px`, `16px`, and the space AFTER a row 0/6/8/18. What is ONE decision is recorded here; what is a LEVEL is left to the page, because a memory entry IS taller than a plugin name. A list of LINES (the attention rows, the fleet table, the timeline) separates by its own leading and draws a rule only where the meaning changes; a list of BOXES separates by the scale's 6-8.",
     "insetX": 8,
