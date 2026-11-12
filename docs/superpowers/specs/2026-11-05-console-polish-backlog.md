@@ -6,6 +6,33 @@ down, solve them, and keep going — a goal that can run for hours without a que
 Each item ships on its own: the web gates, the console's Rust tests, a live check on
 `console.saisi.online` with a screenshot, then one commit. An item is done when all four are true.
 
+## THE GATE LEDGER (snapshot 2026-11-12, every number run on this tree)
+
+Two repositories, three kinds of gate: **Rust**, **vitest**, and **a browser gate that drives the BUILT page**. Every command
+below was run the day this ledger was written, and the console's `0.3.274-ux213` was serving the same bundle the browser gate
+exercised.
+
+| Where | Command | Count | What it holds |
+|---|---|---|---|
+| console | `cargo test -p summrise-console` | **437** | `tokens.rs` **15 named gates** (seven sizes, four weights, five radii, fifteen contrast pairs, the rem-and-px rhythm, the dark restatement, "every box-shadow names a token", "a declared elevation is used", the tracking tokens); `console.rs` **10** (routing and HTTP behaviour, e.g. a typed path lands on its page); **167** unit tests of the logic |
+| console | `cargo test -p summrise-ui` | **2** | the token SOURCE the sheet is generated from — where the six elevation families live since the hundred-and-seventieth list |
+| console | `npm test` | **1,141** in **67 files** | components, logic, and the shared contract |
+| console | └ `layoutContract.test.ts` | **60** | the contract with the panel, hash-pinned; page heads, the card, the footnote atom, the palette, the shadow inventory |
+| console | └ `toolNames.test.ts` | **3** | the 32 device tool names, both directions (an addition fails, a removal fails) |
+| console | `npm run gate:browser` | **107 steps** | the RENDERED page: Home's name 13/500 and its verdict 22/600, the palette (every text ink resolves to a token), icons (≤ 8, none unlabelled), the installer's footnote corner, 390 and 1440 layouts, export, terminal, reconnect |
+| panel | `npx vitest run` (in `agent/resources/panel-react`) | **1,065** in **120 files** | the desktop panel |
+| panel | └ `layoutContract.test.ts` | **67** | the same contract, its own side |
+| panel | `cargo test --test panel_sheet_freshness` | **1** | the built sheet is fresh against its source |
+| panel | └ `--test spacing_scale` · `--test stylesheet_hygiene` | **2** · **5** | rhythm, and the sheet's hygiene |
+
+**THE SHARED PIN**: `docs/superpowers/specs/layout-contract.json`, byte-identical in both repositories, **sha256
+`51abc1dfd3c4c926df500497662c854dd7f06169d8abaaaebd300136178d12b2`**, pinned by a literal in BOTH `layoutContract.test.ts` files.
+
+**AND ALL TWENTY RULES HAVE A HOLDER** — the ledger at the hundred-and-sixty-ninth list names each one (tokens for 1/3/4/11/13/15/16/
+18/20; the head fields and the rendered gate for 5; the palette gate for 6; the footnote atom for 12; the icon gate for 17; the
+browser gate and jsdom for 19). **A snapshot is a claim about a day, not a promise about a year**: the numbers move, and the
+commands above are how a reader checks them.
+
 ## P0 — the record of what the AI did
 
 1. **Timeline + evidence** *(Shipped after the 2026-11-04 outage: live by `0.3.273-ux44` and
