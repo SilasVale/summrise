@@ -89,7 +89,7 @@ export function ForwardRules({
   // `forward.list` — a name no device registers — so every real machine took the "Older build" branch
   // and the list was never even asked for. `agent/src/vocabulary.rs` names the two read tools
   // `forward_list` and `forward_probe`.
-  const supported = live.tools.some((tool) => tool.name === "forward_list");
+  const supported = live.tools.some((tool) => tool.name === "forward.list");
   const [rows, setRows] = useState<ForwardRow[] | null>(null);
   // **THE CLOCK EVERY ROW ON THIS PAGE IS MEASURED AGAINST.** Set by the read that brought the rows,
   // so the ages cannot be computed from the browser's `now` drifting forward between renders — a

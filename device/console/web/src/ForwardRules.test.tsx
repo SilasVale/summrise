@@ -14,10 +14,10 @@ const mocked = vi.mocked(callTool);
 
 const GRANT: Grant = { deviceId: "device-1", envelope: { token: "envelope" } };
 
-/// The tool list this build advertises. `forward_list` present means the machine can carry rules at
+/// The tool list this build advertises. `forward.list` present means the machine can carry rules at
 /// all — the fact the section gates its first read on.
 const liveTools = vi.hoisted(() => ({
-  tools: ["forward_list", "forward_probe"] as string[],
+  tools: ["forward.list", "forward.probe"] as string[],
   loading: false,
   error: null as string | null
 }));
@@ -42,7 +42,7 @@ vi.mock("./useLiveTools", () => ({
  * claimed it was "copied from `forward.list`" — it was copied from this page's reader, so the suite
  * was green while the page could not read a device at all.
  *
- * `state` carries no credential: the device stores `auth` inside the rule and `forward_list` reports
+ * `state` carries no credential: the device stores `auth` inside the rule and `forward.list` reports
  * the row without it, which is why this page can be drawn at all.
  */
 type Wire = {
@@ -115,7 +115,7 @@ const called = (name: string) => mocked.mock.calls.filter((call) => call[1] === 
 describe("ForwardRules", () => {
   beforeEach(() => {
     mocked.mockReset();
-    liveTools.tools = ["forward_list", "forward_probe"];
+    liveTools.tools = ["forward.list", "forward.probe"];
     liveTools.loading = false;
     liveTools.error = null;
   });
@@ -142,8 +142,11 @@ describe("ForwardRules", () => {
 
     // A failing rule's own sentence is on the page; a healthy rule has none.
     expect(screen.getByText(BROKEN.state.last_error as string)).toBeTruthy();
-    // **THE DEVICE'S TOOL NAME, NOT THIS PAGE'S** (the hundred-and-fortieth list): `forward_list`.
-    expect(called("forward_list").length).toBe(1);
+    // **THE DEVICE'S OWN NAME.** Read from a live device on 2026-11-12 (`/fleet/:id/tools`, 0.3.292): every
+    // plugin tool is namespaced with a dot — `terminal.read`, `files.read`, `plugins.list` — so the Forward
+    // section's name is `forward.list`. The round that renamed this to `forward_list` read the agent's
+    // DECLARATION literals instead of the device's catalogue; this is the correction (the hundred-and-forty-first list).
+    expect(called("forward.list").length).toBe(1);
   });
 
   it("says a machine with no rules has none, and where a rule comes from instead of a button", async () => {
@@ -181,9 +184,9 @@ describe("ForwardRules", () => {
       expect(await screen.findByText("Older build")).toBeTruthy();
       expect(screen.getByText(/does not advertise the forward tools yet/)).toBeTruthy();
       // The proof that this is a sentence and not a failure: nothing was asked.
-      expect(called("forward_list").length).toBe(0);
+      expect(called("forward.list").length).toBe(0);
     } finally {
-      liveTools.tools = ["forward_list", "forward_probe"];
+      liveTools.tools = ["forward.list", "forward.probe"];
     }
   });
 
@@ -226,7 +229,7 @@ describe("ForwardRules", () => {
     render(<ForwardRules grant={GRANT} deviceId="device-1" deviceOnline={false} />);
 
     expect(screen.getByText(/The machine is offline/)).toBeTruthy();
-    expect(called("forward_list").length).toBe(0);
+    expect(called("forward.list").length).toBe(0);
   });
 
   it("shows the device's own sentence when the list is refused, and retries", async () => {
@@ -250,7 +253,7 @@ describe("ForwardRules", () => {
     device(() => JSON.stringify([LIVE]));
     render(<ForwardRules grant={GRANT} deviceId="device-1" />);
 
-    expect(await screen.findByText(/answered forward_list without a list/)).toBeTruthy();
+    expect(await screen.findByText(/answered forward.list without a list/)).toBeTruthy();
     expect(screen.queryByText(/No forward rules/)).toBeNull();
   });
 

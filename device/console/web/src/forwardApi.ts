@@ -48,7 +48,7 @@ const row = (value: unknown): ForwardRow | null => {
   // dropping it is the only answer that does not invent one.
   if (name === "") return null;
   // **THE LIVE STATE IS NESTED, AND THIS READER EXPECTED IT FLAT (the hundred-and-fortieth list).** The
-  // device's `forward_list` answers `{rules: [{name, listen, target, via, state: {…}}]}` — the row plus the
+  // device's `forward.list` answers `{rules: [{name, listen, target, via, state: {…}}]}` — the row plus the
   // executor's own `ForwardState`. This reader was written against a bare array of FLAT rows, a shape the
   // device has never sent, so every state field it looked for was undefined and a bound rule would draw as
   // a rule that is not listening. The shape below is read from `agent/src/plugins/forward/tools.rs` and
@@ -75,7 +75,7 @@ const row = (value: unknown): ForwardRow | null => {
 };
 
 /**
- * Parse the answer to `forward_list`.
+ * Parse the answer to `forward.list`.
  *
  * `[]` and `null` are different answers and must stay different: an empty array is "this machine
  * carries no rules", and `null` is "the device said something this page cannot read". Rendering the
@@ -100,9 +100,9 @@ export function forwardRows(text: string): ForwardRow[] | null {
 }
 
 export async function listForwards(grant: Grant): Promise<ForwardRead> {
-  const text = await callTool(grant, "forward_list", {});
+  const text = await callTool(grant, "forward.list", {});
   const rows = forwardRows(text);
-  if (rows === null) throw new Error("the machine answered forward_list without a list");
+  if (rows === null) throw new Error("the machine answered forward.list without a list");
   // **READ AFTER THE ANSWER, NOT BEFORE THE CALL.** `Date.now()` before the call would date the
   // rows by a moment that is already older than the answer; after it, the age of a bound listener is
   // measured from the moment the page learned it was bound.
