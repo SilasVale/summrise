@@ -118,6 +118,11 @@ below ladders to that; one round completes one major item end to end.
   device smoke, so the panel, the MCP flow, the audit and the journal are proven on every push, not
   only by hand.
 
+## In flight (branch `feat/full-loop-smoke`)
+
+- A full operator-loop smoke: a real console and a real device, enroll, online in `/fleet`, mint a
+  token, one MCP call through the console, and both audits.
+
 ## Next (in order)
 
 1. Windows handoff — build the installer on a Windows runner, silent install/uninstall, run
