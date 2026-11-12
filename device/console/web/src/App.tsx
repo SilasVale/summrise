@@ -1303,6 +1303,22 @@ export function App() {
         </div>
       </header>
 
+      {/* **THE STALE TAB'S NOTICE STANDS ON ITS OWN (the hundred-and-ninety-ninth list).** It was written inside the failure stack,
+          which is drawn only when an action has failed — so the one page that most needed telling (a quiet tab from before a deploy)
+          could never see it. Measured: a page stamped `-ux200` against a console serving `-ux253` sat for eighty seconds with nothing. */}
+      {newerBuild !== null && (
+        <div className="alert-stack">
+          <div className="alert-banner alert-stale" role="status">
+            <span>
+              A newer console is deployed ({newerBuild}); this page is {ownBuild}. Reload to use it.
+            </span>
+            <button type="button" onClick={() => window.location.reload()}>
+              Reload
+            </button>
+          </div>
+        </div>
+      )}
+
       {failures.length > 0 && (
         // **BELOW THE TOPBAR, IN THE SHELL'S OWN ROW (audit-44 F3).** The stack used to float at
         // the window's top and covered the machine switcher exactly when the console was reporting
@@ -1314,18 +1330,6 @@ export function App() {
         // the technical cause in the title (audit-38 F2). A repeat of the same action replaces its
         // entry instead of stacking another banner.
         <div className="alert-stack">
-          {/* **ONE RELOAD, NAMED BY BOTH VERSIONS.** The page says which build it is and which one the console now serves, so the
-              operator can tell a needed reload from a stale tab they were about to lose work in. */}
-          {newerBuild !== null && (
-            <div className="alert-banner alert-stale" role="status">
-              <span>
-                A newer console is deployed ({newerBuild}); this page is {ownBuild}. Reload to use it.
-              </span>
-              <button type="button" onClick={() => window.location.reload()}>
-                Reload
-              </button>
-            </div>
-          )}
           {failures.map((failure) => (
             <div className="alert-banner" role="alert" key={failure.key}>
               <span title={failure.detail}>{failure.sentence}</span>
