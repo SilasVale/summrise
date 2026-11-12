@@ -1838,6 +1838,38 @@ try {
   }
   step(`Home's ${palette.inks.length} text inks are all tokens`);
 
+  // **ICONS ARE FEW AND NEVER ALONE (rule 17, the hundred-and-sixty-ninth list).** Measured live 2026-11-12 at 1440: Home and
+  // Activity draw **5** `<svg>` elements and Device **6** — the rail's three, the wordmark, and a chevron — of which every one is
+  // either `aria-hidden` or inside a control that carries text. The cap is the rule: an icon set that grows by one per round is
+  // how a product ends up with forty glyphs nobody named, and an icon that is neither hidden nor labelled is a button screen
+  // readers cannot name.
+  const icons = await page.evaluate(() => {
+    const all = [...document.querySelectorAll('svg')];
+    const labelled = (svg) => {
+      const control = svg.closest('button, a, summary, [role="button"]');
+      const text = (control?.textContent ?? '').trim();
+      const name =
+        svg.getAttribute('aria-label') ||
+        control?.getAttribute('aria-label') ||
+        control?.getAttribute('title') ||
+        '';
+      return text !== '' || name !== '';
+    };
+    return {
+      total: all.length,
+      unlabelled: all
+        .filter((svg) => svg.getAttribute('aria-hidden') !== 'true' && !labelled(svg))
+        .map((svg) => svg.parentElement?.className?.toString?.() ?? '')
+    };
+  });
+  if (icons.total > 8) {
+    throw new Error(`Home draws ${icons.total} icons, not the few this surface has ever had (5)`);
+  }
+  if (icons.unlabelled.length > 0) {
+    throw new Error(`Home draws icons that are neither hidden nor labelled: ${JSON.stringify(icons.unlabelled)}`);
+  }
+  step(`Home's ${icons.total} icons are hidden or labelled, and there are no more`);
+
   const selectedHome = await page.evaluate(() => {
     const summary = document.querySelector('.machine-summary');
     const current = document.querySelector('tr.fleet-row.is-current');
