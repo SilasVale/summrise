@@ -15,13 +15,13 @@ export type MemoryEntry = {
   title: string;
   content: string;
   tags: string[];
-  namespace: string;
-  source: string;
+  /** Absent on the build the fleet runs today (`{id, tags, text}`); the page then draws only what it has. */
+  namespace: string | null;
+  source: string | null;
   runId: string | null;
-  /** When the record was written, in Unix SECONDS (the device's unit). */
-  createdAt: number;
-  /** When it last changed, in Unix SECONDS. */
-  updatedAt: number;
+  /** When the record was written, in Unix SECONDS, or null when the build does not report one. */
+  createdAt: number | null;
+  updatedAt: number | null;
   deleted: boolean;
 };
 
@@ -35,25 +35,46 @@ const seconds = (value: unknown): number => {
   return n > 0 && n < 32_503_680_000 ? Math.round(n) : 0;
 };
 
+/**
+ * One record, in EITHER shape. Measured on the LIVE fleet 2026-11-12: the shipped device (0.3.292) answers
+ * `[{id, tags, text}]` — no title, no content, no timestamps — while the source in this tree answers
+ * `{ok, results:[{id, title, content, tags, namespace, source, created_at, updated_at, deleted}]`. The page read only the
+ * newer one, so the real machine's memory drew as `the machine answered without a list`.
+ */
 const entry = (value: unknown): MemoryEntry | null => {
   if (value === null || typeof value !== "object") return null;
   const raw = value as Record<string, unknown>;
   const id = text(raw.id);
-  const title = text(raw.title);
-  if (id === "" || title === "") return null;
+  if (id === "") return null;
+  const body = text(raw.content) !== "" ? text(raw.content) : text(raw.text);
+  const titled = text(raw.title);
+  // A build without a title gets one from its own text: the first line, cut at a word boundary. It is the record's opening
+  // sentence, not a summary the console invented.
+  const title = titled !== "" ? titled : firstLine(body);
+  const content = titled !== "" ? body : body.slice(Math.min(body.length, firstLine(body).length)).trim();
+  if (title === "") return null;
   return {
     id,
     title,
-    content: text(raw.content),
+    content,
     tags: Array.isArray(raw.tags) ? raw.tags.filter((tag): tag is string => typeof tag === "string") : [],
-    namespace: text(raw.namespace, "shared"),
-    source: text(raw.source, "unknown"),
+    namespace: text(raw.namespace) !== "" ? text(raw.namespace) : null,
+    source: text(raw.source) !== "" ? text(raw.source) : null,
     runId: typeof raw.run_id === "string" && raw.run_id !== "" ? raw.run_id : null,
     createdAt: seconds(raw.created_at),
     updatedAt: seconds(raw.updated_at),
     deleted: raw.deleted === true
   };
 };
+
+/** The first line of a record's text, cut to 80 characters at a space when it is longer. */
+function firstLine(body: string): string {
+  const line = body.split("\n")[0].trim();
+  if (line.length <= 80) return line;
+  const cut = line.slice(0, 80);
+  const space = cut.lastIndexOf(" ");
+  return (space > 40 ? cut.slice(0, space) : cut).trim() + "…";
+}
 
 /**
  * The list, newest first. `query` is the difference between the two tools: `memory.search` matches a substring
@@ -79,7 +100,15 @@ export async function readMemory(
   if (answer.ok === false) {
     return { entries: [], ok: false, error: text(answer.error, "the machine refused the read") };
   }
-  const rows = Array.isArray(answer.results) ? answer.results : null;
+  // **TWO SHAPES, AND THE DEVICE SAYS WHICH BY ANSWERING.** Measured on the LIVE fleet 2026-11-12: the shipped device
+  // (0.3.292) answers `memory.list` with a **bare array** of `{id, tags, text}` records, while the source in this tree answers
+  // `{ok, results:[…]}` with the richer record. The page read only the newer one, so the real machine's memory drew as
+  // `the machine answered without a list`.
+  const rows: unknown[] | null = Array.isArray(answer)
+    ? (answer as unknown[])
+    : Array.isArray(answer.results)
+      ? answer.results
+      : null;
   if (rows === null) {
     return { entries: [], ok: false, error: "the machine answered without a list" };
   }

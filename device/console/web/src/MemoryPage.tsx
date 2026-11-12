@@ -126,8 +126,13 @@ export function MemoryPage(props: { grant: Grant; deviceOnline?: boolean }) {
             <li key={row.id} className="memory-entry">
               <div className="memory-head">
                 <h3 className="memory-title">{row.title}</h3>
+                {/* **ONLY THE FACTS THIS BUILD REPORTS (the hundred-and-seventy-first list).** The shipped device's records are
+                    `{id, tags, text}` — no namespace, no source, no timestamp — so the meta line joins what exists instead of
+                    printing `shared · unknown · no date`, which would be three invented facts on one line. */}
                 <span className="memory-meta">
-                  {row.namespace} · {row.source} · {stamp(row.updatedAt)}
+                  {[row.namespace, row.source, row.updatedAt !== null ? stamp(row.updatedAt) : null]
+                    .filter((part): part is string => part !== null && part !== "")
+                    .join(" · ")}
                   {row.deleted ? " · deleted" : ""}
                 </span>
               </div>

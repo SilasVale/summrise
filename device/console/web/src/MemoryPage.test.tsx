@@ -58,6 +58,23 @@ describe("MemoryPage — the machine's memory, read", () => {
     await waitFor(() => expect(screen.getByText("Nothing matches “tokens”.")).toBeInTheDocument());
   });
 
+  it("reads the {id,tags,text} records the SHIPPED device answers with", async () => {
+    // Measured on the live fleet 2026-11-12: 0.3.292 answers a bare array of `{id, tags, text}` — no title, no timestamps, no
+    // namespace — and the page said "the machine answered without a list".
+    mocked.mockResolvedValue(
+      JSON.stringify([
+        { id: "ed4873", tags: ["agent", "port"], text: "summrise-agent canonical port is 7737 since 2026-11-04." }
+      ])
+    );
+    render(<MemoryPage grant={GRANT} />);
+    await waitFor(() =>
+      expect(screen.getByText("summrise-agent canonical port is 7737 since 2026-11-04.")).toBeInTheDocument()
+    );
+    expect(screen.getByText("1 entry · newest first")).toBeInTheDocument();
+    // no invented namespace, source or date
+    expect(screen.queryByText(/shared · unknown/)).toBeNull();
+  });
+
   it("draws an empty store as a SENTENCE, not as a blank panel", async () => {
     mocked.mockResolvedValue(answer([]));
     render(<MemoryPage grant={GRANT} />);
