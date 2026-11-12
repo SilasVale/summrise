@@ -4869,6 +4869,29 @@ name **all six** native control types. **Mutation:** `summary` dropped from the 
 a gate or recorded with its numbers; this round produced three records with their numbers and one gate for the thing
 that everyone assumed was already guaranteed. The next list starts from the surfaces' own counts, not from suspicion.
 
+## P0 — the hundred-and-thirty-ninth list (CLOSED 2026-11-12 — a wrapped field kept the desktop's right edge)
+
+Measured 2026-11-12 at **1024**, Activity's filter row (row starts at x=256, 744 px wide):
+
+    the search input     x=712  w=288    right-aligned on its own wrapped line, 456 px of the row empty to its left
+
+The machine chips and `Clients only` fill the first line, so the search wraps — and `.timeline-search`'s
+`margin-left: auto`, the rule that parks it at the desktop row's right-hand column, pushed it to the **right edge of
+the line it wrapped to**. Its left edge sat 456 px from every other control's left edge in the same block.
+
+**Fix — console `5129066` (pushed; NOT deployed — the console deploy waits on the operator's word):** between the
+phone breakpoint (640) and `columns` (1088) the field takes the line it wrapped to — the line's full width, from the
+row's own left edge.
+
+    1024   the search input   x=712 w=288  ->  x=256 w=448
+    1440   unchanged          x=1084 w=288 (the desktop's right-hand column)
+    390    unchanged          the filters are behind `Filters` (the hundred-and-thirty-fourth list)
+
+**TWO GATES SPOKE BEFORE THIS LANDED.** The contract test refused `max-width: 1099px` with `1099 must sit on a
+breakpoint` — a query's width must be a declared breakpoint or its neighbour (the sixty-fourth list) — so the rule is
+`max-width: 1087px`; and the 390 probe returns **no search input at all**, which is the hundred-and-thirty-fourth
+list's collapse working. Before/after strip in `.superpowers/sdd/2026-11-05-console-polish-backlog/list139/`.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
