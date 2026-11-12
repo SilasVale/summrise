@@ -10,9 +10,10 @@ import { callTool, ToolError, type Grant } from "./terminal";
  * are different facts about a service, and the page draws them as different words.
  */
 export type MonitorSummary = {
-  probes: number;
-  up: number;
-  down: number;
+  /** How many probes the window holds, or null when the build does not report a count (0.3.292's summary omits it). */
+  probes: number | null;
+  up: number | null;
+  down: number | null;
   /** Percent of probes that were up, or null before the first probe. */
   upPct: number | null;
   /** Whether the newest probe was up, or null before the first probe. */
@@ -41,9 +42,9 @@ const num = (value: unknown): number | null =>
 const summary = (value: unknown): MonitorSummary => {
   const raw = (value !== null && typeof value === "object" ? value : {}) as Record<string, unknown>;
   return {
-    probes: num(raw.probes) ?? 0,
-    up: num(raw.up) ?? 0,
-    down: num(raw.down) ?? 0,
+    probes: num(raw.probes),
+    up: num(raw.up),
+    down: num(raw.down),
     upPct: num(raw.up_pct),
     upNow: typeof raw.up_now === "boolean" ? raw.up_now : null,
     sinceMs: num(raw.since_ms),

@@ -130,7 +130,7 @@ describe("ServicesWatched — what the device probes", () => {
     fireEvent.click(screen.getByRole("button", { name: "Probe now" }));
     await waitFor(() => expect(mocked).toHaveBeenCalledWith(GRANT, "monitor.probe", { id: UP.id }));
     // and the row is the DEVICE's summary again, not a guess by the page
-    await waitFor(() => expect(mocked.mock.calls.filter(([g, n]) => n === "monitor.list").length).toBeGreaterThan(1));
+    await waitFor(() => expect(mocked.mock.calls.filter(([, n]) => n === "monitor.list").length).toBeGreaterThan(1));
   });
 
   it("drops a target it cannot address, rather than drawing a blank row", async () => {

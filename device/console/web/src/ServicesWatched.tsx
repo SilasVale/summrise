@@ -192,10 +192,16 @@ export function ServicesWatched(props: { grant: Grant; online?: boolean }) {
                     {target.summary.upNow ? "up" : "down"} since {stamp(target.summary.sinceMs)}
                   </span>
                 )}
-                {target.summary.upPct !== null && (
+                {/* **A PERCENTAGE WITHOUT A COUNT IS NOT A CLAIM THIS PAGE CAN MAKE.** The shipped device's summary carries
+                    `up_pct` but no `probes`; drawing `0% of 0 probes` invented the zero. The count is named only when the build
+                    reports one. */}
+                {target.summary.upPct !== null && target.summary.probes !== null && target.summary.probes > 0 && (
                   <span className="service-meta">
                     {Math.round(target.summary.upPct)}% of {target.summary.probes} probes
                   </span>
+                )}
+                {target.summary.upPct !== null && target.summary.probes === null && (
+                  <span className="service-meta">{Math.round(target.summary.upPct)}% up in the window</span>
                 )}
                 {target.summary.drops !== null && target.summary.drops > 0 && (
                   <span className="service-meta">
