@@ -28,7 +28,8 @@ const callbacks = {
   onSelect: vi.fn(),
   onRename: vi.fn(),
   onRemove: vi.fn(),
-  onDiagnostics: vi.fn()
+  onDiagnostics: vi.fn(),
+  onOpenTab: vi.fn()
 };
 
 /**
@@ -448,5 +449,13 @@ describe("DeviceCard — one row on the fleet", () => {
   it("draws no behind cue for a machine newer than the staged installer", () => {
     draw({ version: "0.3.99" });
     expect(screen.queryByText(/behind/)).toBeNull();
+  });
+  it("offers the row's two new doors, and each names the tab it opens", () => {
+    draw();
+    // The menu is a <details>; its buttons exist in the DOM whether or not it is open, which is what a person clicks.
+    fireEvent.click(screen.getByRole("button", { name: "Watch a service" }));
+    expect(callbacks.onOpenTab).toHaveBeenCalledWith("machine");
+    fireEvent.click(screen.getByRole("button", { name: "Read its memory" }));
+    expect(callbacks.onOpenTab).toHaveBeenCalledWith("memory");
   });
 });

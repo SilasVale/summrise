@@ -53,6 +53,12 @@ type Props = {
   onRename: () => void;
   onRemove: () => void;
   onDiagnostics: () => void;
+  /**
+   * **THE ROW'S TWO NEW DOORS (the hundred-and-eighty-first list).** The console can now watch a service on a machine and read what
+   * its AI learned, and neither was reachable from the fleet table — the page a person uses to pick a machine. The menu is where a
+   * row's management already lives, so the doors go there rather than into a new column.
+   */
+  onOpenTab?: (tab: "machine" | "memory") => void;
 };
 
 /**
@@ -72,7 +78,8 @@ export function DeviceCard({
   onSelect,
   onRename,
   onRemove,
-  onDiagnostics
+  onDiagnostics,
+  onOpenTab
 }: Props) {
   const label = device.name ?? shortId(device.id);
   // **THE AGE IS THE NEWEST EVIDENCE THE CONSOLE HAS.** A frame proves presence and wins; a console
@@ -139,6 +146,16 @@ export function DeviceCard({
             <button type="button" onClick={onDiagnostics}>
               Copy diagnostics
             </button>
+            {onOpenTab !== undefined && (
+              <>
+                <button type="button" onClick={() => onOpenTab("machine")}>
+                  Watch a service
+                </button>
+                <button type="button" onClick={() => onOpenTab("memory")}>
+                  Read its memory
+                </button>
+              </>
+            )}
             <button type="button" onClick={onRename}>
               Rename
             </button>

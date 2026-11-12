@@ -716,6 +716,7 @@ function FleetHome(props: HomePageProps) {
                   onRename={() => props.onRename(device)}
                   onRemove={() => props.onRemove(device)}
                   onDiagnostics={() => props.onDiagnostics(device)}
+                  onOpenTab={(tab) => props.onOpenTab?.(device.id, tab)}
                 />
               ))}
             </tbody>
@@ -842,6 +843,8 @@ export type HomePageProps = FleetProps & {
   device: Device | null;
   /** Open the selected machine's own page: Device → Overview. */
   onDevice: () => void;
+  /** Open one machine's tab from the fleet table's row menu (`machine` or `memory`). */
+  onOpenTab?: (deviceId: string, tab: "machine" | "memory") => void;
   onConnect: () => void;
   onTools: () => void;
 };

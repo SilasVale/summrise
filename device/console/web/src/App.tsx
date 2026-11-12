@@ -1313,6 +1313,11 @@ export function App() {
               setPage("device");
               setTab("machine");
             }}
+            onOpenTab={(id, tab) => {
+              choose(id);
+              setPage("device");
+              setTab(tab);
+            }}
             onRename={(device) => {
               setRenaming(device);
               setDraftName(device.name ?? "");
