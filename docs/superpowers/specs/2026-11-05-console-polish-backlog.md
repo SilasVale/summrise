@@ -4992,6 +4992,38 @@ equivalent of `panel_tool_names.rs` — a fixture list of the agent's declared n
 **WHY THE ROUND STOPS HERE.** A 30-name rewrite on a contradiction would be a guess with a green gate; the measurement above is
 the kind that has to be right before the code moves.
 
+## The hundred-and-forty-second list (CLOSED 2026-11-12 — the deployment, and the page's first eight seconds)
+
+**THE OPERATOR, mid-session: *「部署啊 / 你的审美能好一点吗，感觉做出的东西很乱呢，没有看出层次，还有主次」*.** Both halves were right and both were
+answered with a measurement rather than an opinion.
+
+**DEPLOYED, TWICE — on the operator's word, the constraint as it has stood all program.** `0.3.274-ux193` carried the
+session's console work (Forward's contract, the tool-name inventory, the day's count, the phone's filters, the table's
+labels, the wrapped search field, the transport sentence); `0.3.274-ux194` carried this round's hierarchy change. Both
+swapped through the host's own shell and both answered `/health` with the new version after the swap.
+`83ae6a4`, `399fb73` pushed to `hub/v1`.
+
+**THE MEASUREMENT THAT AGREED WITH HIM** (computed styles, live page, 1440):
+
+| element | before `ux193` | after `ux194` |
+|---|---|---|
+| `.page-head h1` "Home" | **22 px / 700 / ink** | **13 px / 500 / muted** |
+| `.home-verdict` "3 of 4 online · 2 need attention" | 22 px / 600 / ink | 22 px / 600 / ink |
+| `.attention-machine` | 14 / 600 / ink | 14 / 600 / ink |
+| `.fleet-name` (roster) | 17 / 600 / ink | 17 / 600 / ink |
+
+Two headlines at one size, six pixels apart: the page had a title and a claim of equal rank. The fix is a **shared decision**,
+not a local override — `head.nameWhenClaim` {base, medium, muted} is now in `layout-contract.json`, byte-identical in both
+repos, pinned at sha256 `0e225bb2…` by both tests, and the console's stylesheet is held to it at both widths (the first
+version of that test read `ruleFor`'s LAST match and passed a mutation of the desktop rule — the test now reads both and
+proves both).
+
+**WHAT THE SAME EYE STILL FINDS, AND THE NEXT LIST.** The roster is the loudest body text on the page: `.fleet-name` is
+17/600 while the warning card above it draws a machine's name at 14/600 — the less urgent block is the louder one, and the
+installer strip below it is a third block of the same weight. The roster is a REFERENCE; the verdict and the warning are the
+ANSWER. The browser gate currently pins `fleet name 17/600` (measured, and it refused the 14 I tried first), so changing it
+means changing that pin and arguing in the same place — which is the next round's work, not this one's.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
