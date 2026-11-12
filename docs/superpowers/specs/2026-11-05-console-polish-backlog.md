@@ -5486,6 +5486,31 @@ guessed at with a card.
    the same fault as three title treatments for three peers.
 3. The last five calls, ready on the landing page — `/audit?device=<id>&limit=5`, which Activity already asks for.
 
+## The hundred-and-sixty-fourth list (CLOSED 2026-11-12 — candidate 3 was already refused, and the identity card learned its own facts)
+
+The hundred-and-sixty-third list left two candidates. Both were checked against the record before any code:
+
+**CANDIDATE 3 — the last five calls on the landing page — IS REFUSED BY A DECISION ALREADY MADE.** The sixty-second list removed
+a 29-row copy of Activity's Today card from this page (`audit-42 F1`), and the comment in `OverviewPage.tsx` says why: *"The
+day's count, failures and span stay here because they are the machine's state; the rows are the record's and live in Activity,
+behind this one door."* Re-adding five rows would be the same defect at a fifth of the size. **Dropped, and the reason is here so
+the next round does not re-propose it.**
+
+**CANDIDATE 1 — DONE (`1827f1a`, `0.3.274-ux211`)**, and it needed no new read: `device.host` already carries what the device's
+frame reported, and the Machine tab shows it in full.
+
+    before  DESKTOP-9VH92BJ / online / 46 tools · 11 capabilities · 0 plugins →
+    after   DESKTOP-9VH92BJ / online / Windows 11 · x86_64 · 12 cores · 5.9 GiB free / 46 tools · …
+
+**THREE RULES SHAPED IT.** Only what the device reported (a build that sent no facts draws no line, never a "not reported"
+placeholder); **not the build** (the topbar's picker and the Account menu own the version — the sixty-first list removed the third
+copy, and this card would have been it); and the helpers are the Machine tab's own (`platformLine`, `gib`), **exported rather than
+copied**, so the two pages cannot disagree about what "Platform" means.
+
+**AND THE PAGE IS STILL MOSTLY EMPTY — STATED, NOT HIDDEN.** Two surfaces and ~380 px of content in a 900 px window; with the
+rows refused, what remains to fill it is what the machine is FOR (a call to action on the AI's own door), which is a product
+decision rather than a layout one.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
