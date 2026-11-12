@@ -57,6 +57,11 @@ below ladders to that; one round completes one major item end to end.
   range to its existing gap count and rereads. Commits `30baf09` (page) and `bd72800` (Rust).
   Tests: console 173, device console 30, page 24.
 
+## In flight (branch `feat/s4b-page-crate`)
+
+- S4b: extract `console-page` as a crate with a `PageSource` trait, so "the page holds no keys" is a
+  compile-time boundary; the dependency gate learns the new crate.
+
 ## Next (in order)
 2. S4b — extract `console-page` as a crate so "the page holds no keys" is a compile-time boundary.
 3. S3b — extract `plugin-host` as a crate; the lifecycle events are already on the bus.
