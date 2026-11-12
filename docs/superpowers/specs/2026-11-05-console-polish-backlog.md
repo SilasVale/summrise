@@ -6158,6 +6158,24 @@ the panel made exactly that mistake; it caught mine before the build did.
 and the Processes table (four columns, the fourth labelled for a screen reader because it holds `Protected` or a Kill control) both
 report 0 px of horizontal overflow at 390 and read cleanly.
 
+## The hundred-and-ninety-second list (SHIPPED 2026-11-12 — a gate against the week's mobile defect class)
+
+**The week's four mobile defects had ONE shape**: a width chosen for a desktop row carried into a phone — the chevron over the selected
+tab, the memory search stacked, the run form's two unequal columns, a closed disclosure keeping its form's height. A rule now takes
+the widest of them by the throat:
+
+    a `flex` basis in rem wider than the phone's usable row (~300 px after the page's own padding)
+    must appear inside the `max-width: 639px` fold as well
+
+**MUTATION-PROVEN**: adding `flex: 1 1 26rem` to `.service-list` fails with `a wide rem flex-basis with no 639 fold for its selector:
+expected [ '.service-list (flex basis 26rem)' ] to deeply equal []`; the revert passes.
+
+**AND THE FOLD ITSELF TAUGHT A SECOND LESSON.** The first version of the processes-filter fold went into the file's EARLIEST 639 block —
+four hundred lines above `.system-field.filter { flex: 1 1 16rem; }` — so the base rule won the cascade and the phone still drew the
+filter and `Refresh` stacked, **after `-ux245` had already been deployed**. Both rules were individually right; the order was wrong.
+Found by looking at the 390 screenshot, not by the tests. `-ux246` puts the fold directly after the rule it refines, with the extra
+`.system-toolbar` as specificity's belt: measured after it, the field ends at x=283 and `Refresh` begins at x=291 on the same row.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
