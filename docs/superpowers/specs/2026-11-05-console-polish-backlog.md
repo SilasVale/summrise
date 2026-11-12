@@ -5388,6 +5388,26 @@ and the picker (no machine chosen, `ux207`) keeps 22 / 700.
 rule was written down with its condition in prose and then applied to a page where the condition did not hold — the picker, and
 now Activity's failed day. The selector is the cheapest place to make a condition enforceable.
 
+## The hundred-and-sixtieth list (CLOSED 2026-11-12 — the record starts 43 px higher, because the switch went where it belongs)
+
+Activity is the record, and its first row began at **y=369** of a 900 px viewport — 41% of the screen before one line of the
+record. Above it: the head, a hairline, a **40 px bar holding nothing but the Timeline/Table switch**, the filters, the window
+sentence, the day header.
+
+    before  `.stream-bar` > `.seg.stream-views`   a row of its own, 40 px, empty either side
+    after   `.page-actions` > `.seg.stream-views` beside Live and Pause — the page's three controls in one place
+            the first record row: y=369 -> y=326
+
+The switch is a PAGE-level control, and the head already keeps the page's actions; the bar survives only for the table view's
+one sentence (`the audit as rows, with filters and CSV or JSON Lines export`), so in stream view it is gone entirely.
+
+**NOTHING DEPENDED ON THE OLD SHAPE**: no gate referenced `.stream-bar` or `.stream-views`, and the jsdom suite clicks
+`role=tab` by name, which the control keeps along with both tabs' `aria-selected`. `60db954`, deployed as `0.3.274-ux209`.
+
+**AND THE SAME DAY'S EARLIER CHECK, KEPT FOR THE RECORD**: all eight console pages were walked for runtime failure —
+`pageerror`, `console.error` and failed requests — and every one returned **0 / 0** while drawing between 326 and 18,095
+characters. The surface has no page that throws.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
