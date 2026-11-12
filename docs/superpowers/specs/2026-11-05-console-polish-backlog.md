@@ -5199,6 +5199,25 @@ the machine's page, where the operator then has to find the action. The standing
 warning row should carry** — `Update` for a machine behind, `Open` for a machine that is simply away — measured against the
 machine page's actual update flow before anything is drawn.
 
+## The hundred-and-fifty-second list (CLOSED 2026-11-12 — the door already went where it should, and the panel still owes the rule)
+
+**A CORRECTION TO THE PREVIOUS LIST'S PREMISE, MEASURED IN THE MARKUP.** The last round said Home's warning rows "offer the
+same door — `Open` — to the machine's page, where the operator then has to find the action". Read the code:
+
+    HomePage.tsx: `onOpenMachine: (id: string) => void` is already a prop, and the attention row calls `props.onOpenMachine`,
+    with the comment: *"it opens Device → Machine rather than the Overview the row/picker doors open"*
+
+So the door already lands on the tab whose panel holds the update facts. **The verb is neutral; the destination is right.** The
+gap is not navigation — it is that the update itself is HELD (the operator's standing constraint), so no `Update` verb can be
+drawn honestly on this page yet.
+
+**AND THE OTHER SURFACE'S SIDE OF THE SAME RULE IS NOW NAMED.** The panel has three heads with a claim (`Memory`, `Plugins`,
+`Settings`' subtitle) and draws `.page-title` at **22/700** with `.page-claim` at **17/600** (`styles/layout.css:121` and `:92`).
+The contract's `head.nameWhenClaim` says a head with a claim draws its NAME as context, and the console enforces it on two pages;
+the panel does not, and its own test only pins the file's hash. **That is an open, measured inconsistency between the surfaces**
+— and fixing it means touching the panel's gates (`panel_sheet_freshness`, the leading gate) in a repo the operator does not see
+this week, so it is recorded rather than rushed.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
