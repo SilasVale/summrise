@@ -446,6 +446,16 @@ gone); the console builds the call/follow/events/unsubscribe frames with the sam
 tests, `clippy`/`fmt` clean. Next: generated TypeScript from these types for the page (the last half
 of S5), then the record (SQLite).
 
+**Round 28 — the wire exports TypeScript.** `ts-rs` derives `TS` on every protocol type (optional
+members become `?:`, absent stays absent; `u64` ids are `number`; the grant body is `unknown` until
+core exports its own shape). The bindings are generated into `console/web/src/protocol/`, and
+`console/web/src/protocol.ts` re-exports them — the page's type surface now comes from
+`protocol/src/lib.rs`. `scripts/check-protocol-ts.mjs` regenerates (and `--check` fails on a stale
+committed binding); the page's `tsc --noEmit` is clean. Evidence: 7 protocol tests, 12 protocol
+tests total with the golden set, gate 15 / 25 / 0. Next: the record (SQLite) — `record.db` with the
+feed table as the bus, migration from the segmented journal, retention and backup — starting with
+the store crate and its crash/replay tests.
+
 
 ## Next (in order)
 

@@ -10,34 +10,44 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use ts_rs::TS;
 
 pub use summrise_core::grant::GrantEnvelope;
 
 /// The frame a remote transport carries from a console to a device.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../console/web/src/protocol/")]
 pub struct Frame {
     /// The sender's correlation id, echoed in the answer.
+    #[ts(type = "number")]
     pub id: u64,
     /// The JSON-RPC request itself, forwarded to the MCP handler unchanged.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "unknown")]
     pub mcp: Option<Value>,
     /// "Keep sending this session's output until I say stop."
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub subscribe: Option<Subscribe>,
     /// "Also push this device's own events from this sequence."
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub events: Option<EventsSubscribe>,
     /// "Stop the subscription with this id."
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub unsubscribe: Option<Unsubscribe>,
     /// The grant the sender says authorizes the request.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "unknown")]
     pub grant: Option<GrantEnvelope>,
     /// The console's permanent-token scope, when the frame carries one instead of a grant.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub token: Option<TokenScope>,
     /// The `trace.call` the console minted for this exchange.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub trace: Option<String>,
 }
 
@@ -100,32 +110,39 @@ impl Frame {
 }
 
 /// A subscription: which session to follow, and the byte offset to start from.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../console/web/src/protocol/")]
 pub struct Subscribe {
     /// The terminal session id `terminal.create` returned.
     pub session_id: String,
     /// The byte offset the subscriber already has; 0 replays everything retained.
     #[serde(default)]
+    #[ts(type = "number")]
     pub from: u64,
 }
 
 /// Where a device-event subscription starts.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../console/web/src/protocol/")]
 pub struct EventsSubscribe {
     /// The first sequence to deliver; 0 replays whatever the journal still retains.
     #[serde(default)]
+    #[ts(type = "number")]
     pub from_seq: u64,
 }
 
 /// The end of a subscription.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../console/web/src/protocol/")]
 pub struct Unsubscribe {
     /// The id of the `subscribe` frame this ends.
+    #[ts(type = "number")]
     pub sub: u64,
 }
 
 /// A permanent token's scope, as the console's authenticated channel forwards it.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../console/web/src/protocol/")]
 pub struct TokenScope {
     /// The token record's id (never the `srm_` secret), for the audit line.
     pub token_id: String,
@@ -137,16 +154,20 @@ pub struct TokenScope {
     pub allow_destructive: bool,
     /// The token's expiry in Unix milliseconds, when it has one.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
     pub expires_at_ms: Option<u64>,
 }
 
 /// The answer a device sends back for a frame.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../console/web/src/protocol/")]
 pub struct Answer {
     /// The correlation id the frame carried.
+    #[ts(type = "number")]
     pub id: u64,
     /// The machine journal's `seq` for the outcome half, when the device named one.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
     pub journal_seq: Option<u64>,
     /// The JSON-RPC body: exactly one of `result` and `error`.
     #[serde(flatten)]
@@ -154,11 +175,18 @@ pub struct Answer {
 }
 
 /// The JSON-RPC body of an answer.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(untagged)]
+#[ts(export, export_to = "../../console/web/src/protocol/")]
 pub enum Body {
     /// A successful call's body.
-    Result { result: Value },
+    Result {
+        #[ts(type = "unknown")]
+        result: Value,
+    },
     /// A failed call's body.
-    Error { error: Value },
+    Error {
+        #[ts(type = "unknown")]
+        error: Value,
+    },
 }
