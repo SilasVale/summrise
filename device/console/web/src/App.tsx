@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import logoUrl from "./logo.svg";
 import {
   api,
@@ -22,6 +22,8 @@ import { mergeActivityWindow, type WindowCounts } from "./activityMerge";
 import { activityDaySentence } from "./activitySummary";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { useJoinMarks } from "./useJoinMarks";
+import { machineCounts, mergeMachineRows } from "./machineRows";
+import { useMachineRows } from "./useMachineRows";
 import { DEVICE_TAB_LABELS, PAGE_LABELS, Rail, type DeviceTab, type Page } from "./Rail";
 import { Modal } from "./Modal";
 import { ConnectSheet, type ConnectSection } from "./ConnectSheet";
@@ -606,6 +608,21 @@ export function App() {
    * is the window it was frozen with, so it keeps asking about that one.
    */
   const join = useJoinMarks(auditScopeDevice, shownActivity);
+  /**
+   * **THE MACHINE'S OWN WINDOW (round 8).** The console's audit is what came through the proxy. A call
+   * the machine ran on its own — the panel's, a mesh peer's, a direct loopback client's — is written
+   * only in its journal, and after a reload the page drew nothing of it. The hook reads that window,
+   * and the merge adds what the console does not already hold: the richer console row always wins the
+   * same call, so one call is still one row.
+   */
+  const machineRead = useMachineRows(auditScopeDevice, auditReadingName);
+  const machineLines = useMemo(
+    () => mergeMachineRows(shownActivity, machineRead.rows),
+    [shownActivity, machineRead.rows]
+  );
+  // The difference is exactly the machine's contribution: the merge keeps every console row and only
+  // ever drops a machine row as the duplicate of one.
+  const machine = machineCounts(machineRead, machineLines.length - shownActivity.length);
   /**
    * The header's line, or none. A failed read has no state sentence of its own: the banner names
    * the failure and the notice says what the page can still show, so `The audit could not be read.`
@@ -1598,7 +1615,7 @@ export function App() {
               )}
               {activityView === "stream" ? (
                 <ActivityTimeline
-                  lines={shownActivity}
+                  lines={machineLines}
                   dayStartMs={shownDayStartMs}
                   devices={devices}
                   tokens={tokens}
@@ -1617,6 +1634,7 @@ export function App() {
                   unread={auditUnread}
                   source={auditSource}
                   join={join}
+                  machine={machine}
                   query={activityFilter.tool}
                   onQuery={(tool) => setActivityFilter((current) => ({ ...current, tool }))}
                   clientsOnly={activityClientsOnly}

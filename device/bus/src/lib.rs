@@ -275,6 +275,30 @@ impl Bus {
         scan_newest_from(&self.dir, &indices, limit)
     }
 
+    /// A page of the journal, newest first: up to `limit` retained rows older than `before_seq`
+    /// (from the newest row when it is `None`), and whether a retained row lies below the page.
+    ///
+    /// The caller gets whole envelopes, because retention is the bus's fact and a summary is the
+    /// tool's; the `more` flag is what lets a page stop asking, and it is found by reading exactly
+    /// one row past the page rather than by walking the rest of the window.
+    pub fn read_window(
+        &self,
+        before_seq: Option<u64>,
+        limit: usize,
+    ) -> io::Result<(Vec<Envelope>, bool)> {
+        if limit == 0 {
+            return Ok((Vec::new(), false));
+        }
+        let indices: Vec<u64> = {
+            let journal = self
+                .journal
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner());
+            journal.segments.keys().copied().collect()
+        };
+        read_window_from(&self.dir, &indices, before_seq, limit)
+    }
+
     /// The lost range for a subscriber whose cursor is `from`, or `None` when that cursor is still
     /// inside the retained window (or the journal is empty).
     pub fn reset(&self, from: u64) -> Option<Reset> {
@@ -490,6 +514,46 @@ fn recover(dir: &Path) -> io::Result<(u64, BTreeMap<u64, u64>)> {
         }
     }
     Ok((last_seq, sizes))
+}
+
+/// One page of the journal, newest first: rows older than `before_seq` (all of them when it is
+/// `None`), at most `limit`, plus whether a retained row lies below the page.
+///
+/// The walk is the same one [`scan_newest_from`] makes — segments newest-first, each walked from its
+/// last line backwards — because a page is the tail of the record, and a reader that asked for twenty
+/// rows must not parse a 64 MiB window to answer. `more` costs exactly one extra matching row: once the
+/// page is full, the next row the walk meets is the proof that something lies below it, and the read
+/// stops there rather than counting the rest.
+fn read_window_from(
+    dir: &Path,
+    indices: &[u64],
+    before_seq: Option<u64>,
+    limit: usize,
+) -> io::Result<(Vec<Envelope>, bool)> {
+    let mut rows = Vec::new();
+    for &index in indices.iter().rev() {
+        let bytes = match fs::read(dir.join(segment_name(index))) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error),
+        };
+        for line in bytes.split(|byte| *byte == b'\n').rev() {
+            if line.is_empty() {
+                continue;
+            }
+            let Ok(envelope) = serde_json::from_slice::<Envelope>(line) else {
+                continue;
+            };
+            if before_seq.is_some_and(|before| envelope.seq >= before) {
+                continue;
+            }
+            if rows.len() == limit {
+                return Ok((rows, true));
+            }
+            rows.push(envelope);
+        }
+    }
+    Ok((rows, false))
 }
 
 fn read_from(dir: &Path, indices: &[u64], from: u64) -> io::Result<Vec<Envelope>> {
@@ -866,6 +930,84 @@ mod tests {
             bus.scan_newest(0).unwrap().is_empty(),
             "a zero cap asks for no rows"
         );
+    }
+
+    #[test]
+    fn read_window_stops_at_the_limit_and_says_there_is_more() {
+        let dir = temp_dir("read-window-limit");
+        // A small segment size makes the six rows span three segments, so the window is proved to
+        // cross a rotation rather than to stay inside one file.
+        let bus = Bus::open_with(&dir, 200, 1 << 20).unwrap();
+        for index in 0..6 {
+            bus.publish("e", serde_json::json!({ "i": index })).unwrap();
+        }
+        assert!(
+            segments_in(&dir).len() >= 2,
+            "expected the window to span segments"
+        );
+
+        let (rows, more) = bus.read_window(None, 3).unwrap();
+
+        let seqs: Vec<u64> = rows.iter().map(|row| row.seq).collect();
+        assert_eq!(seqs, vec![6, 5, 4], "the newest three rows, newest first");
+        assert!(
+            more,
+            "rows 3..=1 are retained below the last row returned, so a page is not at the end"
+        );
+    }
+
+    #[test]
+    fn read_window_to_the_end_says_there_is_no_more() {
+        let dir = temp_dir("read-window-end");
+        let bus = Bus::open(&dir).unwrap();
+        for index in 0..3 {
+            bus.publish("e", serde_json::json!({ "i": index })).unwrap();
+        }
+
+        let (rows, more) = bus.read_window(None, 10).unwrap();
+
+        let seqs: Vec<u64> = rows.iter().map(|row| row.seq).collect();
+        assert_eq!(seqs, vec![3, 2, 1], "every retained row, newest first");
+        assert!(!more, "nothing is retained below the oldest row returned");
+    }
+
+    #[test]
+    fn read_window_before_a_seq_excludes_it_and_everything_newer() {
+        let dir = temp_dir("read-window-before");
+        let bus = Bus::open(&dir).unwrap();
+        for index in 0..5 {
+            bus.publish("e", serde_json::json!({ "i": index })).unwrap();
+        }
+
+        let (rows, more) = bus.read_window(Some(4), 10).unwrap();
+        let seqs: Vec<u64> = rows.iter().map(|row| row.seq).collect();
+        assert_eq!(seqs, vec![3, 2, 1], "`before_seq` is exclusive: {seqs:?}");
+        assert!(!more, "the journal has nothing below seq 1");
+
+        let (rows, more) = bus.read_window(Some(4), 2).unwrap();
+        let seqs: Vec<u64> = rows.iter().map(|row| row.seq).collect();
+        assert_eq!(seqs, vec![3, 2], "{seqs:?}");
+        assert!(more, "seq 1 is retained below the page");
+
+        let (rows, more) = bus.read_window(Some(1), 10).unwrap();
+        assert!(
+            rows.is_empty() && !more,
+            "nothing is older than the oldest row: {rows:?} {more}"
+        );
+    }
+
+    #[test]
+    fn read_window_of_zero_answers_nothing() {
+        let dir = temp_dir("read-window-zero");
+        let bus = Bus::open(&dir).unwrap();
+        for index in 0..3 {
+            bus.publish("e", serde_json::json!({ "i": index })).unwrap();
+        }
+
+        let (rows, more) = bus.read_window(None, 0).unwrap();
+
+        assert!(rows.is_empty(), "a zero cap asks for no rows");
+        assert!(!more, "a page that returns no row claims no row below it");
     }
 
     #[tokio::test]

@@ -330,6 +330,56 @@ export type JoinAnswer = {
 };
 
 /**
+ * One row of a machine's own journal, as `GET /journal/read` relays it: a **summary**, never a payload.
+ *
+ * The machine wrote this row whether or not the call crossed this console — its own panel, a mesh
+ * peer's call and a direct loopback client are in here too — so it is the only record of work the
+ * audit never saw. `payload_bytes` says how large the row's payload was; it is the only fact about
+ * that payload the console forwards, because a read that relayed payloads would be an export.
+ */
+export type MachineRow = {
+  /** The machine's own sequence: its position in the journal, not the console's clock. */
+  seq: number;
+  /** The machine's clock for the row, as it wrote it. */
+  ts: string;
+  /** The journal envelope's type: `call.started`, `call.finished`, `session.opened`, ... */
+  type: string;
+  /** The `trace.call` this row shares with the console's line for the same proxied call. */
+  trace?: string;
+  /** The tool a call row names. */
+  tool?: string;
+  /** Whether the call's outcome was a success, on an outcome row. */
+  ok?: boolean;
+  /** Why a refused call was refused, on `call.denied`. */
+  reason?: string;
+  /** How a call reached the machine: `panel`, `mesh`, `loopback` or `console`. */
+  door?: string;
+  /** The payload's size in bytes: "nothing more to read" and "a summary of more" are different facts. */
+  payload_bytes?: number;
+};
+
+/**
+ * What `GET /journal/read` answers: the window of the machine's own record the page asked for.
+ *
+ * `unknown: true` means the console could not ask — an older machine that does not offer the tool, a
+ * refusal, or an answer this console cannot read. **That is never "the machine recorded nothing"**,
+ * so the page must state the read rather than draw an empty journal.
+ */
+export type MachineReadAnswer = {
+  device: string;
+  journal: boolean;
+  oldest_seq: number;
+  last_seq: number;
+  rows: MachineRow[];
+  /** True when a retained row older than the last returned one exists. */
+  more: boolean;
+  read_at_ms: number;
+  unknown: boolean;
+  /** Why the read is `unknown`, for the console's own diagnosis. The page never draws it. */
+  reason?: string;
+};
+
+/**
  * The Windows installer the console was given, as `GET /installer` reports it.
  *
  * The version is parsed from the filename (`SummriseSetup-<version>.exe`), never read from the
@@ -439,6 +489,17 @@ export type AuditLine = {
    * field existed; such a row is simply joined with nothing.
    */
   trace?: string;
+  /**
+   * How a call reached its machine: `panel`, `mesh`, `loopback` or `console`. Set only on a row the
+   * page built from the machine's own journal — the audit does not carry it — so it is the field that
+   * says whether a call crossed this console at all (round 8).
+   */
+  door?: string;
+  /**
+   * The machine's own sequence for a row the page built from `journal.read`. Absent on every audit
+   * line, whose record is this console's; it is what the opened record names as the machine's position.
+   */
+  machine_seq?: number;
   /** The evidence for this call, when the live stream carried it. */
   evidence?: Record<string, unknown>;
 };
@@ -603,6 +664,16 @@ export const api = {
     call<JoinAnswer>(
       `/audit/join?device=${encodeURIComponent(device)}` +
         `&traces=${traces.map((trace) => encodeURIComponent(trace)).join(",")}`
+    ),
+  // **THE MACHINE'S OWN RECORD, ASKED FOR ONE WINDOW AT A TIME.** The console's audit holds what came
+  // through the proxy; this is what the machine ran, including the calls that never reached the
+  // console at all. Newest first, bounded by the device, and the answer's `unknown` says a read that
+  // could not be made — never an empty journal.
+  journalRead: (device: string, options: { before?: number; limit?: number } = {}) =>
+    call<MachineReadAnswer>(
+      `/journal/read?device=${encodeURIComponent(device)}` +
+        (options.limit === undefined ? "" : `&limit=${options.limit}`) +
+        (options.before === undefined ? "" : `&before=${options.before}`)
     ),
   // The release's own installer, when the deployment staged one. The download is a plain
   // same-origin link (`/installer/download`) that sends the session cookie; this read is only the

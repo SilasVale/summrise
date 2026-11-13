@@ -208,6 +208,28 @@ below ladders to that; one round completes one major item end to end.
   journal answers for it), an older machine, a failed read or a bounded scan is `unknown` and is never
   drawn as lost. Evidence below.
 
+- 2026-11-13 — **The machine's record becomes readable: Activity draws the calls only the journal has.**
+  The join could say whether the machine still held a call the console drew; nothing could ask the
+  machine what it recorded. So a call that never reached the console — the panel's, a mesh peer's, a
+  direct loopback client's — was drawn from the live relay and lost on reload, and a call the console's
+  own window rotated away could be marked `only here` but not read back. Now the device offers
+  `journal.read` in the existing `journal` capability: newest first, at most 200 rows, each a
+  **bounded summary** built from fields the machine already has (`seq`, `ts`, `type`, `trace.call`, and
+  on a call `tool`, `ok`, `reason`, the `door` it arrived by), plus `payload_bytes` and `more`; never a
+  payload, because a read that relayed one would be an export wearing a read's name. The console serves
+  `GET /journal/read?device=&before=&limit=`, asks that tool down the device's own channel under the
+  operator's scope, mints a trace so its relay drops the read's `call.*` pair, and **writes no audit
+  line and no live event of its own**. The page reads one window per machine (cached 30 s) and draws
+  the calls that arrived by a door the console does not own — `panel`, `mesh`, `loopback` — so the
+  console's own reads of the machine (`tools/list`, the join, this read) are never drawn as the
+  operator's work, and a console row is that record's to keep; a machine row is dropped when the
+  console already holds the same call, matched by `trace.call`. It shows the journal's own `door` where
+  a console row shows `console`, and says in the footer that the journal was not read when the answer
+  is `unknown` or the read failed. **`unknown` is never drawn as an empty journal**, and a machine with no journal
+  answers `journal: false` with no rows — a fact, not an error. Evidence: bus 20, device 659, console
+  174 + 279 + 15, page 1 290 and `tsc` clean; `smoke-enroll` reads the machine's own window through the
+  console and finds the call's row with its `seq`, tool, outcome, door and trace.
+
 ## Next (in order)
 
 1. Windows handoff, the interactive half — dispatch or run `summrise-shell.exe --check-window` in an
@@ -215,12 +237,13 @@ below ladders to that; one round completes one major item end to end.
    verify Authenticode when a certificate is configured. The runner half is green (run 43344130298).
 2. Push `origin`: `main` now contains `origin/main` and `hub/v1` (`0 1242`), so `git push origin main`
    is a fast-forward. This is a publish, and it is the operator's call.
-3. `journal.read`: a call the console's own window has rotated away cannot be reached at all. The audit
-   line holds no `seq` into the machine's journal, so the page can mark a row as gone but cannot fetch
-   it; a tool that reads a journal range (or an acknowledged write of the call's `seq` onto the audit
-   line, which is the durable fix) is what makes an archived call replayable. Until then Activity draws
-   console rows only, and a device-only call — a panel, mesh or loopback call the console relayed but
-   the audit never wrote — is drawn from the live relay and lost on reload.
+3. The audit line learns the machine's `seq`: `journal.read` makes the machine's record readable, but
+   the console's audit still holds no `seq` into it, so a proxied call whose machine copy has rotated
+   away can be marked `only here` and cannot be fetched by its own record. The device's answer to a
+   proxied call should carry the finished half's `seq`, the console should write it on the audit line,
+   and the page should use it the way the join uses `trace.call` — then the join's two halves can be
+   read back, not only proved present. (The durable fix; a payload/export verb stays a separate item
+   because a summary is not an archive.)
 4. Keep improving from what the operator hits (one major item a round, green merges into `hub/v1`).
 
 ## Rules

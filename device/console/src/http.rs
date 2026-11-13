@@ -394,6 +394,14 @@ impl Console {
             // window, and relays the answer. It is a read about the window, not an operator action:
             // it writes no audit line and no live event.
             .route("/audit/join", get(audit_join))
+            // **WHAT THE MACHINE ITSELF RECORDED.** Activity draws what the console proxied, but a
+            // call that never came through here — the device's own panel, a mesh peer, a direct
+            // loopback client — lives only in the machine's journal, and after a reload it exists
+            // nowhere the page can reach. The machine summarises the window; this route asks for it
+            // and relays the rows field by field. It is a read about the window the page draws, not
+            // an operator action: it writes no audit line and no live event, and the trace it mints
+            // is what keeps the machine's own `call.*` pair for the read out of Activity.
+            .route("/journal/read", get(journal_read))
             // **THE FRAME ITSELF, NOT A DATA URL.** A screenshot can be megabytes; the event carries
             // a same-origin path and this route answers the bytes, behind the same operator gate the
             // page and `/audit` already use. The store is memory only, so an id that a restart or an
@@ -6233,6 +6241,324 @@ fn string_array(value: &Value) -> Option<Vec<String>> {
         .iter()
         .map(|entry| entry.as_str().map(str::to_owned))
         .collect()
+}
+
+/// The most rows one read may ask a machine to summarise.
+///
+/// The page draws one window of the machine's record, and this is the window: the device accepts
+/// exactly this many, so the console states the bound itself rather than relaying a device's refusal.
+/// A larger read would make the console hold an unbounded slice of another machine's journal.
+const MAX_JOURNAL_ROWS: usize = 200;
+
+/// The `?device=&before=&limit=` shape `/journal/read` reads.
+///
+/// `before` and `limit` are strings so a malformed value is this service's JSON refusal with a
+/// sentence, not axum's plain-text query rejection. `before` is the `seq` of the last row the page
+/// already drew; absent means the page asks for the newest rows.
+#[derive(Deserialize)]
+struct JournalReadQuery {
+    device: Option<String>,
+    before: Option<String>,
+    limit: Option<String>,
+}
+
+/// `GET /journal/read?device=&before=&limit=`: the window the machine's own journal holds.
+///
+/// Activity is drawn from two records. The console's audit is what came through the proxy; the
+/// machine's journal is everything the machine ran, including the calls that never reached the
+/// console at all. Only the machine can summarise the second, so this route asks its own
+/// `journal.read` over the channel and relays the window, one bounded page at a time.
+///
+/// **IT WRITES NO AUDIT LINE AND NO LIVE EVENT**, for the join's reason: a read about the window the
+/// page draws must not grow that window. The frame still carries a trace the console minted, so the
+/// relay drops the `call.*` pair the machine writes for the read.
+async fn journal_read(
+    State(app): State<AppState>,
+    _: OperatorSession,
+    Query(query): Query<JournalReadQuery>,
+) -> Response {
+    let Some(presented) = query.device else {
+        return ApiError::bad_request("device_required")
+            .saying("name the machine whose journal to read; ?device= takes its id")
+            .into_response();
+    };
+    let Some(device_id) = audit_device_id(&presented) else {
+        return unknown_device(&presented).into_response();
+    };
+    if !app.has_device(&device_id) {
+        return unknown_device(&presented).into_response();
+    }
+    let limit = match journal_limit(query.limit.as_deref()) {
+        Ok(limit) => limit,
+        Err(error) => return error.into_response(),
+    };
+    let before = match journal_before(query.before.as_deref()) {
+        Ok(before) => before,
+        Err(error) => return error.into_response(),
+    };
+
+    let outcome = read_journal_rows(&app, &device_id, before, limit).await;
+    let mut view = JournalReadView {
+        device: device_id.clone(),
+        journal: false,
+        oldest_seq: 0,
+        last_seq: 0,
+        rows: Vec::new(),
+        more: false,
+        // The moment the answer was built, on the console's clock: it dates the read, not the rows
+        // the machine recorded, whose own times are in each row's `ts`.
+        read_at_ms: (app.now)(),
+        unknown: false,
+        reason: None,
+    };
+    match outcome {
+        Ok(window) => {
+            view.journal = window.journal;
+            view.oldest_seq = window.oldest_seq;
+            view.last_seq = window.last_seq;
+            view.rows = window.rows;
+            view.more = window.more;
+        }
+        Err(JournalUnreadable::Transport(error)) => {
+            return error.refusal(&app, &device_id).into_response();
+        }
+        // A machine that answered but could not answer THIS question leaves the window unanswered.
+        // The page draws no claim about a record it could not read, and `reason` is for the operator
+        // and the tests; the page reads `unknown` alone. **AN EMPTY WINDOW HERE WOULD BE DRAWN AS
+        // "THE MACHINE RECORDED NOTHING"**, which is the one thing this route must not say.
+        Err(JournalUnreadable::Unanswered(reason)) => {
+            view.unknown = true;
+            view.reason = Some(reason);
+        }
+    }
+    Json(view).into_response()
+}
+
+/// One window as `/journal/read` serves it: the fixed wire contract the page reads.
+///
+/// `device` is the canonical id, not the one the caller presented, so the page's own key matches the
+/// audit lines' `device_id`. `read_at_ms` is the console's clock when the answer was built.
+#[derive(serde::Serialize)]
+struct JournalReadView {
+    device: String,
+    journal: bool,
+    oldest_seq: u64,
+    last_seq: u64,
+    rows: Vec<MachineRow>,
+    more: bool,
+    read_at_ms: u64,
+    unknown: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<&'static str>,
+}
+
+/// One row of the machine's record, as the page draws it: a summary, never a payload.
+///
+/// Every optional field is omitted rather than defaulted when the device did not send the type the
+/// contract names, because a page reading `ok` as a boolean or `seq` as a number must never be handed
+/// a string or a blank. `payload_bytes` says how much the row's payload held — the only fact about a
+/// payload this route relays.
+#[derive(serde::Serialize)]
+struct MachineRow {
+    seq: u64,
+    #[serde(rename = "type")]
+    kind: String,
+    ts: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    trace: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ok: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    door: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    payload_bytes: Option<u64>,
+}
+
+/// The device's own window, already relayed field by field.
+struct JournalFacts {
+    journal: bool,
+    oldest_seq: u64,
+    last_seq: u64,
+    rows: Vec<MachineRow>,
+    more: bool,
+}
+
+/// Why a window has no facts: the machine could not be reached, or answered something else.
+enum JournalUnreadable {
+    /// The machine could not be asked. This is a link failure, not an answer: it is refused with the
+    /// same 503/504 sentence every other per-device read uses, so one silence reads one way.
+    Transport(LiveToolsError),
+    /// The device answered, and its answer is not a window: an older build that does not offer the
+    /// tool, a refusal, or a result this console cannot read. The route answers 200 with `unknown`.
+    Unanswered(&'static str),
+}
+
+/// Parse `?limit=`, or the 400 that names the rule it broke.
+///
+/// Missing means [`MAX_JOURNAL_ROWS`]: the page draws one window, and the newest page is what it
+/// draws. The bound is the device's own, stated here first so the operator reads one sentence about
+/// one request rather than a device refusal relayed through two layers.
+fn journal_limit(text: Option<&str>) -> Result<usize, ApiError> {
+    let Some(text) = text else {
+        return Ok(MAX_JOURNAL_ROWS);
+    };
+    let invalid = || {
+        ApiError::bad_request("invalid_limit").saying(format!(
+            "limit must be a whole number from 1 to {MAX_JOURNAL_ROWS}; ?limit= is how many rows of \
+             the machine's journal to read"
+        ))
+    };
+    match text.parse::<usize>() {
+        Ok(limit) if (1..=MAX_JOURNAL_ROWS).contains(&limit) => Ok(limit),
+        _ => Err(invalid()),
+    }
+}
+
+/// Parse `?before=`: the sequence of the last row the page already drew, or `None` for the newest.
+///
+/// A sequence number starts at one, so zero names no row; a page that asks for rows before it would
+/// otherwise get an empty window that reads as "the machine recorded nothing".
+fn journal_before(text: Option<&str>) -> Result<Option<u64>, ApiError> {
+    let Some(text) = text else {
+        return Ok(None);
+    };
+    match text.parse::<u64>() {
+        Ok(before) if before > 0 => Ok(Some(before)),
+        _ => Err(ApiError::bad_request("invalid_before").saying(
+            "before must be a positive sequence number: ?before= is the seq of the last row already \
+             drawn, and the answer is the older rows",
+        )),
+    }
+}
+
+/// Ask the machine's `journal.read` over its channel, under the operator's own scope.
+///
+/// Not through [`proxy_reply`]: that path is the operator's proxied call, and it writes the audit
+/// line and the live event this read must not write. The frame is built here, with a minted trace so
+/// the machine's journal pair for it is recognised by the relay and not drawn twice.
+async fn read_journal_rows(
+    app: &AppState,
+    device_id: &str,
+    before: Option<u64>,
+    limit: usize,
+) -> Result<JournalFacts, JournalUnreadable> {
+    // A registered but disconnected device is offline now; asking the channel would wait out the
+    // reconnect bound before saying the same thing.
+    if !app.channels.online(device_id) {
+        return Err(JournalUnreadable::Transport(LiveToolsError::Unavailable));
+    }
+
+    let scope = operator_scope(device_id);
+    let mut arguments = json!({ "limit": limit });
+    if let Some(before) = before {
+        arguments["before_seq"] = json!(before);
+    }
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": { "name": "journal.read", "arguments": arguments },
+    });
+    // The trace is minted for the same reason `/fleet/:id/tools` mints one: the console's relay
+    // drops a `call.*` pair it recognises as its own, so this read stays out of Activity.
+    let trace = app.channels.mint_trace();
+    let answer = tokio::time::timeout(
+        app.mcp_timeout,
+        app.channels
+            .request(device_id, request, &RequestAuth::Token(&scope), &trace),
+    )
+    .await;
+
+    let reply = match answer {
+        Err(_) => return Err(JournalUnreadable::Transport(LiveToolsError::Timeout)),
+        Ok(Err(RequestError::Offline | RequestError::Busy | RequestError::Disconnected)) => {
+            return Err(JournalUnreadable::Transport(LiveToolsError::Unavailable))
+        }
+        Ok(Err(RequestError::SendTimeout | RequestError::ReplyTimeout)) => {
+            return Err(JournalUnreadable::Transport(LiveToolsError::Timeout))
+        }
+        Ok(Ok(reply)) => reply,
+    };
+
+    let Reply::Result(_) = reply else {
+        // A JSON-RPC error is the device's answer. It is how a build that predates `journal.read`
+        // says so, and the page must read that as unknown rather than as a machine that recorded
+        // nothing.
+        return Err(JournalUnreadable::Unanswered(journal_refusal(&reply)));
+    };
+    // MCP carries a tool-level failure inside a successful exchange: a result with `isError: true`
+    // and the reason in its text. That is a refusal, not a body this console failed to parse, and
+    // the text is a sentence rather than the window object.
+    if tool_result(&reply)
+        .and_then(|result| result.get("isError"))
+        .and_then(Value::as_bool)
+        == Some(true)
+    {
+        return Err(JournalUnreadable::Unanswered("refused"));
+    }
+    journal_facts(&reply).ok_or(JournalUnreadable::Unanswered("malformed"))
+}
+
+/// Which of the two refusals a device's JSON-RPC error is: the tool is absent, or it said no.
+///
+/// A build older than `journal.read` answers one of two ways: `-32601` when it does not dispatch
+/// `tools/call` at all, or `-32602` with "unknown tool: journal.read" when it dispatches calls but
+/// does not list this one. Both mean the machine was never able to answer; everything else — a
+/// grant that does not cover the tool, a device that declined the read — is an answer that leaves
+/// the window open. Both are `unknown`; only their `reason` differs.
+fn journal_refusal(reply: &Reply) -> &'static str {
+    let names_a_missing_tool = error_message(reply).is_some_and(|message| {
+        let message = message.to_ascii_lowercase();
+        message.contains("journal.read")
+            && (message.contains("unknown tool") || message.contains("no such tool"))
+    });
+    if error_code(reply) == Some(-32601) || names_a_missing_tool {
+        "unknown_tool"
+    } else {
+        "refused"
+    }
+}
+
+/// The window object inside a `tools/call` answer's first text item, when it is one.
+///
+/// The four envelope facts are required, because a missing `rows` would otherwise become an empty
+/// window and the page would draw that answer as a machine with nothing retained. The rows inside it
+/// are read one field at a time: each field is copied only when it has the type the contract names,
+/// and a row with no `seq`, `ts` or `type` is dropped rather than drawn as blanks.
+fn journal_facts(reply: &Reply) -> Option<JournalFacts> {
+    let body: Value = serde_json::from_str(tool_text(reply)?).ok()?;
+    let rows = body
+        .get("rows")?
+        .as_array()?
+        .iter()
+        .filter_map(machine_row)
+        .collect();
+    Some(JournalFacts {
+        journal: body.get("journal")?.as_bool()?,
+        oldest_seq: body.get("oldest_seq")?.as_u64()?,
+        last_seq: body.get("last_seq")?.as_u64()?,
+        rows,
+        more: body.get("more")?.as_bool()?,
+    })
+}
+
+/// One row of the machine's record, field by field, or `None` when it lacks its own identity.
+fn machine_row(row: &Value) -> Option<MachineRow> {
+    Some(MachineRow {
+        seq: row.get("seq")?.as_u64()?,
+        ts: row.get("ts")?.as_str()?.to_owned(),
+        kind: row.get("type")?.as_str()?.to_owned(),
+        trace: row.get("trace").and_then(Value::as_str).map(str::to_owned),
+        tool: row.get("tool").and_then(Value::as_str).map(str::to_owned),
+        ok: row.get("ok").and_then(Value::as_bool),
+        reason: row.get("reason").and_then(Value::as_str).map(str::to_owned),
+        door: row.get("door").and_then(Value::as_str).map(str::to_owned),
+        payload_bytes: row.get("payload_bytes").and_then(Value::as_u64),
+    })
 }
 
 /// `GET /activity/shot/:device/:id`: one remembered screen capture, exactly as the device sent it.

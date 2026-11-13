@@ -8,6 +8,7 @@ import type { AuditLine } from "./api";
 import { VITALS_KEY_PREFIX, type VitalsSample } from "./vitals";
 import { resetLiveToolsCache } from "./useLiveTools";
 import { resetJoinMarks } from "./useJoinMarks";
+import { resetMachineRows } from "./useMachineRows";
 import { runLink } from "./run-link";
 
 // The shell is driven against a mocked HTTP surface: no request leaves jsdom, and the sign-in state is a
@@ -32,6 +33,7 @@ const mocks = vi.hoisted(() => ({
   tools: vi.fn(),
   liveTools: vi.fn(),
   auditJoin: vi.fn(),
+  journalRead: vi.fn(),
   grant: vi.fn(),
   tokens: vi.fn(),
   createToken: vi.fn(),
@@ -59,6 +61,7 @@ vi.mock("./api", () => ({
     tools: mocks.tools,
     liveTools: mocks.liveTools,
     auditJoin: mocks.auditJoin,
+    journalRead: mocks.journalRead,
     grant: mocks.grant,
     tokens: mocks.tokens,
     createToken: mocks.createToken,
@@ -309,6 +312,20 @@ beforeEach(() => {
     oldest_seq: 1,
     last_seq: 1,
     read_at_ms: Date.now()
+  }));
+  // The machine's own window. A machine with nothing journaled answers with no rows, and a test that
+  // draws a call only the journal holds names its own answer.
+  resetMachineRows();
+  mocks.journalRead.mockReset();
+  mocks.journalRead.mockImplementation(async (device: string) => ({
+    device,
+    journal: true,
+    oldest_seq: 0,
+    last_seq: 0,
+    rows: [],
+    more: false,
+    read_at_ms: Date.now(),
+    unknown: false
   }));
   // A console with no staged installer: the fleet says so and draws no download. The installer
   // tests name their own answer.
@@ -1444,6 +1461,51 @@ describe("App", () => {
       "aria-pressed",
       "true"
     );
+  });
+
+  it("draws a call only the machine's journal holds, in the Timeline and not the Table", async () => {
+    // The console proxied nothing: the call was made straight to the machine's own endpoint, so its
+    // only record is the machine's journal. Before this round the page drew it from the live relay
+    // while the tab was open, and after a reload it existed nowhere the page could reach.
+    const journaled =
+      Date.now() - 60_000 > 0 ? new Date(Date.now() - 60_000).toISOString() : new Date().toISOString();
+    mocks.audit.mockResolvedValue([]);
+    mocks.journalRead.mockResolvedValue({
+      device: workshop.id,
+      journal: true,
+      oldest_seq: 5,
+      last_seq: 5,
+      rows: [
+        {
+          seq: 5,
+          ts: journaled,
+          type: "call.finished",
+          trace: "machine-only-1",
+          tool: "screen.capture",
+          ok: true,
+          door: "panel",
+          payload_bytes: 12
+        }
+      ],
+      more: false,
+      read_at_ms: Date.now(),
+      unknown: false
+    });
+
+    await bootAndSignIn();
+    selectDevice("workshop");
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    await screen.findByRole("heading", { name: "Activity", level: 1 });
+    // The Timeline is Activity's default view, and the call is drawn with its door.
+    expect(await screen.findByText("screen.capture ran on workshop")).toBeInTheDocument();
+    expect(await screen.findByText("panel")).toBeInTheDocument();
+    expect(document.querySelector(".timeline-machine-read")).toHaveTextContent(
+      "1 of these calls is on the machine's record, not this console's."
+    );
+
+    // The table is this console's audit: it exports rows the file holds, and this call is not one.
+    fireEvent.click(screen.getByRole("tab", { name: "Table" }));
+    await waitFor(() => expect(screen.queryByText("screen.capture ran on workshop")).toBeNull());
   });
 
   it("reads the scope's machine window and widens to the fleet in one request", async () => {

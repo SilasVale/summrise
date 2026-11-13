@@ -3644,6 +3644,9 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
    structure; this belongs to the sentence, so it is the page's small-caps type and no chrome. The
    uppercase is what still tells it from prose, which is rule 6's "not colour alone". */
 .timeline-caller, .audit-caller { display: inline; color: var(--ink-faint); line-height: var(--lh-body); }
+/* The door a machine-only row arrived by: the same quiet word the console's own calls wear, because
+   it answers the same question in the same column. Round 8 brought rows the console never proxied. */
+.timeline-door { display: inline; color: var(--ink-faint); font-style: italic; line-height: var(--lh-body); }
 /* **THE CHEVRON MOVED AT 140 ms IN A PRODUCT THAT MOVES AT 120 (the hundred-and-fourth list).** It is the one
    transition in this sheet written in MILLISECONDS, which is exactly why a regex over `0.NNs` could not see it:
    measured as a VOCABULARY the page said `transform@0.14s` ×44 while everything else said 0.12. **A duration is the

@@ -1,6 +1,14 @@
 import { useEffect, useState } from "react";
-import { api, HttpError, type AuditLine, type JoinAnswer } from "./api";
-import { JOIN_TRACES, joinCounts, joinKind, joinTraces, type JoinCounts, type JoinKind } from "./joinMarks";
+import { api, type AuditLine, type JoinAnswer } from "./api";
+import {
+  JOIN_TRACES,
+  joinCounts,
+  joinKind,
+  joinTraces,
+  readFailureSentence,
+  type JoinCounts,
+  type JoinKind
+} from "./joinMarks";
 
 /**
  * **THE JOIN IS ASKED, NOT GUESSED (the ledger's third item).** Every proxied call is written twice —
@@ -80,18 +88,6 @@ function remember(deviceId: string, trace: string, kind: JoinKind) {
   }
 }
 
-/** The console's sentence for a failed join read, in the page's voice. */
-function sentence(cause: unknown): string {
-  if (cause instanceof HttpError) {
-    if (cause.status === 503) return "the machine is not connected";
-    if (cause.status === 504) return "the machine did not answer in time";
-    if (cause.status === 404) return "this console does not know that machine";
-    if (cause.message && cause.message !== cause.code) return cause.message;
-    return cause.code;
-  }
-  return cause instanceof Error ? cause.message : String(cause);
-}
-
 export type JoinState = {
   /** What is known about each trace the window asked about. A missing key is `unknown`. */
   kinds: ReadonlyMap<string, JoinKind>;
@@ -150,7 +146,7 @@ export function useJoinMarks(deviceId: string | null, lines: readonly AuditLine[
           // the console did not learn anything about these calls.
           for (const trace of ask) remember(deviceId, trace, "unknown");
           target.at = Date.now();
-          target.error = sentence(cause);
+          target.error = readFailureSentence(cause);
           if (live) setAnswers((value) => value + 1);
         });
     }, JOIN_DEBOUNCE_MS);
