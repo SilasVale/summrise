@@ -1,250 +1,220 @@
-# Summrise v2: the architecture of record (proposal)
+# Summrise v2 — one record per role, one bus over its change feed
 
-> **Status: proposal on `next`, 2026-11-13.** It supersedes the *storage model* of
-> `architecture-of-record-2026-11-12.md` §4.4 and the "one journal" slogan of the first draft. Every
-> other contract in that document stands unless restated here. This is the M0 deliverable: the design
-> the v2 slices implement, with the parity matrix beside it (`v1-parity.md`).
+> **Status: proposal on `next`, 2026-11-13.** The record is SQLite; the bus is its change-feed
+> table, written in the same transaction. This replaces both the "journal as the only record" draft
+> and the polling sketch: the guarantees of a bus are kept, the second store is not. The feature gate
+> is `v1-parity.md`.
 
-![The target: two processes, modules with one job each](assets/architecture-target-proposal.png)
+![One record per role; its feed carries the live updates](assets/architecture-target-proposal.png)
 
-## 0. What "best" means here
+## 0. What "best" means
 
-"Best" without a scoreboard is taste. These are the five criteria, ranked, and every decision below is
-argued against them:
+1. **The record does not lose facts.** Not by rotation, crash, upgrade, or reset.
+2. **Adding a thing costs one place.**
+3. **The loop is short.**
+4. **The operational surface is small.**
+5. **A stranger can find things.**
 
-1. **The record does not lose facts.** A row that was written is not dropped by a rotation, a crash, an
-   upgrade, or a reset. This is the product's third pillar ("record and brake"), so it outranks the rest.
-2. **Adding a thing costs one place.** A tool, a wire field, a page view — one definition, everything
-   else derived or generated.
-3. **The loop is short.** One build, one test command per language, one release pipeline. A change that
-   needs a two-minute build plus three suites to see is a change nobody makes on a whim.
-4. **The operational surface is small.** Few processes, files and ports; one person at 2 a.m. can hold
-   it in their head.
-5. **A new maintainer can find things.** A behavior maps to a directory a stranger can guess.
+The previous drafts failed on criterion 1 by making a capped log the record, or failed on criterion 4
+by keeping a second event subsystem beside the record. This design keeps one durable record per role
+and gives it a **change feed** — a table, not a second system.
 
-The first draft failed criterion 1: it called the journal "the only record" while the journal is capped
-at 64 MiB / 7 days. A record that can be rotated away is not a record. That sentence is withdrawn; the
-decision that replaces it is D1.
+## 1. The model
 
-## 1. Decisions
+Every process owns exactly one record. The record has ordinary tables (calls, sessions, plugins,
+tokens, denials, deploys) and one special table, `feed`: one row per change, with a monotonic `id`.
+**Writing a fact and appending its feed row happen in one transaction.** That is the whole event
+mechanism.
 
-### D1 — Two jobs, two stores
+```
+write:  capability ──▶ record tables ─┐
+                                      ├─ same transaction
+                        feed row ─────┘
+push:   feed row ──▶ subscriber (WS / SSE)
+resume: subscriber reconnects with its cursor ──▶ SELECT * FROM feed WHERE id > cursor
+```
 
-**The contract is the architecture; the engine is not.** A record here must: append a unit of work in
-one transaction; list and paginate by time, tool, token, device and status; aggregate a day; find a row
-by trace; delete by a retention policy; back itself up and restore; check its own integrity at boot; and
-refuse to be written by more than one process. Those requirements come from the product ("record and
-brake"), not from a database vendor, and any engine that meets them is acceptable.
+**This is the bus, and it keeps every guarantee a bus exists for** — it is simply not a second store:
 
-SQLite is the **default engine** because it meets them cheaply on Windows: transactions and WAL crash
-recovery, indexes for the queries above, one file to copy for a backup (`VACUUM INTO`), `quick_check`,
-no server to operate, bundled into the binary. It is not a load-bearing architectural choice: the
-boundary rule is that **SQL lives only in the `store` module**, and every caller uses record operations
-(`append_call`, `list_calls`, `day_counts`, `find_trace`, `prune`, `backup`, `check`). Replacing the
-engine is replacing that module plus an export/import; no capability, entry or page changes.
+| guarantee | how |
+|---|---|
+| total order per record | one writer; `feed.id` is monotonic in transaction order |
+| durability | the feed row commits with the fact, or neither does |
+| at-least-once | a push may repeat; a reader dedupes by `feed.id` |
+| resume from any retained point | `read_feed(after: id)` is the same call live and after a reconnect |
+| bounded memory | one bounded queue per subscriber; a slow reader is told how far behind it is |
+| fan-out | subscribers are independent cursors; one slow reader cannot block another |
+| retention | record and feed are pruned by one policy; the oldest retained id is the floor |
+| no dual write | there is no second log that can diverge from the record |
 
-The one thing the interface must not become is a generic CRUD layer. It names the product's questions;
-when the questions change, the interface changes with them. That is cheaper than an abstraction built
-to anticipate an engine swap that may never happen.
+So there is no separate journal, no epoch, no `lagged`/`reset` frame, and no second retention policy.
+A cursor older than the retained oldest is answered with the oldest available id, and the subscriber
+says "rows before this were pruned" — one fact, one sentence.
 
-| | stream (`journal`) | record (default engine: SQLite) |
+| concept | count | what it is |
 |---|---|---|
-| what it is | append-only events, fsync, segmented | transactional tables, WAL, indexed |
-| what it is for | live subscriptions, replay of recent events | the record: calls, sessions, plugins, tokens, deploys |
-| retention | bounded (size and age) — **losing old events is fine** | policy retention (default 90 days for calls), explicit backups |
-| failure | a torn tail is truncated; the record is untouched | WAL recovery; `quick_check` on boot; restore from backup |
-| query | sequential, newest-first | SQL, any index |
-| writer | the device, one | **exactly one process per database** |
+| **record** | 1 per process | SQLite: the facts, their history, and their feed |
+| **feed** | 1 per record | the change table a subscriber follows by id |
+| **call** | 1 | MCP at the edge; one dispatch; one envelope |
+| **terminal stream** | 1 | the only unrecorded data: bytes with offsets, for an open terminal |
+| **guide** | 1 per device | generated from the capability specs |
 
-**The invariant:** every fact has exactly one writer and one home. A fact is never re-derived by
-guessing from another store. The stream is not a home; it is how a fact reaches a subscriber. The
-console's database is the home of operator-side facts (who minted what, which token called, what the
-console refused). The device's database is the home of machine-side facts (what ran, in which session,
-with what outcome). A proxied call appears in both as two *perspectives* joined by `trace.call` — not as
-two copies of one fact.
+Two roles: the **device** (one process per machine) and the **console** (one process for the operator).
+Three carriers: MCP (AI), the channel (console ↔ device, one WS the device dials), SSE (console → page).
+They are carriers of the call envelope, not separate mechanisms.
 
-Why not JSON Lines: no transactions, no indexes, no integrity check, and a rotation that silently
-drops the oldest rows — which is exactly the failure this design replaces. The engine is the cheap part;
-the guarantees are the point.
+## 2. Invariants
 
-### D1b — The bus stays, as the stream
+1. **One writer, one home per fact.** The device's record holds machine facts; the console's record
+   holds operator facts (and what it learned from devices, with the device's trace).
+2. **A fact and its feed row commit together.** There is no window where a row exists without its
+   notification, or a notification without its row.
+3. **The feed is a hint; the record is the truth.** A subscriber that misses a push catches up by
+   querying the record. Losing a push is allowed; losing a record row is a defect.
+4. **One cursor: the feed id.** The page's SSE `id:`, the console's per-device cursor, and every
+   resume are the same number in their own record.
+5. **A capability is declared once.** Tools, schemas, guide, panel and conformance tests derive from
+   `CapabilitySpec`.
+6. **No door calls a capability directly.** Only the dispatch chain invokes a capability and writes the
+   call row.
+7. **Policy is a middleware**, open by default (token = identity), with its refusal path tested.
+8. **Data-plane bytes are never recorded.** Terminal output is pushed with offsets; a lost chunk is a
+   `stream_gap`, not a shorter record.
+9. **A plugin is a child process**; its tools enter the same registry and dispatch; its lifecycle is
+   recorded and feeds the same feed.
+10. **One version, one installer, forward-only schema.** Upgrade backs the record up before migrating;
+    a rollback restores that backup.
 
-Nothing about subscriptions is removed. The `journal` module keeps the whole event mechanism the
-product already uses: `subscribe(from_seq)` with replay-then-live, the channel's `sub` / `evt` / `reset`
-frames, `lagged` when a subscriber falls behind, terminal follow on a session's notifier, and the page's
-SSE. The event names stay too: `call.started`, `call.finished` / `call.denied`, `session.opened` /
-`closed`, the plugin lifecycle, state changes.
+## 3. The flows
 
-It also keeps the two delivery classes §4.1 defines: **control events** are journaled, ordered and
-replayable; **data-plane** frames (terminal bytes, screen frames) are pushed to their subscriber on the
-session's own notifier and never journaled, so a PTY flood cannot grow the record. One bus, two
-delivery classes — the same rule as v1, not a new one.
+### 3.1 A call
 
-What changes is its job. The stream is published **after** the record commits (an outbox, not a second
-home). A subscriber that lags or is reset recovers by querying the record — not by replaying a stream
-that retention may have shortened. That is what lets the stream be small; it is also why the console can
-stop being the second writer of a call and become a reader of the device's perspective.
+```
+door ─▶ CallRequest ─▶ identity ─▶ policy ─▶ record(start) ─▶ capability ─▶ record(end) ─▶ answer
+```
 
-The crate is gone, the mechanism is not: `bus` becomes `device/src/journal`, owned by one process. It
-stops being a general-purpose library the console also links, because there is now only one writer and
-one reader shape.
+Each `record(start)`/`record(end)` is a row plus a feed row, one transaction. The answer's
+`{feed_id}` is what the console writes on its own row. A door never sees a capability; a capability
+never writes the call row.
 
-### D2 — Every fact carries its identity
+### 3.2 Live updates
 
-- Every row in either record has `trace` (a unit of work) and `ts_ms` (the clock of the process that
-  wrote it).
-- A row that mirrors a stream event also stores `(epoch, seq)`. An old row is then never confused with
-  a row written after the journal was rebuilt — the epoch makes the position unambiguous.
-- Nothing orders by `ts_ms`; ordering is `(epoch, seq)` or the database's own rowid.
+The console subscribes to a device's feed by sending `{"feed":{"from": N}}` on the channel; the device
+pushes `{"feeds":[{"id":N+1,"kind":"call.finished",…}]}`. On reconnect, the console asks from its stored
+cursor and the device answers from the record. The console writes its own rows (operator view) and its
+own feed; the page follows the console's feed over SSE (`id:` = feed id, `Last-Event-ID` = cursor).
 
-### D3 — A capability is one module
+No gap frames: the only loss fact is "the oldest retained id is X", answered by the record.
+
+### 3.3 The terminal
+
+A channel `subscribe` carries one `terminal.read` — the one audited call — then pushes chunks with byte
+offsets on the session's notifier. The page reads `/terminal/:device/:session/stream` (SSE). This is the
+one push that is not a record row, because a PTY flood must not become the record.
+
+## 4. Modules
+
+```
+crates/
+  protocol/   envelope, channel frame, feed row, journal answers, guide; fixtures; generated TS
+  core/       registry, policy decision, sessions — pure, no I/O
+  store/      SQLite: open, migrate, record operations, feed operations, retention, backup, integrity
+  device/     bin summrise-device: capabilities/ entries/ dispatch/ record/ supervisor/ update/
+  console/    bin summrise-console: devices.rs channel.rs record/ http/ page/
+  ui/         design tokens
+  platform/   the Windows boundary
+  mesh/       NAT traversal
+  shell/      bin summrise-shell
+  launch/     bin summrise-launch
+vendor/portable-pty
+```
+
+Ten crates, four binaries. The page role is a module with no key accessor (the boundary is a type, not
+a crate); the release document is a protocol type; the wasm decision layer is deleted in favour of
+generated types.
+
+### 4.1 The capability contract
 
 ```rust
 pub trait Capability: Send + Sync {
     fn spec(&self) -> &'static CapabilitySpec;
     fn call(&self, tool: &str, args: &Args, cx: &CallCx<'_>) -> ToolOutcome;
-    fn dispose(&self, cx: &CallCx<'_>) {}   // sessions, monitors, children
+    fn dispose(&self, cx: &CallCx<'_>) {}
 }
 
 pub struct CapabilitySpec {
     pub name: &'static str,
-    pub tools: &'static [ToolSpec],   // name, JSON schema, destructive *label*, guide section
-    pub guide: &'static str,          // the manual entry, rendered from this spec
-    pub panel: &'static [PanelEntry], // what the device's own panel shows
+    pub tools: &'static [ToolSpec],   // name, schema, destructive label, guide
+    pub guide: &'static str,
+    pub panel: &'static [PanelEntry],
 }
 ```
 
-The registry is the union of the specs, built once at boot. `tools/list`, the guide, the panel, the
-tool catalogue page, the docs and the conformance tests all read it. Adding a tool is one module and its
-test; there is no second place to update.
+The registry is the union of the specs. `tools/list`, the guide, the tool catalogue, the panel and the
+docs are renderings of the same data. Adding a tool is one module and its test.
 
-### D4 — One dispatch, four doors, one chain
+### 4.2 The record contract
 
-```
-MCP (HTTP/stdio) ─┐
-console channel  ─┼─▶ CallRequest { door, tool, args, caller, trace } ─▶ dispatch
-local panel      ─┤        │
-CLI              ─┘        ▼
-                     identity → policy → record(start) → capability → record(end)
-```
+Append a fact and its feed row in one transaction; list and paginate by time, tool, token, device,
+status; aggregate a day; find by trace; read the feed after a cursor; prune by policy (record and feed
+together); back up and restore; check integrity at boot; refuse a second writer. SQLite is the default
+engine; SQL lives only in `store`, and callers use record operations.
 
-- An entry adapts its protocol to `CallRequest`; it never calls a capability directly.
-- The chain is a list of middlewares. The policy middleware is **open by default** (the operator's
-  decision on 2026-11-13: token is identity, not permission), but the seam exists and its refusal path
-  is tested, so tightening later is a middleware, not a refactor.
-- `record(start)` / `record(end)` are the only writers of a call row; a capability cannot write one.
+### 4.3 The bus contract
 
-### D5 — Contracts have one source
+`publish(fact) -> feed.id` is part of the same transaction as the fact. `read_feed(after: id, limit)
+-> rows` is the only read a subscriber needs; live push is an optimization of it. A subscriber's state
+is one `id`; a reconnect replays from it; a pruned cursor answers the oldest retained id. There is no
+subscription registry in the store, no epoch, and no replay buffer beyond the retained rows: the
+record is the buffer.
 
-`crates/protocol` defines the wire types once: `Envelope`, the channel frame, the audit line, the
-`journal.*` answers, the guide document, the panel snapshot. Rust derives JSON (de)serialization and
-TypeScript types (`ts-rs`). A test writes `web/src/protocol.d.ts` and fails when it is stale; a second
-test reads golden fixtures in `protocol/fixtures/` and asserts the same bytes on both sides. The page
-never hand-writes a field the device sends.
-
-### D6 — Supervision is a tree
-
-- `summrise-launch` supervises the device process (it outlives it, so it can update it).
-- The device supervises plugin child processes: backoff 1/2/4/8/16/30 s; five starts in 300 s marks a
-  plugin `failed`; stopping kills the tree.
-- Capabilities dispose what they own (terminals, monitors, browser pages) on unload and on shutdown.
-- Every transition is a record row and a stream event. "It restarted at 03:14" is a fact, not a log line
-  in a console nobody reads.
-
-### D7 — Permissions are identity plus the record
-
-The operator's decision of 2026-11-13: no scopes, no destructive consent. A token identifies the caller;
-the record says what it did; the stop button and the machine are the brakes. The code keeps the policy
-middleware (D4) so a future deployment can add a rule without touching a capability, and the UI keeps
-the "destructive" label as advice.
-
-## 2. The code
-
-```
-crates/
-  protocol/     wire types, golden fixtures, generated TypeScript
-  core/         registry, policy decision, sessions — pure, no I/O
-  store/        SQLite: open, migrate, retention, backup, integrity
-  device/       bin summrise-device
-    journal/    the stream: segments, fsync, subscribe, replay
-    entries/    mcp.rs, channel.rs, panel.rs, cli.rs
-    dispatch/   middleware chain
-    capabilities/ files.rs terminal.rs browser.rs screen.rs runs.rs host.rs memory.rs
-                  journal.rs plugins.rs guide.rs forward.rs
-    record/     the device's tables and queries
-    supervisor/ plugins, restarts
-    update/     signed release document, self-update, repair
-  console/      bin summrise-console
-    devices.rs  registry, presence
-    channel.rs  one WebSocket per device, requests down, events up
-    record/     operator tables + device perspectives
-    http/       operator session, /mcp, /mcp/all, /audit, /journal/*, SSE
-    page/       static assets (the React build), no keys
-  ui/           design tokens shared by console and the device panel
-  platform/     the Windows boundary (winsec + winsys merged)
-  mesh/         NAT traversal / transport
-  shell/        bin summrise-shell (tray, WebView2)
-  launch/       bin summrise-launch (supervisor)
-vendor/portable-pty
-```
-
-Ten crates, four binaries. What is gone, and why: `console-page` is a module of the console (the page
-still holds no keys — the type that serves it has no accessor for them); `bus` is the device's `journal`
-module (one owner, not a general-purpose library); `console-logic` (wasm) is deleted — generated
-TypeScript and golden fixtures replace it; `release` is `device/update` plus a protocol type.
-
-## 3. Failure modes
+## 5. Failure modes
 
 | Failure | What happens | Guarantee |
 |---|---|---|
-| device process dies | launcher restarts it; subscribers reconnect | committed record rows survive; the stream may lose ≤16 ms of unpublished tail |
-| power loss | journal tail truncated to the last valid frame; SQLite WAL replays | no half-written row; a published event was fsynced |
-| record corrupt | boot `quick_check` fails: the process serves read-only and says so | it never silently writes over a damaged record; restore from backup |
-| stream corrupt | truncate the torn tail; the record is untouched | the record does not depend on the stream |
-| retention | rows deleted by policy in batches; `VACUUM` occasionally | the record outlives the stream by design |
-| upgrade | forward-only migrations in a transaction, after `VACUUM INTO` backup | an older build refuses a newer schema; rollback restores the backup |
-| console down | device keeps serving; its panel works; its record grows | no fact depends on the console being up |
-| device unreachable | console shows the last known and says "offline" | no fabricated rows, no silent gap |
-| duplicate delivery | a retried call with the same `trace` records once | idempotent by `trace` |
-| plugin crash loop | supervisor marks it failed, unregisters its tools | one row and one stream event say why |
+| device dies | launcher restarts; console resumes from its cursor | committed rows survive; the feed resumes where the record is |
+| power loss | SQLite WAL replays | a committed fact and its feed row both survive, or neither does |
+| record corrupt | boot `quick_check` fails: read-only and says so | never write over a damaged record; restore from backup |
+| console down | device serves; its panel reads its own record | no fact depends on the console |
+| device unreachable | console shows the last cursor and "offline" | no fabricated rows |
+| cursor pruned | answer names the oldest retained id | the UI says "older rows were pruned"; no silent gap |
+| upgrade | migrate in a transaction after `VACUUM INTO` | older build refuses newer schema; rollback restores backup |
+| duplicate delivery | the same fact is written once by its writer | the console dedupes a device row by `(device, feed id)` |
+| plugin crash loop | supervisor marks it failed and records it | one row, one feed entry |
 
-## 4. Why this is better than the alternatives
+## 6. Why this is the best for this product
 
-- **v1 today.** Thirteen crates; a JSONL audit capped at 64 MiB that can silently drop old rows (the
-  "record and brake" pillar's weakest point); the same wire field hand-copied across four layers (the
-  epoch round touches ~20 sites); a page role as a separate crate for a boundary a module can hold.
-  Measured: adding one field this week cost edits in the bus, the device tools, the frame, the console
-  audit, the live event, the page types and two hooks.
-- **"The journal is the only record."** The draft sentence. It loses on retention (the journal is
-  capped), on reset (a rebuilt journal changes what a position means — that is why the epoch exists),
-  and on queries (every view becomes a scan). Rejected; see D1.
-- **Everything is a plugin (Cordis-style).** Elegant for a tool whose users replace every part; here it
-  would make "which code wrote this row" a runtime question and add a composition language to a product
-  whose install is a signed Windows binary. Not this product.
-- **Microservices per capability.** Process tax, Windows service tax, and a network hop in the one path
-  that must be fast.
-- **Full event sourcing.** Replay cost for a benefit the record already gives; deferred, not forbidden.
-
-## 5. Migration (the slices)
-
-Each slice is one round on `next`, with tests, a parity check, and `hub/v1` untouched. A slice that
-cannot be rolled back alone does not land.
-
-| Slice | What lands | Acceptance |
+| criterion | v1 | this design |
 |---|---|---|
-| **S0** | this document + `v1-parity.md`; the v1 release runs through the pipeline | design reviewed; v1 installer built and installed on a machine |
-| **S1** | `store` crate; console record from SQLite; import existing `events.jsonl` once; Activity reads the record | same Activity from the record; import idempotent; old file kept as archive |
-| **S2** | device record; `journal.read/get/day` answered from it; the stream stays for live; the epoch from the parked branch | answers unchanged for a live journal; old rows survive stream retention; parity tests |
-| **S3** | capability module + generated registry + guide from specs | a sample capability is one file; the guide lists every tool; removing it removes its tools |
-| **S4** | entries + middleware; four doors on one dispatch | the conformance suite runs against every door; the policy middleware can be switched off |
-| **S5** | `protocol` crate + generated TypeScript + golden fixtures; `console-logic` deleted | a wire change is one type plus generated output; both sides read the same fixtures |
-| **S6** | crate merge (`console-page`, `ui`, `platform`, `release`), dead code removed; v2.0 | v2.0 released, deployed, rollback drilled; parity matrix green |
+| record | JSONL audit capped at 64 MiB, silently rotated | SQLite, policy retention, backup, integrity |
+| live updates | a separate bus with `seq`, `epoch`, `lagged`, `reset` | the record's change feed, with one cursor; every bus guarantee named and tested |
+| adding a tool | 4 places + docs | 1 module |
+| adding a wire field | ~20 sites | 1 type + generated TS |
+| resume | replay the log, or reset the subscriber | query the record after the cursor |
+| crates | 13 | 10 |
 
-## 6. Review focus
+Rejected: **polling-only** — the live view and the terminal make push worth keeping; **journal as the
+only record** — capped and rebuildable; **a separate bus log beside the record** — two orders, two
+retentions, an epoch to reconcile them: that is the v1-shaped mess this design removes while keeping
+every delivery guarantee; **everything-is-a-plugin** — provenance and packaging cost; **microservices**
+— a hop in the hot path.
 
-- The record's own failure path: crash, corruption, migration, backup and restore — not just its happy
-  path.
-- The one-writer invariant, including the import (who may write which row).
-- That the page reads the record, not a re-derivation of it.
-- That adding a tool is one file, demonstrated rather than asserted.
-- That no slice makes `hub/v1` unshippable.
+## 7. Slices
+
+| Slice | Lands | Acceptance |
+|---|---|---|
+| S0 | this spec + `v1-parity.md`; v1 through the release pipeline | reviewed; v1 installer installed |
+| S1 | `store`; console record + feed; import `events.jsonl`; Activity reads the record and follows its feed | same rows; import idempotent; live view works |
+| S2 | device record + feed; `journal.*` answered from the record; the old bus log and the epoch deleted; the feed becomes the bus | answers unchanged; rows survive retention |
+| S3 | capability contract + generated registry + guide | one-file capability |
+| S4 | entries + dispatch chain; four doors | conformance suite per door |
+| S5 | `protocol` + generated TS + fixtures; wasm deleted | one type per wire change |
+| S6 | crate merge, dead code, v2.0 | released, deployed, rollback drilled |
+
+## 8. Review focus
+
+- The feed and the fact commit together — crash between them is impossible.
+- The resume path: cursor, pruning, and the "older rows were pruned" fact.
+- The page reads the record, not a re-derivation.
+- One capability is one file, demonstrated.
+- No slice makes `hub/v1` unshippable.

@@ -58,8 +58,8 @@
 <body>
 <div class="canvas">
 
-  <div class="h1">summrise · 目标架构<small>一个设备进程 · 一条事件流 · 一个 SQLite 记录 · 三个扩展点</small></div>
-  <div class="sub">重画版：事件流负责实时，记录负责持久；账本不再押在会被轮转的日志上。</div>
+  <div class="h1">summrise · 目标架构<small>每边一个记录 · 记录自带总线 · 三个门</small></div>
+  <div class="sub">重画版：总线就是记录的变更流，同一个事务落下；推送是它的加速，游标是它的续传。</div>
 
   <!-- 使用者与入口 -->
   <div class="note" style="left:48px; top:106px; letter-spacing:.4px;">使用者 · 入口</div>
@@ -125,7 +125,7 @@
     </div>
     <div class="card" style="left:584px; top:352px; width:276px; height:72px;">
       <div class="t">订阅 · 分发 <en>bus</en></div>
-      <div class="d">控制台、面板、插件宿主订阅事件；落后说 lagged，越界说 reset</div>
+      <div class="d">控制台、面板、注册表按游标订阅；各自独立，慢的一个不拖别人</div>
     </div>
 
     <div class="card accent" style="left:20px; top:440px; width:500px; height:96px;">
@@ -135,9 +135,9 @@
     </div>
 
     <div class="card" style="left:532px; top:440px; width:328px; height:96px;">
-      <div class="t">总线 · 事件流 <en>bus</en></div>
-      <div class="d">控制事件：有界、可回放、(epoch, seq)；数据面（终端 / 屏幕）只推送，不入日志</div>
-      <div class="d">只负责实时；旧事件被轮转掉没关系，记录里还在。</div>
+      <div class="t">总线 · 变更流 <en>bus</en></div>
+      <div class="d">和记录同一事务写入；有界、有序、可回放；订阅者的游标就是 id</div>
+      <div class="d">推送只是加速；落后就按 id 补，旧行被清理就明说最早 id。</div>
     </div>
 
     <div class="card" style="left:20px;  top:548px; width:270px; height:58px;">
@@ -192,9 +192,8 @@
   <!-- 数据目录 -->
   <div class="proc" style="left:980px; top:640px; width:572px; height:150px; background:var(--panel2);">
     <div class="ptitle">数据目录 <em>每台机器一个</em></div>
-    <div class="card" style="left:20px; top:48px; width:160px; height:72px;"><div class="t">record.db</div><div class="d">SQLite 记录（WAL）</div></div>
-    <div class="card" style="left:192px; top:48px; width:160px; height:72px;"><div class="t">journal/</div><div class="d">事件流（有界）</div></div>
-    <div class="card" style="left:364px; top:48px; width:168px; height:72px;"><div class="t">plugins/</div><div class="d">清单 + 目录</div></div>
+    <div class="card" style="left:20px; top:48px; width:250px; height:72px;"><div class="t">record.db</div><div class="d">SQLite 记录 + 变更流（WAL）</div></div>
+    <div class="card" style="left:282px; top:48px; width:250px; height:72px;"><div class="t">plugins/</div><div class="d">清单 + 目录</div></div>
   </div>
 
   <!-- 图例 -->
@@ -203,7 +202,7 @@
       <div class="row"><span class="sw"></span>调用 / 请求</div>
       <div class="row"><span class="sw dash"></span>事件 / 订阅</div>
       <div class="row"><span class="sw thin"></span>生成 / 监督</div>
-      <div class="row"><span class="sw orange"></span>记录写入 / 查询</div>
+      <div class="row"><span class="sw orange"></span>记录 + 变更流</div>
       <div class="note" style="margin-top:6px; position:static; font-size:11.5px;">设备 → 控制台：主动拨入一条 WS；请求下行，事件上行。控制台可以没有——设备自己就是 MCP 服务。</div>
     </div>
   </div>
