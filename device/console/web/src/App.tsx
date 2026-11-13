@@ -656,7 +656,6 @@ export function App() {
    * not counted, with the console's reason. A machine with no journal says nothing: its day is
    * complete in the console's audit.
    */
-  const fleetDayMissing = fleetWindow ? fleetDayNote(fleet.reads, fleet.plan) : null;
   const machineDayUnread =
     !fleetWindow &&
     directDay === null &&
@@ -672,6 +671,12 @@ export function App() {
           machineDayForHeader.error ?? "this machine did not answer for its journal"
         }.`
       : null;
+  /**
+   * **A FLEET DAY IS A FLOOR WHEN A MACHINE WAS NOT COUNTED.** The note counts the machines whose
+   * direct calls the number does not hold (a failed or `unknown` day, an offline machine, one past
+   * the cap) and is silent while a read is in flight: the footer names them, once.
+   */
+  const fleetDayMissing = fleetWindow ? fleetDayNote(fleet.reads, fleet.plan) : null;
   const dayNote = fleetWindow ? fleetDayMissing : machineDayNote;
   const activityCount =
     shownDay !== null && !auditReadingOther
