@@ -10,6 +10,7 @@
 
 pub mod browser;
 pub mod files;
+pub mod forward;
 pub mod memory;
 pub mod monitor;
 pub mod runs;
@@ -25,4 +26,5 @@ pub const DECLARED: &[&crate::registry::Capability] = &[
     &monitor::CAPABILITY,
     &runs::CAPABILITY,
     &system::CAPABILITY,
+    &forward::CAPABILITY,
 ];

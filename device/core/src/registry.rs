@@ -84,37 +84,7 @@ pub const CAPABILITIES: &[Capability] = &[
         }],
         guide: "",
     },
-    Capability {
-        name: "forward",
-        tools: &[
-            // A rule's values decide who can reach what and which host is trusted to carry it, so
-            // `forward.add` and `forward.remove` are the operator's own act and are DESTRUCTIVE in
-            // this registry's sense: they change a listening socket and persist a credential, and a
-            // later read cannot undo that. `forward.list` only observes.
-            ToolDef {
-                name: "forward.add",
-                destructive: true,
-                description:
-                    "Add or replace a forward rule: `listen` is bound on THIS machine, `via` makes the SSH connection, and that host's sshd dials `target`. The far host therefore gains NO listening port. `host_key` optionally pins the fingerprint `via`'s key must match — a rule runs with nobody present, so it is the one object here that should not decide a host's identity by itself. Nothing is created until the rule is persisted; a rule that cannot bind stays visible with its error rather than retrying forever.",
-                schema: None,
-            },
-            ToolDef {
-                name: "forward.remove",
-                destructive: true,
-                description:
-                    "Remove a rule and stop its executor; `removed` says whether one was configured. The listener is closed with it, so the address becomes bindable again.",
-                schema: None,
-            },
-            ToolDef {
-                name: "forward.list",
-                destructive: false,
-                description:
-                    "List every rule with its live state: whether the listener is bound, since when, how many connections it has carried, how many bind attempts it has made, and what its last failure said. An unbound rule reports its error rather than a plausible-looking zero.",
-                schema: None,
-            },
-        ],
-        guide: "",
-    },
+    crate::capabilities::forward::CAPABILITY,
     Capability {
         name: "state",
         tools: &[ToolDef {

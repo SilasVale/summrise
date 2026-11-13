@@ -40,6 +40,8 @@ pub struct Ctx<'a> {
     pub monitor: &'a std::sync::Arc<monitor::MonitorRegistry>,
     /// The run history.
     pub runs: &'a std::sync::Arc<runs::Runs>,
+    /// The forward rules.
+    pub forwards: &'a std::sync::Arc<forward::ForwardRegistry>,
 }
 
 /// Whether a migrated capability declares `tool`.
@@ -51,6 +53,7 @@ pub fn owns(tool: &str) -> bool {
         || monitor::owns(tool)
         || runs::owns(tool)
         || system::owns(tool)
+        || forward::owns(tool)
 }
 
 /// Every tool a migrated capability declares, for the registry-alignment test.
@@ -63,6 +66,7 @@ pub fn names() -> impl Iterator<Item = &'static str> {
         .chain(monitor::names())
         .chain(runs::names())
         .chain(system::names())
+        .chain(forward::names())
 }
 
 /// Run a migrated capability's tool.
@@ -91,6 +95,9 @@ pub async fn call(
     }
     if system::owns(tool) {
         return system::call(tool, arguments).await;
+    }
+    if forward::owns(tool) {
+        return forward::call(ctx.forwards, tool, arguments);
     }
     Err(crate::mcp::ToolError::Internal(format!(
         "{tool}: no migrated capability declares it"

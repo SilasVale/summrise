@@ -395,6 +395,13 @@ discipline inside the module: the resolver parks there, not on a reactor worker.
 capabilities, 36 tool headings. Evidence: 669 device tests, 104 core tests, `clippy`/`fmt` clean, gate
 14 / 22 / 0. Next: `forward` (three), then `host`, `journal`, `plugins`, `guide`.
 
+**Round 22 — `forward` moves.** Three tools (add, remove, list) declared in
+`core/src/capabilities/forward.rs`; the rule view (`forward_row`) moved with them and is shared with
+the test that asserts its keys, so the answer and the assertion still share one source. The `Ctx`
+carries the `Arc<ForwardRegistry>` (a rule installs its own listener). Guide: eight capabilities, 39
+tool headings. Evidence: 669 device tests, 104 core tests, `clippy`/`fmt` clean, gate 14 / 22 / 0.
+Next: `host` (two), then `journal`, `plugins`, `guide`.
+
 
 ## Next (in order)
 

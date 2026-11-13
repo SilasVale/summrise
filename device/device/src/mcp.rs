@@ -45,7 +45,7 @@ use summrise_core::{
 use tokio::io::AsyncWriteExt;
 
 use crate::capabilities::{
-    browser, forward, memory, monitor, plugins as plugins_capability, runs, ssh, terminal,
+    browser, forward, memory, monitor, plugins as plugins_capability, runs, terminal,
 };
 use crate::config::{Config, Release};
 use crate::plugins::host::PluginHost;
@@ -1009,6 +1009,7 @@ impl DeviceServer {
                 browser: self.browser.as_ref(),
                 monitor: &self.monitor,
                 runs: &self.runs,
+                forwards: &self.forwards,
             };
             return crate::capabilities::call(name, arguments, &ctx).await;
         }
@@ -1017,35 +1018,6 @@ impl DeviceServer {
         };
 
         match handler {
-            Handler::ForwardAdd => {
-                let arguments: ForwardAddArgs = parse(arguments, name)?;
-                let spec = forward::RuleSpec::parse(
-                    &arguments.name,
-                    &arguments.listen,
-                    &arguments.target,
-                    &arguments.via,
-                    arguments.auth,
-                    arguments.host_key.as_deref(),
-                )
-                .map_err(|message| refused(name, forward::ForwardError::Refused { message }))?;
-                let rule = self
-                    .forwards
-                    .add(&spec)
-                    .map_err(|error| refused(name, error))?;
-                Ok(json!(rule).to_string())
-            }
-            Handler::ForwardRemove => {
-                let arguments: ForwardNameArgs = parse(arguments, name)?;
-                let removed = self
-                    .forwards
-                    .remove(&arguments.name)
-                    .map_err(|error| refused(name, error))?;
-                Ok(json!({ "removed": removed }).to_string())
-            }
-            Handler::ForwardList => {
-                let state: Vec<Value> = self.forwards.list().into_iter().map(forward_row).collect();
-                Ok(Value::Array(state).to_string())
-            }
             Handler::HostFacts => {
                 // Read-only, and the one tool an operator can call without minting a grant: knowing
                 // what machine a device is is context for every decision that follows.
@@ -1281,9 +1253,6 @@ fn jsonrpc_error(id: Value, code: i32, message: &str) -> Value {
 /// One implementation of one registry tool.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Handler {
-    ForwardAdd,
-    ForwardRemove,
-    ForwardList,
     HostFacts,
     HostRestart,
     ScreenCapture,
@@ -1302,9 +1271,6 @@ enum Handler {
 /// registry entry fails `every_implementation_is_registered`. `tools/list` cannot advertise a tool
 /// the surface cannot run without that test going red.
 const HANDLERS: &[(&str, Handler)] = &[
-    ("forward.add", Handler::ForwardAdd),
-    ("forward.remove", Handler::ForwardRemove),
-    ("forward.list", Handler::ForwardList),
     ("host.facts", Handler::HostFacts),
     ("host.restart", Handler::HostRestart),
     ("screen.capture", Handler::ScreenCapture),
@@ -1328,20 +1294,6 @@ const HANDLERS: &[(&str, Handler)] = &[
 /// compare the STRUCT to itself. Naming the row here lets
 /// `the_forward_list_serves_every_field_the_row_state_has` compare the served keys to the state's
 /// fields, and to the console's own type, in one test.
-fn forward_row(row: crate::capabilities::forward::ForwardState) -> Value {
-    json!({
-        "name": row.name,
-        "listen": row.listen,
-        "target": row.target,
-        "via": row.via,
-        "listening": row.listening,
-        "since_ms": row.since_ms,
-        "attempts": row.attempts,
-        "connections": row.connections,
-        "last_error": row.last_error,
-    })
-}
-
 /// The keys [`forward_row`] serves, read from it rather than restated.
 ///
 /// **THE TEST MUST NOT BUILD ITS OWN EXPECTED LIST.** A test that typed the nine names would go green
@@ -1349,7 +1301,7 @@ fn forward_row(row: crate::capabilities::forward::ForwardState) -> Value {
 /// exists to catch. Calling the same function means the answer and the assertion share one source.
 #[cfg(test)]
 fn forward_list_keys() -> Vec<String> {
-    forward_row(crate::capabilities::forward::ForwardState::default())
+    crate::capabilities::forward::forward_row(crate::capabilities::forward::ForwardState::default())
         .as_object()
         .map(|object| object.keys().cloned().collect())
         .unwrap_or_default()
@@ -1490,61 +1442,6 @@ fn input_schema(definition: &ToolDef) -> Value {
         return schema();
     }
     match definition.name {
-        "forward.add" => json!({
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "minLength": 1,
-                    "description": "The rule's name: how a panel and the log identify it, and how an edit replaces the existing rule with that name."
-                },
-                "listen": {
-                    "type": "string",
-                    "description": "The host:port to bind on THIS machine. A wildcard (0.0.0.0, ::, *) is refused: a rule that widens its own audience is the failure the refusal prevents."
-                },
-                "target": {
-                    "type": "string",
-                    "description": "The host:port that `via` dials. IPv6 literals need brackets, because the split is on the last colon."
-                },
-                "via": {
-                    "type": "string",
-                    "description": "user@host:port of the SSH connection that MAKES the connection, e.g. zss@100.64.0.9:22. The far host therefore gains no listening port."
-                },
-                "auth": {
-                    "type": "object",
-                    "description": "How the `via` connection authenticates: {kind: \"password\", password} or {kind: \"key\", path} with an ABSOLUTE key path. It is stored with the rule, because the rule outlives the caller and its executor must reach `via` at boot.",
-                    "properties": {
-                        "kind": { "type": "string", "enum": ["password", "key"] },
-                        "password": { "type": "string" },
-                        "path": { "type": "string" }
-                    },
-                    "required": ["kind"],
-                    "additionalProperties": false
-                },
-                "host_key": {
-                    "type": "string",
-                    "description": "Optional SHA-256 fingerprint `via`'s key must match, e.g. SHA256:abc…. A rule is the one thing that connects with NOBODY PRESENT, so it is the one that least wants to decide a host's identity by itself; without this the device's known_hosts decides (first trust on use, refusal on a change)."
-                }
-            },
-            "required": ["name", "listen", "target", "via", "auth"],
-            "additionalProperties": false
-        }),
-        "forward.remove" => json!({
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "The rule to remove; its listener is closed with it, so the address becomes bindable again."
-                }
-            },
-            "required": ["name"],
-            "additionalProperties": false
-        }),
-        "forward.list" => json!({
-            "type": "object",
-            "properties": {},
-            "additionalProperties": false
-        }),
         "host.facts" => json!({
             "type": "object",
             "properties": {},
@@ -2310,29 +2207,6 @@ fn journal_traces_document(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct EmptyArgs {}
-
-/// The arguments `forward.add` takes.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ForwardAddArgs {
-    name: String,
-    listen: String,
-    target: String,
-    via: String,
-    /// How the `via` connection authenticates. A rule outlives the caller, so the credential is
-    /// stored with it — there is no session to inherit one from.
-    auth: ssh::Auth,
-    /// The fingerprint `via`'s key must match. Absent leaves it to the device's `known_hosts`.
-    #[serde(default)]
-    host_key: Option<String>,
-}
-
-/// The arguments `forward.remove` takes.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ForwardNameArgs {
-    name: String,
-}
 
 /// Parse the session id a client sent back, refusing a spelling this device never mints.
 ///

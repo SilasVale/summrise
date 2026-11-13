@@ -2216,3 +2216,108 @@ where
     a?;
     b
 }
+
+// ---------------------------------------------------------------------------------------------
+// The declaration's implementation: the device side of `summrise_core::capabilities::forward`.
+// ---------------------------------------------------------------------------------------------
+
+use serde_json::{Map, Value};
+
+use crate::mcp::{parse, ToolError};
+use summrise_core::capabilities::forward::CAPABILITY;
+
+/// Whether `tool` is one this capability declares.
+pub fn owns(tool: &str) -> bool {
+    CAPABILITY
+        .tools
+        .iter()
+        .any(|declared| declared.name == tool)
+}
+
+/// Every tool this capability declares, for the registry-alignment test.
+#[cfg(test)]
+pub fn names() -> impl Iterator<Item = &'static str> {
+    CAPABILITY.tools.iter().map(|tool| tool.name)
+}
+
+/// Run one of this capability's tools against the rule registry.
+pub fn call(
+    forwards: &Arc<ForwardRegistry>,
+    tool: &str,
+    arguments: Map<String, Value>,
+) -> Result<String, ToolError> {
+    match tool {
+        "forward.add" => {
+            let arguments: ForwardAddArgs = parse(arguments, tool)?;
+            let spec = RuleSpec::parse(
+                &arguments.name,
+                &arguments.listen,
+                &arguments.target,
+                &arguments.via,
+                arguments.auth,
+                arguments.host_key.as_deref(),
+            )
+            .map_err(|message| refused(tool, ForwardError::Refused { message }))?;
+            let rule = forwards.add(&spec).map_err(|error| refused(tool, error))?;
+            Ok(json!(rule).to_string())
+        }
+        "forward.remove" => {
+            let arguments: ForwardNameArgs = parse(arguments, tool)?;
+            let removed = forwards
+                .remove(&arguments.name)
+                .map_err(|error| refused(tool, error))?;
+            Ok(json!({ "removed": removed }).to_string())
+        }
+        "forward.list" => {
+            let state: Vec<Value> = forwards.list().into_iter().map(forward_row).collect();
+            Ok(Value::Array(state).to_string())
+        }
+        other => Err(ToolError::Internal(format!(
+            "{other}: the forward capability does not declare this tool"
+        ))),
+    }
+}
+
+/// One rule's view, shared with the test that asserts its keys.
+pub(crate) fn forward_row(row: ForwardState) -> Value {
+    json!({
+        "name": row.name,
+        "listen": row.listen,
+        "target": row.target,
+        "via": row.via,
+        "listening": row.listening,
+        "since_ms": row.since_ms,
+        "attempts": row.attempts,
+        "connections": row.connections,
+        "last_error": row.last_error,
+    })
+}
+
+fn refused(tool: &str, error: impl std::fmt::Display) -> ToolError {
+    ToolError::Refused(format!("{tool}: {error}"))
+}
+
+/// The arguments `forward.add` takes.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ForwardAddArgs {
+    name: String,
+    listen: String,
+    target: String,
+    via: String,
+    /// How the `via` connection authenticates. A rule outlives the caller, so the credential is
+    /// stored with it — there is no session to inherit one from.
+    auth: Auth,
+    /// The fingerprint `via`'s key must match. Absent leaves it to the device's `known_hosts`.
+    #[serde(default)]
+    host_key: Option<String>,
+}
+
+/// The arguments `forward.remove` takes.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ForwardNameArgs {
+    name: String,
+}
