@@ -923,6 +923,50 @@ PY
 fi
 pass "the machine's own row reads back at that position ($ROW_INFO)"
 
+# **THE MACHINE'S DAY IS COUNTED BY THE MACHINE (round 12).** The console's day sentence counts its
+# own audit; a client's direct calls exist only in the machine's journal. `journal.day` answers the
+# day as an aggregate, and this is that route across two processes: the day it asked for comes back,
+# and the call this smoke made through the console is in it.
+read -r DAY_FROM DAY_TO <<< "$(python3 - <<'PY'
+import datetime
+
+now = datetime.datetime.now().astimezone()
+midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+next_midnight = midnight + datetime.timedelta(days=1)
+print(int(midnight.timestamp() * 1000), int(next_midnight.timestamp() * 1000))
+PY
+)"
+[ -n "$DAY_FROM" ] && [ -n "$DAY_TO" ] || fail "the local day's bounds could not be computed"
+request console-day GET "$CONSOLE_BASE/journal/day?device=$DEVICE_ID&from=$DAY_FROM&to=$DAY_TO" "" \
+    -H "Authorization: Bearer $SESSION"
+assert_status 200 "console GET /journal/day for today"
+if ! DAY_INFO="$(python3 - "$LAST_BODY" "$DAY_FROM" "$DAY_TO" <<'PY'
+import json
+import sys
+
+path, day_from, day_to = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+document = json.load(open(path, encoding="utf-8"))
+if document.get("journal") is not True:
+    raise SystemExit(f"the machine did not answer for its day: {document}")
+if document.get("day_start_ms") != day_from or document.get("day_end_ms") != day_to:
+    raise SystemExit(f"the answer does not echo the day asked for: {document}")
+if document.get("unknown") is not False:
+    raise SystemExit(f"the day is unknown: {document}")
+calls = document.get("calls") or {}
+console = calls.get("console") or {}
+if (console.get("calls") or 0) < 1:
+    raise SystemExit(f"the smoke's proxied call is not in the day: {document}")
+loopback = calls.get("loopback") or {}
+print(
+    f"today holds {console.get('calls')} console calls and "
+    f"{loopback.get('calls')} direct ones, scanned {document.get('scanned')} rows"
+)
+PY
+)"; then
+    fail "the machine's day could not be counted"
+fi
+pass "the machine counts the day the console asked for ($DAY_INFO)"
+
 # The credential must never be in either record: both logs name the token record, never the secret.
 if grep -qF "$SRM_TOKEN" "$CONSOLE_AUDIT" "$DEVICE_AUDIT" 2>/dev/null; then
     fail "a permanent token secret was written to an audit file"

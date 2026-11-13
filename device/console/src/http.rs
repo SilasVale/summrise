@@ -402,6 +402,7 @@ impl Console {
             // an operator action: it writes no audit line and no live event, and the trace it mints
             // is what keeps the machine's own `call.*` pair for the read out of Activity.
             .route("/journal/read", get(journal_read))
+            .route("/journal/day", get(journal_day))
             // **THE FRAME ITSELF, NOT A DATA URL.** A screenshot can be megabytes; the event carries
             // a same-origin path and this route answers the bytes, behind the same operator gate the
             // page and `/audit` already use. The store is memory only, so an id that a restart or an
@@ -6285,6 +6286,12 @@ fn string_array(value: &Value) -> Option<Vec<String>> {
 /// A larger read would make the console hold an unbounded slice of another machine's journal.
 const MAX_JOURNAL_ROWS: usize = 200;
 
+/// The longest range `/journal/day` will ask a machine to count.
+///
+/// A local day is 23–25 hours and the page's cut-based block is 24; the bound is the device's own,
+/// stated here first so the operator reads one sentence about one request.
+const MAX_DAY_SPAN_MS: u64 = 26 * 60 * 60 * 1000;
+
 /// The `?device=&before=&limit=` shape `/journal/read` reads.
 ///
 /// `before` and `limit` are strings so a malformed value is this service's JSON refusal with a
@@ -6295,6 +6302,18 @@ struct JournalReadQuery {
     device: Option<String>,
     before: Option<String>,
     limit: Option<String>,
+}
+
+/// The `?device=&from=&to=` shape `/journal/day` reads.
+///
+/// Both moments are strings so a malformed value is this service's JSON refusal with a sentence,
+/// not axum's plain-text query rejection. The device keeps no timezone: the console names the two
+/// instants of the day it counts.
+#[derive(Deserialize)]
+struct JournalDayQuery {
+    device: Option<String>,
+    from: Option<String>,
+    to: Option<String>,
 }
 
 /// `GET /journal/read?device=&before=&limit=`: the window the machine's own journal holds.
@@ -6367,6 +6386,174 @@ async fn journal_read(
         }
     }
     Json(view).into_response()
+}
+
+/// `GET /journal/day?device=&from=&to=`: the machine's own count of a day.
+///
+/// The console's day sentence counts its audit; a client may call the machine directly, and those
+/// calls exist only in its journal. A page of rows cannot answer for a day, so this route asks for
+/// the aggregate — per-door call and failure counts inside the range — and merges it into the
+/// sentence. **IT WRITES NO AUDIT LINE AND NO LIVE EVENT**, and its frame carries a minted trace so
+/// the relay drops the pair the read provokes.
+async fn journal_day(
+    State(app): State<AppState>,
+    _: OperatorSession,
+    Query(query): Query<JournalDayQuery>,
+) -> Response {
+    let Some(presented) = query.device else {
+        return ApiError::bad_request("device_required")
+            .saying("name the machine whose day to count; ?device= takes its id")
+            .into_response();
+    };
+    let Some(device_id) = audit_device_id(&presented) else {
+        return unknown_device(&presented).into_response();
+    };
+    if !app.has_device(&device_id) {
+        return unknown_device(&presented).into_response();
+    }
+    let from = match journal_day_moment(
+        query.from.as_deref(),
+        "from",
+        "invalid_day_from",
+        "?from= is the day's first moment, in Unix milliseconds",
+    ) {
+        Ok(from) => from,
+        Err(error) => return error.into_response(),
+    };
+    let to = match journal_day_moment(
+        query.to.as_deref(),
+        "to",
+        "invalid_day_to",
+        "?to= is the moment after the day, in Unix milliseconds",
+    ) {
+        Ok(to) => to,
+        Err(error) => return error.into_response(),
+    };
+    if to <= from {
+        return ApiError::bad_request("invalid_day_range")
+            .saying("to must be after from: the range is half-open, [from, to)")
+            .into_response();
+    }
+    if to - from > MAX_DAY_SPAN_MS {
+        return ApiError::bad_request("invalid_day_span")
+            .saying(format!(
+                "the range must be no more than {} hours apart",
+                MAX_DAY_SPAN_MS / 3_600_000
+            ))
+            .into_response();
+    }
+
+    let outcome = read_journal_day(&app, &device_id, from, to).await;
+    let mut view = JournalDayView {
+        device: device_id.clone(),
+        journal: false,
+        day_start_ms: from,
+        day_end_ms: to,
+        oldest_seq: 0,
+        oldest_ts: None,
+        last_seq: 0,
+        scanned: 0,
+        more: false,
+        calls: DayCalls::zero(),
+        // The moment the answer was built, on the console's clock: it dates the read, not the calls
+        // the machine counted.
+        read_at_ms: (app.now)(),
+        unknown: false,
+        reason: None,
+    };
+    match outcome {
+        Ok(day) => {
+            view.journal = day.journal;
+            view.day_start_ms = day.day_start_ms;
+            view.day_end_ms = day.day_end_ms;
+            view.oldest_seq = day.oldest_seq;
+            view.oldest_ts = day.oldest_ts;
+            view.last_seq = day.last_seq;
+            view.scanned = day.scanned;
+            view.more = day.more;
+            view.calls = day.calls;
+        }
+        Err(JournalUnreadable::Transport(error)) => {
+            return error.refusal(&app, &device_id).into_response();
+        }
+        // A machine that answered but could not answer THIS question leaves the day unanswered. The
+        // page draws no claim about a day it could not read, and never a zero it did not measure.
+        Err(JournalUnreadable::Unanswered(reason)) => {
+            view.unknown = true;
+            view.reason = Some(reason);
+        }
+    }
+    Json(view).into_response()
+}
+
+/// One day as `/journal/day` serves it: the fixed wire contract the page reads.
+///
+/// `device` is the canonical id, and `read_at_ms` is the console's clock when the answer was built.
+/// `scanned` and `more` are the read's bounds, so a page can say "at least" when the machine's scan
+/// was cut rather than print a precise number the machine did not prove.
+#[derive(serde::Serialize)]
+struct JournalDayView {
+    device: String,
+    journal: bool,
+    day_start_ms: u64,
+    day_end_ms: u64,
+    oldest_seq: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    oldest_ts: Option<String>,
+    last_seq: u64,
+    scanned: u64,
+    more: bool,
+    calls: DayCalls,
+    read_at_ms: u64,
+    unknown: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<&'static str>,
+}
+
+/// One door's count inside a day: the calls that finished and how many of them failed.
+#[derive(serde::Serialize, Clone, Copy)]
+struct DayCallCount {
+    calls: u64,
+    failed: u64,
+}
+
+/// The five doors a journal row can name; an unrecognized door is `unknown`.
+#[derive(serde::Serialize)]
+struct DayCalls {
+    console: DayCallCount,
+    panel: DayCallCount,
+    mesh: DayCallCount,
+    loopback: DayCallCount,
+    unknown: DayCallCount,
+}
+
+impl DayCalls {
+    fn zero() -> Self {
+        let zero = DayCallCount {
+            calls: 0,
+            failed: 0,
+        };
+        Self {
+            console: zero,
+            panel: zero,
+            mesh: zero,
+            loopback: zero,
+            unknown: zero,
+        }
+    }
+}
+
+/// The device's own day, already relayed field by field.
+struct JournalDayFacts {
+    journal: bool,
+    day_start_ms: u64,
+    day_end_ms: u64,
+    oldest_seq: u64,
+    oldest_ts: Option<String>,
+    last_seq: u64,
+    scanned: u64,
+    more: bool,
+    calls: DayCalls,
 }
 
 /// One window as `/journal/read` serves it: the fixed wire contract the page reads.
@@ -6470,17 +6657,68 @@ fn journal_before(text: Option<&str>) -> Result<Option<u64>, ApiError> {
     }
 }
 
-/// Ask the machine's `journal.read` over its channel, under the operator's own scope.
+/// Parse `?from=` or `?to=`: a whole Unix-millisecond moment, or the 400 that names the rule.
 ///
-/// Not through [`proxy_reply`]: that path is the operator's proxied call, and it writes the audit
-/// line and the live event this read must not write. The frame is built here, with a minted trace so
-/// the machine's journal pair for it is recognised by the relay and not drawn twice.
+/// The two fields have their own error codes because a page that asked badly should learn which end
+/// of the range it asked badly about. The moment is required: a day without a start is not a range.
+fn journal_day_moment(
+    text: Option<&str>,
+    field: &str,
+    code: &'static str,
+    saying: &'static str,
+) -> Result<u64, ApiError> {
+    let sentence = format!("{field} is required: {saying}, a whole number of Unix milliseconds");
+    let Some(text) = text else {
+        return Err(ApiError::bad_request(code).saying(sentence));
+    };
+    text.parse::<u64>()
+        .map_err(|_| ApiError::bad_request(code).saying(sentence))
+}
+
+/// Ask the machine's `journal.read` for one window: the row count, and the exclusive cursor when the
+/// page is paging older than a row it already drew.
 async fn read_journal_rows(
     app: &AppState,
     device_id: &str,
     before: Option<u64>,
     limit: usize,
 ) -> Result<JournalFacts, JournalUnreadable> {
+    let mut arguments = json!({ "limit": limit });
+    if let Some(before) = before {
+        arguments["before_seq"] = json!(before);
+    }
+    let body = ask_journal(app, device_id, "journal.read", arguments).await?;
+    journal_facts(&body).ok_or(JournalUnreadable::Unanswered("malformed"))
+}
+
+/// Ask the machine's `journal.day` for the day's per-door counts.
+async fn read_journal_day(
+    app: &AppState,
+    device_id: &str,
+    from: u64,
+    to: u64,
+) -> Result<JournalDayFacts, JournalUnreadable> {
+    let body = ask_journal(
+        app,
+        device_id,
+        "journal.day",
+        json!({ "day_start_ms": from, "day_end_ms": to }),
+    )
+    .await?;
+    journal_day_facts(&body).ok_or(JournalUnreadable::Unanswered("malformed"))
+}
+
+/// Ask one of the journal's read tools over the machine's channel, under the operator's own scope.
+///
+/// Not through [`proxy_reply`]: that path is the operator's proxied call, and it writes the audit
+/// line and the live event these reads must not write. The frame is built here, with a minted trace
+/// so the machine's journal pair for it is recognised by the relay and not drawn twice.
+async fn ask_journal(
+    app: &AppState,
+    device_id: &str,
+    tool: &'static str,
+    arguments: Value,
+) -> Result<Value, JournalUnreadable> {
     // A registered but disconnected device is offline now; asking the channel would wait out the
     // reconnect bound before saying the same thing.
     if !app.channels.online(device_id) {
@@ -6488,15 +6726,11 @@ async fn read_journal_rows(
     }
 
     let scope = operator_scope(device_id);
-    let mut arguments = json!({ "limit": limit });
-    if let Some(before) = before {
-        arguments["before_seq"] = json!(before);
-    }
     let request = json!({
         "jsonrpc": "2.0",
         "id": 1,
         "method": "tools/call",
-        "params": { "name": "journal.read", "arguments": arguments },
+        "params": { "name": tool, "arguments": arguments },
     });
     // The trace is minted for the same reason `/fleet/:id/tools` mints one: the console's relay
     // drops a `call.*` pair it recognises as its own, so this read stays out of Activity.
@@ -6520,14 +6754,13 @@ async fn read_journal_rows(
     };
 
     let Reply::Result(_) = reply else {
-        // A JSON-RPC error is the device's answer. It is how a build that predates `journal.read`
-        // says so, and the page must read that as unknown rather than as a machine that recorded
-        // nothing.
-        return Err(JournalUnreadable::Unanswered(journal_refusal(&reply)));
+        // A JSON-RPC error is the device's answer. It is how a build that predates the tool says so,
+        // and the page must read that as unknown rather than as a machine that recorded nothing.
+        return Err(JournalUnreadable::Unanswered(journal_refusal(&reply, tool)));
     };
     // MCP carries a tool-level failure inside a successful exchange: a result with `isError: true`
     // and the reason in its text. That is a refusal, not a body this console failed to parse, and
-    // the text is a sentence rather than the window object.
+    // the text is a sentence rather than the document.
     if tool_result(&reply)
         .and_then(|result| result.get("isError"))
         .and_then(Value::as_bool)
@@ -6535,20 +6768,14 @@ async fn read_journal_rows(
     {
         return Err(JournalUnreadable::Unanswered("refused"));
     }
-    journal_facts(&reply).ok_or(JournalUnreadable::Unanswered("malformed"))
+    let text = tool_text(&reply).ok_or(JournalUnreadable::Unanswered("malformed"))?;
+    serde_json::from_str(text).map_err(|_| JournalUnreadable::Unanswered("malformed"))
 }
 
-/// Which of the two refusals a device's JSON-RPC error is: the tool is absent, or it said no.
-///
-/// A build older than `journal.read` answers one of two ways: `-32601` when it does not dispatch
-/// `tools/call` at all, or `-32602` with "unknown tool: journal.read" when it dispatches calls but
-/// does not list this one. Both mean the machine was never able to answer; everything else — a
-/// grant that does not cover the tool, a device that declined the read — is an answer that leaves
-/// the window open. Both are `unknown`; only their `reason` differs.
-fn journal_refusal(reply: &Reply) -> &'static str {
+fn journal_refusal(reply: &Reply, tool: &str) -> &'static str {
     let names_a_missing_tool = error_message(reply).is_some_and(|message| {
         let message = message.to_ascii_lowercase();
-        message.contains("journal.read")
+        message.contains(&tool.to_ascii_lowercase())
             && (message.contains("unknown tool") || message.contains("no such tool"))
     });
     if error_code(reply) == Some(-32601) || names_a_missing_tool {
@@ -6558,14 +6785,53 @@ fn journal_refusal(reply: &Reply) -> &'static str {
     }
 }
 
+/// The device's day, field by field, or `None` when the answer is not the shape the route serves.
+///
+/// Every field is required: a missing `calls` would otherwise become five zeros and the page would
+/// print a precise day the machine never measured. `oldest_ts` is optional because a journal that
+/// retained nothing has no oldest moment to name.
+fn journal_day_facts(body: &Value) -> Option<JournalDayFacts> {
+    Some(JournalDayFacts {
+        journal: body.get("journal")?.as_bool()?,
+        day_start_ms: body.get("day_start_ms")?.as_u64()?,
+        day_end_ms: body.get("day_end_ms")?.as_u64()?,
+        oldest_seq: body.get("oldest_seq")?.as_u64()?,
+        oldest_ts: body
+            .get("oldest_ts")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        last_seq: body.get("last_seq")?.as_u64()?,
+        scanned: body.get("scanned")?.as_u64()?,
+        more: body.get("more")?.as_bool()?,
+        calls: day_calls(body.get("calls")?)?,
+    })
+}
+
+/// The five doors' counts, each one a pair of whole numbers.
+fn day_calls(value: &Value) -> Option<DayCalls> {
+    let count = |door: &str| -> Option<DayCallCount> {
+        let entry = value.get(door)?;
+        Some(DayCallCount {
+            calls: entry.get("calls")?.as_u64()?,
+            failed: entry.get("failed")?.as_u64()?,
+        })
+    };
+    Some(DayCalls {
+        console: count("console")?,
+        panel: count("panel")?,
+        mesh: count("mesh")?,
+        loopback: count("loopback")?,
+        unknown: count("unknown")?,
+    })
+}
+
 /// The window object inside a `tools/call` answer's first text item, when it is one.
 ///
 /// The four envelope facts are required, because a missing `rows` would otherwise become an empty
 /// window and the page would draw that answer as a machine with nothing retained. The rows inside it
 /// are read one field at a time: each field is copied only when it has the type the contract names,
 /// and a row with no `seq`, `ts` or `type` is dropped rather than drawn as blanks.
-fn journal_facts(reply: &Reply) -> Option<JournalFacts> {
-    let body: Value = serde_json::from_str(tool_text(reply)?).ok()?;
+fn journal_facts(body: &Value) -> Option<JournalFacts> {
     let rows = body
         .get("rows")?
         .as_array()?

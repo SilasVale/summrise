@@ -2680,10 +2680,17 @@ mod tests {
         let earliest = earliest.expect("the cut names where the retained output starts");
 
         // What the console's paged catch-up does: page the ring to its end, then subscribe there.
-        let end = registry
-            .read(&session, earliest)
-            .expect("the cursor the cut reported is still served")
-            .cursor;
+        // The pty is live and may still write (a prompt), so the cut's cursor can age between the
+        // sentence and this read; the catch-up follows the ring's current earliest then, exactly as
+        // the console's own paging does, rather than asserting a moment the pty does not hold still.
+        let mut page_cursor = earliest;
+        let end = loop {
+            match registry.read(&session, page_cursor) {
+                Ok(page) => break page.cursor,
+                Err(terminal::PtyError::CursorTooOld { earliest, .. }) => page_cursor = earliest,
+                Err(error) => panic!("the ring cannot be paged to its end: {error}"),
+            }
+        };
         send_frame(&mut console, subscribe_frame(72, 2, &session_id, end)).await;
         let resumed = next_frame(&mut console).await;
         assert_eq!(resumed["id"], 72, "the resubscribe is acked: {resumed}");

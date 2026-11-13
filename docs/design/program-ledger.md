@@ -274,6 +274,22 @@ below ladders to that; one round completes one major item end to end.
   machineRows tests pin the contribution and the door rule, and an App test draws a loopback call
   beside a proxied one and asserts the day number is unchanged while the new line names it.
 
+- 2026-11-13 — **The machine's day can be counted: `journal.day`, and a day sentence that includes
+  it.** Round 11 could name the direct calls among the rows a page drew, but a page is not a day.
+  `journal.day` now answers a day as one aggregate: two instants the caller owns, the five doors'
+  call and failure counts for the outcome rows inside the range, the retained bounds, and `more`
+  when the scan was cut at 20 000 rows. The door is on a call's started half; an outcome whose half
+  is just below the range is resolved by a bounded lookback (2 000 rows), and an outcome whose half
+  is not found counts as `unknown`, never as a client's. The console relays it at
+  `GET /journal/day?device=&from=&to=` (no audit line, no live event) and the page asks for the block
+  its labels index (the console's cut plus 24 hours, or its own midnights). The day sentence now adds
+  the machine's `loopback` calls and failures to its client number and names the share — "2 straight
+  to this machine (1 failed)" — with "at least" when the machine's scan was cut; a failed or
+  `unknown` day read keeps the console's number and says the direct calls were not counted. The
+  hub's fleet number is unchanged: a fleet asks no machine's journal. Evidence: bus 24, core 104,
+  device 665, console 175 + 283 + 15, page 1 347 and `tsc` clean; `smoke-enroll` unchanged (no new
+  console route smoke yet — the route's tests answer a fake device field by field).
+
 ## Next (in order)
 
 1. Windows handoff, the interactive half — dispatch or run `summrise-shell.exe --check-window` in an
@@ -281,12 +297,13 @@ below ladders to that; one round completes one major item end to end.
    verify Authenticode when a certificate is configured. The runner half is green (run 43344130298).
 2. Push `origin`: `main` now contains `origin/main` and `hub/v1` (`0 1242`), so `git push origin main`
    is a fast-forward. This is a publish, and it is the operator's call.
-3. The machine's day can be counted: the header now names the direct client calls among the rows it
-   drew, but a true day count needs a time-bounded read of the machine's journal (its cursor is
-   `before_seq` today), so `journal.read` should learn a day window — or a `journal.day` summary with
-   the same bounded-scan rules as `journal.read` and a stated `more`/rotation answer. Then the day
-   sentence can include the machine's direct calls for the same local day, with its basis named in
-   one spelling, and the failed count can carry them without mixing two windows. (A payload/export
+3. The fleet's record: a fleet window draws only the console's rows, because no single journal
+   answers for a fleet, and the fleet's day sentence counts only the console's audit. With
+   `journal.read`/`journal.day` per machine, the page can fan out to the online machines it draws —
+   bounded (a fixed maximum of machines, one request each, per 30 s window) — merge their direct
+   calls into the fleet's rows and its day, mark each machine's `unknown`/partial answer as that
+   machine's own, and keep the console's row winning duplicates. Cost if wrong: a bounded fan-out per
+   refresh, and a machine that cannot answer is named rather than silently missing. (A payload/export
    verb stays a separate stage: the journal records what happened, not the arguments or results.)
 4. Keep improving from what the operator hits (one major item a round, green merges into `hub/v1`).
 

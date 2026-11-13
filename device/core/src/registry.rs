@@ -389,6 +389,15 @@ pub const CAPABILITIES: &[Capability] = &[
                 description:
                     "Read the rows of this machine's journal, newest first and bounded: each row's sequence, time and type, and on a call its tool, outcome and the door it arrived by. Summaries only; payloads are sized, not sent.",
             },
+            ToolDef {
+                name: "journal.day",
+                destructive: false,
+                // Read-only and aggregated: counts of a day's calls by the door they arrived by,
+                // never a row and never a payload. The console asks it for the day its header
+                // counts, because a page of rows is not a day.
+                description:
+                    "Count this machine's journal for a time range you name: the calls and failures of each arrival door (console, panel, mesh, loopback, unknown) that finished inside the range, the journal's retained bounds, and whether the scan was cut. Aggregates only; no rows and no payloads.",
+            },
         ],
     },
     Capability {
@@ -470,7 +479,7 @@ mod tests {
             13,
             "thirteen capabilities declare the surface"
         );
-        assert_eq!(tools.len(), 51, "the surface is 51 tools");
+        assert_eq!(tools.len(), 52, "the surface is 52 tools");
         assert_eq!(
             tools,
             [
@@ -519,6 +528,7 @@ mod tests {
                 "state.get",
                 "journal.get",
                 "journal.read",
+                "journal.day",
                 "plugins.list",
                 "plugins.inspect",
                 "plugins.add",
@@ -540,7 +550,7 @@ mod tests {
         // row at all. **One of those, `system.process_kill`, is destructive** — a kill signal that
         // anyone could send through a token that never consented, with the flag that authorizes it
         // unasserted.
-        let expected: [(&str, bool); 51] = [
+        let expected: [(&str, bool); 52] = [
             ("files.read", false),
             ("files.write", true),
             ("files.mkdir", false),
@@ -583,6 +593,7 @@ mod tests {
             ("state.get", false),
             ("journal.get", false),
             ("journal.read", false),
+            ("journal.day", false),
             ("system.net_test", false),
             ("system.process_list", false),
             ("system.process_kill", true),

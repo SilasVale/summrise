@@ -365,6 +365,44 @@ export type MachineRow = {
  * refusal, or an answer this console cannot read. **That is never "the machine recorded nothing"**,
  * so the page must state the read rather than draw an empty journal.
  */
+/** One door's count inside a day, as `journal.day` answers it. */
+export type DayCallCount = {
+  calls: number;
+  failed: number;
+};
+
+/** The five doors a machine's journal row can name; an unrecognized door is `unknown`. */
+export type DayCalls = {
+  console: DayCallCount;
+  panel: DayCallCount;
+  mesh: DayCallCount;
+  loopback: DayCallCount;
+  unknown: DayCallCount;
+};
+
+/**
+ * One day of a machine's journal, counted by the machine itself (round 12).
+ *
+ * `day_start_ms`/`day_end_ms` echo the two instants the page counted, `more` says the machine's scan
+ * was cut (the counts are then "at least"), and `unknown` says the machine answered but could not
+ * answer this question — never an empty day.
+ */
+export type MachineDayAnswer = {
+  device: string;
+  journal: boolean;
+  day_start_ms: number;
+  day_end_ms: number;
+  oldest_seq: number;
+  oldest_ts?: string;
+  last_seq: number;
+  scanned: number;
+  more: boolean;
+  calls: DayCalls;
+  read_at_ms: number;
+  unknown: boolean;
+  reason?: string;
+};
+
 export type MachineReadAnswer = {
   device: string;
   journal: boolean;
@@ -670,6 +708,12 @@ export const api = {
   // through the proxy; this is what the machine ran, including the calls that never reached the
   // console at all. Newest first, bounded by the device, and the answer's `unknown` says a read that
   // could not be made — never an empty journal.
+  // The machine's own count of a day: the aggregate the day sentence cannot compute from its audit.
+  journalDay: (device: string, from: number, to: number) =>
+    call<MachineDayAnswer>(
+      `/journal/day?device=${encodeURIComponent(device)}` +
+        `&from=${Math.trunc(from)}&to=${Math.trunc(to)}`
+    ),
   journalRead: (device: string, options: { before?: number; limit?: number } = {}) =>
     call<MachineReadAnswer>(
       `/journal/read?device=${encodeURIComponent(device)}` +

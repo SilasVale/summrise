@@ -8,6 +8,7 @@ import type { AuditLine } from "./api";
 import { VITALS_KEY_PREFIX, type VitalsSample } from "./vitals";
 import { resetLiveToolsCache } from "./useLiveTools";
 import { resetJoinMarks } from "./useJoinMarks";
+import { resetMachineDays } from "./useMachineDay";
 import { resetMachineRows } from "./useMachineRows";
 import { runLink } from "./run-link";
 
@@ -34,6 +35,7 @@ const mocks = vi.hoisted(() => ({
   liveTools: vi.fn(),
   auditJoin: vi.fn(),
   journalRead: vi.fn(),
+  journalDay: vi.fn(),
   grant: vi.fn(),
   tokens: vi.fn(),
   createToken: vi.fn(),
@@ -62,6 +64,7 @@ vi.mock("./api", () => ({
     liveTools: mocks.liveTools,
     auditJoin: mocks.auditJoin,
     journalRead: mocks.journalRead,
+    journalDay: mocks.journalDay,
     grant: mocks.grant,
     tokens: mocks.tokens,
     createToken: mocks.createToken,
@@ -312,6 +315,29 @@ beforeEach(() => {
     oldest_seq: 1,
     last_seq: 1,
     read_at_ms: Date.now()
+  }));
+  // The machine's own day. A machine with nothing journaled still answers for the day, with zeros:
+  // "this machine counted nothing" is an answer, and the page's clause is absent when it is zero.
+  resetMachineDays();
+  mocks.journalDay.mockReset();
+  mocks.journalDay.mockImplementation(async (device: string, from: number, to: number) => ({
+    device,
+    journal: true,
+    day_start_ms: from,
+    day_end_ms: to,
+    oldest_seq: 0,
+    last_seq: 0,
+    scanned: 0,
+    more: false,
+    calls: {
+      console: { calls: 0, failed: 0 },
+      panel: { calls: 0, failed: 0 },
+      mesh: { calls: 0, failed: 0 },
+      loopback: { calls: 0, failed: 0 },
+      unknown: { calls: 0, failed: 0 }
+    },
+    read_at_ms: Date.now(),
+    unknown: false
   }));
   // The machine's own window. A machine with nothing journaled answers with no rows, and a test that
   // draws a call only the journal holds names its own answer.
@@ -1573,9 +1599,8 @@ describe("App", () => {
     );
   });
 
-  it("names the client calls the console's day cannot see", async () => {
+  it("counts the machine's own day into the day sentence, and names its share", async () => {
     const now = Date.now();
-    // One client call through the console: the day sentence counts it and only it.
     mocks.audit.mockResolvedValue([
       {
         ...tokenCall,
@@ -1585,45 +1610,23 @@ describe("App", () => {
         sentence: "files.read ran on workshop"
       }
     ]);
-    mocks.journalRead.mockResolvedValue({
+    mocks.journalDay.mockResolvedValue({
       device: workshop.id,
       journal: true,
-      oldest_seq: 27,
+      day_start_ms: now - 3_600_000,
+      day_end_ms: now + 3_600_000,
+      oldest_seq: 30,
+      oldest_ts: new Date(now - 3_600_000).toISOString(),
       last_seq: 30,
-      rows: [
-        {
-          seq: 30,
-          ts: new Date(now - 30_000).toISOString(),
-          type: "call.finished",
-          trace: "direct-1",
-          tool: "terminal.read",
-          ok: true,
-          door: "loopback",
-          payload_bytes: 5
-        },
-        {
-          seq: 29,
-          ts: new Date(now - 35_000).toISOString(),
-          type: "call.denied",
-          trace: "direct-2",
-          tool: "runs.exec",
-          ok: false,
-          reason: "denied",
-          door: "loopback",
-          payload_bytes: 5
-        },
-        {
-          seq: 28,
-          ts: new Date(now - 40_000).toISOString(),
-          type: "call.finished",
-          trace: "panel-1",
-          tool: "screen.capture",
-          ok: true,
-          door: "panel",
-          payload_bytes: 5
-        }
-      ],
+      scanned: 4,
       more: false,
+      calls: {
+        console: { calls: 0, failed: 0 },
+        panel: { calls: 1, failed: 0 },
+        mesh: { calls: 0, failed: 0 },
+        loopback: { calls: 2, failed: 1 },
+        unknown: { calls: 0, failed: 0 }
+      },
       read_at_ms: now,
       unknown: false
     });
@@ -1633,131 +1636,93 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
     await screen.findByRole("heading", { name: "Activity", level: 1 });
 
-    // The day is the console's audit day, unchanged...
-    expect(await screen.findByText("Today: 1 client call.")).toBeInTheDocument();
-    // ...and the direct calls the console never saw are named beside it, with their failure.
-    expect(
-      await screen.findByText(
-        "2 calls drawn today came straight to this machine, not through this console (1 failed)."
+    // The console's one call, the machine's two direct ones (one failed), and the console's zero
+    // failures: the sentence is the machine's day, the clause says which share it never proxied.
+    await waitFor(() =>
+      expect(document.querySelector(".activity-today")).toHaveTextContent(
+        "Today: 3 client calls, 1 failed — 2 straight to this machine (1 failed)."
       )
-    ).toBeInTheDocument();
-    // The panel's call is drawn too, but the desktop is not a client.
-    expect(await screen.findByText("screen.capture ran on workshop")).toBeInTheDocument();
-  });
-
-  it("names a single direct call without a failure clause it does not have", async () => {
-    const now = Date.now();
-    mocks.audit.mockResolvedValue([
-      { ...tokenCall, ts_ms: now - 60_000, caller: "client", tool: "files.read", sentence: "files.read ran on workshop" }
-    ]);
-    mocks.journalRead.mockResolvedValue({
-      device: workshop.id,
-      journal: true,
-      oldest_seq: 5,
-      last_seq: 5,
-      rows: [
-        {
-          seq: 5,
-          ts: new Date(now - 30_000).toISOString(),
-          type: "call.finished",
-          trace: "direct-1",
-          tool: "terminal.read",
-          ok: true,
-          door: "loopback",
-          payload_bytes: 3
-        }
-      ],
-      more: false,
-      read_at_ms: now,
-      unknown: false
-    });
-    await bootAndSignIn();
-    selectDevice("workshop");
-    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
-    await screen.findByRole("heading", { name: "Activity", level: 1 });
-    const line = await screen.findByText(
-      "1 call drawn today came straight to this machine, not through this console."
     );
-    expect(line).toBeInTheDocument();
-    expect(line.textContent).not.toContain("0 failed");
+    // The day's own number and the machine's day are one sentence, not two numbers.
+    expect(document.querySelector(".activity-direct")).toBeNull();
   });
 
-  it("hides the direct-call note when a day range, not the day, is in hand", async () => {
-    const now = Date.now();
+  it("says the machine's day was not counted instead of counting it as zero", async () => {
     mocks.audit.mockResolvedValue([
-      { ...tokenCall, ts_ms: now - 60_000, caller: "client", tool: "files.read", sentence: "files.read ran on workshop" }
+      { ...tokenCall, ts_ms: Date.now() - 60_000, caller: "client", tool: "files.read", sentence: "files.read ran on workshop" }
     ]);
-    mocks.journalRead.mockResolvedValue({
-      device: workshop.id,
-      journal: true,
-      oldest_seq: 5,
-      last_seq: 5,
-      rows: [
-        {
-          seq: 5,
-          ts: new Date(now - 30_000).toISOString(),
-          type: "call.finished",
-          trace: "direct-1",
-          tool: "terminal.read",
-          ok: true,
-          door: "loopback",
-          payload_bytes: 3
-        }
-      ],
-      more: false,
-      read_at_ms: now,
-      unknown: false
-    });
+    mocks.journalDay.mockRejectedValue(new HttpError(503, "device_offline"));
+
     await bootAndSignIn();
     selectDevice("workshop");
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
     await screen.findByRole("heading", { name: "Activity", level: 1 });
-    expect(document.querySelector(".activity-direct")).not.toBeNull();
 
+    await waitFor(() =>
+      expect(document.querySelector(".activity-today")).toHaveTextContent("Today: 1 client call.")
+    );
+    await waitFor(() =>
+      expect(document.querySelector(".activity-direct")).toHaveTextContent(
+        "The machine's direct calls were not counted: the machine is not connected."
+      )
+    );
+
+    // The header still counts today when the rows show a range: the sentence is the day's, so its
+    // warning about the machine's share is not tied to the rows' window.
     fireEvent.click(screen.getByRole("tab", { name: "Table" }));
     fireEvent.change(screen.getByLabelText("When"), { target: { value: "hour" } });
-    await waitFor(() => expect(mocks.auditRange).toHaveBeenCalled());
-    fireEvent.click(screen.getByRole("tab", { name: "Timeline" }));
-    await waitFor(() => expect(document.querySelector(".activity-direct")).toBeNull());
+    await waitFor(() =>
+      expect(document.querySelector(".activity-direct")).toHaveTextContent(
+        "The machine's direct calls were not counted: the machine is not connected."
+      )
+    );
   });
 
-  it("does not count a paused page's new scope in the frozen day", async () => {
+  it("does not count a paused page's new scope into the frozen day", async () => {
     const now = Date.now();
     mocks.audit.mockResolvedValue([
       { ...tokenCall, ts_ms: now - 60_000, caller: "client", tool: "files.read", sentence: "files.read ran on workshop" }
     ]);
-    mocks.journalRead.mockImplementation(async (device: string) => ({
+    mocks.journalDay.mockImplementation(async (device: string, from: number, to: number) => ({
       device,
       journal: true,
+      day_start_ms: from,
+      day_end_ms: to,
       oldest_seq: 5,
+      oldest_ts: new Date(now - 3_600_000).toISOString(),
       last_seq: 5,
-      rows: [
-        {
-          seq: 5,
-          ts: new Date(now - 30_000).toISOString(),
-          type: "call.finished",
-          trace: `direct-${device}`,
-          tool: "terminal.read",
-          ok: true,
-          door: "loopback",
-          payload_bytes: 3
-        }
-      ],
+      scanned: 2,
       more: false,
+      calls: {
+        console: { calls: 0, failed: 0 },
+        panel: { calls: 0, failed: 0 },
+        mesh: { calls: 0, failed: 0 },
+        loopback: { calls: device === workshop.id ? 1 : 9, failed: 0 },
+        unknown: { calls: 0, failed: 0 }
+      },
       read_at_ms: now,
       unknown: false
     }));
+
     await bootAndSignIn();
     selectDevice("workshop");
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
     await screen.findByRole("heading", { name: "Activity", level: 1 });
-    expect(await screen.findByText(/came straight to this machine/)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(document.querySelector(".activity-today")).toHaveTextContent(
+        "Today: 2 client calls — 1 straight to this machine."
+      )
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Pause" }));
-    // The header still describes the frozen workshop window; attic's rows are not counted into it.
+    // The header describes the frozen workshop day; attic's nine direct calls are not merged in.
     selectDevice("attic");
-    await waitFor(() => expect(screen.queryByText(/came straight to this machine/)).toBeNull());
-    expect(screen.getByText("Today: 1 client call.")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(document.querySelector(".activity-today")).toHaveTextContent(
+        "Today: 2 client calls — 1 straight to this machine."
+      )
+    );
+    expect(screen.queryByText(/9 straight to this machine/)).toBeNull();
   });
 
   it("reads the scope's machine window and widens to the fleet in one request", async () => {

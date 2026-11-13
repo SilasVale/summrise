@@ -11232,6 +11232,184 @@ async fn a_journal_read_refuses_a_before_that_is_not_a_positive_sequence() {
     }
 }
 
+/// One `journal.day` answer as the device sends it: five doors, the retained bounds, and whether the
+/// scan was cut. The extra `payload` field is the device's own and must not be relayed.
+fn journal_day_answer() -> Value {
+    json!({
+        "journal": true,
+        "day_start_ms": 1_000,
+        "day_end_ms": 2_000,
+        "oldest_seq": 3,
+        "last_seq": 9,
+        "oldest_ts": "1970-01-01T00:00:03Z",
+        "scanned": 6,
+        "more": true,
+        "calls": {
+            "console": { "calls": 1, "failed": 0 },
+            "panel": { "calls": 2, "failed": 1 },
+            "mesh": { "calls": 0, "failed": 0 },
+            "loopback": { "calls": 3, "failed": 1 },
+            "unknown": { "calls": 0, "failed": 0 },
+        },
+        "payload": "not relayed",
+    })
+}
+
+/// `GET /journal/day` asks the machine's own `journal.day` for the two instants the page counts and
+/// relays the five doors' counts, the retained bounds and the read's own cut — never the device's
+/// other fields, and never an audit line of its own.
+#[tokio::test]
+async fn the_journal_day_route_relays_the_day_it_asked_for() {
+    let fixture = Fixture::new("journal-day-relay");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        present_device(&fixture, &server, &signing_key(0xf7)).await;
+    let session = fixture.authenticate().await;
+    let before = audit_lines(&fixture).len();
+
+    let uri = format!("/journal/day?device={device_id}&from=1000&to=2000");
+    let app = fixture.app();
+    let session_for_read = session.clone();
+    let read = tokio::spawn(async move { send(app, get(&uri, Some(&session_for_read))).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("journal.day"),
+        "{frame}"
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"],
+        json!({ "day_start_ms": 1000, "day_end_ms": 2000 }),
+        "the two instants are relayed as whole milliseconds: {frame}"
+    );
+    assert!(
+        frame["trace"]
+            .as_str()
+            .is_some_and(|trace| !trace.is_empty()),
+        "the frame carries a minted trace, so the relay drops the pair it provokes: {frame}"
+    );
+
+    answer(
+        &mut device,
+        &frame,
+        tools_call_answer(json!(7), &journal_day_answer().to_string(), false),
+    )
+    .await;
+
+    let (status, body) = read.await.expect("the read finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["device"], json!(device_id));
+    assert_eq!(body["journal"], json!(true), "{body}");
+    assert_eq!(body["day_start_ms"], json!(1_000));
+    assert_eq!(body["day_end_ms"], json!(2_000));
+    assert_eq!(body["oldest_seq"], json!(3));
+    assert_eq!(body["oldest_ts"], json!("1970-01-01T00:00:03Z"));
+    assert_eq!(body["last_seq"], json!(9));
+    assert_eq!(body["scanned"], json!(6));
+    assert_eq!(body["more"], json!(true));
+    assert_eq!(
+        body["calls"]["loopback"],
+        json!({ "calls": 3, "failed": 1 })
+    );
+    assert_eq!(body["calls"]["panel"], json!({ "calls": 2, "failed": 1 }));
+    assert_eq!(body["unknown"], json!(false));
+    assert!(
+        body.get("payload").is_none(),
+        "the device's extra fields are not relayed: {body}"
+    );
+    assert_eq!(
+        audit_lines(&fixture).len(),
+        before,
+        "a day read is a read: it writes no audit line"
+    );
+}
+
+/// A range the console cannot ask about is refused before the machine is asked: each end is a whole
+/// millisecond, the range is half-open and ordered, and it is no longer than a day can be.
+#[tokio::test]
+async fn a_journal_day_range_that_is_not_a_day_is_refused() {
+    let fixture = Fixture::new("journal-day-range");
+    let (device_id, _token) = fixture.register(&signing_key(0xf8)).await;
+    let session = fixture.authenticate().await;
+
+    for (query, code, needle) in [
+        (
+            format!("device={device_id}&from=1000"),
+            "invalid_day_to",
+            "to is required",
+        ),
+        (
+            format!("device={device_id}&to=2000"),
+            "invalid_day_from",
+            "from is required",
+        ),
+        (
+            format!("device={device_id}&from=abc&to=2000"),
+            "invalid_day_from",
+            "from is required",
+        ),
+        (
+            format!("device={device_id}&from=2000&to=2000"),
+            "invalid_day_range",
+            "to must be after from",
+        ),
+        (
+            format!("device={device_id}&from=0&to={}", 27_u64 * 3_600_000),
+            "invalid_day_span",
+            "26 hours",
+        ),
+    ] {
+        let (status, body) = send(
+            fixture.app(),
+            get(&format!("/journal/day?{query}"), Some(&session)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{query}: {body}");
+        assert_eq!(body["error"], json!(code), "{query}: {body}");
+        assert!(
+            body["message"]
+                .as_str()
+                .is_some_and(|message| message.contains(needle)),
+            "{query}: the sentence names the rule: {body}"
+        );
+    }
+}
+
+/// A machine that answers the day question with a refusal leaves the day unknown, not empty: the
+/// page must not print a precise zero it did not measure.
+#[tokio::test]
+async fn a_journal_day_a_machine_cannot_answer_is_unknown_not_zero() {
+    let fixture = Fixture::new("journal-day-unknown");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        present_device(&fixture, &server, &signing_key(0xf9)).await;
+    let session = fixture.authenticate().await;
+
+    let uri = format!("/journal/day?device={device_id}&from=1000&to=2000");
+    let app = fixture.app();
+    let session_for_read = session.clone();
+    let read = tokio::spawn(async move { send(app, get(&uri, Some(&session_for_read))).await });
+
+    let frame = next_json(&mut device).await;
+    answer(
+        &mut device,
+        &frame,
+        tools_call_answer(json!(7), "not a day", true),
+    )
+    .await;
+
+    let (status, body) = read.await.expect("the read finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["unknown"], json!(true), "{body}");
+    assert_eq!(body["journal"], json!(false));
+    assert_eq!(body["day_start_ms"], json!(1_000));
+    assert_eq!(
+        body["calls"]["loopback"],
+        json!({ "calls": 0, "failed": 0 })
+    );
+}
+
 /// The route reads one machine, and both refusals happen before the machine is asked: an absent
 /// `device` names the parameter, and an id this console does not hold is the shared 404.
 #[tokio::test]

@@ -17,7 +17,7 @@
 //! than an allocation. The per-tool caps (1 MiB file, 1 MiB serialized memory entry) then apply to a
 //! payload the process has already agreed to hold.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -101,6 +101,29 @@ const SCAN_ROWS: usize = 10_000;
 /// rather than by what the journal holds. The console asks for exactly this many; a caller asking for
 /// more is asking this machine to hold another machine's log in one answer, which is an export.
 const MAX_READ_ROWS: usize = 200;
+
+/// The most rows one `journal.day` may count.
+///
+/// A day of a busy machine is thousands of calls and twice as many rows; this bound is what keeps one
+/// read from walking the whole retention window. When it is reached the answer says `more: true` and
+/// the caller's counts are "at least", never a quiet undercount.
+const MAX_DAY_ROWS: usize = 20_000;
+
+/// How many rows below the day one `journal.day` may read to resolve a call's door.
+///
+/// A call's door is on its `call.started` half; an outcome whose started half is just below the day
+/// would otherwise count as `unknown`. Two thousand rows is far more than one call's pair, and a call
+/// that started further back than that is counted as unknown rather than guessed.
+const DAY_LOOKBACK_ROWS: usize = 2_000;
+
+/// One page of the lookback below a day (`journal.read`'s own row bound).
+const DAY_LOOKBACK_PAGE: usize = 200;
+
+/// The longest span one `journal.day` may be asked about.
+///
+/// A local day is 23–25 hours; a caller passing a cut-based block asks for 24. The bound is the
+/// console's, stated here first so the device refuses one sentence rather than scanning a month.
+const MAX_DAY_SPAN_MS: u64 = 26 * 60 * 60 * 1000;
 
 /// How many traces one `journal.get` call may name.
 const MAX_TRACES: usize = 512;
@@ -1755,6 +1778,22 @@ impl DeviceServer {
                 })?;
                 Ok(journal_traces_document(&bus, &traces, &rows).to_string())
             }
+            Handler::JournalDay => {
+                // **A DAY IS COUNTS, NOT A PAGE.** The console's day sentence counts its own audit;
+                // a client may also call this machine directly, and those calls exist only here.
+                // Answering a day of rows would be an export in a read's clothes and a window the
+                // page cannot count; the aggregate is what the header can merge.
+                let (day_start, day_end) = parse_day_range(arguments, name)?;
+                let Some(bus) = self.bus() else {
+                    return Ok(no_journal_day_document(day_start, day_end).to_string());
+                };
+                let (rows, more) =
+                    bus.read_between(day_start, day_end, MAX_DAY_ROWS)
+                        .map_err(|error| {
+                            refused(name, format!("the journal could not be read: {error}"))
+                        })?;
+                Ok(day_calls_document(&bus, day_start, day_end, &rows, more).to_string())
+            }
             Handler::JournalRead => {
                 // The record itself, summarised: the console draws what it proxied, and this is what
                 // the machine ran — including the calls that never went through the console at all.
@@ -1922,6 +1961,7 @@ enum Handler {
     StateGet,
     JournalGet,
     JournalRead,
+    JournalDay,
     /// All six `plugins.*` tools; the capability's dispatch matches the exact name.
     Plugins,
 }
@@ -1978,6 +2018,7 @@ const HANDLERS: &[(&str, Handler)] = &[
     ("state.get", Handler::StateGet),
     ("journal.get", Handler::JournalGet),
     ("journal.read", Handler::JournalRead),
+    ("journal.day", Handler::JournalDay),
     ("plugins.list", Handler::Plugins),
     ("plugins.inspect", Handler::Plugins),
     ("plugins.add", Handler::Plugins),
@@ -2861,6 +2902,23 @@ fn input_schema(definition: &ToolDef) -> Value {
             "required": ["traces"],
             "additionalProperties": false
         }),
+        "journal.day" => json!({
+            "type": "object",
+            "properties": {
+                "day_start_ms": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "The first moment of the range, in Unix milliseconds (inclusive)."
+                },
+                "day_end_ms": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "The moment after the range, in Unix milliseconds (exclusive)."
+                }
+            },
+            "required": ["day_start_ms", "day_end_ms"],
+            "additionalProperties": false
+        }),
         "journal.read" => json!({
             "type": "object",
             "properties": {
@@ -3171,6 +3229,202 @@ fn no_journal_document() -> Value {
         "traces": [],
         "missing": [],
     })
+}
+
+/// The call a journal row belongs to, when its trace names one.
+fn call_of(envelope: &summrise_bus::Envelope) -> Option<&str> {
+    envelope
+        .trace
+        .as_ref()
+        .and_then(|trace| trace.get("call"))
+        .and_then(Value::as_str)
+}
+
+/// Parse `journal.day`'s arguments: the range's first moment and the moment after it.
+///
+/// The device keeps no timezone: the caller names the two instants it counts. The rules are the
+/// span and the order, and each refusal states the rule rather than echoing the caller's number.
+fn parse_day_range(arguments: Map<String, Value>, tool: &str) -> Result<(u64, u64), ToolError> {
+    let invalid = |rule: String| ToolError::Arguments(format!("{tool}: {rule}"));
+    if arguments
+        .keys()
+        .any(|key| !matches!(key.as_str(), "day_start_ms" | "day_end_ms"))
+    {
+        return Err(invalid(
+            "the arguments are not what this tool takes; it takes `day_start_ms` and `day_end_ms`"
+                .to_owned(),
+        ));
+    }
+    let start = match arguments.get("day_start_ms").and_then(Value::as_u64) {
+        Some(start) => start,
+        None => {
+            return Err(invalid(
+                "`day_start_ms` is the range's first moment, in Unix milliseconds".to_owned(),
+            ))
+        }
+    };
+    let end = match arguments.get("day_end_ms").and_then(Value::as_u64) {
+        Some(end) => end,
+        None => {
+            return Err(invalid(
+                "`day_end_ms` is the moment after the range, in Unix milliseconds".to_owned(),
+            ))
+        }
+    };
+    if end <= start {
+        return Err(invalid(
+            "`day_end_ms` must be after `day_start_ms`: the range is half-open, [start, end)"
+                .to_owned(),
+        ));
+    }
+    if end - start > MAX_DAY_SPAN_MS {
+        return Err(invalid(format!(
+            "the range must be no more than {} hours apart",
+            MAX_DAY_SPAN_MS / 3_600_000
+        )));
+    }
+    Ok((start, end))
+}
+
+/// The `journal: false` answer for a device with no journal, in the day's own shape.
+///
+/// Every count is zero because nothing was read; the range is echoed so a caller can tell which day
+/// this machine cannot answer for.
+fn no_journal_day_document(day_start: u64, day_end: u64) -> Value {
+    json!({
+        "journal": false,
+        "day_start_ms": day_start,
+        "day_end_ms": day_end,
+        "oldest_seq": 0,
+        "last_seq": 0,
+        "scanned": 0,
+        "more": false,
+        "calls": {
+            "console": { "calls": 0, "failed": 0 },
+            "panel": { "calls": 0, "failed": 0 },
+            "mesh": { "calls": 0, "failed": 0 },
+            "loopback": { "calls": 0, "failed": 0 },
+            "unknown": { "calls": 0, "failed": 0 },
+        },
+    })
+}
+
+/// One `journal.day` answer: the day's outcome rows counted by the door they arrived by.
+///
+/// A call's door is written on its `call.started` half. The day's rows carry the started halves of
+/// calls that finished inside the day; the halves of a call that started before it are read below the
+/// day, bounded, and an outcome whose half is not found is counted as `unknown` — never as a client's.
+/// `more` is the bus's own answer that the day held more rows than [`MAX_DAY_ROWS`].
+fn day_calls_document(
+    bus: &summrise_bus::Bus,
+    day_start: u64,
+    day_end: u64,
+    rows: &[summrise_bus::Envelope],
+    more: bool,
+) -> Value {
+    let mut doors: HashMap<String, String> = HashMap::new();
+    let mut unresolved: HashSet<String> = HashSet::new();
+    for row in rows {
+        let Some(call) = call_of(row) else { continue };
+        match row.kind.as_str() {
+            "call.started" => {
+                if let Some(door) = row.payload.get("door").and_then(Value::as_str) {
+                    doors.insert(call.to_owned(), door.to_owned());
+                }
+            }
+            "call.finished" | "call.denied" if !doors.contains_key(call) => {
+                unresolved.insert(call.to_owned());
+            }
+            _ => {}
+        }
+    }
+
+    // **THE HALF BELOW THE DAY, BOUNDED.** A call that started before midnight and finished after it
+    // is an outcome of the day whose door is on the older row. Reading just below the oldest row of
+    // the range resolves those halves; a call starting further back is unknown by the rule, not by
+    // silence.
+    let mut cursor = rows.last().map(|row| row.seq);
+    let mut looked = 0;
+    while !unresolved.is_empty() && looked < DAY_LOOKBACK_ROWS {
+        let Some(before) = cursor else { break };
+        let Ok((window, _)) = bus.read_window(Some(before), DAY_LOOKBACK_PAGE) else {
+            break;
+        };
+        if window.is_empty() {
+            break;
+        }
+        for row in &window {
+            if row.kind != "call.started" {
+                continue;
+            }
+            let Some(call) = call_of(row) else { continue };
+            if !unresolved.contains(call) {
+                continue;
+            }
+            if let Some(door) = row.payload.get("door").and_then(Value::as_str) {
+                doors.insert(call.to_owned(), door.to_owned());
+                unresolved.remove(call);
+            }
+        }
+        looked += window.len();
+        cursor = window.last().map(|row| row.seq);
+    }
+
+    let mut counts: BTreeMap<&'static str, (u64, u64)> = BTreeMap::from([
+        ("console", (0, 0)),
+        ("panel", (0, 0)),
+        ("mesh", (0, 0)),
+        ("loopback", (0, 0)),
+        ("unknown", (0, 0)),
+    ]);
+    for row in rows {
+        if !matches!(row.kind.as_str(), "call.finished" | "call.denied") {
+            continue;
+        }
+        let door = call_of(row)
+            .and_then(|call| doors.get(call))
+            .map(String::as_str)
+            .filter(|door| matches!(*door, "console" | "panel" | "mesh" | "loopback"))
+            .unwrap_or("unknown");
+        let failed = row.payload.get("ok").and_then(Value::as_bool) != Some(true);
+        let entry = counts
+            .get_mut(door)
+            .expect("the five doors are initialized");
+        entry.0 += 1;
+        if failed {
+            entry.1 += 1;
+        }
+    }
+
+    let oldest_seq = bus.oldest_seq();
+    let oldest_ts = if oldest_seq == 0 {
+        None
+    } else {
+        bus.read_window(Some(oldest_seq.saturating_add(1)), 1)
+            .ok()
+            .and_then(|(window, _)| window.into_iter().next())
+            .map(|row| row.ts)
+    };
+
+    let mut document = json!({
+        "journal": true,
+        "day_start_ms": day_start,
+        "day_end_ms": day_end,
+        "oldest_seq": oldest_seq,
+        "last_seq": bus.last_seq(),
+        "scanned": rows.len(),
+        "more": more,
+        "calls": counts
+            .into_iter()
+            .map(|(door, (calls, failed))| {
+                (door.to_owned(), json!({ "calls": calls, "failed": failed }))
+            })
+            .collect::<serde_json::Map<_, _>>(),
+    });
+    if let Some(ts) = oldest_ts {
+        document["oldest_ts"] = json!(ts);
+    }
+    document
 }
 
 /// Parse `journal.read`'s arguments: a required row count in 1..=200, and an optional `before_seq`.
@@ -4697,6 +4951,7 @@ mod tests {
                 "state.get",
                 "journal.get",
                 "journal.read",
+                "journal.day",
                 "plugins.list",
                 "plugins.inspect",
                 "plugins.add",
@@ -7882,6 +8137,204 @@ mod tests {
             summrise_bus::Bus::open(config.data.join("journal")).expect("the journal opens"),
         );
         (server.with_bus(Some(Arc::clone(&bus))), config, bus, dir)
+    }
+
+    /// One `journal.day` answer, parsed: the tool's document is a JSON text item.
+    async fn day_of(server: &super::DeviceServer, start: u64, end: u64) -> Value {
+        let reply = tools_call(
+            server,
+            "journal.day",
+            json!({ "day_start_ms": start, "day_end_ms": end }),
+        )
+        .await;
+        assert!(reply.get("error").is_none(), "{reply}");
+        assert_eq!(reply["result"]["isError"], false, "{reply}");
+        serde_json::from_str(text_of(&reply)).expect("journal.day answers one JSON document")
+    }
+
+    /// **A DAY IS COUNTED BY ITS DOORS (round 12).** The console's day counts its own audit; a client
+    /// may call this machine directly, and those calls exist only in this journal. The aggregate says
+    /// how many finished inside the range by each door, and which of them failed.
+    #[tokio::test]
+    async fn journal_day_counts_the_day_by_door_and_failure() {
+        let (server, _config, bus, _dir) = journaled_server("mcp-journal-day-doors");
+        let now = crate::http::now_ms() as u64;
+        let publish = |kind: &str, call: &str, payload: Value| {
+            bus.publish_traced(
+                summrise_bus::Plane::Control,
+                kind,
+                None,
+                Some(call),
+                payload,
+            )
+            .expect("the journal writes")
+        };
+        publish(
+            "call.started",
+            "direct-1",
+            json!({ "tool": "files.read", "door": "loopback" }),
+        );
+        publish(
+            "call.finished",
+            "direct-1",
+            json!({ "tool": "files.read", "ok": true }),
+        );
+        publish(
+            "call.started",
+            "panel-1",
+            json!({ "tool": "screen.capture", "door": "panel" }),
+        );
+        publish(
+            "call.denied",
+            "panel-1",
+            json!({ "tool": "screen.capture", "ok": false, "reason": "denied" }),
+        );
+        // An outcome with no started half in the journal: its door is not a guess.
+        publish(
+            "call.finished",
+            "nobody-1",
+            json!({ "tool": "host.facts", "ok": true }),
+        );
+
+        let document = day_of(&server, now - 3_600_000, now + 60_000).await;
+
+        assert_eq!(document["journal"], true, "{document}");
+        assert_eq!(document["day_start_ms"], json!(now - 3_600_000));
+        assert_eq!(document["day_end_ms"], json!(now + 60_000));
+        // The read's own started half is a row of the day too; it has no outcome yet, so it is not a
+        // call in any bucket.
+        assert_eq!(document["scanned"], 6, "{document}");
+        assert_eq!(document["more"], false, "{document}");
+        assert_eq!(
+            document["calls"]["loopback"],
+            json!({ "calls": 1, "failed": 0 })
+        );
+        assert_eq!(
+            document["calls"]["panel"],
+            json!({ "calls": 1, "failed": 1 })
+        );
+        assert_eq!(
+            document["calls"]["console"],
+            json!({ "calls": 0, "failed": 0 })
+        );
+        assert_eq!(
+            document["calls"]["mesh"],
+            json!({ "calls": 0, "failed": 0 })
+        );
+        assert_eq!(
+            document["calls"]["unknown"],
+            json!({ "calls": 1, "failed": 0 })
+        );
+        assert_eq!(document["oldest_seq"], 1);
+        // The read's own `call.started` is the newest row while it runs.
+        assert_eq!(document["last_seq"], 6);
+        assert!(
+            document["oldest_ts"]
+                .as_str()
+                .is_some_and(|ts| !ts.is_empty()),
+            "the answer names where the record starts: {document}"
+        );
+    }
+
+    /// **A CALL THAT STARTED BEFORE THE DAY IS STILL THE DAY'S CALL.** Its outcome is in range; its
+    /// door is on the half below the range, read back by the bounded lookback rather than guessed.
+    #[tokio::test]
+    async fn journal_day_reads_a_door_from_below_the_range() {
+        let (server, config, _dir) = console_server("mcp-journal-day-below");
+        let journal = config.data.join("journal");
+        fs::create_dir_all(&journal).expect("the journal directory is creatable");
+        let rows = [
+            json!({
+                "v": 1, "plane": "control", "seq": 1,
+                "ts": "1970-01-01T00:00:10Z", "type": "call.started",
+                "trace": { "call": "t-cross" },
+                "payload": { "tool": "runs.exec", "door": "mesh" },
+            }),
+            json!({
+                "v": 1, "plane": "control", "seq": 2,
+                "ts": "1970-01-01T00:00:20Z", "type": "call.finished",
+                "trace": { "call": "t-cross" },
+                "payload": { "tool": "runs.exec", "ok": true },
+            }),
+        ];
+        let text: String = rows.iter().map(|row| format!("{row}\n")).collect();
+        fs::write(journal.join("000001.seg"), text).expect("the seeded journal is written");
+        let bus = Arc::new(summrise_bus::Bus::open(&journal).expect("the seeded journal opens"));
+        let server = server.with_bus(Some(Arc::clone(&bus)));
+
+        let document = day_of(&server, 20_000, 30_000).await;
+
+        assert_eq!(
+            document["scanned"], 1,
+            "only the outcome is in the day: {document}"
+        );
+        assert_eq!(
+            document["calls"]["mesh"],
+            json!({ "calls": 1, "failed": 0 }),
+            "the door crossed the boundary from the started half: {document}"
+        );
+        assert_eq!(document["journal"], true);
+    }
+
+    /// **THE DAY'S RULES ARE THE DEVICE'S, NOT THE CALLER'S.** A range must be ordered, bounded and
+    /// named with the tool's own keys; every refusal states the rule and never the value.
+    #[tokio::test]
+    async fn journal_day_refusals_name_the_rule_and_never_the_value() {
+        let (server, _config, _bus, _dir) = journaled_server("mcp-journal-day-refusals");
+        for (arguments, expected, forbidden) in [
+            (
+                json!({ "day_start_ms": 5_000, "day_end_ms": 5_000 }),
+                "`day_end_ms` must be after `day_start_ms`",
+                Some("5000"),
+            ),
+            (
+                json!({ "day_start_ms": 0, "day_end_ms": 27 * 3_600_000 }),
+                "no more than 26 hours apart",
+                Some("27"),
+            ),
+            (
+                json!({ "day_start_ms": 1_000, "day_end_ms": 2_000, "limit": 5 }),
+                "it takes `day_start_ms` and `day_end_ms`",
+                Some("limit"),
+            ),
+            (
+                json!({ "day_start_ms": 1_000 }),
+                "`day_end_ms` is the moment after the range",
+                None,
+            ),
+        ] {
+            let reply = tools_call(&server, "journal.day", arguments).await;
+            let text = reply["error"]["message"]
+                .as_str()
+                .map(str::to_owned)
+                .unwrap_or_else(|| text_of(&reply).to_owned());
+            assert!(
+                text.contains(expected),
+                "the refusal names the rule {expected:?}: {text}"
+            );
+            if let Some(forbidden) = forbidden {
+                assert!(
+                    !text.contains(forbidden),
+                    "the refusal does not echo the caller's `{forbidden}`: {text}"
+                );
+            }
+        }
+    }
+
+    /// A process with no journal answers the day's shape with zeros, not an error: it cannot count a
+    /// day it never recorded, and the caller can tell that from a day the machine says was empty.
+    #[tokio::test]
+    async fn journal_day_without_a_journal_answers_zeroes() {
+        let (server, _config, _dir) = console_server("mcp-journal-day-no-journal");
+        let document = day_of(&server, 1_000, 2_000).await;
+        assert_eq!(document["journal"], false);
+        assert_eq!(document["scanned"], 0);
+        assert_eq!(
+            document["calls"]["loopback"],
+            json!({ "calls": 0, "failed": 0 })
+        );
+        assert_eq!(document["day_start_ms"], 1_000);
+        assert_eq!(document["day_end_ms"], 2_000);
     }
 
     /// **ONLY A CALL THE JOURNAL HOLDS HAS A POSITION (round 9).** `tools/list` is an exchange, not

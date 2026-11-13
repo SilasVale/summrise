@@ -227,6 +227,19 @@ proxy) are not client calls, and a failed direct call is named rather than folde
 failure count. A true day count of a machine's direct calls needs a time-bounded read of its journal,
 which `journal.read` does not offer yet — the next item.
 
+**Shipped (2026-11-13): the machine's day can be counted.** `journal.day` answers a day as one
+aggregate: two instants the caller owns (the device keeps no timezone), the five doors' call and
+failure counts for the outcome rows inside the range, the retained bounds, and `more` when the scan
+was cut at 20 000 rows. A call's door is written on its `call.started` half; an outcome whose half is
+just below the range is resolved by a bounded lookback (2 000 rows), and an outcome whose half is not
+found counts as `unknown` — never as a client's. `GET /journal/day?device=&from=&to=` relays it (no
+audit line, no live event), and the page asks for the block its labels index: the console's cut plus
+24 hours, or its own midnights. The day sentence then adds the machine's `loopback` calls and
+failures to its client number and names the share — "2 straight to this machine (1 failed)" — with
+"at least" when the machine's scan was cut; a failed or `unknown` day read keeps the console's number
+and says the direct calls were not counted. The hub's fleet number is unchanged: a fleet asks no
+machine's journal.
+
 ### 4.3 Data plane
 
 A stream has an id (`terminal:<device>/<session>`, `file:<id>`, `screen:<id>`) and a byte offset.
@@ -261,6 +274,15 @@ this is a summary". `before_seq` pages: the answer holds only rows strictly olde
 whether a retained row older than the last returned one exists. This is what makes a call the console
 never proxied — the panel's, a mesh peer's, a direct
 loopback client's — reachable after a reload instead of only through the live relay.
+
+`journal.day(day_start_ms, day_end_ms)` is the same record counted, not listed: the outcome rows whose
+moment falls in `[day_start_ms, day_end_ms)` are counted by the door they arrived by (`console`,
+`panel`, `mesh`, `loopback`, `unknown`), each with its failures (`ok != true`). The range must be
+ordered and no longer than 26 hours; the count stops at `MAX_DAY_ROWS = 20 000` and reports `more: true`
+so a caller's number is a floor, never a quiet undercount. A door is on the call's `call.started` half:
+the day's own started halves resolve it, and a call that started before the range is resolved by a
+bounded lookback below the oldest row (2 000 rows); an outcome whose half is not found is `unknown`.
+No rows and no payloads — a page that needs rows has `journal.read`.
 
 `journal.get` answers the join the other way round: given the traces a page is drawing, it scans the
 retained rows newest first (`Bus::scan_newest`) and says which of them are still there, plus
