@@ -4874,6 +4874,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "summrise-record",
  "tokio",
 ]
 
@@ -5008,6 +5009,15 @@ dependencies = [
  "serde_json",
  "summrise-core",
  "ts-rs",
+]
+
+[[package]]
+name = "summrise-record"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "rusqlite",
+ "serde_json",
 ]
 
 [[package]]

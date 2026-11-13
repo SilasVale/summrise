@@ -479,6 +479,18 @@ duplicate, a torn segment imports its whole lines, an existing record is not mer
 gate 15 / 25 / 0. Next: the console's operator record — `events.jsonl` (audit + activity) into its
 own `record.db` with the same transaction/retention rules, then the page reads the record.
 
+**Round 31 — the record is its own crate.** `summrise-record` owns the interface every process will
+use: `Record::open(dir, max_bytes)`, `append(ts_ms, json) -> seq`, `insert(row)` (import, keeps the
+sequence), `newest` / `window(before, limit)` / `between(from_ms, to_ms, limit)` returning
+`Row { seq, ts_ms, json }`, `read_from`, `meta` / `set_meta`, `backup_to`, `check`. The bus no
+longer holds SQL: it serializes an envelope, takes its sequence under one publish lock, inserts the
+row, then fans out — `summrise-bus` is now a wrapper over `summrise-record` (and keeps the legacy
+import, which is a bus concern). Eight record tests cover sequence/reopen, windows, moments,
+retention, idempotent insert, meta, backup and integrity. Evidence: 8 record tests, 19 bus tests, 669
+device tests, clippy/fmt clean, gate 16 packages / 26 edges / 0 upward. Next: the console's operator
+record — open its own `record.db` through `summrise-record`, import `events.jsonl` once, and let
+`/audit` reads and the page use the record.
+
 
 ## Next (in order)
 

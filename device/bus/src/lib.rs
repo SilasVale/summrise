@@ -1,30 +1,26 @@
-//! The record's change feed: one durable row per event, one sequence, one writer.
+//! The record's change feed: envelopes over `record.db`, and the live fan-out.
 //!
-//! **THE RECORD IS SQLITE, AND THE FEED IS ITS TABLE.** A publish is one transaction that inserts
-//! the envelope and prunes older rows under the retention budget; a reader is one query. The
-//! process is the only writer, so the sequence is monotonic without coordination, and a crash
-//! leaves the last committed transaction — not a torn line.
-//!
-//! Subscribers get the replay they asked for and then live rows. A cursor below the oldest retained
-//! row is a [`Reset`]: the caller learns exactly what retention took, instead of silently reading a
-//! gap.
+//! **THE RECORD IS THE STORE; THIS CRATE IS THE BUS.** Rows live in `summrise-record`; the bus
+//! gives them the envelope shape, a sequence, a replay-then-live subscription, and the reset a
+//! cursor below the retained window earns. A publish is one record insert (one transaction); a
+//! read is one query. The segmented journal of earlier versions is imported once by [`Bus::open`],
+//! keeping each row's sequence and moment.
 
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use chrono::DateTime;
-use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use summrise_record::{Record, Row};
 use tokio::sync::broadcast;
 
 /// The wire shape's version. A reader that does not know it must refuse the row, not guess.
 pub const SCHEMA_VERSION: u8 = 1;
 
 /// The name of the database inside the directory a [`Bus`] is opened on.
-pub const RECORD_FILE: &str = "record.db";
+pub const RECORD_FILE: &str = summrise_record::FILE;
 
 /// Kept for callers that asked for a segment size; the record has no segments.
 pub const DEFAULT_SEGMENT_BYTES: u64 = 4 * 1024 * 1024;
@@ -34,17 +30,6 @@ pub const DEFAULT_MAX_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Kept for callers that asked for a snapshot cadence; the record needs no snapshots.
 pub const DEFAULT_SNAPSHOT_EVERY: u64 = 1_000;
-
-/// SQLite errors become the `io::Result` this API already returns.
-trait Db<T> {
-    fn db(self) -> io::Result<T>;
-}
-
-impl<T> Db<T> for rusqlite::Result<T> {
-    fn db(self) -> io::Result<T> {
-        self.map_err(io::Error::other)
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -84,9 +69,9 @@ pub struct Reset {
 /// The record and its live fan-out. One writer, one sequence.
 pub struct Bus {
     dir: PathBuf,
-    record: Mutex<Connection>,
-    max_bytes: u64,
-    seq: AtomicU64,
+    record: Record,
+    /// Serializes sequence assignment with the insert, so two publishers cannot claim one sequence.
+    publish: Mutex<()>,
     tx: broadcast::Sender<Arc<Envelope>>,
 }
 
@@ -97,7 +82,7 @@ impl Bus {
     }
 
     /// Open with an explicit retention budget. `segment_bytes` is accepted for callers that still
-    /// pass it; the record has no segments. Tests use small budgets.
+    /// pass it; the record has no segments.
     pub fn open_with(
         dir: impl AsRef<Path>,
         segment_bytes: u64,
@@ -106,8 +91,7 @@ impl Bus {
         Self::open_with_snapshot(dir, segment_bytes, max_bytes, DEFAULT_SNAPSHOT_EVERY)
     }
 
-    /// Open with a snapshot cadence. The cadence is ignored: a record needs no snapshots, and the
-    /// parameter stays so an older caller's intent is visible rather than silently dropped.
+    /// Open with a snapshot cadence. The cadence is ignored: a record needs no snapshots.
     pub fn open_with_snapshot(
         dir: impl AsRef<Path>,
         _segment_bytes: u64,
@@ -115,38 +99,13 @@ impl Bus {
         _snapshot_every: u64,
     ) -> io::Result<Self> {
         let dir = dir.as_ref().to_path_buf();
-        std::fs::create_dir_all(&dir)?;
-        let path = dir.join(RECORD_FILE);
-        let mut record = Connection::open(&path).db()?;
-        record
-            .execute_batch(
-                "PRAGMA journal_mode = WAL;
-             PRAGMA synchronous = FULL;
-             PRAGMA busy_timeout = 5000;
-             CREATE TABLE IF NOT EXISTS feed (
-                 seq    INTEGER PRIMARY KEY,
-                 ts_ms  INTEGER NOT NULL,
-                 json   TEXT NOT NULL
-             );
-             CREATE TABLE IF NOT EXISTS meta (
-                 key TEXT PRIMARY KEY,
-                 value TEXT NOT NULL
-             );
-             INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '1');",
-            )
-            .db()?;
-        import_legacy(&dir, &mut record, max_bytes)?;
-        let last: i64 = record
-            .query_row("SELECT COALESCE(MAX(seq), 0) FROM feed", [], |row| {
-                row.get(0)
-            })
-            .db()?;
+        let record = Record::open(&dir, max_bytes)?;
+        import_legacy(&dir, &record)?;
         let (tx, _) = broadcast::channel(1024);
         Ok(Self {
             dir,
-            record: Mutex::new(record),
-            max_bytes,
-            seq: AtomicU64::new(last.max(0) as u64),
+            record,
+            publish: Mutex::new(()),
             tx,
         })
     }
@@ -191,10 +150,7 @@ impl Bus {
         )
     }
 
-    /// Publish a traced event with an explicit moment.
-    ///
-    /// The import path (an old record rewritten into this one) needs it: a row's moment is the
-    /// moment it happened, not the moment it was migrated.
+    /// Publish a traced event with an explicit moment (the import path needs it).
     pub fn publish_traced_at(
         &self,
         plane: Plane,
@@ -217,27 +173,21 @@ impl Bus {
         self.append(envelope)
     }
 
-    /// Insert one envelope, prune under the budget, and fan it out after the commit.
+    /// Give the envelope its sequence, store it, and fan it out after the commit.
     fn append(&self, mut envelope: Envelope) -> io::Result<Envelope> {
-        let mut record = self
-            .record
+        let _sequence = self
+            .publish
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
-        let transaction = record.transaction().db()?;
-        let seq = self.seq.load(Ordering::SeqCst) + 1;
+        let seq = self.record.last_seq() + 1;
         envelope.seq = seq;
         let json = serde_json::to_string(&envelope)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-        let ts_ms = moment_ms(&envelope.ts);
-        transaction
-            .execute(
-                "INSERT INTO feed (seq, ts_ms, json) VALUES (?1, ?2, ?3)",
-                params![seq as i64, ts_ms, json],
-            )
-            .db()?;
-        prune(&transaction, self.max_bytes)?;
-        transaction.commit().db()?;
-        self.seq.store(seq, Ordering::SeqCst);
+        self.record.insert(&Row {
+            seq,
+            ts_ms: moment_ms(&envelope.ts),
+            json,
+        })?;
         let _ = self.tx.send(Arc::new(envelope.clone()));
         Ok(envelope)
     }
@@ -246,23 +196,12 @@ impl Bus {
     /// deduplicated by `seq`.
     pub fn subscribe(&self, from_seq: u64) -> io::Result<Subscription> {
         let rx = self.tx.subscribe();
-        let replay = {
-            let record = self
-                .record
-                .lock()
-                .unwrap_or_else(|poison| poison.into_inner());
-            let mut statement = record
-                .prepare("SELECT json FROM feed WHERE seq >= ?1 ORDER BY seq ASC")
-                .db()?;
-            let rows = statement
-                .query_map(params![from_seq as i64], |row| row.get::<_, String>(0))
-                .db()?;
-            let mut events = Vec::new();
-            for row in rows {
-                events.push(parse_row(&row.map_err(io::Error::other)?)?);
-            }
-            events
-        };
+        let replay: Vec<Envelope> = self
+            .record
+            .read_from(from_seq)?
+            .iter()
+            .map(envelope_of)
+            .collect::<io::Result<_>>()?;
         let last = replay.last().map(|event| event.seq).unwrap_or(0);
         Ok(Subscription {
             replay: replay.into(),
@@ -271,126 +210,48 @@ impl Bus {
         })
     }
 
-    /// The rows whose moment falls in `[from_ms, to_ms)`, newest first, at most `limit` rows, and
-    /// whether the range held more rows than the answer.
+    /// The rows whose moment falls in `[from_ms, to_ms)`, newest first, at most `limit`, and
+    /// whether the range held more.
     pub fn read_between(
         &self,
         from_ms: u64,
         to_ms: u64,
         limit: usize,
     ) -> io::Result<(Vec<Envelope>, bool)> {
-        if limit == 0 || to_ms <= from_ms {
-            return Ok((Vec::new(), false));
-        }
-        let record = self
-            .record
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
-        let mut statement = record
-            .prepare(
-                "SELECT json FROM feed WHERE ts_ms >= ?1 AND ts_ms < ?2 ORDER BY seq DESC LIMIT ?3",
-            )
-            .db()?;
-        let rows = statement
-            .query_map(
-                params![from_ms as i64, to_ms as i64, (limit + 1) as i64],
-                |row| row.get::<_, String>(0),
-            )
-            .db()?;
-        let mut events = Vec::new();
-        for row in rows {
-            events.push(parse_row(&row.map_err(io::Error::other)?)?);
-        }
-        let more = events.len() > limit;
-        events.truncate(limit);
-        Ok((events, more))
+        let (rows, more) = self.record.between(from_ms, to_ms, limit)?;
+        Ok((
+            rows.iter().map(envelope_of).collect::<io::Result<_>>()?,
+            more,
+        ))
     }
 
     /// The last durable sequence. Zero when the record is empty.
     pub fn last_seq(&self) -> u64 {
-        self.seq.load(Ordering::SeqCst)
+        self.record.last_seq()
     }
 
     /// The first sequence still retained. Zero when the record is empty.
     pub fn oldest_seq(&self) -> u64 {
-        let record = self
-            .record
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
-        record
-            .query_row("SELECT MIN(seq) FROM feed", [], |row| {
-                row.get::<_, Option<i64>>(0)
-            })
-            .optional()
-            .ok()
-            .flatten()
-            .flatten()
-            .map(|seq| seq.max(0) as u64)
-            .unwrap_or(0)
+        self.record.oldest_seq()
     }
 
     /// The newest `limit` retained rows, newest first.
     pub fn scan_newest(&self, limit: usize) -> io::Result<Vec<Envelope>> {
-        if limit == 0 {
-            return Ok(Vec::new());
-        }
-        let record = self
-            .record
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
-        let mut statement = record
-            .prepare("SELECT json FROM feed ORDER BY seq DESC LIMIT ?1")
-            .db()?;
-        let rows = statement
-            .query_map(params![limit as i64], |row| row.get::<_, String>(0))
-            .db()?;
-        let mut events = Vec::new();
-        for row in rows {
-            events.push(parse_row(&row.map_err(io::Error::other)?)?);
-        }
-        Ok(events)
+        self.record.newest(limit)?.iter().map(envelope_of).collect()
     }
 
-    /// A page of the record, newest first: up to `limit` retained rows older than `before_seq`
-    /// (from the newest row when it is `None`), and whether a retained row lies below the page.
+    /// A page of the record, newest first: up to `limit` retained rows older than `before_seq`,
+    /// and whether a retained row lies below the page.
     pub fn read_window(
         &self,
         before_seq: Option<u64>,
         limit: usize,
     ) -> io::Result<(Vec<Envelope>, bool)> {
-        if limit == 0 {
-            return Ok((Vec::new(), false));
-        }
-        let record = self
-            .record
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
-        let events = match before_seq {
-            Some(before) => {
-                let mut statement = record
-                    .prepare("SELECT json FROM feed WHERE seq < ?1 ORDER BY seq DESC LIMIT ?2")
-                    .db()?;
-                let rows = statement
-                    .query_map(params![before as i64, (limit + 1) as i64], |row| {
-                        row.get::<_, String>(0)
-                    })
-                    .db()?;
-                collect_rows(rows)?
-            }
-            None => {
-                let mut statement = record
-                    .prepare("SELECT json FROM feed ORDER BY seq DESC LIMIT ?1")
-                    .db()?;
-                let rows = statement
-                    .query_map(params![(limit + 1) as i64], |row| row.get::<_, String>(0))
-                    .db()?;
-                collect_rows(rows)?
-            }
-        };
-        let more = events.len() > limit;
-        let mut events = events;
-        events.truncate(limit);
-        Ok((events, more))
+        let (rows, more) = self.record.window(before_seq, limit)?;
+        Ok((
+            rows.iter().map(envelope_of).collect::<io::Result<_>>()?,
+            more,
+        ))
     }
 
     /// The lost range for a subscriber whose cursor is `from`, or `None` when that cursor is still
@@ -407,32 +268,14 @@ impl Bus {
         })
     }
 
-    /// Copy the record to `path` (`VACUUM INTO`): a consistent snapshot a backup can ship.
+    /// Copy the record to `path` (`VACUUM INTO`).
     pub fn backup_to(&self, path: impl AsRef<Path>) -> io::Result<()> {
-        let record = self
-            .record
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
-        record
-            .execute("VACUUM INTO ?1", params![path.as_ref().to_string_lossy()])
-            .db()?;
-        Ok(())
+        self.record.backup_to(path)
     }
 
-    /// `PRAGMA integrity_check`: `Ok` only when SQLite answers `ok`.
+    /// `PRAGMA integrity_check`.
     pub fn check(&self) -> io::Result<()> {
-        let record = self
-            .record
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
-        let answer: String = record
-            .query_row("PRAGMA integrity_check", [], |row| row.get(0))
-            .db()?;
-        if answer == "ok" {
-            Ok(())
-        } else {
-            Err(io::Error::new(io::ErrorKind::InvalidData, answer))
-        }
+        self.record.check()
     }
 }
 
@@ -483,127 +326,54 @@ impl Subscription {
     }
 }
 
-/// The moment of a row in Unix milliseconds; a timestamp this reader cannot parse is stored as 0
-/// and stays out of every time range rather than being guessed into one.
 fn moment_ms(ts: &str) -> i64 {
     DateTime::parse_from_rfc3339(ts)
         .map(|moment| moment.timestamp_millis())
         .unwrap_or(0)
 }
 
-fn parse_row(json: &str) -> io::Result<Envelope> {
-    serde_json::from_str(json).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
-}
-
-fn collect_rows<F>(rows: rusqlite::MappedRows<'_, F>) -> io::Result<Vec<Envelope>>
-where
-    F: FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<String>,
-{
-    let mut events = Vec::new();
-    for row in rows {
-        events.push(parse_row(&row.map_err(io::Error::other)?)?);
-    }
-    Ok(events)
-}
-
-/// Delete the oldest rows while the stored bytes exceed `max_bytes`, always leaving the newest row.
-fn prune(transaction: &rusqlite::Transaction<'_>, max_bytes: u64) -> io::Result<()> {
-    loop {
-        let rows: i64 = transaction
-            .query_row("SELECT COUNT(*) FROM feed", [], |row| row.get(0))
-            .db()?;
-        if rows <= 1 {
-            return Ok(());
-        }
-        let bytes: i64 = transaction
-            .query_row(
-                "SELECT COALESCE(SUM(LENGTH(json)), 0) FROM feed",
-                [],
-                |row| row.get(0),
-            )
-            .db()?;
-        if (bytes as u64) <= max_bytes {
-            return Ok(());
-        }
-        transaction
-            .execute(
-                "DELETE FROM feed WHERE seq = (SELECT MIN(seq) FROM feed)",
-                [],
-            )
-            .db()?;
-    }
+fn envelope_of(row: &Row) -> io::Result<Envelope> {
+    serde_json::from_str(&row.json)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
 }
 
 /// Import a device's pre-record journal (`*.seg`) once, then mark it done.
 ///
-/// **THE OLD RECORD IS NOT THROWN AWAY.** A device upgraded from the segmented journal still has
-/// `journal/000001.seg` beside the new `record.db`; the first open reads those rows, keeps their
-/// `seq` and their moment, and writes one marker in `meta` in the same transaction — so a crash
-/// mid-import retries from scratch, and a second open does nothing.
-///
-/// A record that already has rows is authoritative: an empty marker says `skipped:record-not-empty`
-/// and the segments stay on disk, untouched, rather than being merged into a record that has moved
-/// on. A torn last line is skipped, not fatal: the rows before it are real.
-fn import_legacy(dir: &Path, record: &mut Connection, max_bytes: u64) -> io::Result<()> {
-    let marker: Option<String> = record
-        .query_row(
-            "SELECT value FROM meta WHERE key = 'journal_import'",
-            [],
-            |row| row.get(0),
-        )
-        .optional()
-        .db()?;
-    if marker.is_some() {
+/// The old rows keep their `seq` and their moment; the marker is written after the rows, so a crash
+/// mid-import retries from scratch and a second open does nothing. A record that already has rows
+/// is authoritative: the marker says `skipped:record-not-empty` and the segments stay on disk. A
+/// torn last line is skipped, not fatal.
+fn import_legacy(dir: &Path, record: &Record) -> io::Result<()> {
+    if record.meta("journal_import")?.is_some() {
         return Ok(());
     }
-    let rows: i64 = record
-        .query_row("SELECT COUNT(*) FROM feed", [], |row| row.get(0))
-        .db()?;
     let segments = segment_files(dir);
-    let value = if rows > 0 {
+    let marker = if record.last_seq() > 0 {
         serde_json::json!({ "skipped": "record-not-empty" }).to_string()
     } else if segments.is_empty() {
         serde_json::json!({ "files": 0, "rows": 0 }).to_string()
     } else {
-        let transaction = record.transaction().db()?;
         let mut imported = 0u64;
         for path in &segments {
             for envelope in envelopes_in(path) {
-                let ts_ms = moment_ms(&envelope.ts);
                 let json = serde_json::to_string(&envelope)
                     .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-                transaction
-                    .execute(
-                        "INSERT OR IGNORE INTO feed (seq, ts_ms, json) VALUES (?1, ?2, ?3)",
-                        params![envelope.seq as i64, ts_ms, json],
-                    )
-                    .db()?;
+                record.insert(&Row {
+                    seq: envelope.seq,
+                    ts_ms: moment_ms(&envelope.ts),
+                    json,
+                })?;
                 imported += 1;
             }
         }
-        prune(&transaction, max_bytes)?;
-        let value = serde_json::json!({
+        serde_json::json!({
             "files": segments.len(),
             "rows": imported,
             "at": chrono::Utc::now().to_rfc3339(),
         })
-        .to_string();
-        transaction
-            .execute(
-                "INSERT INTO meta (key, value) VALUES ('journal_import', ?1)",
-                params![value],
-            )
-            .db()?;
-        transaction.commit().db()?;
-        return Ok(());
+        .to_string()
     };
-    record
-        .execute(
-            "INSERT INTO meta (key, value) VALUES ('journal_import', ?1)",
-            params![value],
-        )
-        .db()?;
-    Ok(())
+    record.set_meta("journal_import", &marker)
 }
 
 /// The `*.seg` files in `dir`, in journal order.
@@ -620,8 +390,8 @@ fn segment_files(dir: &Path) -> Vec<PathBuf> {
     files
 }
 
-/// The envelopes a segment holds, in file order; anything after the first unreadable line is dropped
-/// with it, because a torn tail is where the crash was.
+/// The envelopes a segment holds, in file order; anything after the first unreadable line is
+/// dropped with it, because a torn tail is where the crash was.
 fn envelopes_in(path: &Path) -> Vec<Envelope> {
     let Ok(text) = std::fs::read_to_string(path) else {
         return Vec::new();

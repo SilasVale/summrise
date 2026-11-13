@@ -50,9 +50,13 @@ const RULES = {
   // grant envelope it carries, and nothing above it.
   "summrise-protocol": { mayUse: ["summrise-core"] },
 
+  // The record: one SQLite file per process, no workspace dependency. The bus wraps it into
+  // envelopes; the console's operator record will open its own file through the same type.
+  "summrise-record": { mayUse: [] },
+
   // The journal/dispatch layer: core only. It has no workspace dependency today; the permission is
   // the target's, so the bus can take core without touching this table.
-  "summrise-bus": { mayUse: ["summrise-core"] },
+  "summrise-bus": { mayUse: ["summrise-core", "summrise-record"] },
 
   // The supervised plugin subsystem. It names core's manifest rules and the bus it publishes
   // lifecycle events to, and nothing above them: the host is a unit so it can be proven without the
