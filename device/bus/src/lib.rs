@@ -117,7 +117,7 @@ impl Bus {
         let dir = dir.as_ref().to_path_buf();
         std::fs::create_dir_all(&dir)?;
         let path = dir.join(RECORD_FILE);
-        let record = Connection::open(&path).db()?;
+        let mut record = Connection::open(&path).db()?;
         record
             .execute_batch(
                 "PRAGMA journal_mode = WAL;
@@ -135,6 +135,7 @@ impl Bus {
              INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '1');",
             )
             .db()?;
+        import_legacy(&dir, &mut record, max_bytes)?;
         let last: i64 = record
             .query_row("SELECT COALESCE(MAX(seq), 0) FROM feed", [], |row| {
                 row.get(0)
@@ -533,6 +534,104 @@ fn prune(transaction: &rusqlite::Transaction<'_>, max_bytes: u64) -> io::Result<
     }
 }
 
+/// Import a device's pre-record journal (`*.seg`) once, then mark it done.
+///
+/// **THE OLD RECORD IS NOT THROWN AWAY.** A device upgraded from the segmented journal still has
+/// `journal/000001.seg` beside the new `record.db`; the first open reads those rows, keeps their
+/// `seq` and their moment, and writes one marker in `meta` in the same transaction — so a crash
+/// mid-import retries from scratch, and a second open does nothing.
+///
+/// A record that already has rows is authoritative: an empty marker says `skipped:record-not-empty`
+/// and the segments stay on disk, untouched, rather than being merged into a record that has moved
+/// on. A torn last line is skipped, not fatal: the rows before it are real.
+fn import_legacy(dir: &Path, record: &mut Connection, max_bytes: u64) -> io::Result<()> {
+    let marker: Option<String> = record
+        .query_row(
+            "SELECT value FROM meta WHERE key = 'journal_import'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .db()?;
+    if marker.is_some() {
+        return Ok(());
+    }
+    let rows: i64 = record
+        .query_row("SELECT COUNT(*) FROM feed", [], |row| row.get(0))
+        .db()?;
+    let segments = segment_files(dir);
+    let value = if rows > 0 {
+        serde_json::json!({ "skipped": "record-not-empty" }).to_string()
+    } else if segments.is_empty() {
+        serde_json::json!({ "files": 0, "rows": 0 }).to_string()
+    } else {
+        let transaction = record.transaction().db()?;
+        let mut imported = 0u64;
+        for path in &segments {
+            for envelope in envelopes_in(path) {
+                let ts_ms = moment_ms(&envelope.ts);
+                let json = serde_json::to_string(&envelope)
+                    .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+                transaction
+                    .execute(
+                        "INSERT OR IGNORE INTO feed (seq, ts_ms, json) VALUES (?1, ?2, ?3)",
+                        params![envelope.seq as i64, ts_ms, json],
+                    )
+                    .db()?;
+                imported += 1;
+            }
+        }
+        prune(&transaction, max_bytes)?;
+        let value = serde_json::json!({
+            "files": segments.len(),
+            "rows": imported,
+            "at": chrono::Utc::now().to_rfc3339(),
+        })
+        .to_string();
+        transaction
+            .execute(
+                "INSERT INTO meta (key, value) VALUES ('journal_import', ?1)",
+                params![value],
+            )
+            .db()?;
+        transaction.commit().db()?;
+        return Ok(());
+    };
+    record
+        .execute(
+            "INSERT INTO meta (key, value) VALUES ('journal_import', ?1)",
+            params![value],
+        )
+        .db()?;
+    Ok(())
+}
+
+/// The `*.seg` files in `dir`, in journal order.
+fn segment_files(dir: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut files: Vec<PathBuf> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|extension| extension.to_str()) == Some("seg"))
+        .collect();
+    files.sort();
+    files
+}
+
+/// The envelopes a segment holds, in file order; anything after the first unreadable line is dropped
+/// with it, because a torn tail is where the crash was.
+fn envelopes_in(path: &Path) -> Vec<Envelope> {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    text.lines()
+        .map_while(|line| serde_json::from_str::<Envelope>(line).ok())
+        .filter(|envelope| envelope.seq > 0)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -797,6 +896,97 @@ mod tests {
         let copy = Bus::open(&backup).unwrap();
         assert_eq!(copy.last_seq(), 2);
         assert_eq!(copy.scan_newest(2).unwrap()[0].kind, "b");
+    }
+
+    fn envelope_line(seq: u64, ts: &str, kind: &str) -> String {
+        serde_json::to_string(&json!({
+            "v": 1,
+            "plane": "control",
+            "seq": seq,
+            "ts": ts,
+            "type": kind,
+            "payload": { "i": seq },
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn an_old_journal_is_imported_once() {
+        let dir = temp_dir("import");
+        let journal = dir.join("journal");
+        std::fs::create_dir_all(&journal).unwrap();
+        let lines = [
+            envelope_line(1, "2026-11-13T10:00:00Z", "boot"),
+            envelope_line(2, "2026-11-13T10:00:01Z", "call.started"),
+        ];
+        std::fs::write(journal.join("000001.seg"), lines.join("\n") + "\n").unwrap();
+
+        let bus = Bus::open(&journal).unwrap();
+        assert_eq!(bus.last_seq(), 2, "the imported rows keep their sequence");
+        assert_eq!(bus.oldest_seq(), 1);
+        assert_eq!(bus.scan_newest(2).unwrap()[0].kind, "call.started");
+        assert!(bus.reset(1).is_none(), "nothing was lost to retention");
+        drop(bus);
+
+        let bus = Bus::open(&journal).unwrap();
+        assert_eq!(
+            bus.scan_newest(10).unwrap().len(),
+            2,
+            "a second open does not duplicate"
+        );
+    }
+
+    #[test]
+    fn a_torn_segment_imports_the_whole_lines_it_holds() {
+        let dir = temp_dir("import-torn");
+        let journal = dir.join("journal");
+        std::fs::create_dir_all(&journal).unwrap();
+        let text = format!(
+            "{}\n{}\n{{\"v\":1,\"seq\":3",
+            envelope_line(1, "2026-11-13T10:00:00Z", "a"),
+            envelope_line(2, "2026-11-13T10:00:01Z", "b"),
+        );
+        std::fs::write(journal.join("000001.seg"), text).unwrap();
+        let bus = Bus::open(&journal).unwrap();
+        assert_eq!(bus.last_seq(), 2);
+        assert_eq!(bus.scan_newest(10).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn imported_rows_keep_their_moment() {
+        let dir = temp_dir("import-moment");
+        let journal = dir.join("journal");
+        std::fs::create_dir_all(&journal).unwrap();
+        let text = format!(
+            "{}\n",
+            envelope_line(1, "1970-01-01T00:00:10Z", "call.finished")
+        );
+        std::fs::write(journal.join("000001.seg"), text).unwrap();
+        let bus = Bus::open(&journal).unwrap();
+        let (rows, _) = bus
+            .read_between(
+                moment("1970-01-01T00:00:00Z"),
+                moment("1970-01-01T00:00:20Z"),
+                10,
+            )
+            .unwrap();
+        assert_eq!(rows.len(), 1, "the imported row sits at its own moment");
+    }
+
+    #[test]
+    fn an_existing_record_is_not_merged_with_old_segments() {
+        let dir = temp_dir("import-existing");
+        let journal = dir.join("journal");
+        std::fs::create_dir_all(&journal).unwrap();
+        {
+            let bus = Bus::open(&journal).unwrap();
+            bus.publish("live", Value::Null).unwrap();
+        }
+        let text = format!("{}\n", envelope_line(5, "2026-11-13T10:00:00Z", "stale"));
+        std::fs::write(journal.join("000001.seg"), text).unwrap();
+        let bus = Bus::open(&journal).unwrap();
+        assert_eq!(bus.last_seq(), 1, "the record is authoritative");
+        assert_eq!(bus.scan_newest(10).unwrap()[0].kind, "live");
     }
 
     #[test]

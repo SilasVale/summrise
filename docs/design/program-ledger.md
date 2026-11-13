@@ -469,6 +469,16 @@ record tests (reopen, replay-then-live, retention, reset, windows, ranges, backu
 device starts an empty record beside it. Next: that import (once, marked in `meta`), then the
 console's operator record.
 
+**Round 30 — the old journal is imported once.** `Bus::open` reads `*.seg` beside `record.db` when
+the record is empty, keeps each row's `seq` and moment, and writes `meta.journal_import` in the same
+transaction — a crash mid-import retries, a second open does nothing. A record that already has rows
+wins: the segments stay on disk untouched and the marker says `skipped:record-not-empty`. A torn
+last line is skipped, not fatal. Tests: import keeps sequence and moment, a second open does not
+duplicate, a torn segment imports its whole lines, an existing record is not merged, and the
+`read_between` range still finds the imported moment. Evidence: 19 bus tests, 669 device tests,
+gate 15 / 25 / 0. Next: the console's operator record — `events.jsonl` (audit + activity) into its
+own `record.db` with the same transaction/retention rules, then the page reads the record.
+
 
 ## Next (in order)
 
