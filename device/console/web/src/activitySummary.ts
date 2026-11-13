@@ -40,12 +40,18 @@ export function isPoll(line: Pick<AuditLine, "kind">): boolean {
  * whatever else the line says.
  */
 export function isClientCall(
-  line: Pick<AuditLine, "caller" | "token_id" | "tool" | "kind">
+  line: Pick<AuditLine, "caller" | "token_id" | "tool" | "kind" | "door">
 ): boolean {
   if (isChannelBoundary(line)) return false;
   if (isPoll(line)) return false;
   if (line.caller === "client") return true;
   if (line.caller === "console") return false;
+  // **A MACHINE ROW HAS NO CALLER AND NO TOKEN, AND ITS DOOR IS ITS ONLY PROOF (round 13).** The
+  // journal's summary carries neither field, so `loopback` — a call that arrived at the machine's
+  // own endpoint — is the one door a client can have reached the machine by; `panel` is the
+  // machine's own desktop and `mesh` a peer device. The audit the table partitions never has a
+  // door, so the shared rule (`docs/superpowers/specs/audit-buckets.json`) is untouched.
+  if (line.door === "loopback") return true;
   return line.token_id != null;
 }
 
@@ -183,9 +189,16 @@ function activitySentenceBody(counts: ActivityCounts, direct: DirectDayCalls | n
   const clauses: string[] = [];
   // A zero is not a fact: a machine with no direct calls in the day says nothing about them.
   if (direct !== null && direct.calls > 0) {
-    const noun = direct.calls === 1 ? "1 straight to this machine" : `${direct.calls} straight to this machine`;
+    const fleet = direct.scope === "fleet";
+    const one = fleet ? "1 straight to a machine" : "1 straight to this machine";
+    const many = fleet
+      ? `${direct.calls} straight to the machines`
+      : `${direct.calls} straight to this machine`;
+    // **A CUT SCAN AND AN UNASKED MACHINE ARE THE SAME FACT TO THE READER: the number is a floor.**
+    const floor = direct.more || (direct.unread ?? 0) > 0;
     clauses.push(
-      `${direct.more ? "at least " : ""}${noun}${direct.failed > 0 ? ` (${direct.failed} failed)` : ""}`
+      `${floor ? "at least " : ""}${direct.calls === 1 ? one : many}` +
+        `${direct.failed > 0 ? ` (${direct.failed} failed)` : ""}`
     );
   }
   if (counts.consoleFailed > 0) {
@@ -222,6 +235,18 @@ export type DirectDayCalls = {
   calls: number;
   failed: number;
   more: boolean;
+  /**
+   * Whose direct calls these are: one machine's own window (round 12) or the fleet's fan-out over
+   * its online machines (round 13). The fleet says "the machines" and, for a single call, "a
+   * machine"; the machine window keeps "this machine".
+   */
+  scope?: "machine" | "fleet";
+  /**
+   * Machines whose direct calls this number does not hold (fleet only): offline ones, ones past
+   * the fan-out's cap, and ones that did not answer. A nonzero value makes the number a floor even
+   * when no scan was cut, so the sentence says "at least".
+   */
+  unread?: number;
 };
 
 /**

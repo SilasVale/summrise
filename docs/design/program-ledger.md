@@ -290,22 +290,55 @@ below ladders to that; one round completes one major item end to end.
   device 665, console 175 + 283 + 15, page 1 347 and `tsc` clean; `smoke-enroll` unchanged (no new
   console route smoke yet — the route's tests answer a fake device field by field).
 
+- 2026-11-13 — **The fleet's record is asked for, bounded: "All machines" draws and counts the
+  machines' own journals.** A fleet window spans machines, so it drew only the console's rows and
+  counted only the console's audit. Activity now fans out to the online machines the fleet names — at
+  most 8, in the fleet's order, one newest `journal.read` page and one `journal.day` of the block the
+  header counts each, cached 30 s, only while Activity shows the fleet window (Home and the Device
+  picker ask nothing) — merges their `panel`/`mesh`/`loopback` calls into the console's rows (the
+  console's row wins a call by `trace.call`; the untraced fallback names the machine, and the row key
+  is the machine plus the journal's own position, because two machines — or two calls on one — can
+  write the same instant, tool and outcome), and adds their `loopback` counts to the day sentence as
+  "N straight to the machines". A refresh keeps the page and day it had (a failed refresh does not
+  turn an answered machine into an unread one), a still-running read makes the number "at least", and
+  what was not read is named, never zeroed: the footer lists the machines whose journal was not read
+  and why and the machines the cap left out, and the header's note names the machines whose **day** is
+  missing — a machine whose rows were read but whose day failed is only in the note, and vice versa.
+  A journal-less machine is complete, not missing, from either answer. Four stated limits: 16 device
+  calls per 30 s at the cap while Activity is open (~3 MB a day per asked machine in its journal,
+  console-door rows the page never draws), a fleet day that is a floor above 8 machines, a window the
+  page left forgotten after ten cache windows, and join marks that stay a machine window's fact.
+  **"Clients only" now counts a `loopback` door as a client call** (a machine row's only proof;
+  `panel`/`mesh` are not the AI's clients), page-only: the shared audit table has no door. Evidence:
+  page 1 396 and `tsc` clean, `build-web.sh --check` green, the browser gate PASS (107 steps — its
+  stub now answers both journal routes, because the fan-out asks them for every machine it draws),
+  `scripts/check.sh` every command passed; App tests fan out to two machines, count both days, name
+  the one that failed, and keep two machines' identical rows as two rows; a review found the refresh
+  erase and the note/footer split, both fixed with tests before merge.
+
 ## Next (in order)
 
 1. Windows handoff, the interactive half — dispatch or run `summrise-shell.exe --check-window` in an
    interactive session (session 0 refuses it), console down and up, look at the WebView2 panel, and
    verify Authenticode when a certificate is configured. The runner half is green (run 43344130298).
+   The MCP-reached Windows devices can supply the interactive session, but installing a build on the
+   operator's machines is their call, not the program's.
 2. Push `origin`: `main` now contains `origin/main` and `hub/v1` (`0 1242`), so `git push origin main`
    is a fast-forward. This is a publish, and it is the operator's call.
-3. The fleet's record: a fleet window draws only the console's rows, because no single journal
-   answers for a fleet, and the fleet's day sentence counts only the console's audit. With
-   `journal.read`/`journal.day` per machine, the page can fan out to the online machines it draws —
-   bounded (a fixed maximum of machines, one request each, per 30 s window) — merge their direct
-   calls into the fleet's rows and its day, mark each machine's `unknown`/partial answer as that
-   machine's own, and keep the console's row winning duplicates. Cost if wrong: a bounded fan-out per
-   refresh, and a machine that cannot answer is named rather than silently missing. (A payload/export
-   verb stays a separate stage: the journal records what happened, not the arguments or results.)
-4. Keep improving from what the operator hits (one major item a round, green merges into `hub/v1`).
+3. **The journal's epoch: a cursor that survives a reset.** §4.2/§4.4 specify a `(epoch, seq)` cursor
+   and the bus has none: `seq` restarts at 1 when a journal file is replaced, so an old sequence can
+   name another call — which is why the page's single-row read-back also checks `trace.call` and its
+   paging cannot tell a reset at all. Add an epoch written when a journal is created, carried in
+   `journal.read`/`journal.get`/`journal.day` (answers and cursors), on the channel frame
+   (`journal_epoch`), on the console's audit line and live event, and compared as `(epoch, seq)` by
+   the page's read-back and its paging session; the trace check becomes a second proof rather than
+   the only one. Cost if wrong: a device that rebuilds its journal now changes a number the console
+   writes on every line, and the page must treat an older device's missing epoch as unknown, never as
+   zero.
+4. The fleet's join: with the fan-out in place, a fleet window can ask each drawn machine's
+   `journal.get` for the traces that machine's rows carry (same cap, same 30 s), so `only here` stops
+   being a machine-window-only fact and a fleet row can say which machine still holds it.
+5. Keep improving from what the operator hits (one major item a round, green merges into `hub/v1`).
 
 ## Rules
 

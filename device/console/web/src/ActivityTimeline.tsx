@@ -485,6 +485,18 @@ function Evidence(props: {
   );
 }
 
+/**
+ * **A ROW'S KEY NAMES EVERYTHING THAT MAKES IT ONE ROW (round 13).** A fleet window draws several
+ * journals, and two machines can write the same instant, tool and outcome — a key without the
+ * machine made React reuse one row for the other and duplicate nodes when the list changed. Two
+ * calls on the *same* machine can collide the same way (a retry loop), so the journal's own position
+ * is part of the key when the row has one, and the console's trace otherwise.
+ */
+export function timelineRowKey(line: AuditLine): string {
+  const differs = line.machine_seq ?? line.trace ?? "";
+  return `${line.device_id ?? ""}-${differs}-${line.ts_ms}-${line.tool ?? line.kind}-${line.status}`;
+}
+
 /** One stretch of work: a run of rows on one machine, none more than a minute apart. */
 type Stretch = { start: number; count: number; spanMs: number };
 
@@ -783,10 +795,18 @@ export function ActivityTimeline(props: {
   join?: JoinMarks | null;
   /**
    * **WHAT THE MACHINE'S OWN RECORD ADDED (round 8).** The rows the journal contributed and the
-   * read's own outcome, for the one line under the window. A fleet window asks nothing, so it passes
-   * nothing and the footer stays silent.
+   * read's own outcome, for the one line under the window. A fleet window has no one machine's
+   * counts: it passes `fleet` instead, and this stays absent.
    */
   machine?: MachineCounts | null;
+  /**
+   * **THE FLEET'S OWN RECORD (round 13).** A fleet window fans out to the online machines, and this
+   * is what that fan-out read: `line` is the footer's one sentence (what the machines' journals
+   * added, whose record was not read, the machines the cap left out), and `journal` is whether any
+   * machine answered for a journal at all — the empty state's grammar, which says a direct call is
+   * read from the machine's journal rather than lost. Absent on a machine window.
+   */
+  fleet?: { line: string | null; journal: boolean } | null;
   /**
    * **PAGING THE MACHINE'S WINDOW (round 10).** Ask the machine for the next older page of its
    * journal. Absent for a fleet window, and while the machine's oldest fetched row is already at the
@@ -972,6 +992,7 @@ export function ActivityTimeline(props: {
 
   const at = props.nowMs ?? now;
   const machineLine = machineSentence(props.machine ?? EMPTY_MACHINE);
+  const fleetLine = props.fleet?.line ?? null;
   const needle = query.trim().toLowerCase();
   const tokenNames = useMemo(
     () => new Map((props.tokens ?? []).map((entry) => [entry.id, entry.name])),
@@ -1296,10 +1317,10 @@ export function ActivityTimeline(props: {
             {props.empty ??
               // **A DIRECT CALL IS NOW READ, NOT MISSING (round 8).** The old sentence ended "is
               // not" — true of this console's audit and false of a machine window, which now reads
-              // that machine's own journal. A fleet window still has no one journal to read, so it
-              // keeps the old sentence; a machine window whose read failed says so in the footer,
-              // and claiming to have read it here would be a second, contradictory voice.
-              (props.machine?.journal === true
+              // that machine's own journal. A fleet window asks each machine it draws, so
+              // `fleet.journal` is the same fact for the fleet; a window whose read failed says so
+              // in the footer, and claiming to have read it here would be a second voice.
+              (props.machine?.journal === true || props.fleet?.journal === true
                 ? "No activity yet. Calls routed through this console are written here; a call " +
                   "made straight to a machine's own endpoint is read from that machine's journal. " +
                   "Connect a client sets up the credential that routes one here."
@@ -1344,7 +1365,7 @@ export function ActivityTimeline(props: {
                 </div>
                 <ol className="timeline-rows">
                   {shown.map((line, index) => {
-                    const key = `${line.ts_ms}-${line.tool ?? line.kind}-${line.status}`;
+                    const key = timelineRowKey(line);
                     const order = orderAt.get(index);
                     const current = order === undefined ? null : stretches[order];
                     const previous = order !== undefined && order > 0 ? stretches[order - 1] : null;
@@ -1432,6 +1453,7 @@ export function ActivityTimeline(props: {
               call was already the console's; a count when it added rows, and the reason when it could
               not be read — never silence that would read as "the machine recorded nothing". */}
           {machineLine !== null && <p className="hint timeline-machine-read">{machineLine}</p>}
+          {fleetLine !== null && <p className="hint timeline-machine-read">{fleetLine}</p>}
           {/* **THE MACHINE'S RECORD IS DEEPER THAN ONE PAGE (round 10).** The control is drawn while
               the machine holds an older row and the page was given a way to ask; asking deepens the
               drawn list rather than the console's 1 000-line cut. A failed older page keeps the rows
