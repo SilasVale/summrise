@@ -518,6 +518,21 @@ device tests, 1,396 page tests, page `tsc` clean, gate 16 packages / 27 edges / 
 entry/dispatch interface (S4) — one `Dispatch` seam the MCP door, the console channel and the panel
 share — then the release milestone, which needs the operator to name the machine it deploys to.
 
+**Round 34 — the release rehearsal is green on v2, and the record can be verified.** Two changes and
+one proof. (1) The device's record now lives at `<data>/record.db` — one process, one record, at the
+data root rather than a `journal/` subdirectory; the legacy importer still reads `<data>/journal/`,
+so an upgraded machine keeps its rows. (2) `summrise-device --check-record <data>` verifies a running
+build's record: `PRAGMA integrity_check`, the file path and size, schema version, sequence bounds and
+the moments of the oldest and newest rows, printed as one JSON line; a missing or corrupt record is
+exit 2, never an empty success. (3) `scripts/rehearse-release.sh --version 2.0.0` passed end to end
+(29 s, cached builds): the signer derived the three public keys, published a signed document, the
+canary pointer named 2.0.0, the artifact matched its signed digest, the sidecar agreed, NSIS built
+`SummriseSetup-2.0.0.exe`, and the real device binary accepted the signed document. Then the
+release-built device booted on a temp data directory, wrote `record.db`, and `--check-record` answered
+`ok: true`, `schema_version: 1`, one row, path and size present. Evidence: 671 device tests, 19 bus
+tests, clippy/fmt clean, gate 16 / 27 / 0. Remaining half of the milestone: deploy that published
+build to the machine the operator names, and prove rollback there — both need the name.
+
 
 ## Next (in order)
 

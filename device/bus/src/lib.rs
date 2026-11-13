@@ -283,6 +283,11 @@ impl Bus {
         })
     }
 
+    /// The oldest and newest moments the record retains, each when it has a row.
+    pub fn span(&self) -> io::Result<(Option<i64>, Option<i64>)> {
+        self.record.span()
+    }
+
     /// The record's own facts: where it is, how big, and which sequences it holds.
     pub fn facts(&self) -> io::Result<RecordFacts> {
         let path = self.dir.join(RECORD_FILE);
@@ -406,7 +411,15 @@ fn import_legacy(dir: &Path, record: &Record) -> io::Result<()> {
 
 /// The `*.seg` files in `dir`, in journal order.
 fn segment_files(dir: &Path) -> Vec<PathBuf> {
-    let Ok(entries) = std::fs::read_dir(dir) else {
+    // The pre-record device kept its segments in `journal/`; the record now lives in the data
+    // directory itself. An upgrade finds the old rows where they were written.
+    let legacy = dir.join("journal");
+    let dir = if legacy.is_dir() {
+        legacy
+    } else {
+        dir.to_path_buf()
+    };
+    let Ok(entries) = std::fs::read_dir(&dir) else {
         return Vec::new();
     };
     let mut files: Vec<PathBuf> = entries

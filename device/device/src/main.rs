@@ -89,6 +89,18 @@ async fn main() -> ExitCode {
             }
         };
     }
+    if args.first().and_then(|argument| argument.to_str()) == Some("--check-record") {
+        return match check_record_from_args(&args[1..]) {
+            Ok(facts) => {
+                println!("{facts}");
+                ExitCode::SUCCESS
+            }
+            Err(error) => {
+                eprintln!("summrise-device: {error}");
+                ExitCode::from(2)
+            }
+        };
+    }
     if args.first().and_then(|argument| argument.to_str()) == Some("--check-update") {
         let result = check_update_from_args(&args[1..]).await;
         match &result {
@@ -161,6 +173,38 @@ fn report_swap(result: &SwapResult) {
             result.reason.as_deref().unwrap_or("(no reason given)")
         ),
     }
+}
+
+/// `--check-record <dir>`: verify the record a running build keeps, and print its facts.
+///
+/// The release milestone asks that a deployed build's record be verified, not assumed. This mode is
+/// that check: the same `record.db` the bus wrote, opened by the same crate, checked with SQLite's
+/// own integrity check and reported as one JSON line (path, size, schema, sequence bounds, moments).
+/// A missing record is a failure with exit 2, never an empty success.
+fn check_record_from_args(args: &[std::ffi::OsString]) -> Result<serde_json::Value, String> {
+    let dir = args
+        .first()
+        .ok_or_else(|| "--check-record needs <data dir>".to_owned())?;
+    let path = std::path::Path::new(dir).join(summrise_bus::RECORD_FILE);
+    if !path.exists() {
+        return Err(format!("no record at {}", path.display()));
+    }
+    let bus = summrise_bus::Bus::open(std::path::Path::new(dir))
+        .map_err(|error| format!("{}: {error}", path.display()))?;
+    bus.check()
+        .map_err(|error| format!("{}: {error}", path.display()))?;
+    let facts = bus
+        .facts()
+        .map_err(|error| format!("{}: {error}", path.display()))?;
+    let (oldest, newest) = bus
+        .span()
+        .map_err(|error| format!("{}: {error}", path.display()))?;
+    Ok(serde_json::json!({
+        "ok": true,
+        "record": facts,
+        "oldest_ts_ms": oldest,
+        "newest_ts_ms": newest,
+    }))
 }
 
 /// What one `--check-update` run produced.
@@ -1101,14 +1145,14 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     // The journal exists before the plugins start: their first start is a lifecycle event too. A
     // journal that cannot be opened leaves the device serving without events rather than refusing
     // to start.
-    let bus: Option<std::sync::Arc<summrise_bus::Bus>> =
-        match summrise_bus::Bus::open(config.data.join("journal")) {
-            Ok(bus) => Some(std::sync::Arc::new(bus)),
-            Err(error) => {
-                eprintln!("summrise-device: the event journal is unavailable: {error}");
-                None
-            }
-        };
+    let bus: Option<std::sync::Arc<summrise_bus::Bus>> = match summrise_bus::Bus::open(&config.data)
+    {
+        Ok(bus) => Some(std::sync::Arc::new(bus)),
+        Err(error) => {
+            eprintln!("summrise-device: the event journal is unavailable: {error}");
+            None
+        }
+    };
     if let Some(bus) = &bus {
         plugin_host.attach_bus(std::sync::Arc::clone(bus));
     }
@@ -1464,6 +1508,35 @@ mod test_support {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn check_record_reports_a_record_and_refuses_a_missing_one() {
+        let dir = super::test_support::TempDir::new("check-record-mode");
+        {
+            let path: &std::path::Path = dir.as_ref();
+            let bus = summrise_bus::Bus::open(path).expect("the record opens");
+            bus.publish("boot", serde_json::json!({}))
+                .expect("a row writes");
+        }
+        let facts = super::check_record_from_args(&[dir.as_ref().as_os_str().to_owned()])
+            .expect("the record checks");
+        assert_eq!(facts["ok"], true);
+        assert_eq!(facts["record"]["last_seq"], 1);
+        assert_eq!(facts["record"]["schema_version"], 1);
+        assert!(
+            facts["record"]["path"]
+                .as_str()
+                .is_some_and(|path| path.ends_with("record.db")),
+            "{facts}"
+        );
+        assert!(facts["oldest_ts_ms"].as_i64().is_some(), "{facts}");
+
+        let missing = super::test_support::TempDir::new("check-record-missing");
+        assert!(
+            super::check_record_from_args(&[missing.as_ref().as_os_str().to_owned()]).is_err(),
+            "a missing record is a failure, not an empty success"
+        );
+    }
+
     use super::*;
 
     use ed25519_dalek::SigningKey;
