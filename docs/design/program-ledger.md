@@ -305,9 +305,11 @@ below ladders to that; one round completes one major item end to end.
   console-door rows the page never draws), a fleet day that is a floor above 8 machines, and join
   marks that stay a machine window's fact. **"Clients only" now counts a `loopback` door as a client
   call** (a machine row's only proof; `panel`/`mesh` are not the AI's clients), page-only: the shared
-  audit table has no door. Evidence: page 1 389 and `tsc` clean, `build-web.sh --check` green,
-  `scripts/check.sh` every command passed; App tests fan out to two machines, count both days, and
-  name the one that failed.
+  audit table has no door. Evidence: page 1 389 and `tsc` clean, `build-web.sh --check` green, the
+  browser gate PASS (107 steps — its stub now answers both journal routes, because the fan-out asks
+  them for every machine it draws), `scripts/check.sh` every command passed; App tests fan out to
+  two machines, count both days, name the one that failed, and keep two machines' identical rows as
+  two rows.
 
 ## Next (in order)
 
