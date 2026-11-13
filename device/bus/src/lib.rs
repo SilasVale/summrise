@@ -260,6 +260,21 @@ impl Bus {
         0
     }
 
+    /// The newest `limit` retained rows, newest first.
+    pub fn scan_newest(&self, limit: usize) -> io::Result<Vec<Envelope>> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        let indices: Vec<u64> = {
+            let journal = self
+                .journal
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner());
+            journal.segments.keys().copied().collect()
+        };
+        scan_newest_from(&self.dir, &indices, limit)
+    }
+
     /// The lost range for a subscriber whose cursor is `from`, or `None` when that cursor is still
     /// inside the retained window (or the journal is empty).
     pub fn reset(&self, from: u64) -> Option<Reset> {
@@ -498,6 +513,34 @@ fn read_from(dir: &Path, indices: &[u64], from: u64) -> io::Result<Vec<Envelope>
         }
     }
     Ok(events)
+}
+
+/// The newest `limit` rows across `indices`, newest first, in `limit` rows at most.
+///
+/// Segments are read from the newest index backwards, and each is walked from its last line to its
+/// first, so a reader that only needs the tail never parses the bulk of a retention window.
+fn scan_newest_from(dir: &Path, indices: &[u64], limit: usize) -> io::Result<Vec<Envelope>> {
+    let mut newest = Vec::new();
+    for &index in indices.iter().rev() {
+        let bytes = match fs::read(dir.join(segment_name(index))) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error),
+        };
+        for line in bytes.split(|byte| *byte == b'\n').rev() {
+            if line.is_empty() {
+                continue;
+            }
+            let Ok(envelope) = serde_json::from_slice::<Envelope>(line) else {
+                continue;
+            };
+            newest.push(envelope);
+            if newest.len() == limit {
+                return Ok(newest);
+            }
+        }
+    }
+    Ok(newest)
 }
 
 #[cfg(test)]
@@ -777,6 +820,51 @@ mod tests {
             fs::read(&path).unwrap(),
             first,
             "the first snapshot must not be rewritten"
+        );
+    }
+
+    #[test]
+    fn scan_newest_answers_the_newest_rows_newest_first() {
+        let dir = temp_dir("scan-newest");
+        let bus = Bus::open(&dir).unwrap();
+        for index in 0..5 {
+            bus.publish("e", serde_json::json!({ "i": index })).unwrap();
+        }
+        let seqs: Vec<u64> = bus
+            .scan_newest(3)
+            .unwrap()
+            .iter()
+            .map(|envelope| envelope.seq)
+            .collect();
+        assert_eq!(seqs, vec![5, 4, 3], "newest first, and only three");
+    }
+
+    #[test]
+    fn scan_newest_beyond_the_end_answers_every_row() {
+        let dir = temp_dir("scan-all");
+        let bus = Bus::open(&dir).unwrap();
+        for index in 0..3 {
+            bus.publish("e", serde_json::json!({ "i": index })).unwrap();
+        }
+        let seqs: Vec<u64> = bus
+            .scan_newest(10)
+            .unwrap()
+            .iter()
+            .map(|envelope| envelope.seq)
+            .collect();
+        assert_eq!(seqs, vec![3, 2, 1], "three rows, newest first");
+    }
+
+    #[test]
+    fn scan_newest_of_zero_reads_nothing() {
+        let dir = temp_dir("scan-zero");
+        let bus = Bus::open(&dir).unwrap();
+        for index in 0..3 {
+            bus.publish("e", serde_json::json!({ "i": index })).unwrap();
+        }
+        assert!(
+            bus.scan_newest(0).unwrap().is_empty(),
+            "a zero cap asks for no rows"
         );
     }
 

@@ -388,6 +388,12 @@ impl Console {
             // cuts at. The hub's day line and Activity's header read it; the window sentence keeps
             // describing the fetched window.
             .route("/audit/day", get(audit_day))
+            // **THE JOIN ACROSS THE TWO RECORDS.** One proxied call is a console line and a machine
+            // journal pair that share `trace.call`. Only the machine can say which pairs it still
+            // holds, so this route asks its own `journal.get` over the channel, once per Activity
+            // window, and relays the answer. It is a read about the window, not an operator action:
+            // it writes no audit line and no live event.
+            .route("/audit/join", get(audit_join))
             // **THE FRAME ITSELF, NOT A DATA URL.** A screenshot can be megabytes; the event carries
             // a same-origin path and this route answers the bytes, behind the same operator gate the
             // page and `/audit` already use. The store is memory only, so an id that a restart or an
@@ -550,6 +556,8 @@ struct CallIdentity<'a> {
 /// 200 and still a refusal. The audit line keeps only the numeric code; this is what a person reads.
 /// `token_id` is the same record id the audit line carries: the live event is the newest copy of a
 /// line, so dropping the token here would make the merge show a tokenless row over a named one.
+/// `trace` travels for the same reason: it is the one value that joins the row to the machine's
+/// journal `call.*` pair, and the page reads the live copy first.
 struct LiveCall<'a> {
     device_id: Option<&'a str>,
     tool: Option<&'a str>,
@@ -561,6 +569,8 @@ struct LiveCall<'a> {
     evidence: Option<Value>,
     caller: Caller,
     token_id: Option<&'a str>,
+    /// The `trace.call` this exchange is known by, on the frame, the audit line and the journal.
+    trace: Option<&'a str>,
 }
 
 /// A running call, cleared when the proxy stops waiting.
@@ -799,9 +809,10 @@ impl Inner {
     }
 
     /// Publish one proxied call to the live stream: the sentence, the tool, the device, the outcome,
-    /// why it failed, how long the device took, whether the console or a client made the call, and
-    /// the token record when one authenticated it. The newest rows are these events, so a field the
-    /// audit line has and the event lacks disappears exactly where the page reads first.
+    /// why it failed, how long the device took, whether the console or a client made the call, the
+    /// token record when one authenticated it, and the trace both records are joined by. The newest
+    /// rows are these events, so a field the audit line has and the event lacks disappears exactly
+    /// where the page reads first.
     fn publish_call(&self, call: LiveCall<'_>) {
         let mut event = json!({
             "ts_ms": (self.now)(),
@@ -821,6 +832,9 @@ impl Inner {
         }
         if let Some(token_id) = call.token_id {
             event["token_id"] = json!(token_id);
+        }
+        if let Some(trace) = call.trace {
+            event["trace"] = json!(trace);
         }
         if !call.detail.is_empty() {
             event["detail"] = json!(call.detail);
@@ -3717,6 +3731,7 @@ async fn proxy_reply(
                     evidence: evidence.clone(),
                     caller: identity.caller,
                     token_id: identity.token_id,
+                    trace: Some(&trace),
                 },
             );
             app.record_facts(AuditFacts {
@@ -3750,6 +3765,7 @@ async fn proxy_reply(
                     evidence: evidence.clone(),
                     caller: identity.caller,
                     token_id: identity.token_id,
+                    trace: Some(&trace),
                 },
             );
             app.record_facts(AuditFacts {
@@ -3790,6 +3806,7 @@ async fn proxy_reply(
                         evidence: evidence.clone(),
                         caller: identity.caller,
                         token_id: identity.token_id,
+                        trace: Some(&trace),
                     },
                 );
                 app.record_facts(AuditFacts {
@@ -3906,6 +3923,7 @@ async fn proxy_reply(
                         evidence,
                         caller: identity.caller,
                         token_id: identity.token_id,
+                        trace: Some(&trace),
                     },
                 );
                 app.record_facts(AuditFacts {
@@ -5933,6 +5951,287 @@ fn with_sentences(lines: Vec<Value>) -> Vec<Value> {
             line["sentence"] = json!(sentence);
             line
         })
+        .collect()
+}
+
+/// The most traces one join may ask about.
+///
+/// The page marks one Activity window and asks about the traces it drew, at most this many. The
+/// device accepts a larger list than this, but nothing the console draws ever needs one: the bound
+/// keeps a single read from asking a machine to scan for an unbounded set of names, and the refusal
+/// is the console's own sentence rather than a device's.
+const MAX_JOIN_TRACES: usize = 128;
+
+/// The longest one trace may be. The console mints every trace on a proxied call, so a caller
+/// asking about a longer string is not asking about a call this console recorded.
+const MAX_JOIN_TRACE_CHARS: usize = 128;
+
+/// The `?device=&traces=` shape `/audit/join` reads.
+///
+/// `traces` arrives as one comma-separated string because it is a GET whose answer is a read, and
+/// repeated parameters would need a decoder this route does not have. The order is the caller's
+/// and is kept: the device answers in it, and a page that renders the mark keeps its own order
+/// too — the arrays are its own traces back, not a set.
+#[derive(Deserialize)]
+struct JoinQuery {
+    device: Option<String>,
+    traces: Option<String>,
+}
+
+/// `GET /audit/join?device=&traces=`: which of these calls the machine's journal still holds.
+///
+/// One proxied call is two records that share `trace.call`: the console's audit line and the
+/// machine's `call.started`/`call.finished|denied` pair. Only the machine can say which pairs its
+/// journal still retains — an interval would be a guess, because a rotated journal is not
+/// contiguous with a rotated audit file. So this route asks the device's own `journal.get` over
+/// the channel, once per window, and relays the answer unchanged.
+///
+/// **IT WRITES NO AUDIT LINE AND NO LIVE EVENT.** A join is not an operator action; it is the page
+/// asking a question about the window it is already drawing. A read that audited itself would grow
+/// the very window it describes, and one Activity row per window would be the console narrating
+/// its own reading. The frame still carries a trace the console minted, so the console's relay
+/// drops the `call.*` pair the machine writes for the read — the machine's journal records that it
+/// was read, and Activity does not grow a row for it.
+async fn audit_join(
+    State(app): State<AppState>,
+    _: OperatorSession,
+    Query(query): Query<JoinQuery>,
+) -> Response {
+    let Some(presented) = query.device else {
+        return ApiError::bad_request("device_required")
+            .saying("name the machine whose journal to read; ?device= takes its id")
+            .into_response();
+    };
+    let Some(device_id) = audit_device_id(&presented) else {
+        return unknown_device(&presented).into_response();
+    };
+    if !app.has_device(&device_id) {
+        return unknown_device(&presented).into_response();
+    }
+    let traces = match join_traces(query.traces.as_deref().unwrap_or_default()) {
+        Ok(traces) => traces,
+        Err(error) => return error.into_response(),
+    };
+    let asked = traces.len();
+    let outcome = read_journal_join(&app, &device_id, &traces).await;
+    let mut view = JoinView {
+        device: device_id.clone(),
+        asked,
+        joined: Vec::new(),
+        missing: Vec::new(),
+        unknown: false,
+        journal: false,
+        bounded: false,
+        oldest_seq: 0,
+        last_seq: 0,
+        // The moment the answer was built, on the console's clock: it dates the read, not the
+        // machine's journal, whose two ends are the seq bounds below.
+        read_at_ms: (app.now)(),
+        reason: None,
+    };
+    match outcome {
+        Ok(facts) => {
+            view.joined = facts.joined;
+            view.missing = facts.missing;
+            view.journal = facts.journal;
+            view.bounded = facts.bounded;
+            view.oldest_seq = facts.oldest_seq;
+            view.last_seq = facts.last_seq;
+        }
+        Err(JoinUnreadable::Transport(error)) => {
+            return error.refusal(&app, &device_id).into_response();
+        }
+        // A device that answered but could not answer THIS question leaves every row unanswered.
+        // The page draws no claim about a machine it could not ask, and `reason` is for the operator
+        // and the tests: the page ignores it and reads `unknown` alone.
+        Err(JoinUnreadable::Unanswered(reason)) => {
+            view.unknown = true;
+            view.reason = Some(reason);
+        }
+    }
+    Json(view).into_response()
+}
+
+/// One join as `/audit/join` serves it: the fixed wire contract the page reads.
+///
+/// `device` is the canonical id, not the one the caller presented, so the page's own key matches
+/// the audit lines' `device_id`. `read_at_ms` is the console's clock when the answer was built;
+/// it dates the read, not the machine's journal, whose bounds are `oldest_seq`/`last_seq`.
+#[derive(serde::Serialize)]
+struct JoinView {
+    device: String,
+    asked: usize,
+    joined: Vec<String>,
+    missing: Vec<String>,
+    unknown: bool,
+    journal: bool,
+    bounded: bool,
+    oldest_seq: u64,
+    last_seq: u64,
+    read_at_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<&'static str>,
+}
+
+/// The device's own facts about a join, already relayed unchanged.
+struct JoinFacts {
+    joined: Vec<String>,
+    missing: Vec<String>,
+    journal: bool,
+    bounded: bool,
+    oldest_seq: u64,
+    last_seq: u64,
+}
+
+/// Why a join has no facts: the device could not be reached, or answered something else.
+enum JoinUnreadable {
+    /// The machine could not be asked. This is a link failure, not an answer: it is refused with the
+    /// same 503/504 sentence every other per-device read uses, so one silence reads one way.
+    Transport(LiveToolsError),
+    /// The device answered, and its answer is not a join: an older build that does not offer the
+    /// tool, or a result this console cannot read. The route answers 200 with `unknown`.
+    Unanswered(&'static str),
+}
+
+/// Parse the comma-separated trace list, or the 400 that names the rule it broke.
+///
+/// The order is the caller's and duplicates are kept: the device answers in that order, and the page
+/// deduplicates its own side because it is the page's window that repeats a trace. Every rule here
+/// is a bound the device also enforces; the console states it first so the operator reads one
+/// sentence about one request, not a device refusal relayed through two layers.
+fn join_traces(text: &str) -> Result<Vec<String>, ApiError> {
+    let traces: Vec<&str> = text.split(',').map(str::trim).collect();
+    if traces.len() > MAX_JOIN_TRACES {
+        return Err(ApiError::bad_request("invalid_traces").saying(format!(
+            "one join may ask about at most {MAX_JOIN_TRACES} traces; ask about a shorter window"
+        )));
+    }
+    if let Some(long) = traces
+        .iter()
+        .find(|trace| trace.chars().count() > MAX_JOIN_TRACE_CHARS)
+    {
+        return Err(ApiError::bad_request("invalid_traces").saying(format!(
+            "each trace is at most {MAX_JOIN_TRACE_CHARS} characters, and one of these is {}",
+            long.chars().count()
+        )));
+    }
+    if traces.iter().all(|trace| trace.is_empty()) {
+        return Err(ApiError::bad_request("invalid_traces").saying(
+            "name at least one trace to join; ?traces= is a comma-separated list of the calls the \
+             window drew",
+        ));
+    }
+    if traces.iter().any(|trace| trace.is_empty()) {
+        return Err(ApiError::bad_request("invalid_traces")
+            .saying("every trace must be a non-empty string, and this list has an empty entry"));
+    }
+    Ok(traces.into_iter().map(str::to_owned).collect())
+}
+
+/// Ask the device's `journal.get` over its channel, under the operator's own scope.
+///
+/// Not through [`proxy_reply`]: that path is the operator's proxied call, and it writes the audit
+/// line and the live event this read must not write. The frame is built here, with a minted trace so
+/// the device's journal pair for it is recognised by the relay and not drawn twice.
+async fn read_journal_join(
+    app: &AppState,
+    device_id: &str,
+    traces: &[String],
+) -> Result<JoinFacts, JoinUnreadable> {
+    // A registered but disconnected device is offline now; asking the channel would wait out the
+    // reconnect bound before saying the same thing.
+    if !app.channels.online(device_id) {
+        return Err(JoinUnreadable::Transport(LiveToolsError::Unavailable));
+    }
+
+    let scope = operator_scope(device_id);
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": { "name": "journal.get", "arguments": { "traces": traces } },
+    });
+    // The trace is minted for the same reason `/fleet/:id/tools` mints one: the console's relay
+    // drops a `call.*` pair it recognises as its own, so this read stays out of Activity.
+    let trace = app.channels.mint_trace();
+    let answer = tokio::time::timeout(
+        app.mcp_timeout,
+        app.channels
+            .request(device_id, request, &RequestAuth::Token(&scope), &trace),
+    )
+    .await;
+
+    let reply = match answer {
+        Err(_) => return Err(JoinUnreadable::Transport(LiveToolsError::Timeout)),
+        Ok(Err(RequestError::Offline | RequestError::Busy | RequestError::Disconnected)) => {
+            return Err(JoinUnreadable::Transport(LiveToolsError::Unavailable))
+        }
+        Ok(Err(RequestError::SendTimeout | RequestError::ReplyTimeout)) => {
+            return Err(JoinUnreadable::Transport(LiveToolsError::Timeout))
+        }
+        Ok(Ok(reply)) => reply,
+    };
+
+    let Reply::Result(_) = reply else {
+        // A JSON-RPC error is the device's answer. It is how a build that predates `journal.get`
+        // says so, and the page must read that as unknown rather than as every row missing.
+        return Err(JoinUnreadable::Unanswered(join_refusal(&reply)));
+    };
+    // MCP carries a tool-level failure inside a successful exchange: a result with `isError: true`
+    // and the reason in its text. That is a refusal, not a body this console failed to parse, and
+    // the text is a sentence rather than the join object.
+    if tool_result(&reply)
+        .and_then(|result| result.get("isError"))
+        .and_then(Value::as_bool)
+        == Some(true)
+    {
+        return Err(JoinUnreadable::Unanswered("refused"));
+    }
+    join_facts(&reply).ok_or(JoinUnreadable::Unanswered("malformed"))
+}
+
+/// Which of the two refusals a device's JSON-RPC error is: the tool is absent, or it said no.
+///
+/// A build older than `journal.get` answers one of two ways: `-32601` when it does not dispatch
+/// `tools/call` at all, or `-32602` with "unknown tool: journal.get" when it dispatches calls but
+/// does not list this one. Both mean the machine was never able to answer; everything else — a
+/// grant that does not cover the tool, a device that declined the read — is an answer that leaves
+/// the question open. Both are `unknown`; only their `reason` differs.
+fn join_refusal(reply: &Reply) -> &'static str {
+    let names_a_missing_tool = error_message(reply).is_some_and(|message| {
+        let message = message.to_ascii_lowercase();
+        message.contains("unknown tool") || message.contains("no such tool")
+    });
+    if error_code(reply) == Some(-32601) || names_a_missing_tool {
+        "unknown_tool"
+    } else {
+        "refused"
+    }
+}
+
+/// The join object inside a `tools/call` answer's first text item, when it is one.
+///
+/// The device's text is a JSON object with the six facts below; every field is required, because a
+/// missing `traces` or `missing` would otherwise become an empty array and the page would mark every
+/// row as gone on a device that simply did not say.
+fn join_facts(reply: &Reply) -> Option<JoinFacts> {
+    let body: Value = serde_json::from_str(tool_text(reply)?).ok()?;
+    Some(JoinFacts {
+        joined: string_array(body.get("traces")?)?,
+        missing: string_array(body.get("missing")?)?,
+        journal: body.get("journal")?.as_bool()?,
+        bounded: body.get("bounded")?.as_bool()?,
+        oldest_seq: body.get("oldest_seq")?.as_u64()?,
+        last_seq: body.get("last_seq")?.as_u64()?,
+    })
+}
+
+/// A JSON array of strings as a `Vec<String>`, or `None` when one entry is not a string.
+fn string_array(value: &Value) -> Option<Vec<String>> {
+    value
+        .as_array()?
+        .iter()
+        .map(|entry| entry.as_str().map(str::to_owned))
         .collect()
 }
 

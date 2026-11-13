@@ -1356,3 +1356,166 @@ describe("AuditTable", () => {
     expect(clientRow?.querySelector(".audit-caller")).toBeNull();
   });
 });
+
+/**
+ * **THE JOIN, DRAWN (the ledger's third item).** Every proxied call is written twice — the console's
+ * audit line and the machine's journal — and one `trace.call` pairs them. The table is where the
+ * operator reads a call, so it is where a row whose other half has rotated away must say so.
+ */
+describe("AuditTable's join marks", () => {
+  const marks = (
+    kinds: [string, "one" | "console" | "unknown"][],
+    counts = { one: 0, console: 0, unknown: 0, asked: kinds.length }
+  ) => ({ kinds: new Map(kinds), counts });
+
+  it("marks a call only this console's record still holds", () => {
+    const joined = line({
+      kind: "mcp",
+      device_id: alpha,
+      tool: "files.read",
+      status: 200,
+      trace: "console-1"
+    });
+    render(
+      <AuditTable
+        lines={[joined]}
+        devices={devices}
+        tokens={[]}
+        join={marks([["console-1", "console"]], { one: 0, console: 1, unknown: 0, asked: 1 })}
+      />
+    );
+    const row = auditRows().find((candidate) => candidate.textContent?.includes("files.read"));
+    const chip = row?.querySelector(".chip-warn");
+    expect(chip).toHaveTextContent("only here");
+    expect(chip).toHaveAttribute(
+      "title",
+      "Only this console's record still holds this call; the machine's journal has rotated it away."
+    );
+  });
+
+  it("marks nothing on a call the machine still holds", () => {
+    const joined = line({
+      kind: "mcp",
+      device_id: alpha,
+      tool: "files.read",
+      status: 200,
+      trace: "console-1"
+    });
+    render(
+      <AuditTable
+        lines={[joined]}
+        devices={devices}
+        tokens={[]}
+        join={marks([["console-1", "one"]], { one: 1, console: 0, unknown: 0, asked: 1 })}
+      />
+    );
+    const row = auditRows().find((candidate) => candidate.textContent?.includes("files.read"));
+    expect(row?.textContent).not.toContain("only here");
+  });
+
+  it("marks nothing when the console could not check", () => {
+    // The rule: a machine that was never asked cannot have lost the call.
+    const joined = line({
+      kind: "mcp",
+      device_id: alpha,
+      tool: "files.read",
+      status: 200,
+      trace: "console-1"
+    });
+    render(
+      <AuditTable
+        lines={[joined]}
+        devices={devices}
+        tokens={[]}
+        join={marks([["console-1", "unknown"]], { one: 0, console: 0, unknown: 1, asked: 1 })}
+      />
+    );
+    const row = auditRows().find((candidate) => candidate.textContent?.includes("files.read"));
+    expect(row?.textContent).not.toContain("only here");
+  });
+
+  it("marks nothing without a join at all", () => {
+    // A fleet window: no single journal answers for it, so nothing may be drawn as rotated out.
+    const joined = line({
+      kind: "mcp",
+      device_id: alpha,
+      tool: "files.read",
+      status: 200,
+      trace: "console-1"
+    });
+    render(<AuditTable lines={[joined]} devices={devices} tokens={[]} />);
+    expect(document.body.textContent).not.toContain("only here");
+    expect(document.body.textContent).not.toContain("machine's journal");
+  });
+
+  it("says under the window what the machine no longer holds", () => {
+    render(
+      <AuditTable
+        lines={[line({ kind: "mcp", device_id: alpha, tool: "files.read", status: 200 })]}
+        devices={devices}
+        tokens={[]}
+        join={marks([], { one: 9, console: 3, unknown: 0, asked: 12 })}
+      />
+    );
+    const sentence = document.querySelector(".audit-join");
+    expect(sentence).toHaveTextContent(
+      "3 of these 12 calls are in this console's record only — the machine's journal no longer holds them."
+    );
+  });
+
+  it("says nothing under a window every call joined", () => {
+    render(
+      <AuditTable
+        lines={[line({ kind: "mcp", device_id: alpha, tool: "files.read", status: 200 })]}
+        devices={devices}
+        tokens={[]}
+        join={marks([], { one: 4, console: 0, unknown: 0, asked: 4 })}
+      />
+    );
+    expect(document.querySelector(".audit-join")).toBeNull();
+  });
+
+  it("states the join in the opened record, both ways", () => {
+    const only = line({
+      kind: "mcp",
+      device_id: alpha,
+      tool: "files.read",
+      status: 200,
+      trace: "console-1"
+    });
+    const both = line({
+      kind: "mcp",
+      device_id: alpha,
+      tool: "files.list",
+      status: 200,
+      trace: "console-2",
+      ts_ms: Date.UTC(2026, 9, 26, 8, 0, 1)
+    });
+    render(
+      <AuditTable
+        lines={[only, both]}
+        devices={devices}
+        tokens={[]}
+        join={marks(
+          [
+            ["console-1", "console"],
+            ["console-2", "one"]
+          ],
+          { one: 1, console: 1, unknown: 0, asked: 2 }
+        )}
+      />
+    );
+    for (const [tool, sentence] of [
+      ["files.read", "Only this console's record still holds this call"],
+      ["files.list", "The machine's journal holds this call too."]
+    ] as const) {
+      const row = auditRows().find((candidate) => candidate.textContent?.includes(tool));
+      const toggle = row?.querySelector("button.audit-chevron, .audit-chevron-cell button");
+      fireEvent.click(toggle ?? row!.querySelector("td button")!);
+      const facts = [...document.querySelectorAll(".audit-record .audit-join-fact")].map(
+        (node) => node.textContent
+      );
+      expect(facts.join(" ")).toContain(sentence);
+    }
+  });
+});

@@ -370,6 +370,17 @@ pub const CAPABILITIES: &[Capability] = &[
         }],
     },
     Capability {
+        name: "journal",
+        tools: &[ToolDef {
+            name: "journal.get",
+            destructive: false,
+            // Read-only: it answers presence and coverage, never an event's payload, and a later
+            // read cannot be changed by it.
+            description:
+                "Read this machine's journal: which of the traces you name are still retained, and the journal's retained bounds. Presence and coverage only, never an event's payload.",
+        }],
+    },
+    Capability {
         name: "plugins",
         tools: &[
             // A plugin is an MCP server installed by path. Adding, removing and restarting it are
@@ -436,7 +447,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_registry_declares_the_whole_surface_and_twelve_capabilities() {
+    fn the_registry_declares_the_whole_surface_and_thirteen_capabilities() {
         let tools: Vec<&str> = CAPABILITIES
             .iter()
             .flat_map(|capability| capability.tools)
@@ -445,10 +456,10 @@ mod tests {
 
         assert_eq!(
             CAPABILITIES.len(),
-            12,
-            "twelve capabilities declare the surface"
+            13,
+            "thirteen capabilities declare the surface"
         );
-        assert_eq!(tools.len(), 49, "the surface is 49 tools");
+        assert_eq!(tools.len(), 50, "the surface is 50 tools");
         assert_eq!(
             tools,
             [
@@ -495,6 +506,7 @@ mod tests {
                 "forward.remove",
                 "forward.list",
                 "state.get",
+                "journal.get",
                 "plugins.list",
                 "plugins.inspect",
                 "plugins.add",
@@ -516,7 +528,7 @@ mod tests {
         // row at all. **One of those, `system.process_kill`, is destructive** — a kill signal that
         // anyone could send through a token that never consented, with the flag that authorizes it
         // unasserted.
-        let expected: [(&str, bool); 49] = [
+        let expected: [(&str, bool); 50] = [
             ("files.read", false),
             ("files.write", true),
             ("files.mkdir", false),
@@ -557,6 +569,7 @@ mod tests {
             ("host.restart", true),
             ("screen.capture", false),
             ("state.get", false),
+            ("journal.get", false),
             ("system.net_test", false),
             ("system.process_list", false),
             ("system.process_kill", true),

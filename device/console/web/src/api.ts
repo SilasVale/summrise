@@ -302,6 +302,34 @@ export type AuditSource = {
 };
 
 /**
+ * What the machine said about the calls a window is drawing, as `GET /audit/join` serves it.
+ *
+ * The console asks the device's own journal, through `journal.get`, which of these traces it still
+ * holds. `unknown` is the console's word for "the machine did not answer this question" — an older
+ * device without the tool, a refusal, or an answer that could not be read — and it is deliberately
+ * not `missing`: a page must never mark a call as rotated away by a machine it could not ask.
+ *
+ * `bounded` is the machine's scan stopping at its cap. A trace found by a bounded scan is still
+ * present; a trace a bounded scan did not find may simply be past the cap, so that negative proves
+ * nothing and the page draws it as `unknown`. `journal: false` is a machine that keeps no journal at
+ * all: a fact about the build, not about the call.
+ */
+export type JoinAnswer = {
+  device: string;
+  asked: number;
+  joined: string[];
+  missing: string[];
+  unknown: boolean;
+  journal: boolean;
+  bounded: boolean;
+  oldest_seq: number;
+  last_seq: number;
+  read_at_ms: number;
+  /** Why the read is `unknown`, for the console's own diagnosis. The page never draws it. */
+  reason?: string;
+};
+
+/**
  * The Windows installer the console was given, as `GET /installer` reports it.
  *
  * The version is parsed from the filename (`SummriseSetup-<version>.exe`), never read from the
@@ -401,6 +429,16 @@ export type AuditLine = {
    * client's call. A successful poll is not written, so no `console` line is one.
    */
   caller?: "console" | "client";
+  /**
+   * The `trace.call` this line records, when it records one: the id the console minted for the
+   * proxied exchange and sent to the machine, so the machine's own `call.started`/
+   * `call.finished|denied` pair carries the same value.
+   *
+   * It is the join key, and nothing else — the page never parses it. Absent on a line that proxied
+   * nothing (a grant, a token, a sign-in, a channel boundary) and on every line written before the
+   * field existed; such a row is simply joined with nothing.
+   */
+  trace?: string;
   /** The evidence for this call, when the live stream carried it. */
   evidence?: Record<string, unknown>;
 };
@@ -552,6 +590,20 @@ export const api = {
   // **WHAT THE WINDOW READS.** The file's name, size, the moments its lines span and its one older
   // generation. A separate read from `/audit` because it is a fact about the reader, not a line.
   auditSource: () => call<AuditSource>("/audit/source"),
+  // **THE MACHINE'S HALF OF A CALL (the ledger's third item).** Every proxied call is written twice —
+  // this console's audit line, and the machine's own `call.started`/`call.finished|denied` pair —
+  // and both carry one `trace.call`. This read asks the machine which of the traces the window is
+  // drawing its journal still holds, so a row whose other half has rotated away can be marked instead
+  // of guessed at from a timestamp.
+  //
+  // The answer is never a claim about a trace the caller did not ask about, and `unknown` is the
+  // machine saying it could not check: an older device without `journal.get`, or a read that failed.
+  // A device that keeps no journal answers `journal: false`, which is a fact, not a rotation.
+  auditJoin: (device: string, traces: readonly string[]) =>
+    call<JoinAnswer>(
+      `/audit/join?device=${encodeURIComponent(device)}` +
+        `&traces=${traces.map((trace) => encodeURIComponent(trace)).join(",")}`
+    ),
   // The release's own installer, when the deployment staged one. The download is a plain
   // same-origin link (`/installer/download`) that sends the session cookie; this read is only the
   // facts that link states, and it is read once rather than polled.

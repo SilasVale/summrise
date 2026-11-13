@@ -454,6 +454,15 @@ async fn send_with_headers(
     (status, headers, value)
 }
 
+/// How large a response this suite will read.
+///
+/// **A PRODUCT THAT GREW PAST ITS OWN TEST.** The bound was 1 MiB, chosen when the embedded page was
+/// well under it; the page passed 1,047,739 bytes at the join item and the three tests that read the
+/// HTML began failing on `LengthLimitError` — a green product and a red suite, with nothing wrong
+/// but the reader. The ceiling is the page's own order of magnitude, not a byte budget the product
+/// enforces: a response larger than this is a page nobody could ship, not a page that got a feature.
+const BODY_LIMIT: usize = 8 << 20;
+
 /// [`send_with_headers`] for a response that is not JSON: the operator page is HTML.
 async fn send_text(
     app: Router,
@@ -462,7 +471,7 @@ async fn send_text(
     let response = app.oneshot(request).await.expect("the router answers");
     let status = response.status();
     let headers = response.headers().clone();
-    let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+    let bytes = axum::body::to_bytes(response.into_body(), BODY_LIMIT)
         .await
         .expect("the body is readable");
     (
@@ -10466,6 +10475,436 @@ async fn an_empty_forwarded_user_is_not_an_identity() {
     assert_eq!(body["authenticated"], json!(false));
 }
 
+// ---- the join across the two records ----------------------------------------------------------
+
+/// `GET /audit/join` asks the device's own `journal.get` over the channel: one proxied call is a
+/// console line and a machine journal pair, and only the machine can say which of those pairs it
+/// still holds. The route relays the device's arrays unchanged; the only fact it adds is the moment
+/// it read them.
+#[tokio::test]
+async fn the_join_route_names_the_traces_the_machine_still_holds() {
+    let fixture = Fixture::new("join-held");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        present_device(&fixture, &server, &signing_key(0x8c)).await;
+    let session = fixture.authenticate().await;
+
+    let app = fixture.app();
+    let uri = format!("/audit/join?device={device_id}&traces=a,b");
+    let session_for_read = session.clone();
+    let read = tokio::spawn(async move { send(app, get(&uri, Some(&session_for_read))).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(frame["mcp"]["method"], json!("tools/call"), "{frame}");
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("journal.get"),
+        "{frame}"
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["traces"],
+        json!(["a", "b"]),
+        "the traces leave in the order the caller asked them: {frame}"
+    );
+    assert!(
+        frame["trace"]
+            .as_str()
+            .is_some_and(|trace| !trace.is_empty()),
+        "the frame carries a minted trace, so the relay drops the pair it provokes: {frame}"
+    );
+
+    answer(
+        &mut device,
+        &frame,
+        tools_call_answer(
+            json!(5),
+            &json!({
+                "journal": true,
+                "oldest_seq": 4,
+                "last_seq": 9,
+                "scanned": 9,
+                "bounded": false,
+                "traces": ["a"],
+                "missing": ["b"],
+            })
+            .to_string(),
+            false,
+        ),
+    )
+    .await;
+
+    let (status, body) = read.await.expect("the read finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["device"], json!(device_id), "the canonical id: {body}");
+    assert_eq!(body["asked"], json!(2));
+    assert_eq!(body["joined"], json!(["a"]));
+    assert_eq!(body["missing"], json!(["b"]));
+    assert_eq!(body["journal"], json!(true));
+    assert_eq!(body["bounded"], json!(false));
+    assert_eq!(body["oldest_seq"], json!(4));
+    assert_eq!(body["last_seq"], json!(9));
+    assert_eq!(body["unknown"], json!(false));
+    assert!(
+        body["read_at_ms"].as_u64().is_some(),
+        "the answer names when it was read: {body}"
+    );
+    assert!(
+        body.get("reason").is_none(),
+        "an answered join carries no reason: {body}"
+    );
+}
+
+/// A device too old to offer `journal.get` is unknown, never missing: the page must not mark a row
+/// as gone when the machine was never asked a question it could answer.
+#[tokio::test]
+async fn a_machine_that_does_not_offer_the_join_is_unknown_rather_than_missing() {
+    let fixture = Fixture::new("join-unknown-tool");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        present_device(&fixture, &server, &signing_key(0x8d)).await;
+    let session = fixture.authenticate().await;
+
+    let app = fixture.app();
+    let uri = format!("/audit/join?device={device_id}&traces=a,b");
+    let session_for_read = session.clone();
+    let read = tokio::spawn(async move { send(app, get(&uri, Some(&session_for_read))).await });
+
+    let frame = next_json(&mut device).await;
+    answer_error(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": { "code": -32602, "message": "unknown tool: journal.get" },
+        }),
+    )
+    .await;
+
+    let (status, body) = read.await.expect("the read finishes");
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "an older device is a fact about the join, not a refusal: {body}"
+    );
+    assert_eq!(body["unknown"], json!(true), "{body}");
+    assert_eq!(body["reason"], json!("unknown_tool"), "{body}");
+    assert_eq!(body["asked"], json!(2), "what was asked is still stated");
+    assert_eq!(body["joined"], json!([]));
+    assert_eq!(body["missing"], json!([]));
+    assert_eq!(body["journal"], json!(false));
+    assert_eq!(body["bounded"], json!(false));
+    assert_eq!(body["oldest_seq"], json!(0));
+    assert_eq!(body["last_seq"], json!(0));
+}
+
+/// A device that carries a tool-level failure inside a 200 result is refusing the read, not sending a
+/// body this console could not parse: MCP puts the sentence in `isError`, and the page still reads
+/// `unknown` without accusing any row.
+#[tokio::test]
+async fn a_join_the_device_refuses_in_a_result_is_unknown_too() {
+    let fixture = Fixture::new("join-refused");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        present_device(&fixture, &server, &signing_key(0xed)).await;
+    let session = fixture.authenticate().await;
+
+    let app = fixture.app();
+    let uri = format!("/audit/join?device={device_id}&traces=a");
+    let session_for_read = session.clone();
+    let read = tokio::spawn(async move { send(app, get(&uri, Some(&session_for_read))).await });
+
+    let frame = next_json(&mut device).await;
+    answer(
+        &mut device,
+        &frame,
+        tools_call_answer(
+            json!(8),
+            "this machine's journal is switched off in its configuration",
+            true,
+        ),
+    )
+    .await;
+
+    let (status, body) = read.await.expect("the read finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["unknown"], json!(true), "{body}");
+    assert_eq!(body["reason"], json!("refused"), "{body}");
+    assert_eq!(body["joined"], json!([]));
+    assert_eq!(body["missing"], json!([]));
+}
+
+/// An answer that is not the join object is unknown too: a console that read half an answer must
+/// not mark every row as rotated away on the strength of it.
+#[tokio::test]
+async fn a_join_answer_this_console_cannot_read_is_unknown_rather_than_missing() {
+    let fixture = Fixture::new("join-malformed");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        present_device(&fixture, &server, &signing_key(0xea)).await;
+    let session = fixture.authenticate().await;
+
+    let app = fixture.app();
+    let uri = format!("/audit/join?device={device_id}&traces=a");
+    let session_for_read = session.clone();
+    let read = tokio::spawn(async move { send(app, get(&uri, Some(&session_for_read))).await });
+
+    let frame = next_json(&mut device).await;
+    answer(
+        &mut device,
+        &frame,
+        tools_call_answer(json!(7), "not the join object", false),
+    )
+    .await;
+
+    let (status, body) = read.await.expect("the read finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["unknown"], json!(true), "{body}");
+    assert_eq!(body["reason"], json!("malformed"), "{body}");
+    assert_eq!(body["joined"], json!([]));
+    assert_eq!(body["missing"], json!([]));
+}
+
+/// A device that takes the frame and does not answer inside the console's bound is the same 504 the
+/// tool catalogue answers, with the same sentence: one silence reads one way everywhere.
+#[tokio::test]
+async fn a_join_that_waits_out_the_console_bound_is_a_504() {
+    let fixture = Fixture::with_timeout("join-timeout", Duration::from_millis(50));
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, _device) = present_device(&fixture, &server, &signing_key(0xeb)).await;
+    let session = fixture.authenticate().await;
+
+    let (status, body) = send(
+        fixture.app(),
+        get(
+            &format!("/audit/join?device={device_id}&traces=a"),
+            Some(&session),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::GATEWAY_TIMEOUT, "{body}");
+    assert_eq!(body["error"], json!("device timeout"));
+    assert_eq!(
+        body["message"],
+        json!("the device did not answer; it may still be working, so try again")
+    );
+}
+
+/// **THE JOIN IS NOT AN OPERATOR ACT.** It asks the machine what its journal holds so the page can
+/// mark the deviation; a read that audited itself would grow the very window it describes, and one
+/// Activity row per window would be noise about the console reading itself.
+#[tokio::test]
+async fn a_join_read_writes_no_audit_line() {
+    let fixture = Fixture::new("join-no-audit");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        present_device(&fixture, &server, &signing_key(0x8e)).await;
+    let session = fixture.authenticate().await;
+
+    let (status, before) = send(fixture.app(), get("/audit", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK);
+    let before_count = before.as_array().expect("the audit window").len();
+
+    let app = fixture.app();
+    let uri = format!("/audit/join?device={device_id}&traces=join-a,join-b");
+    let session_for_read = session.clone();
+    let read = tokio::spawn(async move { send(app, get(&uri, Some(&session_for_read))).await });
+    let frame = next_json(&mut device).await;
+    let trace = frame["trace"]
+        .as_str()
+        .expect("the frame carries a trace")
+        .to_owned();
+    answer(
+        &mut device,
+        &frame,
+        tools_call_answer(
+            json!(6),
+            &json!({
+                "journal": true,
+                "oldest_seq": 1,
+                "last_seq": 6,
+                "scanned": 6,
+                "bounded": false,
+                "traces": ["join-a"],
+                "missing": ["join-b"],
+            })
+            .to_string(),
+            false,
+        ),
+    )
+    .await;
+    let (status, body) = read.await.expect("the read finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let (status, after) = send(fixture.app(), get("/audit", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        after.as_array().expect("the audit window").len(),
+        before_count,
+        "the join adds no line: {after}"
+    );
+    let text = audit_text(&fixture);
+    assert!(
+        !text.contains("journal.get"),
+        "no line names the tool the join called: {text}"
+    );
+    assert!(
+        !text.contains(&trace),
+        "no line carries the trace the join minted: {text}"
+    );
+}
+
+#[tokio::test]
+async fn a_join_of_an_empty_trace_set_is_refused() {
+    let fixture = Fixture::new("join-empty");
+    let (device_id, _token) = fixture.register(&signing_key(0x8f)).await;
+    let session = fixture.authenticate().await;
+
+    // Absent, empty, only commas, and a list with a hole in it: each names no complete trace, and
+    // the route's sentence says so rather than forwarding a set the device would read as empty.
+    for traces in ["", ",", "a,,b"] {
+        let (status, body) = send(
+            fixture.app(),
+            get(
+                &format!("/audit/join?device={device_id}&traces={traces}"),
+                Some(&session),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "traces={traces}: {body}");
+        assert_eq!(body["error"], json!("invalid_traces"), "{body}");
+        assert!(
+            body["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("trace")),
+            "the sentence names the rule: {body}"
+        );
+    }
+
+    let (status, body) = send(
+        fixture.app(),
+        get(&format!("/audit/join?device={device_id}"), Some(&session)),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "a join with no traces parameter asks about nothing: {body}"
+    );
+    assert_eq!(body["error"], json!("invalid_traces"), "{body}");
+}
+
+/// One trace is bounded like a trace the console mints: a longer string is not a call this console
+/// recorded, so it is the caller's mistake to name rather than a device scan to run.
+#[tokio::test]
+async fn a_join_of_a_trace_longer_than_a_hundred_and_twenty_eight_characters_is_refused() {
+    let fixture = Fixture::new("join-long-trace");
+    let (device_id, _token) = fixture.register(&signing_key(0xec)).await;
+    let session = fixture.authenticate().await;
+    let long = "t".repeat(129);
+
+    let (status, body) = send(
+        fixture.app(),
+        get(
+            &format!("/audit/join?device={device_id}&traces={long}"),
+            Some(&session),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"], json!("invalid_traces"));
+    assert!(
+        body["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("128")),
+        "the sentence names the bound: {body}"
+    );
+}
+
+#[tokio::test]
+async fn a_join_of_more_than_a_hundred_and_twenty_eight_traces_is_refused() {
+    let fixture = Fixture::new("join-oversized");
+    let (device_id, _token) = fixture.register(&signing_key(0x89)).await;
+    let session = fixture.authenticate().await;
+    let traces: Vec<String> = (0..129).map(|index| format!("trace-{index}")).collect();
+
+    let (status, body) = send(
+        fixture.app(),
+        get(
+            &format!("/audit/join?device={device_id}&traces={}", traces.join(",")),
+            Some(&session),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"], json!("invalid_traces"));
+    assert!(
+        body["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("128")),
+        "the sentence names the bound: {body}"
+    );
+}
+
+#[tokio::test]
+async fn a_join_names_an_unknown_device() {
+    let fixture = Fixture::new("join-unknown-device");
+    let session = fixture.authenticate().await;
+
+    let (status, body) = send(
+        fixture.app(),
+        get(
+            &format!("/audit/join?device={}&traces=a", "ab".repeat(32)),
+            Some(&session),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert_eq!(body["error"], json!("unknown_device"));
+    let message = body["message"].as_str().expect("a reason");
+    assert!(message.contains("no machine"), "{message}");
+    assert!(message.contains("Machines page"), "{message}");
+}
+
+/// The join reads one machine, so a device with no open channel is the link refusal every other
+/// per-device read answers with, in the same words.
+#[tokio::test]
+async fn an_offline_machine_cannot_be_joined() {
+    let fixture = Fixture::new("join-offline");
+    let (device_id, _token) = fixture.register(&signing_key(0x8a)).await;
+    let session = fixture.authenticate().await;
+
+    let (status, body) = send(
+        fixture.app(),
+        get(
+            &format!("/audit/join?device={device_id}&traces=a"),
+            Some(&session),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert_eq!(body["error"], json!("device reconnecting"), "{body}");
+    assert_eq!(
+        body["message"],
+        json!("this machine is reconnecting; try again in a moment")
+    );
+    assert_eq!(body["retry_after_ms"], json!(1_000));
+}
+
+#[tokio::test]
+async fn the_join_route_requires_an_operator_session() {
+    let fixture = Fixture::new("join-no-session");
+    let (device_id, _token) = fixture.register(&signing_key(0x8b)).await;
+
+    let (status, body) = send(
+        fixture.app(),
+        get(&format!("/audit/join?device={device_id}&traces=a"), None),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(body, json!({ "error": "unauthorized" }));
+}
+
 // ---- the terminal stream: the page's one open connection per session --------------------------
 
 /// A raw HTTP/1.1 GET whose body is read as it arrives.
@@ -11497,6 +11936,75 @@ async fn a_proxied_call_reaches_the_stream_as_a_sentence() {
     read_until(&mut socket, &mut seen, "Read `notes.txt`").await;
     assert!(seen.contains("Read `notes.txt`"), "{seen}");
     assert!(seen.contains("\"ok\":true"), "{seen}");
+}
+
+/// **THE LIVE EVENT CARRIES THE JOIN KEY.** The page's merge keeps the live copy of a row over the
+/// audit line it replaces, so a live event without `trace` would erase the one value that joins the
+/// row to the machine's journal exactly where the page reads first.
+#[tokio::test]
+async fn a_proxied_calls_live_event_carries_the_trace() {
+    let fixture = Fixture::new("activity-call-trace");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x5f)).await;
+    let session = fixture.authenticate().await;
+
+    let mut socket = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut socket, &mut seen, "event: snapshot").await;
+
+    let app = fixture.app();
+    let call = tokio::spawn(async move {
+        send(
+            app,
+            post_json_bearer(
+                "/mcp",
+                &session,
+                json!({
+                    "device_id": device_id,
+                    "request": {
+                        "jsonrpc": "2.0",
+                        "id": 21,
+                        "method": "tools/call",
+                        "params": { "name": "files.read", "arguments": { "path": "traced.txt" } },
+                    },
+                }),
+            ),
+        )
+        .await
+    });
+
+    let frame = next_json(&mut device).await;
+    let sent_trace = frame["trace"]
+        .as_str()
+        .expect("the frame carries a trace")
+        .to_owned();
+    answer(&mut device, &frame, tool_result(json!({ "content": "hi" }))).await;
+    let (status, _) = call.await.expect("the call finished");
+    assert_eq!(status, StatusCode::OK);
+
+    read_until(&mut socket, &mut seen, "traced.txt").await;
+    let activity = last_event(&seen, "activity");
+    let live_trace = activity["trace"]
+        .as_str()
+        .expect("the live copy of the row carries the trace");
+    assert!(!live_trace.is_empty(), "{activity}");
+
+    let lines = audit_lines(&fixture);
+    let line = lines
+        .iter()
+        .rev()
+        .find(|line| line["kind"] == json!("mcp"))
+        .expect("the call's audit line");
+    assert_eq!(
+        line["trace"],
+        json!(live_trace),
+        "the live event and the line name the same exchange: {line}"
+    );
+    assert_eq!(
+        live_trace, sent_trace,
+        "and it is the trace the frame carried to the machine"
+    );
 }
 
 /// A call that is still waiting is announced before its answer, and the announcement is not a line

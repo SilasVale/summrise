@@ -7,6 +7,7 @@ import { rangeText } from "./auditTime";
 import type { AuditLine } from "./api";
 import { VITALS_KEY_PREFIX, type VitalsSample } from "./vitals";
 import { resetLiveToolsCache } from "./useLiveTools";
+import { resetJoinMarks } from "./useJoinMarks";
 import { runLink } from "./run-link";
 
 // The shell is driven against a mocked HTTP surface: no request leaves jsdom, and the sign-in state is a
@@ -30,6 +31,7 @@ const mocks = vi.hoisted(() => ({
   remove: vi.fn(),
   tools: vi.fn(),
   liveTools: vi.fn(),
+  auditJoin: vi.fn(),
   grant: vi.fn(),
   tokens: vi.fn(),
   createToken: vi.fn(),
@@ -56,6 +58,7 @@ vi.mock("./api", () => ({
     remove: mocks.remove,
     tools: mocks.tools,
     liveTools: mocks.liveTools,
+    auditJoin: mocks.auditJoin,
     grant: mocks.grant,
     tokens: mocks.tokens,
     createToken: mocks.createToken,
@@ -291,6 +294,22 @@ beforeEach(() => {
   // A route the fixture does not describe answers with no facts, so the page draws no source
   // line unless a test names one.
   mocks.auditSource.mockResolvedValue({});
+  // The machine's half of the join. A window with no call carrying a trace never asks, so the
+  // default is an answer the tests that do not care never reach; a test that marks a row sets its own.
+  resetJoinMarks();
+  mocks.auditJoin.mockReset();
+  mocks.auditJoin.mockImplementation(async (device: string, traces: string[]) => ({
+    device,
+    asked: traces.length,
+    joined: traces,
+    missing: [],
+    unknown: false,
+    journal: true,
+    bounded: false,
+    oldest_seq: 1,
+    last_seq: 1,
+    read_at_ms: Date.now()
+  }));
   // A console with no staged installer: the fleet says so and draws no download. The installer
   // tests name their own answer.
   mocks.installer.mockResolvedValue({ available: false });
@@ -2927,6 +2946,95 @@ describe("App", () => {
     // A confirmed empty read is still a read: it is not the pending sentence.
     expect(screen.queryByLabelText("Reading the machine list")).toBeNull();
     view.unmount();
+  });
+
+
+  it("marks the calls the machine's journal no longer holds, on the machine's own window", async () => {
+    // The join is one read per machine window: the page asks the machine about the traces its rows
+    // carry, and marks only the ones whose other half has rotated away.
+    const trace = "console-6c1d2b3a-1";
+    const rotated = "console-6c1d2b3a-2";
+    mocks.audit.mockResolvedValue([
+      {
+        ts_ms: Date.now(),
+        kind: "mcp",
+        device_id: workshop.id,
+        token_id: null,
+        tool: "files.read",
+        detail: null,
+        status: 200,
+        trace,
+        sentence: "Read notes.txt"
+      },
+      {
+        ts_ms: Date.now() - 1000,
+        kind: "mcp",
+        device_id: workshop.id,
+        token_id: null,
+        tool: "files.list",
+        detail: null,
+        status: 200,
+        trace: rotated,
+        sentence: "Listed the notes folder"
+      }
+    ]);
+    mocks.auditJoin.mockImplementation(async (device: string, traces: string[]) => ({
+      device,
+      asked: traces.length,
+      joined: traces.filter((asked) => asked === trace),
+      missing: traces.filter((asked) => asked === rotated),
+      unknown: false,
+      journal: true,
+      bounded: false,
+      oldest_seq: 4,
+      last_seq: 9,
+      read_at_ms: Date.now()
+    }));
+    await bootAndSignIn();
+    selectDevice("workshop");
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+
+    // The mark arrives after the burst settles; nothing about the machine is claimed before then.
+    const chip = await screen.findByText("only here", undefined, { timeout: 4000 });
+    const row = chip.closest(".timeline-row");
+    expect(row?.textContent).toContain("Listed the notes folder");
+    // One read, naming both traces the window drew.
+    expect(mocks.auditJoin).toHaveBeenCalledTimes(1);
+    expect(mocks.auditJoin.mock.calls[0][0]).toBe(workshop.id);
+    expect([...mocks.auditJoin.mock.calls[0][1]].sort()).toEqual([trace, rotated].sort());
+
+    // The row the machine still holds wears nothing.
+    const joined = [...document.querySelectorAll(".timeline-row")].find((candidate) =>
+      candidate.textContent?.includes("Read notes.txt")
+    );
+    expect(joined?.querySelector(".chip-warn")).toBeNull();
+  });
+
+  it("asks no machine about a fleet window", async () => {
+    // A fleet window spans machines, so no single journal can answer for it: the page asks nobody,
+    // and no row is marked as rotated out of a journal it never read.
+    mocks.audit.mockResolvedValue([
+      {
+        ts_ms: Date.now(),
+        kind: "mcp",
+        device_id: workshop.id,
+        token_id: null,
+        tool: "files.read",
+        detail: null,
+        status: 200,
+        trace: "console-6c1d2b3a-1",
+        sentence: "Read notes.txt"
+      }
+    ]);
+    await bootAndSignIn();
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    expect(await screen.findByText("Read notes.txt")).toBeInTheDocument();
+    // Past the debounce the page would have asked, had there been a machine to ask.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 900));
+    });
+    expect(mocks.auditJoin).not.toHaveBeenCalled();
+    expect(document.body.textContent).not.toContain("only here");
   });
 
 });

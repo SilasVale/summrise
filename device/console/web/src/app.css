@@ -4398,3 +4398,10 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
     min-height: 44px;
   }
 }
+/* **THE JOIN'S ONE LINE (the ledger's third item).** It sits with the provenance line because it is
+   the same kind of fact — what this window could read and what it could not — so it is a `.hint`
+   with this one row's spacing and nothing of its own: one muted sentence, the page's own type. */
+.audit-join { margin: 0 0 var(--sp-3); }
+/* The record's two-column grid gives its value column the rest of the row; a sentence that long is
+   measured, not stretched, so it keeps the page's reading width like every other paragraph. */
+.audit-record .audit-join-fact { max-width: var(--measure); }

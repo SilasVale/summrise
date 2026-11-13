@@ -24,6 +24,17 @@ import { age, shortDeviceName, shortId } from "./format";
 import { auditWindowSpan } from "./auditSource";
 import { AuditSourceLine } from "./AuditSourceLine";
 import { ConsoleCaller } from "./CallerMark";
+import { JoinLine, JoinMark, joinRecordSentence } from "./JoinMark";
+import { markOf, type JoinMarks } from "./joinMarks";
+
+/**
+ * The counts of a window nothing was asked about.
+ *
+ * A fleet window, a range's answer and a console without a join read all draw this: it asks about
+ * nothing, so it says nothing. Naming it once is what keeps `JoinLine` from being called with a
+ * fresh object per render.
+ */
+const EMPTY_JOIN = { one: 0, console: 0, unknown: 0, asked: 0 };
 import { tokenFact, tokenLabel } from "./tokenFact";
 import { useMediaQuery } from "./useMediaQuery";
 
@@ -190,7 +201,8 @@ export function AuditTable({
   loadingFailed = false,
   loadingMachine = null,
   unread = false,
-  source = null
+  source = null,
+  join = null
 }: {
   lines: AuditLine[];
   capped?: boolean;
@@ -225,6 +237,13 @@ export function AuditTable({
    * sentence; absent or unreadable facts draw nothing rather than a guess.
    */
   source?: AuditSource | null;
+  /**
+   * **THE MACHINE'S HALF OF EACH CALL (the ledger's third item).** The audit line and the machine's
+   * journal both carry one `trace.call`; this is what the machine answered when the page asked which
+   * of those traces it still holds. Absent for a fleet window (no one journal answers for it), and
+   * then every row is `unknown` and nothing is marked.
+   */
+  join?: JoinMarks | null;
   devices: Device[];
   tokens: TokenMeta[];
   /** The machine the operator is on; the default scope follows it when it exists. */
@@ -808,6 +827,9 @@ export function AuditTable({
             </p>
           )}
           <AuditSourceLine source={source} window={range === null ? windowSpan : null} />
+          {range === null && (
+            <JoinLine counts={join?.counts ?? EMPTY_JOIN} error={join?.error ?? null} />
+          )}
           <table className="audit-table">
             <thead>
               <tr>
@@ -842,6 +864,7 @@ export function AuditTable({
                   const deviceName = line.device_id
                     ? deviceNames.get(line.device_id) ?? shortId(line.device_id)
                     : "—";
+                  const lineJoin = markOf(join, line);
                   return (
                     <Fragment key={key}>
                       <tr className="audit-row">
@@ -902,6 +925,14 @@ export function AuditTable({
                               <span className="chip chip-warn" title={line.detail ?? undefined}>
                                 error
                               </span>
+                            </>
+                          )}
+                          {/* The row's own join, quiet: only a call whose other half has rotated out
+                              of the machine's journal earns a word, and the record explains it. */}
+                          {lineJoin === "console" && (
+                            <>
+                              {" "}
+                              <JoinMark kind="console" />
                             </>
                           )}
                         </td>
@@ -978,6 +1009,17 @@ export function AuditTable({
                               )}
                               <dt>Status</dt>
                               <dd>{line.status}</dd>
+                              {/* **THE JOIN, IN THE RECORD'S OWN WORDS.** Only a call both records
+                                  hold, or one only this console holds, has anything to say: an
+                                  unchecked row (a fleet window, an older machine, a failed read) is
+                                  a fact about the page, not about the call, and the row above already
+                                  says the page could not check it. */}
+                              {joinRecordSentence(lineJoin) !== null && (
+                                <>
+                                  <dt>Journal</dt>
+                                  <dd className="audit-join-fact">{joinRecordSentence(lineJoin)}</dd>
+                                </>
+                              )}
                             </dl>
                           </td>
                         </tr>
