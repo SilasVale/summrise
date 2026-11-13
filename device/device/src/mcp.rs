@@ -1012,6 +1012,7 @@ impl DeviceServer {
                 terminal: self.terminal.as_ref(),
                 browser: self.browser.as_ref(),
                 monitor: &self.monitor,
+                runs: &self.runs,
             };
             return crate::capabilities::call(name, arguments, &ctx).await;
         }
@@ -1048,55 +1049,6 @@ impl DeviceServer {
             Handler::ForwardList => {
                 let state: Vec<Value> = self.forwards.list().into_iter().map(forward_row).collect();
                 Ok(Value::Array(state).to_string())
-            }
-            Handler::RunsExec => {
-                let arguments: RunsExecArgs = parse(arguments, name)?;
-                // The run is a blocking wait for a child process; it belongs on the blocking pool,
-                // not on a reactor worker that other MCP calls share.
-                let runs = Arc::clone(&self.runs);
-                let request = runs::ExecRequest {
-                    command: arguments.command,
-                    args: arguments.args,
-                    cwd: arguments.cwd,
-                    timeout_ms: arguments.timeout_ms,
-                    env: arguments.env,
-                    shell: arguments.shell,
-                };
-                let result = tokio::task::spawn_blocking(move || runs.exec(request))
-                    .await
-                    .map_err(|error| {
-                        ToolError::Internal(format!("{name}: the run task failed: {error}"))
-                    })?
-                    .map_err(|error| refused(name, error))?;
-                // **A RUN THAT DID NOT START, OR DID NOT EXIT ZERO, IS A FAILURE — EVEN WHEN THE
-                // TOOL RETURNED A VALUE.** `runs.exec` completes normally for a command that ran
-                // and exited 2, and for one the timeout killed; the process's own exit facts are
-                // the difference, and an MCP client that only reads the result cannot see them.
-                // The run still happened (its history row is already written), but the tool call is
-                // the failure the console records and the "failed" word is drawn from.
-                if result.exit_code != Some(0) {
-                    return Err(ToolError::Refused(format!(
-                        "{name}: {}",
-                        run_failure_sentence(&result)
-                    )));
-                }
-                Ok(json!(result).to_string())
-            }
-            Handler::RunsList => {
-                let arguments: RunsListArgs = parse(arguments, name)?;
-                let rows = self
-                    .runs
-                    .list(arguments.limit.unwrap_or(runs::DEFAULT_LIST_LIMIT))
-                    .map_err(|error| refused(name, error))?;
-                Ok(json!(rows).to_string())
-            }
-            Handler::RunsGet => {
-                let arguments: RunsIdArgs = parse(arguments, name)?;
-                let row = self
-                    .runs
-                    .get(&arguments.id)
-                    .map_err(|error| refused(name, error))?;
-                Ok(json!(row).to_string())
             }
             Handler::SystemProcessList => {
                 let arguments: ProcessListArgs = parse(arguments, name)?;
@@ -1395,9 +1347,6 @@ enum Handler {
     ForwardAdd,
     ForwardRemove,
     ForwardList,
-    RunsExec,
-    RunsList,
-    RunsGet,
     SystemProcessList,
     SystemProcessKill,
     SystemNetTest,
@@ -1422,9 +1371,6 @@ const HANDLERS: &[(&str, Handler)] = &[
     ("forward.add", Handler::ForwardAdd),
     ("forward.remove", Handler::ForwardRemove),
     ("forward.list", Handler::ForwardList),
-    ("runs.exec", Handler::RunsExec),
-    ("runs.list", Handler::RunsList),
-    ("runs.get", Handler::RunsGet),
     ("system.process_list", Handler::SystemProcessList),
     ("system.process_kill", Handler::SystemProcessKill),
     ("system.net_test", Handler::SystemNetTest),
@@ -1666,64 +1612,6 @@ fn input_schema(definition: &ToolDef) -> Value {
         "forward.list" => json!({
             "type": "object",
             "properties": {},
-            "additionalProperties": false
-        }),
-        "runs.exec" => json!({
-            "type": "object",
-            "properties": {
-                "command": {
-                    "type": "string",
-                    "description": "The program to run (argv[0]); with shell true, the whole line the platform shell parses."
-                },
-                "args": {
-                    "type": "array",
-                    "items": { "type": "string" },
-                    "description": "Arguments passed as an argv array, never word-split or expanded; empty when shell is true."
-                },
-                "cwd": {
-                    "type": "string",
-                    "description": "A directory relative to the files root where the process starts; it constrains the start, not what the process can reach. Defaults to the root."
-                },
-                "timeout_ms": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": runs::MAX_TIMEOUT_MS,
-                    "description": format!("How long the command may run (default {} ms). On expiry the process group is killed and timed_out is true.", runs::DEFAULT_TIMEOUT_MS)
-                },
-                "env": {
-                    "type": "object",
-                    "additionalProperties": { "type": "string" },
-                    "description": "Environment variables for this process, added to the device's own (at most 32, each value at most 4096 bytes)."
-                },
-                "shell": {
-                    "type": "boolean",
-                    "description": "Run command through the platform shell (sh -c on Unix, cmd /C on Windows); false runs it as an argv array with no shell."
-                }
-            },
-            "required": ["command"],
-            "additionalProperties": false
-        }),
-        "runs.list" => json!({
-            "type": "object",
-            "properties": {
-                "limit": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": runs::MAX_LIST_LIMIT,
-                    "description": format!("How many history rows to return, newest first (default {}).", runs::DEFAULT_LIST_LIMIT)
-                }
-            },
-            "additionalProperties": false
-        }),
-        "runs.get" => json!({
-            "type": "object",
-            "properties": {
-                "id": {
-                    "type": "string",
-                    "description": "A run id runs.exec or runs.list returned; output bodies are not stored."
-                }
-            },
-            "required": ["id"],
             "additionalProperties": false
         }),
         "system.process_list" => json!({
@@ -2535,21 +2423,6 @@ fn journal_traces_document(
     })
 }
 
-/// Why a run that returned a value is still a failure, in the console's own words.
-///
-/// The same sentence the console derives from an older device's `exit_code`, so the reason a
-/// person reads is the same whether the device marked the result `isError` or the console had to
-/// read the exit facts itself.
-fn run_failure_sentence(run: &runs::ExecResult) -> String {
-    if run.timed_out {
-        return format!("run {} timed out after {} ms", run.id, run.duration_ms);
-    }
-    match run.exit_code {
-        Some(code) => format!("run {} exited {code} in {} ms", run.id, run.duration_ms),
-        None => format!("run {} ended without an exit code", run.id),
-    }
-}
-
 /// A tool whose input schema declares no properties.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -2600,35 +2473,6 @@ struct ForwardAddArgs {
 #[serde(deny_unknown_fields)]
 struct ForwardNameArgs {
     name: String,
-}
-
-/// The arguments `runs.exec` takes.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RunsExecArgs {
-    command: String,
-    #[serde(default)]
-    args: Vec<String>,
-    cwd: Option<String>,
-    timeout_ms: Option<u64>,
-    #[serde(default)]
-    env: BTreeMap<String, String>,
-    #[serde(default)]
-    shell: bool,
-}
-
-/// The arguments `runs.list` takes.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RunsListArgs {
-    limit: Option<usize>,
-}
-
-/// The arguments `runs.get` takes.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RunsIdArgs {
-    id: String,
 }
 
 /// Parse the session id a client sent back, refusing a spelling this device never mints.

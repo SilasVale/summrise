@@ -44,36 +44,7 @@ pub const CAPABILITIES: &[Capability] = &[
     crate::capabilities::terminal::CAPABILITY,
     crate::capabilities::browser::CAPABILITY,
     crate::capabilities::monitor::CAPABILITY,
-    Capability {
-        name: "runs",
-        tools: &[
-            // Running a command is arbitrary code, so `runs.exec` is destructive in the registry's
-            // sense: no later read can undo what the process did. Listing and getting only read the
-            // history file the capability maintains.
-            ToolDef {
-                name: "runs.exec",
-                destructive: true,
-                description:
-                    "Run a command once and return its captured output; command and args are an argv array with no shell unless shell is true. cwd must be inside the files root (where the process starts, not a jail), stdout and stderr keep 1 MiB each, timeout_ms defaults to 60 seconds and is at most 10 minutes, and env is at most 32 variables of 4 KiB each.",
-                schema: None,
-            },
-            ToolDef {
-                name: "runs.list",
-                destructive: false,
-                description:
-                    "List the recent runs newest first; the history keeps 10 000 rows per file with the overflow in runs.1.jsonl, stores no output bodies, and limit defaults to 20 and is at most 100.",
-                schema: None,
-            },
-            ToolDef {
-                name: "runs.get",
-                destructive: false,
-                description:
-                    "Return one run's history row by id; output bodies are not stored.",
-                schema: None,
-            },
-        ],
-        guide: "",
-    },
+    crate::capabilities::runs::CAPABILITY,
     Capability {
         name: "system",
         tools: &[

@@ -381,6 +381,13 @@ installs per-target timers, so it needs the shared handle). Guide: five capabili
 Evidence: 669 device tests, 104 core tests, `clippy`/`fmt` clean, gate 14 / 22 / 0. Next: `runs`
 (three), then `system`, `forward`, `host`, `journal`, `plugins`, `guide`.
 
+**Round 20 — `runs` moves.** Three tools (exec, list, get) declared in `core/src/capabilities/runs.rs`;
+the timeout and list caps (60 s / 10 min, 20 / 100) are the declaration's constants, re-exported by
+the implementation. `runs.exec` keeps its blocking-pool discipline and its "a non-zero exit is a
+tool-level failure" rule inside the capability module, which also took the failure sentence. Guide:
+six capabilities, 33 tool headings. Evidence: 669 device tests, 104 core tests, `clippy`/`fmt` clean,
+gate 14 / 22 / 0. Next: `system` (three), then `forward`, `host`, `journal`, `plugins`, `guide`.
+
 
 ## Next (in order)
 

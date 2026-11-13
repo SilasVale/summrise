@@ -61,11 +61,10 @@ pub const MAX_STDOUT_BYTES: usize = 1024 * 1024;
 /// How many bytes of a command's standard error are retained.
 pub const MAX_STDERR_BYTES: usize = 1024 * 1024;
 
-/// How long a run may take when the caller names no timeout.
-pub const DEFAULT_TIMEOUT_MS: u64 = 60_000;
-
-/// The longest timeout a caller may ask for.
-pub const MAX_TIMEOUT_MS: u64 = 10 * 60 * 1000;
+/// The declaration's caps: the schema and this implementation read the same numbers.
+pub use summrise_core::capabilities::runs::{
+    DEFAULT_LIST_LIMIT, DEFAULT_TIMEOUT_MS, MAX_LIST_LIMIT, MAX_TIMEOUT_MS,
+};
 
 /// The most environment variables one run may set.
 pub const MAX_ENV_VARS: usize = 32;
@@ -88,12 +87,6 @@ pub const HISTORY_LINES: usize = 10_000;
 /// Ten thousand rows of a few hundred bytes each is a few megabytes; a file of rows with long environments
 /// or big outputs would otherwise be read whole before every `list`, `get` and `append`.
 pub const HISTORY_READ_BYTES: u64 = 8 * 1024 * 1024;
-
-/// How many rows `runs.list` returns when the caller names no limit.
-pub const DEFAULT_LIST_LIMIT: usize = 20;
-
-/// The most rows `runs.list` will return.
-pub const MAX_LIST_LIMIT: usize = 100;
 
 /// The history file under `<data>`.
 pub const HISTORY_FILE: &str = "runs.jsonl";
@@ -1484,4 +1477,131 @@ mod tests {
             "the platform shell parsed the line, so $0 expanded"
         );
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The declaration's implementation: the device side of `summrise_core::capabilities::runs`.
+// ---------------------------------------------------------------------------------------------
+
+use serde_json::{json, Map, Value};
+use std::sync::Arc;
+
+use crate::mcp::{parse, ToolError};
+use summrise_core::capabilities::runs::CAPABILITY;
+
+/// Whether `tool` is one this capability declares.
+pub fn owns(tool: &str) -> bool {
+    CAPABILITY
+        .tools
+        .iter()
+        .any(|declared| declared.name == tool)
+}
+
+/// Every tool this capability declares, for the registry-alignment test.
+#[cfg(test)]
+pub fn names() -> impl Iterator<Item = &'static str> {
+    CAPABILITY.tools.iter().map(|tool| tool.name)
+}
+
+/// Run one of this capability's tools against the run history.
+pub async fn call(
+    runs: &Arc<Runs>,
+    tool: &str,
+    arguments: Map<String, Value>,
+) -> Result<String, ToolError> {
+    match tool {
+        "runs.exec" => {
+            let arguments: RunsExecArgs = parse(arguments, tool)?;
+            // The run is a blocking wait for a child process; it belongs on the blocking pool, not
+            // on a reactor worker that other MCP calls share.
+            let runs = Arc::clone(runs);
+            let request = ExecRequest {
+                command: arguments.command,
+                args: arguments.args,
+                cwd: arguments.cwd,
+                timeout_ms: arguments.timeout_ms,
+                env: arguments.env,
+                shell: arguments.shell,
+            };
+            let result = tokio::task::spawn_blocking(move || runs.exec(request))
+                .await
+                .map_err(|error| {
+                    ToolError::Internal(format!("{tool}: the run task failed: {error}"))
+                })?
+                .map_err(|error| refused(tool, error))?;
+            // **A RUN THAT DID NOT EXIT ZERO IS A FAILURE, EVEN WHEN THE TOOL RETURNED A VALUE.**
+            // The run happened (its history row is written), but the call's outcome is the
+            // process's, and the "failed" word the console draws comes from here.
+            if result.exit_code != Some(0) {
+                return Err(ToolError::Refused(format!(
+                    "{tool}: {}",
+                    run_failure_sentence(&result)
+                )));
+            }
+            Ok(json!(result).to_string())
+        }
+        "runs.list" => {
+            let arguments: RunsListArgs = parse(arguments, tool)?;
+            let rows = runs
+                .list(arguments.limit.unwrap_or(DEFAULT_LIST_LIMIT))
+                .map_err(|error| refused(tool, error))?;
+            Ok(json!(rows).to_string())
+        }
+        "runs.get" => {
+            let arguments: RunsIdArgs = parse(arguments, tool)?;
+            let row = runs
+                .get(&arguments.id)
+                .map_err(|error| refused(tool, error))?;
+            Ok(json!(row).to_string())
+        }
+        other => Err(ToolError::Internal(format!(
+            "{other}: the runs capability does not declare this tool"
+        ))),
+    }
+}
+
+fn run_failure_sentence(run: &ExecResult) -> String {
+    if run.timed_out {
+        return format!("run {} timed out after {} ms", run.id, run.duration_ms);
+    }
+    match run.exit_code {
+        Some(code) => format!("run {} exited {code} in {} ms", run.id, run.duration_ms),
+        None => format!("run {} ended without an exit code", run.id),
+    }
+}
+
+fn refused(tool: &str, error: impl std::fmt::Display) -> ToolError {
+    ToolError::Refused(format!("{tool}: {error}"))
+}
+
+/// The arguments `runs.exec` takes.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RunsExecArgs {
+    command: String,
+    #[serde(default)]
+    args: Vec<String>,
+    cwd: Option<String>,
+    timeout_ms: Option<u64>,
+    #[serde(default)]
+    env: BTreeMap<String, String>,
+    #[serde(default)]
+    shell: bool,
+}
+
+/// The arguments `runs.list` takes.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RunsListArgs {
+    limit: Option<usize>,
+}
+
+/// The arguments `runs.get` takes.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RunsIdArgs {
+    id: String,
 }
