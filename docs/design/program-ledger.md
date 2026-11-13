@@ -333,6 +333,18 @@ first** — one module per capability, with its spec and guide, because it does 
 is what makes "add a tool = one file" true. The SQLite record (S1) follows the seam; the release
 milestone (S0's second half) waits until the operator names a machine for it.
 
+**Round 15 — the capability seam, proved on `files`.** The declaration types are in
+(`ToolDef::schema`, `Capability::guide`) and so is the generated guide (`core::registry::guide()`).
+`files` is the first capability whose tools, tool schemas and manual entry live in one module
+(`core/src/capabilities/files.rs`), whose execution lives in one module
+(`device/src/capabilities/files.rs`), and which the dispatcher routes **before** the legacy table.
+The four files tools left `HANDLERS`; the registry-alignment test now counts `HANDLERS` plus migrated
+capability tools, and new tests fail if a migrated tool keeps a legacy schema or dispatch row, if the
+guide names a tool twice or one the capability does not own, or if the advertised schema differs from
+the declaration. Evidence: 669 device tests (the full bin suite), `clippy` and `fmt` clean,
+`check-architecture` 14 packages / 22 edges / 0 upward. The other twelve capabilities migrate one per
+round; the legacy `input_schema` match and `HANDLERS` shrink as they do.
+
 ## Next (in order)
 
 1. Windows handoff, the interactive half — dispatch or run `summrise-shell.exe --check-window` in an
@@ -342,16 +354,10 @@ milestone (S0's second half) waits until the operator names a machine for it.
    operator's machines is their call, not the program's.
 2. Push `origin`: `main` now contains `origin/main` and `hub/v1` (`0 1242`), so `git push origin main`
    is a fast-forward. This is a publish, and it is the operator's call.
-3. **The journal's epoch: a cursor that survives a reset.** §4.2/§4.4 specify a `(epoch, seq)` cursor
-   and the bus has none: `seq` restarts at 1 when a journal file is replaced, so an old sequence can
-   name another call — which is why the page's single-row read-back also checks `trace.call` and its
-   paging cannot tell a reset at all. Add an epoch written when a journal is created, carried in
-   `journal.read`/`journal.get`/`journal.day` (answers and cursors), on the channel frame
-   (`journal_epoch`), on the console's audit line and live event, and compared as `(epoch, seq)` by
-   the page's read-back and its paging session; the trace check becomes a second proof rather than
-   the only one. Cost if wrong: a device that rebuilds its journal now changes a number the console
-   writes on every line, and the page must treat an older device's missing epoch as unknown, never as
-   zero.
+3. ~~**The journal's epoch.**~~ **Withdrawn (2026-11-13):** the v2 record's change feed gives a
+   cursor that never restarts — the feed id — so the epoch has nothing to reconcile. The parked
+   `feat/journal-epoch` branch is abandoned; do not rebuild it on v1. The page's single-row read-back
+   and its `trace.call` check stay as they are until the feed lands.
 4. The fleet's join: with the fan-out in place, a fleet window can ask each drawn machine's
    `journal.get` for the traces that machine's rows carry (same cap, same 30 s), so `only here` stops
    being a machine-window-only fact and a fleet row can say which machine still holds it.

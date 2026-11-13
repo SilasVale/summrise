@@ -8,6 +8,7 @@
 #![forbid(unsafe_code)]
 
 pub mod auth;
+pub mod capabilities;
 pub mod grant;
 pub mod manifest;
 pub mod mesh;

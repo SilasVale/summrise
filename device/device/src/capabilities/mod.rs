@@ -22,3 +22,24 @@ pub mod terminal;
 ///
 /// Kept as a name the HTTP handler already calls; the value is `core`'s.
 pub use summrise_core::registry::is_destructive as destructive;
+
+/// Whether a migrated capability declares `tool`.
+pub fn owns(tool: &str) -> bool {
+    files::owns(tool)
+}
+
+/// Every tool a migrated capability declares, for the registry-alignment test.
+#[cfg(test)]
+pub fn names() -> impl Iterator<Item = &'static str> {
+    files::names()
+}
+
+/// Run a migrated capability's tool; the roots are the device's resolved paths.
+pub fn call(
+    tool: &str,
+    arguments: serde_json::Map<String, serde_json::Value>,
+    workspace: &std::path::Path,
+    shared: Option<&std::path::Path>,
+) -> Result<String, crate::mcp::ToolError> {
+    files::call(tool, arguments, workspace, shared)
+}

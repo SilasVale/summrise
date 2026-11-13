@@ -935,3 +935,174 @@ mod tests {
         assert!(!root.join("backup~1.txt").exists());
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// The declaration's implementation: the device side of `summrise_core::capabilities::files`.
+// ---------------------------------------------------------------------------------------------
+
+use base64::Engine as _;
+use serde::Deserialize;
+use serde_json::{json, Map, Value};
+use summrise_core::capabilities::files::CAPABILITY;
+
+use crate::mcp::{parse, ToolError, BASE64, MAX_FILE_BYTES};
+
+/// Whether `tool` is one this capability declares.
+pub fn owns(tool: &str) -> bool {
+    CAPABILITY
+        .tools
+        .iter()
+        .any(|declared| declared.name == tool)
+}
+
+/// Every tool this capability declares, for the registry-alignment test.
+#[cfg(test)]
+pub fn names() -> impl Iterator<Item = &'static str> {
+    CAPABILITY.tools.iter().map(|tool| tool.name)
+}
+
+/// Run one of this capability's tools.
+///
+/// The roots are passed in, not read from the device: a capability that reached for the app's config
+/// would be a second place that knows where the sandbox is. The device resolves them once per call.
+pub fn call(
+    tool: &str,
+    arguments: Map<String, Value>,
+    workspace: &Path,
+    shared: Option<&Path>,
+) -> Result<String, ToolError> {
+    match tool {
+        "files.read" => {
+            let arguments: ReadArgs = parse(arguments, tool)?;
+            let root = root_for(arguments.root.as_deref(), workspace, shared)?;
+            let bytes = read(root, Path::new(&arguments.path), MAX_FILE_BYTES)
+                .map_err(|error| refused(tool, error))?;
+            match arguments.encoding {
+                Encoding::Utf8 => String::from_utf8(bytes).map_err(|_| {
+                    ToolError::Refused(format!(
+                        "{tool}: the file is not UTF-8 text; ask for encoding \"base64\""
+                    ))
+                }),
+                Encoding::Base64 => Ok(BASE64.encode(&bytes)),
+            }
+        }
+        "files.write" => {
+            let arguments: WriteArgs = parse(arguments, tool)?;
+            let bytes = match arguments.encoding {
+                Encoding::Utf8 => arguments.content.clone().into_bytes(),
+                Encoding::Base64 => BASE64.decode(&arguments.content).map_err(|_| {
+                    ToolError::Refused(format!("{tool}: the content is not valid base64"))
+                })?,
+            };
+            let root = root_for(arguments.root.as_deref(), workspace, shared)?;
+            write(root, Path::new(&arguments.path), &bytes, MAX_FILE_BYTES)
+                .map_err(|error| refused(tool, error))?;
+            Ok(json!({
+                "path": arguments.path,
+                "bytes": bytes.len(),
+            })
+            .to_string())
+        }
+        "files.mkdir" => {
+            let arguments: PathArgs = parse(arguments, tool)?;
+            let root = root_for(arguments.root.as_deref(), workspace, shared)?;
+            mkdir(root, Path::new(&arguments.path)).map_err(|error| refused(tool, error))?;
+            Ok(json!({ "path": arguments.path, "created": true }).to_string())
+        }
+        "files.list" => {
+            let arguments: PathArgs = parse(arguments, tool)?;
+            let root = root_for(arguments.root.as_deref(), workspace, shared)?;
+            let entries =
+                list(root, Path::new(&arguments.path)).map_err(|error| refused(tool, error))?;
+            let entries: Vec<Value> = entries
+                .iter()
+                .map(|entry| {
+                    json!({
+                        "name": entry.name,
+                        "kind": match entry.kind {
+                            Kind::File => "file",
+                            Kind::Directory => "directory",
+                            Kind::Other => "other",
+                        },
+                        "len": entry.len,
+                    })
+                })
+                .collect();
+            Ok(Value::Array(entries).to_string())
+        }
+        other => Err(ToolError::Internal(format!(
+            "{other}: the files capability does not declare this tool"
+        ))),
+    }
+}
+
+/// The root a path argument names, with the capability's own refusals.
+fn root_for<'a>(
+    requested: Option<&str>,
+    workspace: &'a Path,
+    shared: Option<&'a Path>,
+) -> Result<&'a Path, ToolError> {
+    match requested.unwrap_or("workspace") {
+        "workspace" => Ok(workspace),
+        "shared" => shared.ok_or_else(|| {
+            ToolError::Refused(
+                "files: no shared root is configured on this device; use root \"workspace\""
+                    .to_owned(),
+            )
+        }),
+        other => Err(ToolError::Refused(format!(
+            "files: root {other:?} is not configured; use \"workspace\" or \"shared\""
+        ))),
+    }
+}
+
+fn refused(tool: &str, error: impl std::fmt::Display) -> ToolError {
+    ToolError::Refused(format!("{tool}: {error}"))
+}
+
+/// The arguments `files.read` and `files.list` take.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PathArgs {
+    path: String,
+    /// `workspace` (the default) or the operator-configured `shared` root.
+    root: Option<String>,
+}
+
+/// The arguments `files.write` takes.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WriteArgs {
+    path: String,
+    root: Option<String>,
+    content: String,
+    /// How `content` encodes the bytes: text (the default) or base64.
+    #[serde(default)]
+    encoding: Encoding,
+}
+
+/// The two encodings the file tools accept and return.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum Encoding {
+    /// UTF-8 text: the default, and what a human-readable file is.
+    #[default]
+    Utf8,
+    /// Base64, for bytes that are not text.
+    Base64,
+}
+
+/// The arguments `files.read` takes.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReadArgs {
+    path: String,
+    root: Option<String>,
+    /// How to return the bytes: text (the default) or base64.
+    #[serde(default)]
+    encoding: Encoding,
+}

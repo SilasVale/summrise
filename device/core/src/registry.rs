@@ -4,8 +4,13 @@
 //! `authorize` asks are all readings of this one table. A tool that is not here is not a tool this
 //! device offers, and every caller treats `None` as a denial rather than a default.
 
-/// One tool a capability exposes, and the fact the decision's `Ask` rule consults.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+use serde_json::Value;
+
+/// One tool a capability exposes, and the facts the decision and the catalogue read.
+///
+/// No `PartialEq`: the schema field is a function pointer, and comparing two functions is not a
+/// question with a meaningful answer.
+#[derive(Clone, Copy, Debug)]
 pub struct ToolDef {
     /// The wire name a client calls, e.g. `files.read`.
     pub name: &'static str,
@@ -13,15 +18,20 @@ pub struct ToolDef {
     pub destructive: bool,
     /// One sentence a client shows a human; the MCP tool description is this string.
     pub description: &'static str,
+    /// The input schema, declared beside the tool. `None` is a capability that has not migrated to
+    /// the declaration module yet; the surface falls back to its own table, and a test counts them.
+    pub schema: Option<fn() -> Value>,
 }
 
-/// One capability: a name and the tools it declares.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// One capability: a name, the tools it declares, and its manual entry.
+#[derive(Clone, Copy, Debug)]
 pub struct Capability {
     /// The capability's own name, e.g. `files`. Every tool name is namespaced by it.
     pub name: &'static str,
     /// The tools the capability declares. The registry is the union of these lists.
     pub tools: &'static [ToolDef],
+    /// The manual entry, rendered by [`guide`]; empty until the capability migrates.
+    pub guide: &'static str,
 }
 
 /// Every capability this device offers.
@@ -29,33 +39,7 @@ pub struct Capability {
 /// The order is the order a client sees in `tools/list`; it is data, so reordering it is a wire
 /// change rather than a refactor.
 pub const CAPABILITIES: &[Capability] = &[
-    Capability {
-        name: "files",
-        tools: &[
-            ToolDef {
-                name: "files.read",
-                destructive: false,
-                description: "Read a file inside one of this machine's files roots: workspace by default, or shared when the operator configured it (the optional root argument).",
-            },
-            ToolDef {
-                name: "files.write",
-                destructive: true,
-                description: "Write a file inside one of this machine's files roots; its parent must exist. Pass root: \"shared\" to use the operator-configured second root.",
-            },
-            ToolDef {
-                name: "files.mkdir",
-                destructive: false,
-                description:
-                    "Create one directory inside one of this machine's files roots; never overwrites. Pass root: \"shared\" to use the operator-configured second root.",
-            },
-            ToolDef {
-                name: "files.list",
-                destructive: false,
-                description:
-                    "List a directory inside one of this machine's files roots, sorted, at most 1000 entries. Pass root: \"shared\" to use the operator-configured second root.",
-            },
-        ],
-    },
+    crate::capabilities::files::CAPABILITY,
     Capability {
         name: "memory",
         tools: &[
@@ -63,37 +47,44 @@ pub const CAPABILITIES: &[Capability] = &[
                 name: "memory.append",
                 destructive: true,
                 description: "Append one entry to this machine's append-only memory and return its id; the id is what memory.update and memory.delete name.",
+                schema: None,
             },
             ToolDef {
                 name: "memory.update",
                 destructive: true,
                 description:
                     "Replace the text and tags of the entry an id names; both are required, tags is the complete new list (send [] to clear them), validation is exactly memory.append's, and an id that is not live is refused as no_such_entry.",
+                schema: None,
             },
             ToolDef {
                 name: "memory.delete",
                 destructive: true,
                 description:
                     "Retire one remembered entry by id; every later read omits it, and a second delete is refused as no_such_entry.",
+                schema: None,
             },
             ToolDef {
                 name: "memory.search",
                 destructive: false,
                 description: "Search this machine's memory, newest entries first.",
+                schema: None,
             },
             ToolDef {
                 name: "memory.list",
                 destructive: false,
                 description:
                     "Enumerate remembered entries, newest first, optionally only those carrying one tag; a search matches text, this lists what is there.",
+                schema: None,
             },
             ToolDef {
                 name: "memory.export",
                 destructive: false,
                 description:
                     "Export the whole store as JSONL text, up to 2 MiB; the result names the entry count and whether the cap cut it.",
+                schema: None,
             },
         ],
+        guide: "",
     },
     Capability {
         name: "terminal",
@@ -109,44 +100,52 @@ pub const CAPABILITIES: &[Capability] = &[
                 destructive: true,
                 description:
                     "Start a session of the requested kind; kind pty runs a local shell on a new pseudo-terminal, kind ssh opens a remote shell whose host key is pinned on first use and refused if it changes, and kind serial opens the OS port path named by port (for example COM3 or /dev/ttyUSB0) at 115200 8N1 unless baud, parity, data_bits and stop_bits say otherwise. A serial port is never enumerated or guessed. At most 16 sessions may be live, each retains 1 MiB of output, and a session idle for 30 minutes is closed.",
+                schema: None,
             },
             ToolDef {
                 name: "terminal.write",
                 destructive: true,
                 description:
                     "Write UTF-8 text to a live session's input: a pty or ssh shell runs it as a command, and a serial session sends the bytes on the port. At most 1 MiB per call, and a write that cannot finish in 5 seconds is refused.",
+                schema: None,
             },
             ToolDef {
                 name: "terminal.read",
                 destructive: false,
                 description:
                     "Read a session's output since a cursor and return the new cursor; only the newest 1 MiB is retained, so an older cursor is refused. Optional wait_ms (0-30000) parks until output arrives or the deadline passes; a terminal client should use it instead of polling. Optional limit pages the retained tail: at most that many bytes, oldest first, and the returned cursor advances by what the page carried.",
+                schema: None,
             },
             ToolDef {
                 name: "terminal.resize",
                 destructive: false,
                 description:
                     "Resize a live session; a local shell receives SIGWINCH and a remote shell a window-change request. A serial session has no window, so resizing it is a successful no-op. Rows and columns are 1..=1000.",
+                schema: None,
             },
             ToolDef {
                 name: "terminal.close",
                 destructive: false,
                 description:
                     "Close a session and end its shell, SSH connection or serial handle; the id is never reused.",
+                schema: None,
             },
             ToolDef {
                 name: "terminal.list",
                 destructive: false,
                 description:
                     "List the live sessions with their kind and start time.",
+                schema: None,
             },
             ToolDef {
                 name: "terminal.screen",
                 destructive: false,
                 description:
                     "Read the tail of a session's output as a person would see it — escape sequences removed, the last N lines — without moving the read cursor.",
+                schema: None,
             },
         ],
+        guide: "",
     },
     Capability {
         name: "browser",
@@ -162,50 +161,59 @@ pub const CAPABILITIES: &[Capability] = &[
                 destructive: false,
                 description:
                     "List the browser's targets (id, title, url, type); the first browser tool call starts headless Chrome.",
+                schema: None,
             },
             ToolDef {
                 name: "browser.open",
                 destructive: true,
                 description:
                     "Open a tab at a URL and wait for its document to be parsed; at most 8 tabs, and an open beyond that is refused.",
+                schema: None,
             },
             ToolDef {
                 name: "browser.navigate",
                 destructive: true,
                 description:
                     "Navigate one tab to a URL and wait for its document to be parsed.",
+                schema: None,
             },
             ToolDef {
                 name: "browser.eval",
                 destructive: true,
                 description:
                     "Evaluate a JavaScript expression in one tab and return its value; a result over 1 MiB is refused.",
+                schema: None,
             },
             ToolDef {
                 name: "browser.screenshot",
                 destructive: false,
                 description:
                     "Capture one tab as a base64 PNG; a capture over 8 MiB is refused.",
+                schema: None,
             },
             ToolDef {
                 name: "browser.cast",
                 destructive: false,
                 description:
                     "The newest frame of a live screencast of one tab, as a base64 JPEG; a frame over 8 MiB is refused, and the stream stops itself after 60 s unpolled.",
+                schema: None,
             },
             ToolDef {
                 name: "browser.close",
                 destructive: false,
                 description:
                     "Close one tab; the browser stays running and the tab id is not reused.",
+                schema: None,
             },
             ToolDef {
                 name: "browser.shutdown",
                 destructive: false,
                 description:
                     "Stop the browser this machine started; a later browser tool call starts it again.",
+                schema: None,
             },
         ],
+        guide: "",
     },
     Capability {
         name: "monitor",
@@ -219,32 +227,38 @@ pub const CAPABILITIES: &[Capability] = &[
                 destructive: false,
                 description:
                     "Watch a host:port and persist the watch; tcp connects, http GETs path and is up on a status below 500 whose body contains expect when set. At most 16 targets, an interval of at least 5000 ms, and the last 60 samples are summarized.",
+                schema: None,
             },
             ToolDef {
                 name: "monitor.remove",
                 destructive: false,
                 description:
                     "Stop watching a target by id and discard its in-memory series; removed says whether a watch existed.",
+                schema: None,
             },
             ToolDef {
                 name: "monitor.list",
                 destructive: false,
                 description:
                     "List the watched targets with their settings and summary: up_now, since_ms, up_pct, drops and last_status from the last 60 probes.",
+                schema: None,
             },
             ToolDef {
                 name: "monitor.probe",
                 destructive: false,
                 description:
                     "Probe one watched target now and return the sample {ts, ok, latency_ms}; it is recorded like a scheduled probe.",
+                schema: None,
             },
             ToolDef {
                 name: "monitor.status",
                 destructive: false,
                 description:
                     "Return one target's summary over its last 60 probes: up_now, since_ms, up_pct, drops and last_status.",
+                schema: None,
             },
         ],
+        guide: "",
     },
     Capability {
         name: "runs",
@@ -257,20 +271,24 @@ pub const CAPABILITIES: &[Capability] = &[
                 destructive: true,
                 description:
                     "Run a command once and return its captured output; command and args are an argv array with no shell unless shell is true. cwd must be inside the files root (where the process starts, not a jail), stdout and stderr keep 1 MiB each, timeout_ms defaults to 60 seconds and is at most 10 minutes, and env is at most 32 variables of 4 KiB each.",
+                schema: None,
             },
             ToolDef {
                 name: "runs.list",
                 destructive: false,
                 description:
                     "List the recent runs newest first; the history keeps 10 000 rows per file with the overflow in runs.1.jsonl, stores no output bodies, and limit defaults to 20 and is at most 100.",
+                schema: None,
             },
             ToolDef {
                 name: "runs.get",
                 destructive: false,
                 description:
                     "Return one run's history row by id; output bodies are not stored.",
+                schema: None,
             },
         ],
+        guide: "",
     },
     Capability {
         name: "system",
@@ -282,20 +300,24 @@ pub const CAPABILITIES: &[Capability] = &[
                 destructive: false,
                 description:
                     "List running processes on this machine: pid, executable name and resident memory, optionally filtered by name.",
+                schema: None,
             },
             ToolDef {
                 name: "system.process_kill",
                 destructive: true,
                 description:
                     "Terminate processes by pid or by exact name; the result names the pids that were signalled and the pids that could not be.",
+                schema: None,
             },
             ToolDef {
                 name: "system.net_test",
                 destructive: false,
                 description:
                     "Resolve a host name and connect to one TCP port from this machine, returning the addresses resolved and the connect latency; ICMP needs raw sockets, so it is not offered.",
+                schema: None,
             },
         ],
+        guide: "",
     },
     Capability {
         name: "host",
@@ -307,6 +329,7 @@ pub const CAPABILITIES: &[Capability] = &[
                 // grant to learn what machine a device is.
                 description:
                     "Read what this machine is running on: operating system and build, host name, uptime, CPU cores, memory and disk totals, and the Windows sessions with their state (active, connected, disconnected, idle). Also whether the per-user helper is registered, its pid and session. Facts that cannot be read are zero or empty, never an error.",
+                schema: None,
             },
             ToolDef {
                 name: "host.restart",
@@ -316,8 +339,10 @@ pub const CAPABILITIES: &[Capability] = &[
                 // discovered by repeating the call until the device stays down.
                 description:
                     "Restart this machine's app through its launcher. Terminals, browser tabs and runs on this machine end, and the machine goes offline briefly. The launcher allows three consecutive restarts, so repeated restarts can leave the device down; a standalone process refuses.",
+                schema: None,
             },
         ],
+        guide: "",
     },
     Capability {
         name: "screen",
@@ -328,7 +353,9 @@ pub const CAPABILITIES: &[Capability] = &[
             // desktop the service cannot see, and refuses rather than answering black.
             description:
                 "Capture the logged-in user's screen as a PNG through the per-user helper. A session that is locked, disconnected, or has no helper running is refused with a sentence; a desktop nobody is looking at is not a picture.",
+            schema: None,
         }],
+        guide: "",
     },
     Capability {
         name: "forward",
@@ -342,20 +369,24 @@ pub const CAPABILITIES: &[Capability] = &[
                 destructive: true,
                 description:
                     "Add or replace a forward rule: `listen` is bound on THIS machine, `via` makes the SSH connection, and that host's sshd dials `target`. The far host therefore gains NO listening port. `host_key` optionally pins the fingerprint `via`'s key must match — a rule runs with nobody present, so it is the one object here that should not decide a host's identity by itself. Nothing is created until the rule is persisted; a rule that cannot bind stays visible with its error rather than retrying forever.",
+                schema: None,
             },
             ToolDef {
                 name: "forward.remove",
                 destructive: true,
                 description:
                     "Remove a rule and stop its executor; `removed` says whether one was configured. The listener is closed with it, so the address becomes bindable again.",
+                schema: None,
             },
             ToolDef {
                 name: "forward.list",
                 destructive: false,
                 description:
                     "List every rule with its live state: whether the listener is bound, since when, how many connections it has carried, how many bind attempts it has made, and what its last failure said. An unbound rule reports its error rather than a plausible-looking zero.",
+                schema: None,
             },
         ],
+        guide: "",
     },
     Capability {
         name: "state",
@@ -367,7 +398,9 @@ pub const CAPABILITIES: &[Capability] = &[
             // the call in the console's audit index.
             description:
                 "Read this machine's state document plus its health: status (ok or degraded), release version, pid, whether the state document is poisoned (unreadable), and the last ten events the device recorded. A poisoned document is returned as null state with degraded health rather than a failed call.",
+            schema: None,
         }],
+        guide: "",
     },
     Capability {
         name: "journal",
@@ -379,6 +412,7 @@ pub const CAPABILITIES: &[Capability] = &[
                 // read cannot be changed by it.
                 description:
                     "Read this machine's journal: which of the traces you name are still retained, and the journal's retained bounds. Presence and coverage only, never an event's payload.",
+                schema: None,
             },
             ToolDef {
                 name: "journal.read",
@@ -388,6 +422,7 @@ pub const CAPABILITIES: &[Capability] = &[
                 // would let one call carry a machine's file contents, which is an export.
                 description:
                     "Read the rows of this machine's journal, newest first and bounded: each row's sequence, time and type, and on a call its tool, outcome and the door it arrived by. Summaries only; payloads are sized, not sent.",
+                schema: None,
             },
             ToolDef {
                 name: "journal.day",
@@ -397,8 +432,10 @@ pub const CAPABILITIES: &[Capability] = &[
                 // counts, because a page of rows is not a day.
                 description:
                     "Count this machine's journal for a time range you name: the calls and failures of each arrival door (console, panel, mesh, loopback, unknown) that finished inside the range, the journal's retained bounds, and whether the scan was cut. Aggregates only; no rows and no payloads.",
+                schema: None,
             },
         ],
+        guide: "",
     },
     Capability {
         name: "plugins",
@@ -413,40 +450,73 @@ pub const CAPABILITIES: &[Capability] = &[
                 destructive: false,
                 description:
                     "List the installed plugins with their state and tool count; a plugin's tools are advertised only while it is running.",
+                schema: None,
             },
             ToolDef {
                 name: "plugins.inspect",
                 destructive: false,
                 description:
                     "Read a plugin directory's plugin.json without starting it or recording it, so a path can be checked before plugins.add.",
+                schema: None,
             },
             ToolDef {
                 name: "plugins.add",
                 destructive: true,
                 description:
                     "Install the MCP server in a directory: validate plugin.json, start it, and advertise its tools as <namespace>.<tool>; installing registers the path and runs its code with this machine's permissions.",
+                schema: None,
             },
             ToolDef {
                 name: "plugins.remove",
                 destructive: true,
                 description:
                     "Remove a plugin by namespace: forget its record and stop its process, never deleting its source directory.",
+                schema: None,
             },
             ToolDef {
                 name: "plugins.restart",
                 destructive: true,
                 description:
                     "Stop and start a plugin now, resetting its restart budget after a failure.",
+                schema: None,
             },
             ToolDef {
                 name: "plugins.logs",
                 destructive: false,
                 description:
                     "Read the last lines of a plugin's log (default 200, at most 2000).",
+                schema: None,
             },
         ],
+        guide: "",
     },
 ];
+
+/// The manual: every migrated capability's entry, then each of its tools with its sentence.
+///
+/// A capability with an empty guide has not migrated yet; it renders as nothing rather than as a
+/// heading with no text. The guide is generated from the table, never hand-maintained beside it.
+pub fn guide() -> String {
+    let mut text = String::new();
+    for capability in CAPABILITIES {
+        if capability.guide.is_empty() {
+            continue;
+        }
+        text.push_str("# ");
+        text.push_str(capability.name);
+        text.push('\n');
+        text.push_str(capability.guide);
+        text.push_str("\n\n");
+        for tool in capability.tools {
+            text.push_str("## ");
+            text.push_str(tool.name);
+            text.push('\n');
+            text.push_str(tool.description);
+            text.push_str("\n\n");
+        }
+    }
+    text
+}
 
 /// The declaration for `name`, or `None` when no capability declares it.
 pub fn tool(name: &str) -> Option<&'static ToolDef> {
@@ -767,7 +837,7 @@ mod tests {
             "runs.exec ",
             "*",
         ] {
-            assert_eq!(tool(name), None, "{name:?}");
+            assert!(tool(name).is_none(), "{name:?}");
             assert_eq!(is_destructive(name), None, "{name:?}");
         }
     }

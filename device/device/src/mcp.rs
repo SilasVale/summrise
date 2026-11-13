@@ -46,8 +46,7 @@ use summrise_core::{
 use tokio::io::AsyncWriteExt;
 
 use crate::capabilities::{
-    browser, files, forward, memory, monitor, plugins as plugins_capability, runs, ssh, system,
-    terminal,
+    browser, forward, memory, monitor, plugins as plugins_capability, runs, ssh, system, terminal,
 };
 use crate::config::{Config, Release};
 use crate::plugins::host::PluginHost;
@@ -55,7 +54,7 @@ use crate::restart;
 use crate::store::{Store, EVENT_TAIL};
 
 /// The base64 engine the file tools use: the standard alphabet, padded, as every client library emits.
-const BASE64: base64::engine::general_purpose::GeneralPurpose =
+pub(crate) const BASE64: base64::engine::general_purpose::GeneralPurpose =
     base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;
 
@@ -63,7 +62,7 @@ use base64::Engine as _;
 ///
 /// The surface gives the capability this cap and the capability enforces it — a read from
 /// metadata, before the file is opened. There is no second size check here.
-const MAX_FILE_BYTES: usize = 1024 * 1024;
+pub(crate) const MAX_FILE_BYTES: usize = 1024 * 1024;
 
 /// The largest request body `/mcp` accepts, before rmcp parses any JSON.
 ///
@@ -999,21 +998,6 @@ impl DeviceServer {
 
     /// Resolve a `files.*` call's root. The default is the workspace; `shared` exists only when the
     /// operator configured `--files-shared-root`, so the AI cannot invent a root.
-    fn files_root_for(&self, requested: Option<&str>) -> Result<&Path, ToolError> {
-        match requested.unwrap_or("workspace") {
-            "workspace" => Ok(&self.files_root),
-            "shared" => self.files_shared_root.as_deref().ok_or_else(|| {
-                ToolError::Refused(
-                    "files: no shared root is configured on this device; use root \"workspace\""
-                        .to_owned(),
-                )
-            }),
-            other => Err(ToolError::Refused(format!(
-                "files: root {other:?} is not configured; use \"workspace\" or \"shared\""
-            ))),
-        }
-    }
-
     /// Route one already-authorized call to its capability.
     ///
     /// The name was resolved against the registry by the caller; [`handler`] is the one table that
@@ -1026,70 +1010,22 @@ impl DeviceServer {
         name: &str,
         arguments: Map<String, Value>,
     ) -> Result<String, ToolError> {
+        // **A CAPABILITY THAT DECLARES ITSELF IS ROUTED BY ITS MODULE (round 15).** The
+        // declaration in `summrise_core::capabilities` is the one list; a capability that migrated
+        // is dispatched here, before the legacy table, so its tools leave that table as they move.
+        if crate::capabilities::owns(name) {
+            return crate::capabilities::call(
+                name,
+                arguments,
+                &self.files_root,
+                self.files_shared_root.as_deref(),
+            );
+        }
         let Some(handler) = handler(name) else {
             return self.dispatch_plugin(name, arguments).await;
         };
 
         match handler {
-            Handler::FilesRead => {
-                let arguments: ReadArgs = parse(arguments, name)?;
-                let root = self.files_root_for(arguments.root.as_deref())?;
-                let bytes = files::read(root, Path::new(&arguments.path), MAX_FILE_BYTES)
-                    .map_err(|error| refused(name, error))?;
-                match arguments.encoding {
-                    Encoding::Utf8 => String::from_utf8(bytes).map_err(|_| {
-                        ToolError::Refused(format!(
-                            "{name}: the file is not UTF-8 text; ask for encoding \"base64\""
-                        ))
-                    }),
-                    Encoding::Base64 => Ok(BASE64.encode(&bytes)),
-                }
-            }
-            Handler::FilesWrite => {
-                let arguments: WriteArgs = parse(arguments, name)?;
-                let bytes = match arguments.encoding {
-                    Encoding::Utf8 => arguments.content.clone().into_bytes(),
-                    Encoding::Base64 => BASE64.decode(&arguments.content).map_err(|_| {
-                        ToolError::Refused(format!("{name}: the content is not valid base64"))
-                    })?,
-                };
-                let root = self.files_root_for(arguments.root.as_deref())?;
-                files::write(root, Path::new(&arguments.path), &bytes, MAX_FILE_BYTES)
-                    .map_err(|error| refused(name, error))?;
-                Ok(json!({
-                    "path": arguments.path,
-                    "bytes": bytes.len(),
-                })
-                .to_string())
-            }
-            Handler::FilesMkdir => {
-                let arguments: PathArgs = parse(arguments, name)?;
-                let root = self.files_root_for(arguments.root.as_deref())?;
-                files::mkdir(root, Path::new(&arguments.path))
-                    .map_err(|error| refused(name, error))?;
-                Ok(json!({ "path": arguments.path, "created": true }).to_string())
-            }
-            Handler::FilesList => {
-                let arguments: PathArgs = parse(arguments, name)?;
-                let root = self.files_root_for(arguments.root.as_deref())?;
-                let entries = files::list(root, Path::new(&arguments.path))
-                    .map_err(|error| refused(name, error))?;
-                let entries: Vec<Value> = entries
-                    .iter()
-                    .map(|entry| {
-                        json!({
-                            "name": entry.name,
-                            "kind": match entry.kind {
-                                files::Kind::File => "file",
-                                files::Kind::Directory => "directory",
-                                files::Kind::Other => "other",
-                            },
-                            "len": entry.len,
-                        })
-                    })
-                    .collect();
-                Ok(Value::Array(entries).to_string())
-            }
             Handler::MemoryAppend => {
                 let arguments: AppendArgs = parse(arguments, name)?;
                 let entry = self
@@ -1916,10 +1852,6 @@ fn jsonrpc_error(id: Value, code: i32, message: &str) -> Value {
 /// One implementation of one registry tool.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Handler {
-    FilesRead,
-    FilesWrite,
-    FilesMkdir,
-    FilesList,
     MemoryAppend,
     MemoryUpdate,
     MemoryDelete,
@@ -1973,10 +1905,6 @@ enum Handler {
 /// registry entry fails `every_implementation_is_registered`. `tools/list` cannot advertise a tool
 /// the surface cannot run without that test going red.
 const HANDLERS: &[(&str, Handler)] = &[
-    ("files.read", Handler::FilesRead),
-    ("files.write", Handler::FilesWrite),
-    ("files.mkdir", Handler::FilesMkdir),
-    ("files.list", Handler::FilesList),
     ("memory.append", Handler::MemoryAppend),
     ("memory.update", Handler::MemoryUpdate),
     ("memory.delete", Handler::MemoryDelete),
@@ -2073,7 +2001,7 @@ fn handler(name: &str) -> Option<Handler> {
 /// Whether the surface can run `name`. Read by the registry-alignment test.
 #[cfg(test)]
 fn dispatch_supports(name: &str) -> bool {
-    handler(name).is_some()
+    handler(name).is_some() || crate::capabilities::owns(name)
 }
 
 impl ServerHandler for DeviceServer {
@@ -2190,80 +2118,13 @@ impl DeviceServer {
 /// is never asked for a schema, and a declared tool with no entry gets the empty object schema
 /// rather than disappearing from the list.
 fn input_schema(definition: &ToolDef) -> Value {
+    // **THE DECLARATION OWNS THE SCHEMA (round 15).** A migrated capability writes it beside its
+    // tools; the legacy match below is the fallback for the capabilities still in the table, and
+    // `every_registry_tool_has_a_declared_schema` counts them down.
+    if let Some(schema) = definition.schema {
+        return schema();
+    }
     match definition.name {
-        "files.read" => json!({
-            "type": "object",
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "A path relative to the device's files root, e.g. notes/todo.txt."
-                },
-                "root": {
-                    "type": "string",
-                    "enum": ["workspace", "shared"],
-                    "description": "Which configured root the path is relative to. workspace is the default; shared exists only when the operator configured it."
-                },
-                "encoding": {
-                    "type": "string",
-                    "enum": ["utf8", "base64"],
-                    "description": "How to return the bytes. utf8 (the default) is the file's text and fails on a file that is not text; base64 returns the bytes encoded, for a file that is not text."
-                }
-            },
-            "required": ["path"],
-            "additionalProperties": false
-        }),
-        "files.write" => json!({
-            "type": "object",
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "A path relative to the device's files root; its parent must exist (create it with files.mkdir)."
-                },
-                "root": {
-                    "type": "string",
-                    "enum": ["workspace", "shared"],
-                    "description": "Which configured root the path is relative to. workspace is the default; shared exists only when the operator configured it."
-                },
-                "content": {
-                    "type": "string",
-                    "description": "The bytes to write, at most 1 MiB, encoded as the `encoding` says. It replaces the file's bytes."
-                },
-                "encoding": {
-                    "type": "string",
-                    "enum": ["utf8", "base64"],
-                    "description": "How `content` encodes the bytes: utf8 (the default) for text, base64 for anything else. The 1 MiB limit applies to the decoded bytes."
-                }
-            },
-            "required": ["path", "content"],
-            "additionalProperties": false
-        }),
-        "files.mkdir" => json!({
-            "type": "object",
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "One directory relative to the files root, e.g. notes; its parent must exist. It never overwrites or deletes."
-                },
-                "root": {
-                    "type": "string",
-                    "enum": ["workspace", "shared"],
-                    "description": "Which configured root the path is relative to. workspace is the default; shared exists only when the operator configured it."
-                }
-            },
-            "required": ["path"],
-            "additionalProperties": false
-        }),
-        "files.list" => json!({
-            "type": "object",
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "A directory relative to the files root; \"\" lists the root. Returns at most 1000 entries, sorted; a larger directory is an error."
-                }
-            },
-            "required": ["path"],
-            "additionalProperties": false
-        }),
         "memory.append" => json!({
             "type": "object",
             "properties": {
@@ -3008,7 +2869,7 @@ fn input_schema(definition: &ToolDef) -> Value {
 }
 
 /// Why a call did not produce a successful text result.
-enum ToolError {
+pub(crate) enum ToolError {
     /// The arguments do not match the tool's input schema.
     Arguments(String),
     /// The capability refused or failed; the sentence is for the client to render.
@@ -3031,7 +2892,10 @@ enum ToolError {
 /// `invalid type: string, expected …` (which names the type, not the bytes) — and this rule KEEPS those three
 /// and DROPS everything else, because a `DataError` on a nested type can quote a value (`invalid value: string
 /// "SENTINELVALUE"`). The categories that are not about a field keep their sentence.
-fn parse<T: DeserializeOwned>(arguments: Map<String, Value>, tool: &str) -> Result<T, ToolError> {
+pub(crate) fn parse<T: DeserializeOwned>(
+    arguments: Map<String, Value>,
+    tool: &str,
+) -> Result<T, ToolError> {
     serde_json::from_value(Value::Object(arguments)).map_err(|error| {
         let reason = match error.classify() {
             serde_json::error::Category::Data => {
@@ -3648,49 +3512,6 @@ fn run_failure_sentence(run: &runs::ExecResult) -> String {
         Some(code) => format!("run {} exited {code} in {} ms", run.id, run.duration_ms),
         None => format!("run {} ended without an exit code", run.id),
     }
-}
-
-/// The arguments `files.read` and `files.list` take.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct PathArgs {
-    path: String,
-    /// `workspace` (the default) or the operator-configured `shared` root.
-    root: Option<String>,
-}
-
-/// The arguments `files.write` takes.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct WriteArgs {
-    path: String,
-    root: Option<String>,
-    content: String,
-    /// How `content` encodes the bytes: text (the default) or base64.
-    #[serde(default)]
-    encoding: Encoding,
-}
-
-/// The two encodings the file tools accept and return.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum Encoding {
-    /// UTF-8 text: the default, and what a human-readable file is.
-    #[default]
-    Utf8,
-    /// Base64, for bytes that are not text.
-    Base64,
-}
-
-/// The arguments `files.read` takes.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ReadArgs {
-    path: String,
-    root: Option<String>,
-    /// How to return the bytes: text (the default) or base64.
-    #[serde(default)]
-    encoding: Encoding,
 }
 
 /// The arguments `memory.append` takes.
@@ -7374,9 +7195,8 @@ mod tests {
         for name in &registry {
             assert!(
                 dispatch_supports(name),
-                "{name} is advertised but has no dispatch row; add it to HANDLERS"
+                "{name} is advertised but has no dispatch row: add it to HANDLERS or a capability module"
             );
-            assert!(handler(name).is_some());
         }
 
         for (name, _) in HANDLERS {
@@ -7387,13 +7207,100 @@ mod tests {
             assert!(dispatch_supports(name));
         }
 
-        let mut implementations: Vec<&str> = HANDLERS.iter().map(|(name, _)| *name).collect();
+        let mut implementations: Vec<&str> = HANDLERS
+            .iter()
+            .map(|(name, _)| *name)
+            .chain(crate::capabilities::names())
+            .collect();
         implementations.sort_unstable();
         registry.sort_unstable();
         assert_eq!(
             implementations, registry,
             "the registry and the dispatch table must name the same tools"
         );
+    }
+
+    /// **A MIGRATED TOOL OWNS ITS SCHEMA AND ITS GUIDE (round 15).** The declaration is the one
+    /// place; the legacy schema match and the legacy dispatch table must not still carry it.
+    #[test]
+    fn every_migrated_tool_has_a_declared_schema_and_a_guide() {
+        let files = summrise_core::capabilities::files::CAPABILITY;
+        assert!(
+            !files.guide.is_empty(),
+            "files: a migrated capability has a guide"
+        );
+        for tool in files.tools {
+            assert!(
+                tool.schema.is_some(),
+                "{}: a migrated capability declares its schema beside its tools",
+                tool.name
+            );
+        }
+        for name in crate::capabilities::names() {
+            assert!(
+                handler(name).is_none(),
+                "{name}: a migrated tool left the legacy dispatch table"
+            );
+        }
+        for name in crate::capabilities::names() {
+            assert!(
+                summrise_core::registry::tool(name).is_some(),
+                "{name}: the declaration is in the registry"
+            );
+        }
+    }
+
+    /// The guide is generated from the declarations; every migrated tool appears once, and no tool
+    /// outside them appears as its own heading.
+    #[test]
+    fn the_guide_names_each_migrated_tool_once() {
+        let guide = summrise_core::registry::guide();
+        let mut headings = 0;
+        for tool in summrise_core::capabilities::files::CAPABILITY.tools {
+            let heading = format!("## {}", tool.name);
+            assert_eq!(
+                guide.matches(&heading).count(),
+                1,
+                "{}: one heading per tool",
+                tool.name
+            );
+            headings += 1;
+        }
+        assert_eq!(
+            guide.matches("## files.").count(),
+            headings,
+            "the guide has no heading for a tool the declaration does not own"
+        );
+        assert!(guide.starts_with("# files"), "the capability heading leads");
+    }
+
+    /// The advertised schema is the declaration's, not a copy: a change in the module changes the
+    /// wire without touching the surface.
+    #[test]
+    fn the_files_schema_comes_from_the_declaration() {
+        let declared = summrise_core::capabilities::files::CAPABILITY
+            .tools
+            .iter()
+            .find(|tool| tool.name == "files.read")
+            .expect("files.read is declared");
+        let schema = (declared
+            .schema
+            .expect("a migrated tool declares its schema"))();
+        let advertised = summrise_core::registry::tool("files.read").expect("in the registry");
+        assert_eq!(input_schema(advertised), schema);
+        assert_eq!(
+            schema["properties"]["path"]["type"], "string",
+            "the schema is the one the surface serves"
+        );
+    }
+
+    /// A name the capability does not declare is not its call to answer: the router leaves it to
+    /// the plugin path, so a plugin may still own that name.
+    #[test]
+    fn an_unknown_files_tool_falls_through_the_capability_router() {
+        assert!(crate::capabilities::owns("files.read"));
+        assert!(!crate::capabilities::owns("files.nope"));
+        assert!(!crate::capabilities::owns("files"));
     }
 
     /// **EVERY ADVERTISED SCHEMA IS A REAL OBJECT SCHEMA, AND NO TOOL FALLS INTO THE FALLBACK.**
