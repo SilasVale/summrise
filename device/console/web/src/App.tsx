@@ -22,7 +22,8 @@ import { mergeActivityWindow, type WindowCounts } from "./activityMerge";
 import { activityDaySentence } from "./activitySummary";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { useJoinMarks } from "./useJoinMarks";
-import { directClientCalls, machineContribution, machineCounts, mergeMachineRows } from "./machineRows";
+import { machineCounts, mergeMachineRows } from "./machineRows";
+import { useMachineDay } from "./useMachineDay";
 import { useMachineRows } from "./useMachineRows";
 import { DEVICE_TAB_LABELS, PAGE_LABELS, Rail, type DeviceTab, type Page } from "./Rail";
 import { Modal } from "./Modal";
@@ -107,6 +108,17 @@ type AuditRead =
   | { state: "reading" }
   | { state: "failed"; reason: string }
   | { state: "ready" };
+
+/** The block the day sentence counts: the console's cut plus 24 hours, or the page's own midnights. */
+function machineDayBlock(cut: number | null): { from: number; to: number } {
+  if (cut !== null) return { from: cut, to: cut + 24 * 60 * 60_000 };
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  end.setHours(0, 0, 0, 0);
+  return { from: start.getTime(), to: end.getTime() };
+}
 
 export function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -560,15 +572,67 @@ export function App() {
     : daySummary !== null && daySummary.device === auditScopeDevice
       ? daySummary
       : null;
-  const activityCount =
-    shownDay !== null && !auditReadingOther
-      ? activityDaySentence(shownDay.day)
-      : null;
   // **THE LABELS CUT WHERE THE COUNT CUT (the forty-fourth list).** The timeline used to group its
   // rows at the BROWSER's midnight, so a reader whose zone differed from the console host's saw a
   // `Today` label over an interval the day line had not counted. The answer names its midnight; the
   // page hands it to the labels. No answer (a failed read) falls back to the browser's own day.
   const shownDayStartMs = shownDay !== null ? shownDay.day.day_start_ms ?? null : null;
+  /**
+   * **THE MACHINE'S OWN DAY (round 12).** A client may call the machine directly, and the console's
+   * day sentence counts only its audit. A page of rows is not a day, so the machine is asked for the
+   * day's counts, and its `loopback` calls are added to the sentence with a clause that names them.
+   * The block is the one the labels index: the console's cut plus 24 hours, or the page's own
+   * midnights when the answer names no cut.
+   */
+  // Recomputed on every render (two `Date`s): the fallback block must move at midnight, and a memo
+  // keyed on the cut alone would pin the mount day until a new day answer arrived.
+  const machineDayRange = machineDayBlock(shownDayStartMs);
+  // **A PAUSED HEADER COUNTS THE DAY IT FROZE.** The machine's day is asked for the device the header
+  // describes, not the scope a paused page has since been pointed at; its cached answer keeps the
+  // frozen sentence whole.
+  const machineDayDevice = activityPaused && frozenActivity ? frozenDevice : auditScopeDevice;
+  const machineDay = useMachineDay(
+    machineDayDevice,
+    machineDayDevice === null ? null : machineDayRange.from,
+    machineDayDevice === null ? null : machineDayRange.to
+  );
+  // The header describes the window it froze; a new scope's day must not be merged into it.
+  const machineDayForHeader =
+    shownWindowDevice === machineDayDevice ? machineDay : { state: "idle" as const, answer: null, error: null };
+  const directDay = useMemo(() => {
+    const answer = machineDayForHeader.answer;
+    if (machineDayForHeader.state !== "read" || answer === null) return null;
+    if (answer.unknown || !answer.journal) return null;
+    return {
+      calls: answer.calls.loopback.calls,
+      failed: answer.calls.loopback.failed,
+      more: answer.more
+    };
+  }, [machineDayForHeader]);
+  /**
+   * **A DAY THE MACHINE COULD NOT COUNT IS NOT A ZERO.** If the machine answered `unknown` or the
+   * read failed, the sentence keeps the console's numbers and the page says the direct calls were
+   * not counted, with the console's reason. A machine with no journal says nothing: its day is
+   * complete in the console's audit.
+   */
+  const machineDayUnread =
+    directDay === null &&
+    machineDayDevice !== null &&
+    shownWindowDevice === auditScopeDevice &&
+    activityRange === null &&
+    (machineDayForHeader.state === "failed" ||
+      (machineDayForHeader.state === "read" && machineDayForHeader.answer?.unknown === true));
+  const machineDayNote =
+    machineDayUnread
+      ? `The machine's direct calls were not counted: ${
+          machineDayForHeader.error ?? "this machine did not answer for its journal"
+        }.`
+      : null;
+  const activityCount =
+    shownDay !== null && !auditReadingOther
+      ? activityDaySentence(shownDay.day, directDay)
+      : null;
+
   /**
    * Whether a successful window for the current scope is in hand. The day answer and the rows
    * arrive together, so their scope is the same fact; a failed reread leaves both where they were.
@@ -617,12 +681,6 @@ export function App() {
    * 10): the newest 200 rows are minutes on a busy machine, and the footer offers the rest.
    */
   const machineRead = useMachineRows(auditScopeDevice, auditReadingName);
-  // The rows only the machine recorded: the merge's own filter, named, because the header needs the
-  // same set the footer counts (and the merge does not hand it back).
-  const machineOnly = useMemo(
-    () => machineContribution(shownActivity, machineRead.rows),
-    [shownActivity, machineRead.rows]
-  );
   const machineLines = useMemo(
     () => mergeMachineRows(shownActivity, machineRead.rows),
     [shownActivity, machineRead.rows]
@@ -630,33 +688,6 @@ export function App() {
   // The difference is exactly the machine's contribution: the merge keeps every console row and only
   // ever drops a machine row as the duplicate of one.
   const machine = machineCounts(machineRead, machineLines.length - shownActivity.length);
-  /**
-   * **THE CLIENT CALLS THE CONSOLE'S DAY CANNOT COUNT (round 11).** A client that calls the machine's
-   * own endpoint is recorded only in the machine's journal (the `loopback` door); the day sentence
-   * counts the console's audit, the same number the hub serves, and must not be inflated with a
-   * partial window's rows. So the page names those calls beside the count instead: they are real
-   * client calls, and without the line the reader had no way to reconcile the header with the rows.
-   * The line is about the rows drawn (`drawn today`), not a day total — the machine window is a page,
-   * and a window that starts after midnight cannot speak for the whole day.
-   */
-  const directToday = useMemo(() => {
-    // **THE BLOCK IS THE LABEL'S.** With a cut from the console's day answer, the labels index
-    // 24-hour steps from it, so the block is `[cut, cut + 24h)` whatever the zone does in between.
-    // Without one, the labels fall back to the page's own midnights, and so does this.
-    if (shownDayStartMs !== null) {
-      return directClientCalls(machineOnly, {
-        from: shownDayStartMs,
-        to: shownDayStartMs + 24 * 60 * 60_000
-      });
-    }
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(start);
-    end.setDate(end.getDate() + 1);
-    end.setHours(0, 0, 0, 0);
-    return directClientCalls(machineOnly, { from: start.getTime(), to: end.getTime() });
-  }, [machineOnly, shownDayStartMs]);
-
   /**
    * The header's line, or none. A failed read has no state sentence of its own: the banner names
    * the failure and the notice says what the page can still show, so `The audit could not be read.`
@@ -1546,18 +1577,8 @@ export function App() {
                     {activityCount}
                   </p>
                 )}
-                {activityCount !== null &&
-                  activityRange === null &&
-                  // The header describes the window it froze; a new scope's machine rows must not be
-                  // counted into the old day's sentence while the page is paused.
-                  shownWindowDevice === auditScopeDevice &&
-                  directToday.calls > 0 && (
-                  <p className="activity-direct">
-                    {directToday.calls === 1
-                      ? "1 call drawn today came straight to this machine, not through this console"
-                      : `${directToday.calls} calls drawn today came straight to this machine, not through this console`}
-                    {directToday.failed > 0 ? ` (${directToday.failed} failed)` : ""}.
-                  </p>
+                {activityCount !== null && machineDayNote !== null && (
+                  <p className="activity-direct">{machineDayNote}</p>
                 )}
                 {/* **THE FAILED READ HAS ONE SENTENCE, AND IT IS THE BANNER'S.** This line is
                     the page's state (following, reading, paused, lagging) and is absent when the

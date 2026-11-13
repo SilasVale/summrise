@@ -176,11 +176,18 @@ export function activityCounts(lines: readonly AuditLine[], now = Date.now()): A
  * 59 console reads could be read as the 2, and the 2 are the console's failures, not its calls
  * (audit-40 F9).
  */
-function activitySentenceBody(counts: ActivityCounts): string {
+function activitySentenceBody(counts: ActivityCounts, direct: DirectDayCalls | null = null): string {
   const calls = counts.client === 1 ? "client call" : "client calls";
   let sentence = `Today: ${counts.client} ${calls}`;
   if (counts.clientFailed > 0) sentence += `, ${counts.clientFailed} failed`;
   const clauses: string[] = [];
+  // A zero is not a fact: a machine with no direct calls in the day says nothing about them.
+  if (direct !== null && direct.calls > 0) {
+    const noun = direct.calls === 1 ? "1 straight to this machine" : `${direct.calls} straight to this machine`;
+    clauses.push(
+      `${direct.more ? "at least " : ""}${noun}${direct.failed > 0 ? ` (${direct.failed} failed)` : ""}`
+    );
+  }
   if (counts.consoleFailed > 0) {
     clauses.push(
       `${counts.consoleFailed} console ${counts.consoleFailed === 1 ? "failure" : "failures"}`
@@ -206,17 +213,38 @@ export function activityCountSentence(counts: ActivityCounts): string {
 }
 
 /**
+ * The day's direct calls, as the machine's own `journal.day` counted them.
+ *
+ * `more` says the machine's scan was cut, so the number the sentence prints is a floor: the page
+ * says "at least" rather than a precise count the machine did not prove.
+ */
+export type DirectDayCalls = {
+  calls: number;
+  failed: number;
+  more: boolean;
+};
+
+/**
  * The header's day sentence, from the day's own read rather than the fetched window.
  *
  * The measured defect: Activity read `Today 269 client calls · 39 failed` while the same local day
  * held 649 calls and 74 failures, because the number was counted from a 1,000-line window that slid
  * forward. This sentence takes `/audit/day`'s counts (the hub's rule and the fleet's `today`), and
  * appends `since` when the file starts after midnight instead of calling a partial day whole.
+ *
+ * **A DIRECT CALL IS A CLIENT CALL THE CONSOLE NEVER SAW (round 12).** When the page has the
+ * machine's own day, its `loopback` count is added to the client calls and failures, and a clause
+ * names the share: the sentence is the machine's day, and the clause says which part reached the
+ * machine without passing through this console. The hub's fleet number is untouched — fleet asks no
+ * machine's journal.
  */
-export function activityDaySentence(day: AuditDay): string {
+export function activityDaySentence(
+  day: AuditDay,
+  direct: DirectDayCalls | null = null
+): string {
   const counts: ActivityCounts = {
-    client: day.client_calls,
-    clientFailed: day.failed,
+    client: day.client_calls + (direct?.calls ?? 0),
+    clientFailed: day.failed + (direct?.failed ?? 0),
     console: day.console,
     consoleFailed: day.console_failed,
     poll: day.poll,
@@ -224,7 +252,7 @@ export function activityDaySentence(day: AuditDay): string {
     unattributed: day.unattributed,
     unattributedFailed: day.unattributed_failed
   };
-  return `${activitySentenceBody(counts)}${coverageClause(day)}.`;
+  return `${activitySentenceBody(counts, direct)}${coverageClause(day)}.`;
 }
 
 /** The sentence from a window and the moment it is read. */

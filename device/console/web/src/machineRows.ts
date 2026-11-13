@@ -1,5 +1,4 @@
 import type { AuditLine, MachineReadAnswer, MachineRow } from "./api";
-import { auditFailed } from "./auditFilter";
 import { callSentence } from "./liveActivity";
 
 /**
@@ -221,32 +220,6 @@ export function machineContribution(
     if (traces.has(row.trace as string)) return false;
     return !untracedConsoleKeys.has(fallbackKey(row));
   });
-}
-
-/**
- * **THE CLIENT CALLS THE CONSOLE'S COUNT CANNOT SEE (round 11).**
- *
- * A client can call the machine's own endpoint — the journal's `loopback` door — and the console
- * never proxies it, so `/audit/day` knows nothing about it. The page's day sentence keeps its basis
- * (the console's audit, the same number the hub serves); this counts the direct calls among the rows
- * the page drew, where the reader can see them.
- */
-export function directClientCalls(
-  lines: readonly AuditLine[],
-  day?: { from: number; to: number }
-): { calls: number; failed: number } {
-  // The day the header counts is the block the timeline's labels index: the console's cut plus
-  // 24-hour steps, or (when the answer names no cut) the page's own midnight boundaries. The caller
-  // supplies both ends, so a row the reader sees under today's label is the row counted here.
-  let calls = 0;
-  let failed = 0;
-  for (const line of lines) {
-    if (line.door !== "loopback") continue;
-    if (day !== undefined && (line.ts_ms < day.from || line.ts_ms >= day.to)) continue;
-    calls += 1;
-    if (auditFailed(line)) failed += 1;
-  }
-  return { calls, failed };
 }
 
 export function mergeMachineRows(

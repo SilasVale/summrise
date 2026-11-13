@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AuditLine, MachineReadAnswer, MachineRow } from "./api";
 import {
-  directClientCalls,
   EMPTY_MACHINE,
   machineCallRows,
   machineContribution,
@@ -289,48 +288,6 @@ describe("machineContribution", () => {
     const merged = mergeMachineRows([consoleRow], [consoleRow, machineOnly]);
     expect(merged).toHaveLength(2);
     expect(machineContribution([consoleRow], [consoleRow, machineOnly])).toHaveLength(1);
-  });
-});
-
-describe("directClientCalls", () => {
-  it("counts the loopback door as a client call, and no other door", () => {
-    const counts = directClientCalls([
-      line({ door: "loopback", trace: "a" }),
-      line({ door: "loopback", trace: "b", status: 424, ok: false }),
-      line({ door: "panel", trace: "c" }),
-      line({ door: "mesh", trace: "d" }),
-      line({ door: "console", trace: "e" })
-    ]);
-    expect(counts).toEqual({ calls: 2, failed: 1 });
-  });
-
-  it("counts a refusal as a failure by the audit's own rule", () => {
-    expect(directClientCalls([line({ door: "loopback", ok: false, status: 200 })])).toEqual({
-      calls: 1,
-      failed: 1
-    });
-    expect(
-      directClientCalls([line({ door: "loopback", detail: "jsonrpc error -32001", status: 200 })])
-    ).toEqual({ calls: 1, failed: 1 });
-  });
-
-  it("counts the console's day block, not a caller's guess at it", () => {
-    const start = Date.parse("2026-11-05T00:00:00.000Z");
-    const counts = directClientCalls(
-      [
-        line({ door: "loopback", trace: "before", ts_ms: start - 1 }),
-        line({ door: "loopback", trace: "at-start", ts_ms: start }),
-        line({ door: "loopback", trace: "late", ts_ms: start + 24 * 60 * 60_000 - 1 }),
-        line({ door: "loopback", trace: "next-day", ts_ms: start + 24 * 60 * 60_000 })
-      ],
-      { from: start, to: start + 24 * 60 * 60_000 }
-    );
-    expect(counts).toEqual({ calls: 2, failed: 0 });
-  });
-
-  it("counts nothing when no direct call was drawn", () => {
-    expect(directClientCalls([])).toEqual({ calls: 0, failed: 0 });
-    expect(directClientCalls([line({ door: "panel" })])).toEqual({ calls: 0, failed: 0 });
   });
 });
 

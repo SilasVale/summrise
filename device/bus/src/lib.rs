@@ -229,6 +229,35 @@ impl Bus {
     }
 
     /// The last durable sequence. Zero when the journal is empty.
+    /// The rows whose moment falls in `[from_ms, to_ms)`, newest first, at most `limit` rows.
+    ///
+    /// A read of a machine's own record by time, for the one question its page asks that a page of
+    /// rows cannot answer: how many calls did a day hold. `more` is true when the day held more rows
+    /// than the answer — the caller's counts are then "at least".
+    ///
+    /// The scan walks the journal from its newest row backwards and stops at the first row older
+    /// than the range: the journal appends each envelope with its own moment, so its order is that
+    /// order. A clock that steps backwards writes a row out of that order, and a full scan would be
+    /// the only way to find it; the reader accepts the journal's order, as every other read does.
+    pub fn read_between(
+        &self,
+        from_ms: u64,
+        to_ms: u64,
+        limit: usize,
+    ) -> io::Result<(Vec<Envelope>, bool)> {
+        if limit == 0 || to_ms <= from_ms {
+            return Ok((Vec::new(), false));
+        }
+        let indices: Vec<u64> = {
+            let journal = self
+                .journal
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            journal.segments.keys().copied().collect()
+        };
+        read_between_from(&self.dir, &indices, from_ms, to_ms, limit)
+    }
+
     pub fn last_seq(&self) -> u64 {
         self.seq.load(Ordering::SeqCst)
     }
@@ -545,6 +574,58 @@ fn read_window_from(
                 continue;
             };
             if before_seq.is_some_and(|before| envelope.seq >= before) {
+                continue;
+            }
+            if rows.len() == limit {
+                return Ok((rows, true));
+            }
+            rows.push(envelope);
+        }
+    }
+    Ok((rows, false))
+}
+
+/// The moment a row says it happened, in Unix milliseconds; `None` when the row's `ts` is not one.
+fn envelope_moment_ms(ts: &str) -> Option<u64> {
+    chrono::DateTime::parse_from_rfc3339(ts)
+        .ok()
+        .map(|at| u64::try_from(at.timestamp_millis()).unwrap_or(0))
+}
+
+/// The rows of one time range, newest first, walking segments and lines backwards.
+///
+/// A row whose `ts` cannot be read is skipped: it belongs to no day this reader can count, and a
+/// malformed moment must not become "inside every range". Rows at or after `to_ms` are skipped but
+/// the scan continues — a machine's clock can step forward across a day's end.
+fn read_between_from(
+    dir: &Path,
+    indices: &[u64],
+    from_ms: u64,
+    to_ms: u64,
+    limit: usize,
+) -> io::Result<(Vec<Envelope>, bool)> {
+    let mut rows = Vec::new();
+    for &index in indices.iter().rev() {
+        let bytes = match fs::read(dir.join(segment_name(index))) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error),
+        };
+        for line in bytes.split(|byte| *byte == b'\n').rev() {
+            if line.is_empty() {
+                continue;
+            }
+            let Ok(envelope) = serde_json::from_slice::<Envelope>(line) else {
+                continue;
+            };
+            let Some(moment) = envelope_moment_ms(&envelope.ts) else {
+                continue;
+            };
+            if moment < from_ms {
+                // The journal's order is its moments: every row below this one is older.
+                return Ok((rows, false));
+            }
+            if moment >= to_ms {
                 continue;
             }
             if rows.len() == limit {
@@ -994,6 +1075,113 @@ mod tests {
             rows.is_empty() && !more,
             "nothing is older than the oldest row: {rows:?} {more}"
         );
+    }
+
+    /// Seed one segment with chosen moments (Unix ms), so a time range can be proved at its edges.
+    fn seed_moments(dir: &Path, moments: &[i64]) {
+        let mut text = String::new();
+        for (index, moment) in moments.iter().enumerate() {
+            let envelope = Envelope {
+                v: SCHEMA_VERSION,
+                plane: Plane::Control,
+                seq: index as u64 + 1,
+                ts: chrono::DateTime::from_timestamp_millis(*moment)
+                    .unwrap()
+                    .to_rfc3339(),
+                kind: "e".to_owned(),
+                subject: None,
+                trace: None,
+                payload: serde_json::json!({ "i": index }),
+            };
+            text.push_str(&serde_json::to_string(&envelope).unwrap());
+            text.push('\n');
+        }
+        fs::write(dir.join(segment_name(1)), text).unwrap();
+    }
+
+    #[test]
+    fn read_between_includes_the_start_and_excludes_the_end() {
+        let dir = temp_dir("read-between-edges");
+        seed_moments(&dir, &[1_000, 2_000, 3_000]);
+        let bus = Bus::open(&dir).unwrap();
+
+        let (rows, more) = bus.read_between(1_000, 3_000, 10).unwrap();
+        let seqs: Vec<u64> = rows.iter().map(|row| row.seq).collect();
+        assert_eq!(
+            seqs,
+            vec![2, 1],
+            "the start is inside, the end is not: {seqs:?}"
+        );
+        assert!(!more, "the range is fully answered");
+
+        let (rows, _) = bus.read_between(3_000, 4_000, 10).unwrap();
+        let seqs: Vec<u64> = rows.iter().map(|row| row.seq).collect();
+        assert_eq!(seqs, vec![3], "a row exactly at the start is in its day");
+    }
+
+    #[test]
+    fn read_between_stops_at_the_limit_and_says_more_lie_older() {
+        let dir = temp_dir("read-between-limit");
+        seed_moments(&dir, &[1_000, 2_000, 3_000, 4_000]);
+        let bus = Bus::open(&dir).unwrap();
+
+        let (rows, more) = bus.read_between(0, 5_000, 2).unwrap();
+        let seqs: Vec<u64> = rows.iter().map(|row| row.seq).collect();
+        assert_eq!(
+            seqs,
+            vec![4, 3],
+            "the newest rows of the range, newest first"
+        );
+        assert!(more, "rows 2 and 1 are still inside the range");
+
+        let (rows, more) = bus.read_between(0, 5_000, 10).unwrap();
+        assert_eq!(rows.len(), 4);
+        assert!(!more, "the whole range fits");
+    }
+
+    #[test]
+    fn read_between_of_an_empty_or_reversed_range_answers_nothing() {
+        let dir = temp_dir("read-between-empty");
+        seed_moments(&dir, &[1_000, 2_000]);
+        let bus = Bus::open(&dir).unwrap();
+        assert!(bus.read_between(1_000, 1_000, 10).unwrap().0.is_empty());
+        assert!(bus.read_between(2_000, 1_000, 10).unwrap().0.is_empty());
+        assert!(bus.read_between(0, 5_000, 0).unwrap().0.is_empty());
+        // A range that ends before the journal starts is complete, not "more".
+        let (rows, more) = bus.read_between(0, 500, 10).unwrap();
+        assert!(rows.is_empty() && !more, "{rows:?} {more}");
+        // And one that starts after the journal ends is complete too.
+        let (rows, more) = bus.read_between(5_000, 6_000, 10).unwrap();
+        assert!(rows.is_empty() && !more, "{rows:?} {more}");
+    }
+
+    #[test]
+    fn read_between_skips_a_row_whose_moment_cannot_be_read() {
+        let dir = temp_dir("read-between-bad-ts");
+        let mut text = String::new();
+        let good = Envelope {
+            v: SCHEMA_VERSION,
+            plane: Plane::Control,
+            seq: 1,
+            ts: chrono::DateTime::from_timestamp_millis(2_000)
+                .unwrap()
+                .to_rfc3339(),
+            kind: "e".to_owned(),
+            subject: None,
+            trace: None,
+            payload: serde_json::json!({}),
+        };
+        let mut bad = good.clone();
+        bad.seq = 2;
+        bad.ts = "not a moment".to_owned();
+        text.push_str(&serde_json::to_string(&good).unwrap());
+        text.push('\n');
+        text.push_str(&serde_json::to_string(&bad).unwrap());
+        text.push('\n');
+        fs::write(dir.join(segment_name(1)), text).unwrap();
+        let bus = Bus::open(&dir).unwrap();
+        let (rows, _) = bus.read_between(0, 3_000, 10).unwrap();
+        assert_eq!(rows.iter().map(|row| row.seq).collect::<Vec<_>>(), vec![1]);
     }
 
     #[test]

@@ -364,6 +364,35 @@ describe("activityCountSentence", () => {
     );
   });
 
+  it("adds the machine's direct calls to the day's number and names their share", () => {
+    const day = {
+      client_calls: 10,
+      failed: 1,
+      console: 0,
+      console_failed: 0,
+      poll: 0,
+      poll_failed: 0,
+      unattributed: 0,
+      unattributed_failed: 0
+    };
+    expect(activityDaySentence(day, { calls: 2, failed: 1, more: false })).toBe(
+      "Today: 12 client calls, 2 failed — 2 straight to this machine (1 failed)."
+    );
+    // A single direct call, and a failure clause only when there is one.
+    expect(activityDaySentence(day, { calls: 1, failed: 0, more: false })).toBe(
+      "Today: 11 client calls, 1 failed — 1 straight to this machine."
+    );
+    // The machine's scan was cut: the number is a floor and says so.
+    expect(activityDaySentence(day, { calls: 3, failed: 0, more: true })).toBe(
+      "Today: 13 client calls, 1 failed — at least 3 straight to this machine."
+    );
+    // A machine that counted nothing adds nothing: a zero is not a clause.
+    expect(activityDaySentence(day, { calls: 0, failed: 0, more: false })).toBe(
+      "Today: 10 client calls, 1 failed."
+    );
+    expect(activityDaySentence(day, null)).toBe("Today: 10 client calls, 1 failed.");
+  });
+
   it("says since when the day's file starts after midnight", () => {
     const since = new Date(2026, 10, 5, 3, 12, 0).getTime();
     const day = {
