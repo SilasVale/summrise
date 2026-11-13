@@ -16,7 +16,7 @@ export const TOOL_NAMES = [
   "system.process_list", "system.process_kill", "system.net_test",
   "host.facts",
   "screen.capture",
-  "state.get"
+  "state.get", "journal.get"
 ];
 
 /**

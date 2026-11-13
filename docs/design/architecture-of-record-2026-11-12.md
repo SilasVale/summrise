@@ -142,6 +142,24 @@ is not one it minted itself: its own call is already a row from the audit, and a
 loopback call reaches Activity only through this path. The gap the paragraph above described is
 closed; what remains is the page drawing the join (the archived/replayable marking).
 
+**Shipped (2026-11-13): the join drawn.** The join key existed on both records and nothing read it, so
+Activity could not say which of the rows it drew the machine could still prove. The device now offers
+`journal.get` (`journal` capability): for a bounded list of traces it answers which ones its retained
+journal still holds, the ones it does not, and its retained bounds (`oldest_seq`/`last_seq`), with
+`bounded: true` when its scan stopped at its cap so a negative from a bounded scan is never read as
+absence. The console serves `GET /audit/join?device=&traces=`, which asks that tool over the device's
+own channel under the operator's scope, mints a trace so the read stays out of Activity, and writes no
+audit line of its own — a read that audited itself would grow the window it describes. The page asks
+once per machine window (at most 128 traces, debounced, re-asked after 30 s because a journal rotates)
+and marks **only the deviation**: a call the machine's journal no longer holds wears `only here`, a call
+both records hold wears nothing and has the agreement stated in its opened record, and a call the
+console could not check — a fleet window, an older machine without the tool, a failed read, a bounded
+scan — is `unknown` and is never marked as lost. The rule the route and the mark both keep is that the
+machine's answer is asked, not inferred: a rotated journal is not contiguous with a rotated audit file,
+so an interval would be a guess and a missing answer is not evidence. What remains is replay: a call
+the console's own window has rotated away is still unreachable, because the audit holds no `seq` into
+the machine's journal, and drawing a device-only call in Activity needs `journal.read`.
+
 ### 4.3 Data plane
 
 A stream has an id (`terminal:<device>/<session>`, `file:<id>`, `screen:<id>`) and a byte offset.
@@ -166,7 +184,13 @@ new journal — a rollback, a data-directory reset — starts a new epoch, and e
 
 `replay(from)`: inside the window, replay from `from`; past it, `reset{snapshot_seq, lost:{from,to}}`.
 The snapshot is always at or before the deletion boundary, so the lost range is named rather than
-silently skipped. A journal append that fails refuses the mutating call (`begin`); a failed `end` is
+silently skipped.
+
+`journal.get` answers the join the other way round: given the traces a page is drawing, it scans the
+retained rows newest first (`Bus::scan_newest`) and says which of them are still there, plus
+`oldest_seq`/`last_seq`. It is presence-only — no payload, no replay — and its scan stops at
+`SCAN_ROWS = 10 000`, which it reports as `bounded: true`; a trace absent from a bounded scan is not
+proof of absence, so the console relays that as `unknown` rather than as a lost call. A journal append that fails refuses the mutating call (`begin`); a failed `end` is
 reported as a lost row and the call still returns — the existing audit policy (`mcp.rs:3196-3199`).
 
 ### 4.5 Subscription

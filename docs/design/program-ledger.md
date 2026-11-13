@@ -192,6 +192,22 @@ below ladders to that; one round completes one major item end to end.
   asserts the join across the two real processes (`trace console-c794ca57dd780286-1: audit line joins
   journal seq 2 -> 3`).
 
+- 2026-11-13 — **The join is drawn: Activity says which calls the machine can still prove.** The key
+  existed on both records since the last item and nothing read it. Now the device offers `journal.get`
+  (a new `journal` capability, one read-only tool, registered after `state`): for a bounded list of
+  traces it scans the retained journal newest first (`Bus::scan_newest`) and answers which of them are
+  still there, which are not, and its own `oldest_seq`/`last_seq`, with `bounded: true` when the scan
+  stopped at its 10 000-row cap. The console serves `GET /audit/join?device=&traces=` (at most 128),
+  which asks that tool down the device's own channel under the operator's scope, mints a trace so the
+  console's relay drops the `call.*` pair the machine writes for the read, and **writes no audit line
+  and no live event of its own** — a read that audited itself would grow the window it describes. An
+  older machine's refusal or an unreadable answer is `unknown`, never `missing`. The page asks once per
+  machine window (debounced, re-asked after 30 s because a journal rotates) and marks only the
+  deviation: a row the journal no longer holds wears `only here` with the reason in its opened record,
+  a row both records hold wears nothing and has the agreement stated there, and a fleet window (no one
+  journal answers for it), an older machine, a failed read or a bounded scan is `unknown` and is never
+  drawn as lost. Evidence below.
+
 ## Next (in order)
 
 1. Windows handoff, the interactive half — dispatch or run `summrise-shell.exe --check-window` in an
@@ -199,10 +215,12 @@ below ladders to that; one round completes one major item end to end.
    verify Authenticode when a certificate is configured. The runner half is green (run 43344130298).
 2. Push `origin`: `main` now contains `origin/main` and `hub/v1` (`0 1242`), so `git push origin main`
    is a fast-forward. This is a publish, and it is the operator's call.
-3. The join drawn: Activity's rows now carry `trace`, but nothing reads it yet. Next is the merge that
-   uses it — a proxied call now exists as the console's audit row *and* as the machine's pair, so the
-   page can mark a row that exists in only one record (the console's window is 8 MiB, the device's
-   64 MiB) and say which rows are archived. Both halves of the key are on the row; the drawing is not.
+3. `journal.read`: a call the console's own window has rotated away cannot be reached at all. The audit
+   line holds no `seq` into the machine's journal, so the page can mark a row as gone but cannot fetch
+   it; a tool that reads a journal range (or an acknowledged write of the call's `seq` onto the audit
+   line, which is the durable fix) is what makes an archived call replayable. Until then Activity draws
+   console rows only, and a device-only call — a panel, mesh or loopback call the console relayed but
+   the audit never wrote — is drawn from the live relay and lost on reload.
 4. Keep improving from what the operator hits (one major item a round, green merges into `hub/v1`).
 
 ## Rules

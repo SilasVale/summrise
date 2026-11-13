@@ -764,6 +764,43 @@ done
 [ -n "$JOIN_INFO" ] || fail "the console audit and the device journal do not share a trace.call for host.facts"
 pass "the two records join on trace.call ($JOIN_INFO)"
 
+# **THE JOIN, ASKED OF THE MACHINE (the ledger's third item).** The two records pairing on a trace is
+# half the fact; the other half is the console answering the page's question about it. `journal.get`
+# goes down the console's own channel, and `/audit/join` is the route the page calls: it must say this
+# call is in the machine's journal, not rotated away, and that the machine keeps a journal at all.
+JOIN_TRACE="$(printf '%s' "$JOIN_INFO" | sed -n 's/^trace \([^:]*\):.*/\1/p')"
+[ -n "$JOIN_TRACE" ] || fail "the join's trace could not be read out of: $JOIN_INFO"
+request console-join GET "$CONSOLE_BASE/audit/join?device=$DEVICE_ID&traces=$JOIN_TRACE" "" \
+    -H "Authorization: Bearer $SESSION"
+assert_status 200 "console GET /audit/join for the call's own trace"
+if ! JOIN_ANSWER="$(python3 - "$LAST_BODY" "$JOIN_TRACE" "$DEVICE_ID" <<'PY'
+import json
+import sys
+
+path, trace, device_id = sys.argv[1], sys.argv[2], sys.argv[3]
+document = json.load(open(path, encoding="utf-8"))
+if document.get("device") != device_id:
+    raise SystemExit(f"the join named device {document.get('device')!r}, not {device_id!r}")
+if document.get("unknown") is not False:
+    raise SystemExit(f"the console could not ask the machine: {document}")
+if document.get("journal") is not True:
+    raise SystemExit(f"the machine says it keeps no journal: {document}")
+if document.get("joined") != [trace]:
+    raise SystemExit(f"the machine's journal does not hold {trace}: {document}")
+if document.get("missing") != []:
+    raise SystemExit(f"the machine's journal calls {trace} missing: {document}")
+if not isinstance(document.get("last_seq"), int) or document["last_seq"] <= 0:
+    raise SystemExit(f"the join's journal bounds are not the machine's: {document}")
+print(
+    f"trace {trace[:24]}… is in the journal (seqs "
+    f"{document.get('oldest_seq')}..{document.get('last_seq')}), unknown false"
+)
+PY
+)"; then
+    fail "console GET /audit/join did not report the call as joined"
+fi
+pass "the console's join route asks the machine and reports the call joined ($JOIN_ANSWER)"
+
 # The credential must never be in either record: both logs name the token record, never the secret.
 if grep -qF "$SRM_TOKEN" "$CONSOLE_AUDIT" "$DEVICE_AUDIT" 2>/dev/null; then
     fail "a permanent token secret was written to an audit file"

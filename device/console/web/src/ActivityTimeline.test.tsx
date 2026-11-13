@@ -1493,3 +1493,119 @@ describe("ActivityTimeline's day door", () => {
     expect(onFilterTool).toHaveBeenCalledWith("runs.exec");
   });
 });
+
+/**
+ * **THE JOIN, DRAWN ON THE TIMELINE (the ledger's third item).** The record is where a reader looks
+ * a call up; a call whose machine-side half has rotated away must be marked here and explained when
+ * the row is opened, and an unchecked one must be marked with nothing at all.
+ */
+describe("ActivityTimeline's join marks", () => {
+  const marks = (
+    kinds: [string, "one" | "console" | "unknown"][],
+    counts = { one: 0, console: 0, unknown: 0, asked: kinds.length }
+  ) => ({ kinds: new Map(kinds), counts });
+
+  const only = line({
+    ts_ms: Date.UTC(2026, 10, 5, 9, 0, 0),
+    device_id: alpha,
+    tool: "files.read",
+    sentence: "Read notes.txt",
+    trace: "console-1",
+    evidence: { input: "notes.txt" }
+  });
+  const both = line({
+    ts_ms: Date.UTC(2026, 10, 5, 9, 0, 1),
+    device_id: alpha,
+    tool: "files.list",
+    sentence: "Listed the notes folder",
+    trace: "console-2",
+    evidence: { input: "." }
+  });
+
+  it("marks the row the machine no longer holds, and marks nothing else", () => {
+    render(
+      <ActivityTimeline
+        lines={[only, both]}
+        devices={devices}
+        join={marks(
+          [
+            ["console-1", "console"],
+            ["console-2", "one"]
+          ],
+          { one: 1, console: 1, unknown: 0, asked: 2 }
+        )}
+      />
+    );
+    const rows = [...document.querySelectorAll(".timeline-row")];
+    const onlyRow = rows.find((row) => row.textContent?.includes("Read notes.txt"));
+    const bothRow = rows.find((row) => row.textContent?.includes("Listed the notes folder"));
+    expect(onlyRow?.querySelector(".chip-warn")).toHaveTextContent("only here");
+    expect(bothRow?.querySelector(".chip-warn")).toBeNull();
+  });
+
+  it("marks nothing when the console could not check the machine", () => {
+    render(
+      <ActivityTimeline
+        lines={[only]}
+        devices={devices}
+        join={marks([["console-1", "unknown"]], { one: 0, console: 0, unknown: 1, asked: 1 })}
+      />
+    );
+    expect(document.body.textContent).not.toContain("only here");
+  });
+
+  it("explains the mark when the row is opened", () => {
+    render(
+      <ActivityTimeline
+        lines={[only, both]}
+        devices={devices}
+        join={marks(
+          [
+            ["console-1", "console"],
+            ["console-2", "one"]
+          ],
+          { one: 1, console: 1, unknown: 0, asked: 2 }
+        )}
+      />
+    );
+    for (const [sentence, expected] of [
+      ["Read notes.txt", "Only this console's record still holds this call"],
+      ["Listed the notes folder", "The machine's journal holds this call too."]
+    ] as const) {
+      const button = [...document.querySelectorAll("button.timeline-line")].find((node) =>
+        node.textContent?.includes(sentence)
+      );
+      act(() => {
+        fireEvent.click(button!);
+      });
+      const facts = [...document.querySelectorAll(".evidence-facts dd")].map((node) =>
+        node.textContent?.trim()
+      );
+      expect(facts.join(" | ")).toContain(expected);
+    }
+  });
+
+  it("says under the record what the machine no longer holds", () => {
+    render(
+      <ActivityTimeline
+        lines={[only]}
+        devices={devices}
+        join={marks([["console-1", "console"]], { one: 0, console: 1, unknown: 0, asked: 1 })}
+      />
+    );
+    expect(document.querySelector(".timeline-footer .audit-join")).toHaveTextContent(
+      "This call is in this console's record only — the machine's journal no longer holds it."
+    );
+  });
+
+  it("says nothing in the footer when every call joined", () => {
+    render(
+      <ActivityTimeline
+        lines={[both]}
+        devices={devices}
+        join={marks([["console-2", "one"]], { one: 1, console: 0, unknown: 0, asked: 1 })}
+      />
+    );
+    expect(document.querySelector(".audit-join")).toBeNull();
+  });
+});

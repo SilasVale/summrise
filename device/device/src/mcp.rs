@@ -88,6 +88,22 @@ const DEFAULT_COLS: u16 = 80;
 /// The largest the audit file may become before it is rotated to `events.1.jsonl`.
 const AUDIT_MAX_BYTES: u64 = 64 * 1024 * 1024;
 
+/// How many journal rows `journal.get` scans before it calls its answer bounded.
+///
+/// A retained window can be 64 MiB. Scanning all of it to answer "do these traces still exist" would
+/// spend a caller's call on the bulk of a log it cannot use, so the scan stops at this cap and the
+/// answer says `bounded: true` rather than claiming absence it did not prove.
+const SCAN_ROWS: usize = 10_000;
+
+/// How many traces one `journal.get` call may name.
+const MAX_TRACES: usize = 512;
+
+/// How long one trace id may be.
+///
+/// A trace is a call id a console minted (`console-ab12cd34-1`) or this device minted (`call-7`),
+/// so this is room to spare. Bounding it keeps one call's answer proportional to its request.
+const MAX_TRACE_CHARS: usize = 128;
+
 /// How much of a tool name an audit line keeps.
 ///
 /// Registry names are short; only an unknown name can be long, and the body limit bounds it. Capping
@@ -1668,6 +1684,20 @@ impl DeviceServer {
                 };
                 Ok(json!({ "state": state, "health": health, "events": events }).to_string())
             }
+            Handler::JournalGet => {
+                // The join half of §4.2, device side: the console has the audit line, this machine
+                // has the pair, and both carry one `trace.call`. This answers only which traces the
+                // retained journal still holds — never an event's payload — so a page can mark a
+                // call that exists in one record and not the other.
+                let traces = parse_traces(arguments, name)?;
+                let Some(bus) = self.bus() else {
+                    return Ok(no_journal_document().to_string());
+                };
+                let rows = bus.scan_newest(SCAN_ROWS).map_err(|error| {
+                    refused(name, format!("the journal could not be read: {error}"))
+                })?;
+                Ok(journal_traces_document(&bus, &traces, &rows).to_string())
+            }
         }
     }
 
@@ -1810,6 +1840,7 @@ enum Handler {
     HostRestart,
     ScreenCapture,
     StateGet,
+    JournalGet,
     /// All six `plugins.*` tools; the capability's dispatch matches the exact name.
     Plugins,
 }
@@ -1864,6 +1895,7 @@ const HANDLERS: &[(&str, Handler)] = &[
     ("host.restart", Handler::HostRestart),
     ("screen.capture", Handler::ScreenCapture),
     ("state.get", Handler::StateGet),
+    ("journal.get", Handler::JournalGet),
     ("plugins.list", Handler::Plugins),
     ("plugins.inspect", Handler::Plugins),
     ("plugins.add", Handler::Plugins),
@@ -2729,6 +2761,24 @@ fn input_schema(definition: &ToolDef) -> Value {
             "properties": {},
             "additionalProperties": false
         }),
+        "journal.get" => json!({
+            "type": "object",
+            "properties": {
+                "traces": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": MAX_TRACE_CHARS
+                    },
+                    "minItems": 1,
+                    "maxItems": MAX_TRACES,
+                    "description": "The trace ids to look for: the value of a call's `trace.call`."
+                }
+            },
+            "required": ["traces"],
+            "additionalProperties": false
+        }),
         "plugins.list" => json!({
             "type": "object",
             "properties": {},
@@ -2950,6 +3000,124 @@ fn reject_serial_framing(arguments: &PtyCreateArgs, name: &str) -> Result<(), To
 /// A capability error as the tool-level refusal the client sees.
 fn refused(tool: &str, error: impl std::fmt::Display) -> ToolError {
     ToolError::Refused(format!("{tool}: {error}"))
+}
+
+/// Parse `journal.get`'s traces: an array of 1 to 512 non-empty ids of at most 128 characters.
+///
+/// The schema says the same thing, but a schema is advice a client can skip: this is the device's
+/// own refusal, and every branch names the rule that was broken rather than echoing the value that
+/// broke it. A trace is a call id, so the sentence also says where a caller finds one.
+fn parse_traces(arguments: Map<String, Value>, tool: &str) -> Result<Vec<String>, ToolError> {
+    let invalid = |rule: String| ToolError::Arguments(format!("{tool}: {rule}"));
+    if let Some(unknown) = arguments.keys().find(|key| key.as_str() != "traces") {
+        return Err(invalid(format!(
+            "the argument `{unknown}` is not what this tool takes; it takes `traces`"
+        )));
+    }
+    let Some(value) = arguments.get("traces") else {
+        return Err(invalid(
+            "the argument `traces` is required: it names the call traces to look for".to_owned(),
+        ));
+    };
+    let Some(items) = value.as_array() else {
+        return Err(invalid(
+            "`traces` is an array of trace ids, the value of a call's `trace.call`".to_owned(),
+        ));
+    };
+    if items.is_empty() {
+        return Err(invalid(
+            "`traces` names at least one trace, and this call named none".to_owned(),
+        ));
+    }
+    if items.len() > MAX_TRACES {
+        return Err(invalid(format!(
+            "`traces` names at most {MAX_TRACES} traces, and this call named {}",
+            items.len()
+        )));
+    }
+    let mut traces = Vec::with_capacity(items.len());
+    for (position, item) in items.iter().enumerate() {
+        let Some(trace) = item.as_str() else {
+            return Err(invalid(format!(
+                "`traces[{position}]` is a string, the value of a call's `trace.call`"
+            )));
+        };
+        if trace.is_empty() {
+            return Err(invalid(format!(
+                "`traces[{position}]` is not empty: a trace names a call"
+            )));
+        }
+        if trace.chars().count() > MAX_TRACE_CHARS {
+            return Err(invalid(format!(
+                "`traces[{position}]` is at most {MAX_TRACE_CHARS} characters"
+            )));
+        }
+        traces.push(trace.to_owned());
+    }
+    Ok(traces)
+}
+
+/// The `journal: false` answer: this process has no journal, and says so.
+///
+/// `traces` and `missing` are empty and every count is zero because nothing was read; that is a
+/// fact about this device, not a failed call.
+fn no_journal_document() -> Value {
+    json!({
+        "journal": false,
+        "oldest_seq": 0,
+        "last_seq": 0,
+        "scanned": 0,
+        "bounded": false,
+        "traces": [],
+        "missing": [],
+    })
+}
+
+/// Which of the asked traces the scanned rows hold, split into retained and missing.
+///
+/// A row matches when its `trace` is an object whose `call` is the asked string. Rows that are not
+/// calls — a boot event, a state write — are simply not matches.
+fn trace_matches(rows: &[summrise_bus::Envelope], traces: &[String]) -> (Vec<String>, Vec<String>) {
+    let held: std::collections::HashSet<&str> = rows
+        .iter()
+        .filter_map(|row| row.trace.as_ref())
+        .filter_map(|trace| trace.get("call"))
+        .filter_map(Value::as_str)
+        .collect();
+    let mut found = Vec::new();
+    let mut missing = Vec::new();
+    for trace in traces {
+        if held.contains(trace.as_str()) {
+            found.push(trace.clone());
+        } else {
+            missing.push(trace.clone());
+        }
+    }
+    (found, missing)
+}
+
+/// One `journal.get` answer: the journal's retained bounds, the coverage of the scan, and which
+/// asked traces it still holds.
+///
+/// `missing` is empty once the scan hit its row cap: absence beyond the cap is not something a
+/// bounded read of the newest rows can claim, and a page that marked those calls missing would be
+/// wrong about a call the journal simply did not reach.
+fn journal_traces_document(
+    bus: &summrise_bus::Bus,
+    traces: &[String],
+    rows: &[summrise_bus::Envelope],
+) -> Value {
+    let (found, missing) = trace_matches(rows, traces);
+    let bounded = rows.len() >= SCAN_ROWS;
+    json!({
+        "journal": true,
+        "oldest_seq": bus.oldest_seq(),
+        "last_seq": bus.last_seq(),
+        "scanned": rows.len(),
+        "bounded": bounded,
+        "traces": found,
+        "missing": if bounded { Vec::new() } else { missing },
+    })
 }
 
 /// Why a run that returned a value is still a failure, in the console's own words.
@@ -4266,6 +4434,7 @@ mod tests {
                 "forward.remove",
                 "forward.list",
                 "state.get",
+                "journal.get",
                 "plugins.list",
                 "plugins.inspect",
                 "plugins.add",
@@ -4479,6 +4648,138 @@ mod tests {
             document["events"][1]["tool"], "state.get",
             "the events half still answers even though the document half is poisoned: {document}"
         );
+    }
+
+    /// The traces a freshly journaled fixture holds for the calls it served, newest last.
+    fn call_traces(bus: &summrise_bus::Bus) -> Vec<String> {
+        journal_of(bus)
+            .into_iter()
+            .filter(|event| event.kind == "call.started")
+            .filter_map(|event| event.trace)
+            .filter_map(|trace| trace.get("call").and_then(Value::as_str).map(str::to_owned))
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn journal_get_finds_a_call_the_journal_retains() {
+        let (server, _config, bus, _dir) = journaled_server("mcp-journal-get-found");
+        let reply = tools_call(&server, "host.facts", json!({})).await;
+        assert_eq!(reply["result"]["isError"], false, "{reply}");
+        let trace = call_traces(&bus)
+            .pop()
+            .expect("the call wrote a pair with a trace");
+
+        let reply = tools_call(&server, "journal.get", json!({ "traces": [trace.clone()] })).await;
+        assert_eq!(reply["result"]["isError"], false, "{reply}");
+        let document: Value =
+            serde_json::from_str(text_of(&reply)).expect("journal.get answers one JSON document");
+        assert_eq!(document["journal"], true, "{document}");
+        assert_eq!(
+            document["traces"],
+            json!([trace]),
+            "the asked trace is retained, in the order asked: {document}"
+        );
+        assert_eq!(
+            document["missing"],
+            json!([]),
+            "a retained trace is not missing: {document}"
+        );
+        assert!(
+            document["last_seq"].as_u64().unwrap_or(0) > 0,
+            "the journal's bounds are its own: {document}"
+        );
+        assert_eq!(
+            document["bounded"], false,
+            "a journal this small is scanned whole: {document}"
+        );
+        assert!(
+            document["scanned"].as_u64().unwrap_or(0) > 0,
+            "the scan says how many rows it read: {document}"
+        );
+    }
+
+    #[tokio::test]
+    async fn journal_get_names_an_unknown_trace_as_missing() {
+        let (server, _config, _bus, _dir) = journaled_server("mcp-journal-get-missing");
+
+        let reply = tools_call(
+            &server,
+            "journal.get",
+            json!({ "traces": ["call-not-here"] }),
+        )
+        .await;
+        assert_eq!(reply["result"]["isError"], false, "{reply}");
+        let document: Value =
+            serde_json::from_str(text_of(&reply)).expect("journal.get answers one JSON document");
+        assert_eq!(document["journal"], true, "{document}");
+        assert_eq!(
+            document["traces"],
+            json!([]),
+            "nothing in the journal carries the asked trace: {document}"
+        );
+        assert_eq!(
+            document["missing"],
+            json!(["call-not-here"]),
+            "a trace the retained journal does not hold is missing: {document}"
+        );
+    }
+
+    #[tokio::test]
+    async fn journal_get_without_a_journal_answers_that_there_is_none() {
+        let (server, _config, _dir) = console_server("mcp-journal-get-absent");
+
+        let reply = tools_call(&server, "journal.get", json!({ "traces": ["call-1"] })).await;
+        assert_eq!(
+            reply["result"]["isError"], false,
+            "no journal is a fact, not a failure: {reply}"
+        );
+        let document: Value =
+            serde_json::from_str(text_of(&reply)).expect("journal.get answers one JSON document");
+        assert_eq!(
+            document,
+            json!({
+                "journal": false,
+                "oldest_seq": 0,
+                "last_seq": 0,
+                "scanned": 0,
+                "bounded": false,
+                "traces": [],
+                "missing": [],
+            }),
+            "a device with no journal says so instead of guessing: {document}"
+        );
+    }
+
+    #[tokio::test]
+    async fn journal_get_refuses_a_malformed_trace_list() {
+        let (server, _config, _bus, _dir) = journaled_server("mcp-journal-get-malformed");
+        let too_long = "a".repeat(129);
+        let too_many = vec!["a"; 513];
+        for arguments in [
+            json!({}),
+            json!({ "traces": "call-1" }),
+            json!({ "traces": [] }),
+            json!({ "traces": [7] }),
+            json!({ "traces": [""] }),
+            json!({ "traces": [too_long] }),
+            json!({ "traces": too_many }),
+        ] {
+            let reply = tools_call(&server, "journal.get", arguments.clone()).await;
+            assert!(
+                reply.get("result").is_none(),
+                "a malformed list is a protocol error, not an answer: {arguments} {reply}"
+            );
+            assert_eq!(
+                reply["error"]["code"],
+                json!(-32602),
+                "invalid params is JSON-RPC's protocol code: {arguments} {reply}"
+            );
+            let message = reply["error"]["message"].as_str().unwrap_or_default();
+            assert!(
+                message.starts_with("journal.get: ") && message.len() > "journal.get: ".len(),
+                "the refusal names the tool and the rule: {arguments} {message:?}"
+            );
+        }
     }
 
     #[tokio::test]
@@ -6677,7 +6978,7 @@ mod tests {
     fn every_schemas_required_set_is_the_parsers_required_set() {
         // The pairs, written out because the mapping is a fact of this module and not of a name
         // convention: a handler parses ONE struct, and this test needs to know which.
-        let pairs: [(&str, Required); 49] = [
+        let pairs: [(&str, Required); 50] = [
             (
                 "files.read",
                 Required::new(&["path"], &["root", "encoding"]),
@@ -6773,6 +7074,7 @@ mod tests {
             ("host.restart", Required::new(&[], &[])),
             ("screen.capture", Required::new(&[], &[])),
             ("state.get", Required::new(&[], &[])),
+            ("journal.get", Required::new(&["traces"], &[])),
             ("plugins.list", Required::new(&[], &[])),
             ("plugins.inspect", Required::new(&["path"], &[])),
             ("plugins.add", Required::new(&["path"], &[])),

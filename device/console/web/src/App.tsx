@@ -21,6 +21,7 @@ import { auditFailed, type AuditFilter } from "./auditFilter";
 import { mergeActivityWindow, type WindowCounts } from "./activityMerge";
 import { activityDaySentence } from "./activitySummary";
 import { ActivityTimeline } from "./ActivityTimeline";
+import { useJoinMarks } from "./useJoinMarks";
 import { DEVICE_TAB_LABELS, PAGE_LABELS, Rail, type DeviceTab, type Page } from "./Rail";
 import { Modal } from "./Modal";
 import { ConnectSheet, type ConnectSection } from "./ConnectSheet";
@@ -592,6 +593,19 @@ export function App() {
   // first read is the one that has no other loading surface.
   const auditReadingFirst =
     auditRead.state === "reading" && auditUnread && !auditReadingOther;
+
+  /**
+   * **THE JOIN IS ASKED, NOT GUESSED (the ledger's third item).** Each proxied call is written twice —
+   * this console's audit line and the machine's own `call.started`/`call.finished|denied` pair — and
+   * one `trace.call` names both. The page asks the machine about the traces this window is drawing; a
+   * row whose other half the journal no longer holds is marked, and a row the console could not check
+   * is marked with nothing at all.
+   *
+   * The scope decides what can be asked. A fleet window spans machines, so no single journal answers
+   * for it and the hook asks nothing: every row is then `unknown`, which is the truth. The paused list
+   * is the window it was frozen with, so it keeps asking about that one.
+   */
+  const join = useJoinMarks(auditScopeDevice, shownActivity);
   /**
    * The header's line, or none. A failed read has no state sentence of its own: the banner names
    * the failure and the notice says what the page can still show, so `The audit could not be read.`
@@ -1602,6 +1616,7 @@ export function App() {
                   loadingMachine={auditReadingName}
                   unread={auditUnread}
                   source={auditSource}
+                  join={join}
                   query={activityFilter.tool}
                   onQuery={(tool) => setActivityFilter((current) => ({ ...current, tool }))}
                   clientsOnly={activityClientsOnly}
@@ -1649,6 +1664,7 @@ export function App() {
                   loadingMachine={auditReadingName}
                   unread={auditUnread}
                   source={auditSource}
+                  join={auditScopeDevice === null ? null : join}
                   devices={devices}
                   tokens={tokens}
                   selectedDeviceId={activeDevice}

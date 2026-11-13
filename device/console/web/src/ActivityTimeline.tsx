@@ -15,6 +15,14 @@ import { ageAt, clockTime, shortId } from "./format";
 import { auditWindowSpan } from "./auditSource";
 import { AuditSourceLine } from "./AuditSourceLine";
 import { ConsoleCaller } from "./CallerMark";
+import { JoinLine, JoinMark, joinRecordSentence } from "./JoinMark";
+import { markOf, type JoinMarks } from "./joinMarks";
+
+/**
+ * The counts of a window nothing was asked about: a fleet window, a filtered day with no calls, or a
+ * console whose join read has not answered. It asks about nothing, so the footer says nothing.
+ */
+const EMPTY_JOIN = { one: 0, console: 0, unknown: 0, asked: 0 };
 import { tokenFact } from "./tokenFact";
 import { useMediaQuery } from "./useMediaQuery";
 
@@ -268,6 +276,8 @@ function ExpectedArguments(props: { deviceId: string; tool: string }) {
 
 function Evidence(props: {
   line: AuditLine;
+  /** What the machine said about this one call: the join's own word, when there is one. */
+  join: "one" | "console" | "unknown";
   tokenNames: ReadonlyMap<string, string>;
   onWatch?: (deviceId: string) => void;
   onManageToken?: (tokenId: string) => void;
@@ -374,6 +384,17 @@ function Evidence(props: {
               )}
             </dd>
           </div>
+          {/* **THE JOIN, IN THE RECORD'S OWN WORDS (the ledger's third item).** A joined call says
+              the machine's journal holds it too — the agreement needs no chip on the row, so the
+              proof lives here. A console-only call repeats the rotation in a sentence, because
+              "not in the journal" reads as "did not happen" to anyone who has not read §4.2. An
+              unchecked one says nothing: that is a fact about the page, not about the call. */}
+          {joinRecordSentence(props.join) !== null && (
+            <div>
+              <dt>Journal</dt>
+              <dd>{joinRecordSentence(props.join)}</dd>
+            </div>
+          )}
           {detail && (
             <div>
               <dt>Detail</dt>
@@ -504,6 +525,8 @@ function dayWord(label: string): string {
 /** One closed line, or one opened line with its evidence. */
 function Row(props: {
   line: AuditLine;
+  /** What the machine said about this call, when the page asked (the ledger's third item). */
+  join: JoinMarks | null;
   devices: Device[];
   tokenNames: ReadonlyMap<string, string>;
   open: boolean;
@@ -540,6 +563,11 @@ function Row(props: {
           {/* The console's own calls stay in the record; the quiet word is how a reader tells them
               from the AI's without opening the evidence. */}
           {line.caller === "console" && <ConsoleCaller className="timeline-caller" />}
+          {/* **THE ONE MARK A ROW CAN WEAR (the ledger's third item).** The console's line and the
+              machine's journal pair on `trace.call`; this is the row whose other half the machine's
+              journal has rotated away. A joined call and an unchecked one both draw nothing — the
+              first because the records agree, the second because no machine was asked. */}
+          <JoinMark kind={markOf(props.join, line)} />
           {/* The outcome is a word, not the HTTP code: a device's JSON-RPC refusal is a failed call
               that crossed the console as 200, and "200" read as success. The code and the detail are
               still the evidence panel's facts for anyone who needs them. */}
@@ -578,6 +606,7 @@ function Row(props: {
       {props.open && (
         <Evidence
           line={line}
+          join={markOf(props.join, line)}
           tokenNames={props.tokenNames}
           onWatch={props.onWatch}
           onManageToken={props.onManageToken}
@@ -682,6 +711,13 @@ export function ActivityTimeline(props: {
   onManageToken?: (tokenId: string) => void;
   /** Set the page's tool filter from a row's evidence (the hundred-and-eighty-eighth list). */
   onFilterTool?: (tool: string) => void;
+  /**
+   * **WHAT THE MACHINE SAID ABOUT THE CALLS THIS WINDOW DRAWS (the ledger's third item).** Each row's
+   * audit line and the machine's own `call.*` pair carry one `trace.call`; this is the answer to
+   * "which of them does the journal still hold". Absent for a fleet window — no single journal answers
+   * for it — and then nothing is marked and the footer says nothing.
+   */
+  join?: JoinMarks | null;
   empty?: string;
   /**
    * A fixed clock, for a page that is paused: the age column stops at this moment instead of
@@ -1256,6 +1292,7 @@ export function ActivityTimeline(props: {
                         )}
                         <Row
                           line={line}
+                          join={props.join ?? null}
                           devices={props.devices}
                           tokenNames={tokenNames}
                           open={openKey === key}
@@ -1303,6 +1340,9 @@ export function ActivityTimeline(props: {
             <p className="hint timeline-capped">{cappedSentence}</p>
           )}
           <AuditSourceLine source={props.source} window={windowSpan} />
+          {/* The same fact the table states, in the same words: what the machine's journal no
+              longer holds. Silent when it holds everything the window drew. */}
+          <JoinLine counts={props.join?.counts ?? EMPTY_JOIN} error={props.join?.error ?? null} />
         </footer>
       )}
     </div>
