@@ -239,7 +239,8 @@ describe("useMachineRows", () => {
     // to the window they were read for.
     rerender({ id: null });
     rerender({ id: DEVICE });
-    await waitFor(() => expect(result.current.paged).toBe(false));
+    await waitFor(() => expect(result.current.state).toBe("read"));
+    expect(result.current.paged).toBe(false);
     expect(result.current.rows.map((line) => line.machine_seq)).toEqual([10]);
     expect(result.current.more).toBe(true);
     expect(mocks.journalRead).toHaveBeenLastCalledWith(DEVICE, { limit: 200 });

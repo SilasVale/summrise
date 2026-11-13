@@ -260,6 +260,20 @@ below ladders to that; one round completes one major item end to end.
   older than this." Evidence: page 1 335 and `tsc` clean; the App test pages from the footer and
   draws the older call (second read `before = 200, limit = 200`); no Rust change was needed.
 
+- 2026-11-13 — **The counts name the calls the console's audit cannot see.** A client may call the
+  machine's own endpoint (the journal's `loopback` door); the Timeline draws that call, but the
+  Activity header's `Today` is `/audit/day`'s read of the console's audit — the same rule the hub
+  serves — so the direct call was a client call counted nowhere, and the header and the rows could
+  not be reconciled. The header now says it: "N calls drawn today came straight to this machine, not
+  through this console (M failed)." The count is taken from the same contribution the timeline draws
+  (`machineContribution`), within the day block the labels index — the console's `day_start_ms` plus
+  24 hours, or the page's own midnights when the answer names none — so the two cannot disagree; `panel`,
+  `mesh` and `console` rows are not client calls; a failed direct call is named, not folded into the
+  day's failure count. The day sentence keeps its basis rather than adding a partial window's rows: a
+  true machine day needs a time-bounded journal read. Evidence: page 1 345 and `tsc` clean; the
+  machineRows tests pin the contribution and the door rule, and an App test draws a loopback call
+  beside a proxied one and asserts the day number is unchanged while the new line names it.
+
 ## Next (in order)
 
 1. Windows handoff, the interactive half — dispatch or run `summrise-shell.exe --check-window` in an
@@ -267,13 +281,13 @@ below ladders to that; one round completes one major item end to end.
    verify Authenticode when a certificate is configured. The runner half is green (run 43344130298).
 2. Push `origin`: `main` now contains `origin/main` and `hub/v1` (`0 1242`), so `git push origin main`
    is a fast-forward. This is a publish, and it is the operator's call.
-3. The day's client-call count includes the machine's direct calls: the Timeline draws calls the
-   console never proxied, and a direct loopback client's call (the machine's door `loopback`) is drawn
-   on the day it happened while `Today: N client calls` counts only the console's audit. The count,
-   the failed count and the day sentence should agree with the rows drawn — a `loopback` machine row
-   is a client call, a panel or mesh row is not — with the basis stated once and the pages' window
-   respected. (A payload/export verb stays a separate stage: the journal records what happened, not
-   the arguments or results, so replay needs a retention decision first.)
+3. The machine's day can be counted: the header now names the direct client calls among the rows it
+   drew, but a true day count needs a time-bounded read of the machine's journal (its cursor is
+   `before_seq` today), so `journal.read` should learn a day window — or a `journal.day` summary with
+   the same bounded-scan rules as `journal.read` and a stated `more`/rotation answer. Then the day
+   sentence can include the machine's direct calls for the same local day, with its basis named in
+   one spelling, and the failed count can carry them without mixing two windows. (A payload/export
+   verb stays a separate stage: the journal records what happened, not the arguments or results.)
 4. Keep improving from what the operator hits (one major item a round, green merges into `hub/v1`).
 
 ## Rules

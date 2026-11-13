@@ -1,4 +1,5 @@
 import type { AuditLine, MachineReadAnswer, MachineRow } from "./api";
+import { auditFailed } from "./auditFilter";
 import { callSentence } from "./liveActivity";
 
 /**
@@ -186,17 +187,24 @@ function fallbackKey(line: AuditLine): string {
  * record an operator acts on. The machine's rows keep their own order and are inserted in time order,
  * so the page's composition (`groupDays`, stretches) still sees one newest-first list.
  */
-export function mergeMachineRows(
+/**
+ * The machine rows this window does not already hold.
+ *
+ * The merge's filter, named: App needs the contribution itself (to count the client calls only the
+ * machine recorded), and `mergeMachineRows` needs it to know what to draw. One filter, so the count
+ * and the rows cannot disagree.
+ */
+export function machineContribution(
   consoleLines: AuditLine[],
   machineRows: readonly AuditLine[]
 ): AuditLine[] {
-  if (machineRows.length === 0) return consoleLines;
-  const traces = new Set<string>();
+  if (machineRows.length === 0) return [];
   // **ONLY AN UNTRACED CONSOLE ROW CAN MATCH ON THE COMPOSITE KEY.** If both records carry a trace,
   // the trace is the join — two different traces name two different calls, whatever their clocks or
   // tools say. The composite key is the fallback for the half that has no trace to offer, so it is
   // kept for the console rows that wrote none, and for every console row when the machine's row is
   // the one without one.
+  const traces = new Set<string>();
   const untracedConsoleKeys = new Set<string>();
   const everyConsoleKey = new Set<string>();
   for (const line of consoleLines) {
@@ -205,7 +213,7 @@ export function mergeMachineRows(
     everyConsoleKey.add(fallbackKey(line));
     if (!traced) untracedConsoleKeys.add(fallbackKey(line));
   }
-  const contributed = machineRows.filter((row) => {
+  return machineRows.filter((row) => {
     const traced = typeof row.trace === "string" && row.trace !== "";
     if (!traced) return !everyConsoleKey.has(fallbackKey(row));
     // **THE TRACE IS THE JOIN, NOT THE CLOCK.** Both records write one `trace.call` for a proxied
@@ -213,6 +221,41 @@ export function mergeMachineRows(
     if (traces.has(row.trace as string)) return false;
     return !untracedConsoleKeys.has(fallbackKey(row));
   });
+}
+
+/**
+ * **THE CLIENT CALLS THE CONSOLE'S COUNT CANNOT SEE (round 11).**
+ *
+ * A client can call the machine's own endpoint — the journal's `loopback` door — and the console
+ * never proxies it, so `/audit/day` knows nothing about it. The page's day sentence keeps its basis
+ * (the console's audit, the same number the hub serves); this counts the direct calls among the rows
+ * the page drew, where the reader can see them.
+ */
+export function directClientCalls(
+  lines: readonly AuditLine[],
+  day?: { from: number; to: number }
+): { calls: number; failed: number } {
+  // The day the header counts is the block the timeline's labels index: the console's cut plus
+  // 24-hour steps, or (when the answer names no cut) the page's own midnight boundaries. The caller
+  // supplies both ends, so a row the reader sees under today's label is the row counted here.
+  let calls = 0;
+  let failed = 0;
+  for (const line of lines) {
+    if (line.door !== "loopback") continue;
+    if (day !== undefined && (line.ts_ms < day.from || line.ts_ms >= day.to)) continue;
+    calls += 1;
+    if (auditFailed(line)) failed += 1;
+  }
+  return { calls, failed };
+}
+
+export function mergeMachineRows(
+  consoleLines: AuditLine[],
+  machineRows: readonly AuditLine[]
+): AuditLine[] {
+  if (machineRows.length === 0) return consoleLines;
+  // The merge's own filter, named so the header can count the same set: see `machineContribution`.
+  const contributed = machineContribution(consoleLines, machineRows);
   if (contributed.length === 0) return consoleLines;
   const merged = [...consoleLines, ...contributed];
   // Stable, so rows that share a millisecond keep the order the console drew them in. The days are
