@@ -4308,9 +4308,35 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
      and no `display` — became `display: inline`, where **width and height do not apply at all**. *Rule 6's "shape
      carries the state" is only true if the shape survives the band:* a status dot that collapses to a sliver reads
      as a different state, and a green sliver is not a green dot. */
-  .fleet-table .fleet-status { display: flex; grid-column: 1 / 2; align-self: center; min-width: 0; }
+  /* **THE STATUS'S FIRST LINE STAYS LEVEL WITH THE VERSION, AND THE FAILED CHIP GETS ITS OWN LINE
+     (the two-hundred-and-first list met the twenty-ninth's 44 px thumb here).** The gate measured the
+     card at 390: the three rows without a chip were 79 px, the row whose status held `2 failed` was
+     104 px, and its version sat 12 px below its neighbours'. The chip is a `main button`, so the
+     phone's touch rule gives it `min-height: 44px` — a thumb target that cannot share a 14 px line
+     with `online · seen 30s ago`, so it wrapped inside a centred flex row and took the cell's height
+     with it. The card's second line is the state and the version; the chip is the row's third fact,
+     so the state row is top-aligned (`align-self: start` on both cells) and the chip breaks to its
+     own full-width line, where a thumb wants it anyway. At the desk the chip stays inline: there the
+     touch rule does not apply and the chip is a word on a line. */
+  .fleet-table .fleet-status {
+    display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--sp-1) var(--sp-2);
+    grid-column: 1 / 2; align-self: start; min-width: 0;
+  }
   .fleet-table .fleet-status .dot { display: block; flex: 0 0 8px; width: 8px; height: 8px; }
-  .fleet-version { grid-column: 2 / 3; justify-self: end; align-self: center; }
+  .fleet-table .fleet-status .fleet-state { flex: 1 1 auto; min-width: 0; }
+  /* The chip is a 44 px target, so it is not a pill: the state row's own radius and tint (`fleet-build`
+     is the sheet's inline chip) would draw a 44 px slab spanning the card. It keeps the board's
+     alignment and takes the width a thumb wants; the pill belongs to a version, not to a door. */
+  /* THE CHIP IS A CENTRED DOOR ON ITS OWN LINE, THE WAY THE ATTENTION BLOCK'S `Open` IS. `width:
+     100%` rather than `flex-basis`: a flex basis forces the chip to wrap even when it would fit, and
+     the card's grid then put it beside the version (measured 2026-11-13 at 390 — `2 failed` in the
+     second column, the version below it). A full width on a flex item that follows a wrapped row
+     puts it under the state, where the third fact of the row belongs. */
+  .fleet-table .fleet-status .fleet-failed {
+    width: 100%; margin-top: var(--sp-1); border-radius: var(--radius-sm);
+    justify-content: center;
+  }
+  .fleet-table .fleet-version { grid-column: 2 / 3; justify-self: end; align-self: start; }
   .fleet-started { grid-column: 1 / -1; max-width: none; }
   /* THE CARD HAS NO `STARTED` HEADER. `thead` is `display:none` in this form, so the age sat bare
      under the status age and the two read as the same fact. The visible word is the header the card

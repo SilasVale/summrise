@@ -4889,6 +4889,12 @@ try {
       throw new Error(`the ${row.name} card is ${row.width} px wide at 390`);
     }
   }
+  // **THE CARD THE GATE JUST MEASURED, AS A PICTURE.** The geometry above is the assertion; this
+  // file is so a person can see what those numbers describe without rebuilding the fixture. The
+  // fleet sits below the attention block at 390, so the picture starts at the table itself.
+  await page.locator('table.fleet-table').scrollIntoViewIfNeeded();
+  await page.waitForTimeout(150);
+  await page.screenshot({ path: path.join(OUT, '07c-fleet-390.png') });
   // **THE PHONE SHOWS MACHINES, NOT PROBLEMS.** Four machines and five problems are four rows at
   // 390; one door each, so the same machine's action is not offered twice (audit-40 F6).
   if (fleet390.attentionRows !== 4) {
