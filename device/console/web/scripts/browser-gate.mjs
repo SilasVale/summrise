@@ -741,6 +741,48 @@ function apiReply(request, url) {
       day_start_ms: DAY_START.getTime()
     });
   }
+  // **THE FLEET'S RECORD (round 13).** Activity fans out to every online machine it draws for that
+  // machine's newest journal page and its day. The gate's machines are fixtures with no journal,
+  // which is a fact the page draws silently; answering 404 instead would leave the page's failure
+  // sentence as the only thing this harness could assert, and the browser's console error would fail
+  // the run. So both routes answer the device's own "no journal" shape.
+  if (method === 'GET' && pathname === '/journal/read') {
+    const device = url.searchParams.get('device');
+    return json({
+      device,
+      journal: false,
+      oldest_seq: 0,
+      last_seq: 0,
+      rows: [],
+      more: false,
+      read_at_ms: NOW,
+      unknown: false
+    });
+  }
+  if (method === 'GET' && pathname === '/journal/day') {
+    const device = url.searchParams.get('device');
+    const from = Number(url.searchParams.get('from') ?? 0);
+    const to = Number(url.searchParams.get('to') ?? 0);
+    return json({
+      device,
+      journal: false,
+      day_start_ms: from,
+      day_end_ms: to,
+      oldest_seq: 0,
+      last_seq: 0,
+      scanned: 0,
+      more: false,
+      calls: {
+        console: { calls: 0, failed: 0 },
+        panel: { calls: 0, failed: 0 },
+        mesh: { calls: 0, failed: 0 },
+        loopback: { calls: 0, failed: 0 },
+        unknown: { calls: 0, failed: 0 }
+      },
+      read_at_ms: NOW,
+      unknown: false
+    });
+  }
   if (method === 'GET' && pathname === '/denials') return json([]);
   // The static registry, with the same destructive flags the live catalogue carries. The fleet
   // token form reads this one: no machine is selected to ask.
