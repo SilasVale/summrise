@@ -211,6 +211,10 @@ a hop in the hot path.
 | S5 | `protocol` + generated TS + fixtures; wasm deleted | one type per wire change |
 | S6 | crate merge, dead code, v2.0 | released, deployed, rollback drilled |
 
+**Order is negotiable.** The capability seam (S3) can land before the record (S1): it touches no
+storage, and it is the slice that makes "add a tool = one file" true. The record (SQLite) waits until
+the seam is in; the release milestone waits until a machine is named for it.
+
 ## 7. Review focus
 
 - Each interface's guarantees are tested by the named test, not by prose.

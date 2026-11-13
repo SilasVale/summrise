@@ -328,9 +328,10 @@ both as two perspectives joined by its trace. The first draft's "one journal, on
 withdrawn here because the operator was right to reject it.
 
 The program runs as slices on `next`, each one round, each with tests and a parity row; `hub/v1` stays
-shippable and its Next list is S0 (ship v1 through the release pipeline). The first slice after S0 is
-S1 — the console record from SQLite with the `events.jsonl` import — because it is the reliability fix
-the objection names.
+shippable. Order (2026-11-13, after the operator said the record is not urgent): the **capability seam
+first** — one module per capability, with its spec and guide, because it does not touch storage and it
+is what makes "add a tool = one file" true. The SQLite record (S1) follows the seam; the release
+milestone (S0's second half) waits until the operator names a machine for it.
 
 ## Next (in order)
 
