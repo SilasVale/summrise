@@ -3305,3 +3305,160 @@ mod tests {
         }
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// The declaration's implementation: the device side of `summrise_core::capabilities::browser`.
+// ---------------------------------------------------------------------------------------------
+
+use serde_json::Map;
+
+use crate::mcp::{parse, ToolError};
+use summrise_core::capabilities::browser::CAPABILITY;
+
+/// Whether `tool` is one this capability declares.
+pub fn owns(tool: &str) -> bool {
+    CAPABILITY
+        .tools
+        .iter()
+        .any(|declared| declared.name == tool)
+}
+
+/// Every tool this capability declares, for the registry-alignment test.
+#[cfg(test)]
+pub fn names() -> impl Iterator<Item = &'static str> {
+    CAPABILITY.tools.iter().map(|tool| tool.name)
+}
+
+/// Run one of this capability's tools against the browser registry.
+pub async fn call(
+    browser: &BrowserRegistry,
+    tool: &str,
+    arguments: Map<String, Value>,
+) -> Result<String, ToolError> {
+    match tool {
+        "browser.list" => {
+            let targets = browser.list().await.map_err(|error| refused(tool, error))?;
+            let targets: Vec<Value> = targets
+                .iter()
+                .map(|target| {
+                    json!({
+                        "id": target.id,
+                        "title": target.title,
+                        "url": target.url,
+                        "type": target.kind,
+                    })
+                })
+                .collect();
+            Ok(Value::Array(targets).to_string())
+        }
+        "browser.open" => {
+            let arguments: BrowserOpenArgs = parse(arguments, tool)?;
+            let target = browser
+                .open(&arguments.url)
+                .await
+                .map_err(|error| refused(tool, error))?;
+            Ok(json!({ "target": target, "url": arguments.url }).to_string())
+        }
+        "browser.navigate" => {
+            let arguments: BrowserNavigateArgs = parse(arguments, tool)?;
+            browser
+                .navigate(&arguments.target, &arguments.url)
+                .await
+                .map_err(|error| refused(tool, error))?;
+            Ok(json!({ "navigated": true, "url": arguments.url }).to_string())
+        }
+        "browser.eval" => {
+            let arguments: BrowserEvalArgs = parse(arguments, tool)?;
+            let result = browser
+                .eval(&arguments.target, &arguments.expression)
+                .await
+                .map_err(|error| refused(tool, error))?;
+            let mut value = json!({ "type": result.kind });
+            if let Some(result) = result.value {
+                value["value"] = result;
+            }
+            Ok(value.to_string())
+        }
+        "browser.screenshot" => {
+            let arguments: BrowserTargetArgs = parse(arguments, tool)?;
+            let screenshot = browser
+                .screenshot(&arguments.target)
+                .await
+                .map_err(|error| refused(tool, error))?;
+            Ok(json!({
+                "format": "png",
+                "data": screenshot.data,
+                "bytes": screenshot.bytes,
+            })
+            .to_string())
+        }
+        "browser.cast" => {
+            let arguments: BrowserTargetArgs = parse(arguments, tool)?;
+            let frame = browser
+                .cast(&arguments.target)
+                .await
+                .map_err(|error| refused(tool, error))?;
+            Ok(json!({
+                "format": "jpeg",
+                "data": frame.data,
+                "width": frame.width,
+                "height": frame.height,
+                "at_ms": frame.at_ms,
+            })
+            .to_string())
+        }
+        "browser.close" => {
+            let arguments: BrowserTargetArgs = parse(arguments, tool)?;
+            browser
+                .close(&arguments.target)
+                .await
+                .map_err(|error| refused(tool, error))?;
+            Ok(json!({ "closed": true }).to_string())
+        }
+        "browser.shutdown" => {
+            let stopped = browser.shutdown().await;
+            Ok(json!({ "stopped": stopped }).to_string())
+        }
+        other => Err(ToolError::Internal(format!(
+            "{other}: the browser capability does not declare this tool"
+        ))),
+    }
+}
+
+fn refused(tool: &str, error: impl std::fmt::Display) -> ToolError {
+    ToolError::Refused(format!("{tool}: {error}"))
+}
+
+/// The arguments `browser.open` takes.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BrowserOpenArgs {
+    url: String,
+}
+
+/// The arguments `browser.close`, `browser.screenshot` and `browser.cast` take.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BrowserTargetArgs {
+    target: String,
+}
+
+/// The arguments `browser.navigate` takes.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BrowserNavigateArgs {
+    target: String,
+    url: String,
+}
+
+/// The arguments `browser.eval` takes.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BrowserEvalArgs {
+    target: String,
+    expression: String,
+}

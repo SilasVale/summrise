@@ -366,6 +366,14 @@ Next: `browser` (four tools, lazy registry), then `runs`, `system`, `forward`, `
 `journal`, `plugins`, `guide` — one per round until `HANDLERS` and `input_schema` are only the
 fallback for what has not moved.
 
+**Round 18 — `browser` moves.** Eight tools (list, open, navigate, eval, screenshot, cast, close,
+shutdown) declared in `core/src/capabilities/browser.rs`; the async implementation calls the lazy
+`BrowserRegistry` through `Ctx`, so the browser starts only when a browser tool is called. The guide
+now has four capabilities (files, memory, terminal, browser) and 25 tool headings, all generated.
+Evidence: 669 device tests, 104 core tests, `clippy`/`fmt` clean, gate 14 / 22 / 0. Next: `monitor`
+(five tools), then `runs` (three), `system` (three), `forward` (three), `host` (two), `journal`
+(three), `plugins` (five) and `guide`.
+
 ## Next (in order)
 
 1. Windows handoff, the interactive half — dispatch or run `summrise-shell.exe --check-window` in an

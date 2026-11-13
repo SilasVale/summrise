@@ -42,74 +42,7 @@ pub const CAPABILITIES: &[Capability] = &[
     crate::capabilities::files::CAPABILITY,
     crate::capabilities::memory::CAPABILITY,
     crate::capabilities::terminal::CAPABILITY,
-    Capability {
-        name: "browser",
-        tools: &[
-            // Opening, navigating and evaluating all change what a page holds — a page's state is
-            // not something a later read undoes — so they are destructive in the registry's sense.
-            // Listing and screenshotting only observe. Closing a tab and shutting the browser down
-            // destroy only the session, exactly as `terminal.close` does: they create no new
-            // effect, and they are what a client must be able to do to stop a wedged browser
-            // without asking a human first.
-            ToolDef {
-                name: "browser.list",
-                destructive: false,
-                description:
-                    "List the browser's targets (id, title, url, type); the first browser tool call starts headless Chrome.",
-                schema: None,
-            },
-            ToolDef {
-                name: "browser.open",
-                destructive: true,
-                description:
-                    "Open a tab at a URL and wait for its document to be parsed; at most 8 tabs, and an open beyond that is refused.",
-                schema: None,
-            },
-            ToolDef {
-                name: "browser.navigate",
-                destructive: true,
-                description:
-                    "Navigate one tab to a URL and wait for its document to be parsed.",
-                schema: None,
-            },
-            ToolDef {
-                name: "browser.eval",
-                destructive: true,
-                description:
-                    "Evaluate a JavaScript expression in one tab and return its value; a result over 1 MiB is refused.",
-                schema: None,
-            },
-            ToolDef {
-                name: "browser.screenshot",
-                destructive: false,
-                description:
-                    "Capture one tab as a base64 PNG; a capture over 8 MiB is refused.",
-                schema: None,
-            },
-            ToolDef {
-                name: "browser.cast",
-                destructive: false,
-                description:
-                    "The newest frame of a live screencast of one tab, as a base64 JPEG; a frame over 8 MiB is refused, and the stream stops itself after 60 s unpolled.",
-                schema: None,
-            },
-            ToolDef {
-                name: "browser.close",
-                destructive: false,
-                description:
-                    "Close one tab; the browser stays running and the tab id is not reused.",
-                schema: None,
-            },
-            ToolDef {
-                name: "browser.shutdown",
-                destructive: false,
-                description:
-                    "Stop the browser this machine started; a later browser tool call starts it again.",
-                schema: None,
-            },
-        ],
-        guide: "",
-    },
+    crate::capabilities::browser::CAPABILITY,
     Capability {
         name: "monitor",
         tools: &[

@@ -8,6 +8,7 @@
 //! **One capability, one module.** Adding a tool means adding it to the capability's declaration and
 //! its implementation — not to a shared table, a schema match and a dispatch match.
 
+pub mod browser;
 pub mod files;
 pub mod memory;
 pub mod terminal;
@@ -17,4 +18,5 @@ pub const DECLARED: &[&crate::registry::Capability] = &[
     &files::CAPABILITY,
     &memory::CAPABILITY,
     &terminal::CAPABILITY,
+    &browser::CAPABILITY,
 ];

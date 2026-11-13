@@ -34,11 +34,13 @@ pub struct Ctx<'a> {
     pub memory: &'a memory::Memory,
     /// The live sessions, one registry per device.
     pub terminal: &'a terminal::PtyRegistry,
+    /// The one headless browser this machine starts lazily.
+    pub browser: &'a browser::BrowserRegistry,
 }
 
 /// Whether a migrated capability declares `tool`.
 pub fn owns(tool: &str) -> bool {
-    files::owns(tool) || memory::owns(tool) || terminal::owns(tool)
+    files::owns(tool) || memory::owns(tool) || terminal::owns(tool) || browser::owns(tool)
 }
 
 /// Every tool a migrated capability declares, for the registry-alignment test.
@@ -47,6 +49,7 @@ pub fn names() -> impl Iterator<Item = &'static str> {
     files::names()
         .chain(memory::names())
         .chain(terminal::names())
+        .chain(browser::names())
 }
 
 /// Run a migrated capability's tool.
@@ -63,6 +66,9 @@ pub async fn call(
     }
     if terminal::owns(tool) {
         return terminal::call(ctx.terminal, tool, arguments).await;
+    }
+    if browser::owns(tool) {
+        return browser::call(ctx.browser, tool, arguments).await;
     }
     Err(crate::mcp::ToolError::Internal(format!(
         "{tool}: no migrated capability declares it"

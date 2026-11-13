@@ -1010,6 +1010,7 @@ impl DeviceServer {
                 files_shared_root: self.files_shared_root.as_deref(),
                 memory: self.memory.as_ref(),
                 terminal: self.terminal.as_ref(),
+                browser: self.browser.as_ref(),
             };
             return crate::capabilities::call(name, arguments, &ctx).await;
         }
@@ -1018,97 +1019,6 @@ impl DeviceServer {
         };
 
         match handler {
-            Handler::BrowserList => {
-                let targets = self
-                    .browser
-                    .list()
-                    .await
-                    .map_err(|error| refused(name, error))?;
-                let targets: Vec<Value> = targets
-                    .iter()
-                    .map(|target| {
-                        json!({
-                            "id": target.id,
-                            "title": target.title,
-                            "url": target.url,
-                            "type": target.kind,
-                        })
-                    })
-                    .collect();
-                Ok(Value::Array(targets).to_string())
-            }
-            Handler::BrowserOpen => {
-                let arguments: BrowserOpenArgs = parse(arguments, name)?;
-                let target = self
-                    .browser
-                    .open(&arguments.url)
-                    .await
-                    .map_err(|error| refused(name, error))?;
-                Ok(json!({ "target": target, "url": arguments.url }).to_string())
-            }
-            Handler::BrowserNavigate => {
-                let arguments: BrowserNavigateArgs = parse(arguments, name)?;
-                self.browser
-                    .navigate(&arguments.target, &arguments.url)
-                    .await
-                    .map_err(|error| refused(name, error))?;
-                Ok(json!({ "navigated": true, "url": arguments.url }).to_string())
-            }
-            Handler::BrowserEval => {
-                let arguments: BrowserEvalArgs = parse(arguments, name)?;
-                let result = self
-                    .browser
-                    .eval(&arguments.target, &arguments.expression)
-                    .await
-                    .map_err(|error| refused(name, error))?;
-                let mut value = json!({ "type": result.kind });
-                if let Some(result) = result.value {
-                    value["value"] = result;
-                }
-                Ok(value.to_string())
-            }
-            Handler::BrowserScreenshot => {
-                let arguments: BrowserTargetArgs = parse(arguments, name)?;
-                let screenshot = self
-                    .browser
-                    .screenshot(&arguments.target)
-                    .await
-                    .map_err(|error| refused(name, error))?;
-                Ok(json!({
-                    "format": "png",
-                    "data": screenshot.data,
-                    "bytes": screenshot.bytes,
-                })
-                .to_string())
-            }
-            Handler::BrowserCast => {
-                let arguments: BrowserTargetArgs = parse(arguments, name)?;
-                let frame = self
-                    .browser
-                    .cast(&arguments.target)
-                    .await
-                    .map_err(|error| refused(name, error))?;
-                Ok(json!({
-                    "format": "jpeg",
-                    "data": frame.data,
-                    "width": frame.width,
-                    "height": frame.height,
-                    "at_ms": frame.at_ms,
-                })
-                .to_string())
-            }
-            Handler::BrowserClose => {
-                let arguments: BrowserTargetArgs = parse(arguments, name)?;
-                self.browser
-                    .close(&arguments.target)
-                    .await
-                    .map_err(|error| refused(name, error))?;
-                Ok(json!({ "closed": true }).to_string())
-            }
-            Handler::BrowserShutdown => {
-                let stopped = self.browser.shutdown().await;
-                Ok(json!({ "stopped": stopped }).to_string())
-            }
             Handler::ForwardAdd => {
                 let arguments: ForwardAddArgs = parse(arguments, name)?;
                 let spec = forward::RuleSpec::parse(
@@ -1545,14 +1455,6 @@ fn jsonrpc_error(id: Value, code: i32, message: &str) -> Value {
 /// One implementation of one registry tool.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Handler {
-    BrowserList,
-    BrowserOpen,
-    BrowserNavigate,
-    BrowserEval,
-    BrowserScreenshot,
-    BrowserCast,
-    BrowserClose,
-    BrowserShutdown,
     ForwardAdd,
     ForwardRemove,
     ForwardList,
@@ -1585,14 +1487,6 @@ enum Handler {
 /// registry entry fails `every_implementation_is_registered`. `tools/list` cannot advertise a tool
 /// the surface cannot run without that test going red.
 const HANDLERS: &[(&str, Handler)] = &[
-    ("browser.list", Handler::BrowserList),
-    ("browser.open", Handler::BrowserOpen),
-    ("browser.navigate", Handler::BrowserNavigate),
-    ("browser.eval", Handler::BrowserEval),
-    ("browser.screenshot", Handler::BrowserScreenshot),
-    ("browser.cast", Handler::BrowserCast),
-    ("browser.close", Handler::BrowserClose),
-    ("browser.shutdown", Handler::BrowserShutdown),
     ("forward.add", Handler::ForwardAdd),
     ("forward.remove", Handler::ForwardRemove),
     ("forward.list", Handler::ForwardList),
@@ -1792,90 +1686,6 @@ fn input_schema(definition: &ToolDef) -> Value {
         return schema();
     }
     match definition.name {
-        "browser.list" => json!({
-            "type": "object",
-            "properties": {},
-            "additionalProperties": false
-        }),
-        "browser.open" => json!({
-            "type": "object",
-            "properties": {
-                "url": {
-                    "type": "string",
-                    "description": "The URL to load; a data: URL works without a network. At most 8 tabs may be open."
-                }
-            },
-            "required": ["url"],
-            "additionalProperties": false
-        }),
-        "browser.navigate" => json!({
-            "type": "object",
-            "properties": {
-                "target": {
-                    "type": "string",
-                    "description": "The target id browser.list or browser.open returned."
-                },
-                "url": {
-                    "type": "string",
-                    "description": "The URL to navigate the tab to."
-                }
-            },
-            "required": ["target", "url"],
-            "additionalProperties": false
-        }),
-        "browser.eval" => json!({
-            "type": "object",
-            "properties": {
-                "target": {
-                    "type": "string",
-                    "description": "The target id browser.list or browser.open returned."
-                },
-                "expression": {
-                    "type": "string",
-                    "description": "JavaScript evaluated in the page's current document; its value is returned (at most 1 MiB)."
-                }
-            },
-            "required": ["target", "expression"],
-            "additionalProperties": false
-        }),
-        "browser.screenshot" => json!({
-            "type": "object",
-            "properties": {
-                "target": {
-                    "type": "string",
-                    "description": "The target id browser.list or browser.open returned. The result is a base64 PNG of at most 8 MiB."
-                }
-            },
-            "required": ["target"],
-            "additionalProperties": false
-        }),
-        "browser.cast" => json!({
-            "type": "object",
-            "properties": {
-                "target": {
-                    "type": "string",
-                    "description": "The target id browser.list or browser.open returned. The result is the newest screencast frame as a base64 JPEG of at most 8 MiB; the stream stops itself after 60 s without a call."
-                }
-            },
-            "required": ["target"],
-            "additionalProperties": false
-        }),
-        "browser.close" => json!({
-            "type": "object",
-            "properties": {
-                "target": {
-                    "type": "string",
-                    "description": "The target id browser.list or browser.open returned; the browser stays running."
-                }
-            },
-            "required": ["target"],
-            "additionalProperties": false
-        }),
-        "browser.shutdown" => json!({
-            "type": "object",
-            "properties": {},
-            "additionalProperties": false
-        }),
         "forward.add" => json!({
             "type": "object",
             "properties": {
@@ -2914,36 +2724,6 @@ struct NetTestArgs {
     host: String,
     port: u16,
     timeout_ms: Option<u64>,
-}
-
-/// The arguments `browser.open` takes.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct BrowserOpenArgs {
-    url: String,
-}
-
-/// The arguments `browser.close` and `browser.screenshot` take.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct BrowserTargetArgs {
-    target: String,
-}
-
-/// The arguments `browser.navigate` takes.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct BrowserNavigateArgs {
-    target: String,
-    url: String,
-}
-
-/// The arguments `browser.eval` takes.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct BrowserEvalArgs {
-    target: String,
-    expression: String,
 }
 
 /// The arguments `forward.add` takes.
