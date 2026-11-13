@@ -503,6 +503,21 @@ clippy/fmt clean, gate 16 / 26 / 0. Next: the console record with that contract 
 slice — import `events.jsonl`/`denials.jsonl` once, `source` reports `audit.db` with `rotations: 0`
 and no `rotated`, retention replaces rotation, and the page's type and tests move with it.
 
+**Round 33 — the console's operator record is its own database.** `JsonLines` is now two
+`summrise-record` files (`audit.db`, `denials.db`): one row per line, `ts_ms` as the moment, and
+retention that prunes the oldest rows instead of rotating a file. The old `audit.jsonl` and its
+`.1` generation are imported once on first open (marker in `meta`), keeping each line's moment; a
+record with rows is authoritative and the files stay on disk. The `/audit/source` answer moved with
+the store — `file` is `audit.db`, `rotations` is 0, `rotated` is omitted — and the page's `AuditSource`
+doc, a dozen integration tests and the cap test moved with it. Two record fixes came out of making
+it real: the sequence is read inside the insert transaction (a second connection cannot mint a used
+sequence) and retention counters live in `meta`, so a publish is one insert + counter updates, not a
+full-table scan (the 50,001-row range test seeds in one `append_many` transaction instead of
+50,001 fsyncs). Evidence: 176 console lib tests, 283 console integration tests, 8 record tests, 670
+device tests, 1,396 page tests, page `tsc` clean, gate 16 packages / 27 edges / 0 upward. Next: the
+entry/dispatch interface (S4) — one `Dispatch` seam the MCP door, the console channel and the panel
+share — then the release milestone, which needs the operator to name the machine it deploys to.
+
 
 ## Next (in order)
 

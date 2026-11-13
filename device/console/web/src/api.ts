@@ -286,10 +286,11 @@ export type AuditRangeAnswer = {
 /**
  * The file the audit window is read from, as `/audit/source` serves it.
  *
- * Every field describes a fact the server could read: the current file's name, size and the moments
- * of its first and last lines, and the one older generation kept beside it. A missing or unreadable
- * file leaves its facts out rather than serving zero, and the page then says nothing at all.
- * `max_bytes` and `rotations` are the writer's configured retention, not a measurement.
+ * Every field describes a fact the server could read: the record's name, its size and the moments
+ * of its first and last rows. A missing or unreadable record leaves its facts out rather than
+ * serving zero, and the page then says nothing at all. `max_bytes` and `rotations` are the writer's
+ * configured retention, not a measurement; the record keeps no older generation, so `rotations` is
+ * always 0 and `rotated` is never present (an older server may still send both).
  */
 export type AuditSource = {
   file?: string;

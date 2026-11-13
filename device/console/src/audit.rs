@@ -1,4 +1,4 @@
-//! The operator-action index at `<data>/audit.jsonl`.
+//! The operator-action index at `<data>/audit.db`.
 //!
 //! One line per **authenticated** action: `{"ts_ms","kind","device_id?","status","detail?","tool?","token_id?","caller?"}`.
 //! `kind` is a closed set — `enroll`, `register`, `grant`, `token`, `token_revoke`, `auth`, `mcp`,
@@ -39,8 +39,9 @@
 //! The one exception the design allows is the numeric error code, which is a fact about the exchange
 //! and not its content.
 //!
-//! The file is capped at [`AUDIT_MAX_BYTES`] with one rotation to `audit.1.jsonl`; the discipline is
-//! [`JsonLines`]'s.
+//! The record is capped at [`AUDIT_MAX_BYTES`]: retention prunes the oldest rows, so a flood
+//! shortens the history but never splits it across files a reader has to stitch together. The
+//! discipline is [`JsonLines`]'s.
 
 use std::collections::{HashMap, VecDeque};
 use std::path::Path;
@@ -51,7 +52,7 @@ use serde_json::Value;
 
 use crate::jsonl::JsonLines;
 
-/// The largest the audit file may become before it is rotated to `audit.1.jsonl`.
+/// The audit record's retention budget: the rows' JSON bytes.
 pub(crate) const AUDIT_MAX_BYTES: u64 = 8 * 1024 * 1024;
 
 /// How many of the audit's newest lines `/fleet` reads: the absences and each machine's day both
@@ -77,7 +78,7 @@ pub(crate) const DEVICE_LEFT: &str = "device.left";
 /// The tool name a channel's open writes.
 pub(crate) const DEVICE_JOINED: &str = "device.joined";
 
-/// The current file's name under the data directory.
+/// The old file name; the record is its `audit.db` sibling, imported once.
 const AUDIT_FILE: &str = "audit.jsonl";
 
 /// Who made a call the console proxied.
@@ -880,12 +881,46 @@ mod tests {
 
     /// Write lines oldest first, as the writer appends them.
     fn write_audit(dir: &Path, lines: &[Value]) {
-        let mut text = String::new();
+        let record = summrise_record::Record::open_file(dir.join("audit.db"), u64::MAX)
+            .expect("the audit record opens");
         for line in lines {
-            text.push_str(&line.to_string());
-            text.push('\n');
+            let ts_ms = line["ts_ms"].as_u64().unwrap_or(0) as i64;
+            record
+                .append(ts_ms, line.to_string())
+                .expect("the line is recorded");
         }
-        std::fs::write(dir.join(AUDIT_FILE), text).expect("the audit file is writable");
+    }
+
+    #[tokio::test]
+    async fn an_old_jsonl_index_is_imported_once() {
+        let dir = TempDir::new("audit-import");
+        std::fs::write(
+            dir.0.join("audit.1.jsonl"),
+            format!(
+                "{}\n",
+                serde_json::json!({ "ts_ms": 1, "kind": "register" })
+            ),
+        )
+        .expect("the old generation writes");
+        std::fs::write(
+            dir.0.join("audit.jsonl"),
+            format!("{}\n", serde_json::json!({ "ts_ms": 2, "kind": "auth" })),
+        )
+        .expect("the old file writes");
+
+        let audit = Audit::new(&dir.0, u64::MAX);
+        let lines = audit.newest(10).await;
+        assert_eq!(lines.len(), 2, "both old lines were imported: {lines:?}");
+        assert_eq!(lines[0]["kind"], serde_json::json!("auth"));
+        assert_eq!(lines[1]["kind"], serde_json::json!("register"));
+        assert_eq!(audit.source().await.file.as_deref(), Some("audit.db"));
+
+        let again = Audit::new(&dir.0, u64::MAX);
+        assert_eq!(
+            again.newest(10).await.len(),
+            2,
+            "a second open does not import again"
+        );
     }
 
     /// A proxied call's line names the `trace.call` that joins it to the device journal's pair; an
@@ -915,16 +950,12 @@ mod tests {
                     .await
             );
         }
-        let text = std::fs::read_to_string(dir.0.join(AUDIT_FILE)).expect("the audit is written");
-        let lines: Vec<Value> = text
-            .lines()
-            .map(|line| serde_json::from_str(line).expect("a line is JSON"))
-            .collect();
-        assert_eq!(lines[0]["trace"], serde_json::json!("console-abc-1"));
+        let lines = audit.newest(2).await;
+        assert_eq!(lines[1]["trace"], serde_json::json!("console-abc-1"));
         assert!(
-            lines[1].get("trace").is_none(),
+            lines[0].get("trace").is_none(),
             "an operator action writes no trace field: {}",
-            lines[1]
+            lines[0]
         );
     }
 
@@ -940,15 +971,11 @@ mod tests {
                 serde_json::json!({ "ts_ms": 4, "kind": "grant" }),
             ],
         );
-        std::fs::write(
-            dir.0.join("audit.1.jsonl"),
-            format!(
-                "{}\n",
-                serde_json::json!({ "ts_ms": 1, "kind": "register" })
-            ),
-        )
-        .expect("the rotated audit file is writable");
         let audit = Audit::new(&dir.0, AUDIT_MAX_BYTES);
+        write_audit(
+            &dir.0,
+            &[serde_json::json!({ "ts_ms": 1, "kind": "register" })],
+        );
 
         for limit in [0usize, 1, 2, 3, 10] {
             assert_eq!(
@@ -1411,7 +1438,7 @@ mod tests {
         let other = "cd".repeat(32);
         let start = day_start(NOW_MS);
         let at = |seconds: u64| start + seconds * 1_000;
-        let mut lines: Vec<Value> = (0..10)
+        let lines: Vec<Value> = (0..10)
             .map(|index| call(DEVICE, at(10 + index), Some("client"), None, 200))
             .collect();
         write_audit(&dir.0, &lines);
@@ -1424,10 +1451,11 @@ mod tests {
 
         // The day goes on: another machine writes past the fleet's window. The day count may only
         // grow; only a rotation can take today's earlier lines out of the current file.
+        let mut later: Vec<Value> = Vec::new();
         for index in 0..3_000 {
-            lines.push(call(&other, at(1_000 + index), Some("client"), None, 200));
+            later.push(call(&other, at(1_000 + index), Some("client"), None, 200));
         }
-        write_audit(&dir.0, &lines);
+        write_audit(&dir.0, &later);
         let second = audit.day(NOW_MS).await;
         assert_eq!(
             second.devices.get(DEVICE).map(|day| day.client_calls),
@@ -1502,16 +1530,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_range_is_half_open_and_does_not_read_the_rotated_generation() {
+    async fn a_range_is_half_open_and_ignores_lines_outside_it() {
         let dir = TempDir::new("range-half-open");
-        // The older generation holds a line the current file cannot answer for. A range read is
-        // current-file-only, so the line is not stitched in; the answer says where coverage starts.
-        write_audit(&dir.0, &[call(DEVICE, 500, Some("client"), None, 200)]);
-        std::fs::rename(dir.0.join(AUDIT_FILE), dir.0.join("audit.1.jsonl"))
-            .expect("the seeded generation rotates");
         write_audit(
             &dir.0,
             &[
+                call(DEVICE, 500, Some("client"), None, 200),
                 call(DEVICE, 1_000, Some("client"), None, 200),
                 call(DEVICE, 1_999, Some("client"), None, 200),
                 call(DEVICE, 2_000, Some("client"), None, 200),
@@ -1532,13 +1556,10 @@ mod tests {
         );
         assert!(!read.bounded);
         assert_eq!(
-            read.lines_read, 3,
-            "the scan stops on the line older than `from`"
+            read.lines_read, 4,
+            "the scan counts the line that proves the cut"
         );
-        assert_eq!(
-            read.since_ms, None,
-            "the current file proves the range's start"
-        );
+        assert_eq!(read.since_ms, None, "the 500 proves the range's start");
 
         let read = audit.range(0, 3_000).await;
         let times: Vec<u64> = read
@@ -1546,15 +1567,11 @@ mod tests {
             .iter()
             .filter_map(|line| line["ts_ms"].as_u64())
             .collect();
-        assert_eq!(
-            times,
-            vec![2_000, 1_999, 1_000],
-            "the rotated 500 is not in the answer"
-        );
+        assert_eq!(times, vec![2_000, 1_999, 1_000, 500]);
         assert_eq!(
             read.since_ms,
-            Some(1_000),
-            "coverage starts at the current file's oldest line"
+            Some(500),
+            "coverage starts at the record's oldest line"
         );
     }
 

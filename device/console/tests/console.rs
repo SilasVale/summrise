@@ -2508,8 +2508,7 @@ async fn an_absence_outlives_a_console_restart() {
         !on_disk.contains("last_outage") && !on_disk.contains("away_ms"),
         "the outage is not written to the device registry: {on_disk}"
     );
-    let audit =
-        fs::read_to_string(fixture.config.data.join("audit.jsonl")).expect("the audit is readable");
+    let audit = serde_json::to_string(&audit_lines(&fixture)).expect("the audit serializes");
     assert!(
         audit.contains("\"tool\":\"device.left\"") && audit.contains("\"tool\":\"device.joined\""),
         "the two boundaries are audit lines: {audit}"
@@ -3720,21 +3719,20 @@ fn denial_lines(fixture: &Fixture) -> Vec<Value> {
     jsonl_lines(fixture, "denials")
 }
 
-/// Every line of one of the console's rotating JSONL files, oldest first.
+/// Every line of one of the console's records (`audit.db`, `denials.db`), oldest first.
 fn jsonl_lines(fixture: &Fixture, stem: &str) -> Vec<Value> {
-    let mut lines = Vec::new();
-    for name in [format!("{stem}.1.jsonl"), format!("{stem}.jsonl")] {
-        let path = fixture.config.data.join(name);
-        let text = match fs::read_to_string(&path) {
-            Ok(text) => text,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(error) => panic!("{} is readable: {error}", path.display()),
-        };
-        for line in text.lines() {
-            lines.push(serde_json::from_str(line).expect("a JSONL line is JSON"));
-        }
+    let path = fixture.config.data.join(format!("{stem}.db"));
+    if !path.exists() {
+        return Vec::new();
     }
-    lines
+    let record =
+        summrise_record::Record::open_file(&path, u64::MAX).expect("the console record opens");
+    record
+        .read_from(0)
+        .expect("the record is readable")
+        .iter()
+        .map(|row| serde_json::from_str(&row.json).expect("a row is JSON"))
+        .collect()
 }
 
 #[tokio::test]
@@ -3788,16 +3786,28 @@ async fn the_audit_lists_the_newest_lines_first() {
 
 // ---- the denial index -------------------------------------------------------------------------
 
-/// Write `lines` to one audit generation (`audit.jsonl` or `audit.1.jsonl`), oldest first, without
-/// going through the writer.
+/// Write `lines` into the console's record without going through the writer. The name is the old
+/// JSONL name (`audit.jsonl` or `audit.1.jsonl`); both name the one record now.
 fn seed_audit_file(fixture: &Fixture, name: &str, lines: &[Value]) {
-    let path = fixture.config.data.join(name);
-    let mut text = String::new();
-    for line in lines {
-        text.push_str(&line.to_string());
-        text.push('\n');
+    let stem = name.trim_end_matches(".jsonl").trim_end_matches(".1");
+    let path = fixture.config.data.join(format!("{stem}.db"));
+    let record =
+        summrise_record::Record::open_file(&path, u64::MAX).expect("the console record opens");
+    // A seed replaces what the running console has written so far, exactly as writing the old file
+    // did; a second seed call for the same stem appends, as the two generations did.
+    if record.meta("test_seed").expect("meta reads").is_none() {
+        record.clear().expect("the seed clears the record");
+        record
+            .set_meta("test_seed", "1")
+            .expect("the seed marker writes");
     }
-    fs::write(&path, text).expect("the seeded audit generation is written");
+    let entries: Vec<(i64, String)> = lines
+        .iter()
+        .map(|line| (line["ts_ms"].as_u64().unwrap_or(0) as i64, line.to_string()))
+        .collect();
+    record
+        .append_many(&entries)
+        .expect("the lines are recorded");
 }
 
 /// The audit window can be one machine's: a device filter is applied during the read, so another
@@ -4378,21 +4388,17 @@ async fn a_malformed_export_range_is_a_json_refusal() {
 
 /// Write `count` denial lines to the current file, oldest first, without going through the writer.
 fn seed_denials(fixture: &Fixture, count: usize) {
-    let mut text = String::new();
-    for index in 0..count {
-        text.push_str(
-            &json!({
+    let lines: Vec<Value> = (0..count)
+        .map(|index| {
+            json!({
                 "ts_ms": START_MS + index as u64,
                 "kind": "denied",
                 "status": 401,
                 "detail": format!("seeded-{index}"),
             })
-            .to_string(),
-        );
-        text.push('\n');
-    }
-    fs::write(fixture.config.data.join("denials.jsonl"), text)
-        .expect("the seeded denial file is writable");
+        })
+        .collect();
+    seed_audit_file(fixture, "denials.jsonl", &lines);
 }
 
 #[tokio::test]
@@ -4509,7 +4515,7 @@ async fn a_missing_or_empty_denial_log_is_an_empty_list() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body, json!([]), "no denial file has been written yet");
 
-    fs::write(fixture.config.data.join("denials.jsonl"), "").expect("an empty denial file");
+    seed_audit_file(&fixture, "denials.jsonl", &[]);
     let (status, body) = send(fixture.app(), get("/denials", Some(&session))).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body, json!([]));
@@ -4536,15 +4542,12 @@ async fn the_grant_audit_line_records_the_destructive_flag() {
     assert_eq!(grants[1]["detail"], json!("allow_destructive=true"));
 }
 
-/// The audit text across the one rotation and the current file, for "no body was logged" checks.
+/// The audit lines as text, for "no body was logged" checks.
 fn audit_text(fixture: &Fixture) -> String {
     let mut text = String::new();
-    for name in ["audit.1.jsonl", "audit.jsonl"] {
-        match fs::read_to_string(fixture.config.data.join(name)) {
-            Ok(part) => text.push_str(&part),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => panic!("the audit file is readable: {error}"),
-        }
+    for line in audit_lines(fixture) {
+        text.push_str(&line.to_string());
+        text.push('\n');
     }
     text
 }
@@ -5325,12 +5328,10 @@ async fn a_channel_with_a_bad_device_token_is_a_denial_line() {
 }
 
 #[tokio::test]
-async fn the_audit_cap_rotates_to_one_generation_and_discards_the_older_one() {
+async fn the_audit_cap_prunes_the_oldest_lines_and_keeps_the_newest() {
     const CAP: u64 = 200;
-    let fixture = Fixture::with_audit_cap("audit-rotation", CAP);
+    let fixture = Fixture::with_audit_cap("audit-retention", CAP);
     let session = fixture.authenticate().await;
-    // An authenticated refusal for an unknown device is one audit line: forty of them are forty
-    // actions without spending enrollment codes or waiting for a device.
     for _ in 0..40 {
         let (status, _) = send(
             fixture.app(),
@@ -5348,46 +5349,39 @@ async fn the_audit_cap_rotates_to_one_generation_and_discards_the_older_one() {
         assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
-    let current = fixture.config.data.join("audit.jsonl");
-    let rotated = fixture.config.data.join("audit.1.jsonl");
-    let current_text = fs::read_to_string(&current).expect("the current audit file exists");
-    let rotated_text = fs::read_to_string(&rotated).expect("the previous generation exists");
+    let record = summrise_record::Record::open_file(fixture.config.data.join("audit.db"), u64::MAX)
+        .expect("the audit record opens");
     assert!(
-        !fixture.config.data.join("audit.2.jsonl").exists(),
-        "one rotation keeps exactly one older generation"
+        record.last_seq() >= 40,
+        "every action was recorded: {}",
+        record.last_seq()
+    );
+    assert!(
+        record.oldest_seq() > 1,
+        "the cap pruned the oldest lines: {}",
+        record.oldest_seq()
+    );
+    assert!(
+        !fixture.config.data.join("audit.1.jsonl").exists(),
+        "a record has no rotated generation"
     );
 
-    for text in [&rotated_text, &current_text] {
-        assert!(!text.is_empty(), "no generation is empty");
-        assert!(
-            (text.len() as u64) <= CAP,
-            "a generation must not grow past the cap: {} > {CAP}",
-            text.len()
-        );
-        for line in text.lines() {
-            let value: Value =
-                serde_json::from_str(line).expect("rotation never splits a line from its JSON");
-            assert!(
-                value["kind"] == json!("denied") || value["kind"] == json!("auth"),
-                "a generation holds refusals and sign-ins, nothing else: {value}"
-            );
-        }
-    }
-
-    // Forty actions were written, but the cap keeps only the newest generations. `/audit` reads the
-    // current file first and stitches the rotated generation behind it.
-    let session = fixture.authenticate().await;
     let (status, body) = send(fixture.app(), get("/audit?limit=1000", Some(&session))).await;
     assert_eq!(status, StatusCode::OK);
     let lines = body.as_array().expect("a list of audit lines");
     assert!(!lines.is_empty());
     assert!(
         lines.len() < 40,
-        "the older generations are discarded, not accumulated: {} lines",
+        "the pruned lines are not accumulated: {} lines",
         lines.len()
     );
-    // The newest line is the sign-in this read needed; the refusals sit behind it.
-    assert_eq!(lines[0]["kind"], json!("auth"));
+    let newest = record.newest(1).expect("the newest row");
+    let newest: Value = serde_json::from_str(&newest[0].json).expect("the newest row is JSON");
+    assert_eq!(
+        lines[0]["ts_ms"], newest["ts_ms"],
+        "the answer starts at the record's newest row"
+    );
+    assert_eq!(lines[0]["kind"], newest["kind"]);
 }
 
 // ---- the audit source -------------------------------------------------------------------------
@@ -5396,7 +5390,7 @@ async fn the_audit_cap_rotates_to_one_generation_and_discards_the_older_one() {
 /// and the retention rule as the fixture configured it. With no `audit.1.jsonl`, the rotated
 /// predecessor is omitted: a page must not draw an older generation the disk does not have.
 #[tokio::test]
-async fn the_audit_source_reports_the_current_file_and_omits_an_absent_rotation() {
+async fn the_audit_source_reports_the_record_and_omits_a_rotation() {
     const CAP: u64 = 4096;
     let fixture = Fixture::with_audit_cap("audit-source-current", CAP);
     let session = fixture.authenticate().await;
@@ -5405,14 +5399,14 @@ async fn the_audit_source_reports_the_current_file_and_omits_an_absent_rotation(
         json!({ "ts_ms": START_MS + 2_000, "kind": "auth", "status": 200 }),
     ];
     seed_audit_file(&fixture, "audit.jsonl", &lines);
-    let bytes = fs::metadata(fixture.config.data.join("audit.jsonl"))
-        .expect("the seeded audit file")
-        .len();
 
     let (status, body) = send(fixture.app(), get("/audit/source", Some(&session))).await;
     assert_eq!(status, StatusCode::OK, "the source read: {body}");
-    assert_eq!(body["file"], json!("audit.jsonl"));
-    assert_eq!(body["bytes"], json!(bytes));
+    assert_eq!(body["file"], json!("audit.db"));
+    assert!(
+        body["bytes"].as_u64().is_some_and(|bytes| bytes > 0),
+        "the record has a size: {body}"
+    );
     assert_eq!(body["oldest_ts_ms"], json!(START_MS + 1_000));
     assert_eq!(body["newest_ts_ms"], json!(START_MS + 2_000));
     assert_eq!(
@@ -5420,19 +5414,22 @@ async fn the_audit_source_reports_the_current_file_and_omits_an_absent_rotation(
         json!(CAP),
         "the cap is the fixture's configured one, not the 8 MiB default: {body}"
     );
-    assert_eq!(body["rotations"], json!(1));
+    assert_eq!(
+        body["rotations"],
+        json!(0),
+        "a record has no generations: {body}"
+    );
     assert!(
         body.get("rotated").is_none(),
         "no predecessor exists, so the answer must omit it: {body}"
     );
 }
 
-/// A rotated predecessor that exists is reported with the moment its oldest line carries. The
-/// current file's facts stay its own: the newer moment is the current file's last line, not the
-/// rotated generation's.
+/// The record's span is its own oldest and newest row, not a generation's: the page states one
+/// history, and there is no older file to name.
 #[tokio::test]
-async fn the_audit_source_reports_a_present_rotation_and_its_oldest_line() {
-    let fixture = Fixture::new("audit-source-rotated");
+async fn the_audit_source_reports_the_records_span() {
+    let fixture = Fixture::new("audit-source-span");
     let session = fixture.authenticate().await;
     seed_audit_file(
         &fixture,
@@ -5450,41 +5447,31 @@ async fn the_audit_source_reports_a_present_rotation_and_its_oldest_line() {
 
     let (status, body) = send(fixture.app(), get("/audit/source", Some(&session))).await;
     assert_eq!(status, StatusCode::OK, "the source read: {body}");
-    assert_eq!(body["oldest_ts_ms"], json!(START_MS + 1_000));
-    assert_eq!(body["newest_ts_ms"], json!(START_MS + 1_000));
     assert_eq!(
-        body["rotated"],
-        json!({ "file": "audit.1.jsonl", "oldest_ts_ms": START_MS - 5_000 }),
-        "one predecessor, with the moment its first line carries: {body}"
+        body["oldest_ts_ms"],
+        json!(START_MS - 5_000),
+        "the record's oldest row, across both old names: {body}"
     );
+    assert_eq!(body["newest_ts_ms"], json!(START_MS + 1_000));
+    assert!(body.get("rotated").is_none(), "there is one record: {body}");
 }
 
-/// A file the console cannot read is omitted, never reported as zero: a page that sees `bytes: 0`
-/// would draw an empty file beside a window it is not reading from.
+/// A record with rows reports its file; there is no "unreadable generation" to omit, because the
+/// record is opened once and its facts come from the handle.
 #[tokio::test]
-async fn the_audit_source_omits_a_file_it_cannot_read() {
-    let fixture = Fixture::new("audit-source-missing");
+async fn the_audit_source_reports_the_record_it_reads() {
+    let fixture = Fixture::new("audit-source-fresh");
     let session = fixture.authenticate().await;
-    fs::remove_file(fixture.config.data.join("audit.jsonl"))
-        .expect("the authentication's audit line is removable");
 
     let (status, body) = send(fixture.app(), get("/audit/source", Some(&session))).await;
     assert_eq!(status, StatusCode::OK, "the source read: {body}");
-    assert!(
-        body.get("file").is_none(),
-        "an unreadable file has no name to state: {body}"
-    );
-    assert!(
-        body.get("bytes").is_none(),
-        "an unreadable file is not zero bytes: {body}"
-    );
-    assert!(body.get("oldest_ts_ms").is_none(), "{body}");
-    assert!(body.get("newest_ts_ms").is_none(), "{body}");
+    assert_eq!(body["file"], json!("audit.db"));
     assert_eq!(
         body["max_bytes"],
         json!(8 * 1024 * 1024),
-        "the retention rule is configured, not read from the file: {body}"
+        "the retention rule is configured, not read from the record: {body}"
     );
+    assert_eq!(body["rotations"], json!(0));
 }
 
 #[tokio::test]
@@ -6949,7 +6936,7 @@ async fn a_standard_call_is_one_audit_line_without_its_payload() {
         .filter(|line| line["kind"] == json!("mcp") && line["tool"] == json!("files.read"))
         .collect();
     assert_eq!(rows.len(), 1, "{audit:?}");
-    let text = fs::read_to_string(fixture.config.data.join("audit.jsonl")).expect("the audit file");
+    let text = serde_json::to_string(&audit).expect("the audit serializes");
     assert!(
         !text.contains(marker),
         "the audit must not carry the argument"
@@ -7882,7 +7869,7 @@ async fn a_created_token_is_shown_once_and_only_its_hash_is_stored() {
         "the file must never hold the token: {on_disk}"
     );
     let audit_on_disk =
-        fs::read_to_string(fixture.config.data.join("audit.jsonl")).expect("the audit is readable");
+        serde_json::to_string(&audit_lines(&fixture)).expect("the audit serializes");
     assert!(
         !audit_on_disk.contains(&plaintext),
         "no audit line carries the token: {audit_on_disk}"

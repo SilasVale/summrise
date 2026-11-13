@@ -28,6 +28,7 @@ serde_json = "1"
 sha2 = "0.10"
 summrise-core = { path = "../core" }
 summrise-protocol = { path = "../protocol" }
+summrise-record = { path = "../record" }
 # The mesh: the readiness probe asks the broker whether a device is registered, and the console's
 # data path will speak the mesh's envelope (docs/superpowers/specs/2026-10-25-console-mesh-surface-design.md).
 summrise-mesh = { path = "../mesh" }

@@ -171,8 +171,8 @@ impl PageSource for PageReads {
         self.audit.follow()
     }
 
-    /// The page's snapshot seam is synchronous by design, so this reads the file without awaiting.
-    /// It is the same read as `Audit::newest`, including the one rotated generation.
+    /// The page's snapshot seam is synchronous by design, so this reads the record without awaiting.
+    /// It is the same read as `Audit::newest`.
     fn newest(&self, limit: usize) -> Vec<Value> {
         self.audit.newest_blocking(limit)
     }

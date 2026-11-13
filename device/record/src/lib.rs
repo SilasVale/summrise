@@ -75,7 +75,11 @@ impl Record {
                  key TEXT PRIMARY KEY,
                  value TEXT NOT NULL
              );
-             INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '1');",
+             INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '1');
+             INSERT OR IGNORE INTO meta (key, value)
+                 SELECT 'bytes', CAST(COALESCE(SUM(LENGTH(CAST(json AS BLOB))), 0) AS TEXT) FROM feed;
+             INSERT OR IGNORE INTO meta (key, value)
+                 SELECT 'rows', CAST(COUNT(*) AS TEXT) FROM feed;",
         )
         .db()?;
         let last: i64 = conn
@@ -119,13 +123,53 @@ impl Record {
     pub fn append(&self, ts_ms: i64, json: String) -> io::Result<u64> {
         let mut conn = self.lock();
         let transaction = conn.transaction().db()?;
-        let seq = self.head.load(Ordering::SeqCst) + 1;
+        // The sequence is read inside the transaction, not from this handle's memory: a second
+        // connection (a test seeding a record, a tool reading it later) must not mint a sequence
+        // the record has already used.
+        let seq: u64 = transaction
+            .query_row("SELECT COALESCE(MAX(seq), 0) + 1 FROM feed", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .db()? as u64;
+        let bytes = json.len() as i64;
         transaction
             .execute(
                 "INSERT INTO feed (seq, ts_ms, json) VALUES (?1, ?2, ?3)",
                 params![seq as i64, ts_ms, json],
             )
             .db()?;
+        bump(&transaction, bytes, 1)?;
+        prune(&transaction, self.max_bytes)?;
+        transaction.commit().db()?;
+        self.head.store(seq, Ordering::SeqCst);
+        Ok(seq)
+    }
+
+    /// Append many rows in one transaction: the seed/import path, where one commit per row would
+    /// pay an fsync per row and a retention check per row.
+    pub fn append_many(&self, entries: &[(i64, String)]) -> io::Result<u64> {
+        if entries.is_empty() {
+            return Ok(self.head.load(Ordering::SeqCst));
+        }
+        let mut conn = self.lock();
+        let transaction = conn.transaction().db()?;
+        let mut seq: u64 = transaction
+            .query_row("SELECT COALESCE(MAX(seq), 0) FROM feed", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .db()? as u64;
+        let mut bytes = 0i64;
+        for (ts_ms, json) in entries {
+            seq += 1;
+            bytes += json.len() as i64;
+            transaction
+                .execute(
+                    "INSERT INTO feed (seq, ts_ms, json) VALUES (?1, ?2, ?3)",
+                    params![seq as i64, *ts_ms, json],
+                )
+                .db()?;
+        }
+        bump(&transaction, bytes, entries.len() as i64)?;
         prune(&transaction, self.max_bytes)?;
         transaction.commit().db()?;
         self.head.store(seq, Ordering::SeqCst);
@@ -137,15 +181,30 @@ impl Record {
     pub fn insert(&self, row: &Row) -> io::Result<()> {
         let mut conn = self.lock();
         let transaction = conn.transaction().db()?;
-        transaction
+        let inserted = transaction
             .execute(
                 "INSERT OR IGNORE INTO feed (seq, ts_ms, json) VALUES (?1, ?2, ?3)",
                 params![row.seq as i64, row.ts_ms, &row.json],
             )
             .db()?;
+        if inserted > 0 {
+            bump(&transaction, row.json.len() as i64, 1)?;
+        }
         prune(&transaction, self.max_bytes)?;
         transaction.commit().db()?;
         self.head.fetch_max(row.seq, Ordering::SeqCst);
+        Ok(())
+    }
+
+    /// Delete every row (a test seed replacing a record; there is no production caller).
+    pub fn clear(&self) -> io::Result<()> {
+        let mut conn = self.lock();
+        let transaction = conn.transaction().db()?;
+        transaction.execute("DELETE FROM feed", []).db()?;
+        set_counter(&transaction, "bytes", 0)?;
+        set_counter(&transaction, "rows", 0)?;
+        transaction.commit().db()?;
+        self.head.store(0, Ordering::SeqCst);
         Ok(())
     }
 
@@ -314,30 +373,61 @@ where
 }
 
 /// Delete the oldest rows while the stored bytes exceed `max_bytes`, always leaving the newest.
+fn counter(transaction: &rusqlite::Transaction<'_>, key: &str) -> io::Result<i64> {
+    transaction
+        .query_row(
+            "SELECT value FROM meta WHERE key = ?1",
+            params![key],
+            |row| row.get::<_, String>(0),
+        )
+        .db()?
+        .parse::<i64>()
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+}
+
+fn set_counter(transaction: &rusqlite::Transaction<'_>, key: &str, value: i64) -> io::Result<()> {
+    transaction
+        .execute(
+            "INSERT INTO meta (key, value) VALUES (?1, ?2) \
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![key, value.to_string()],
+        )
+        .db()?;
+    Ok(())
+}
+
+fn bump(transaction: &rusqlite::Transaction<'_>, bytes: i64, rows: i64) -> io::Result<()> {
+    set_counter(transaction, "bytes", counter(transaction, "bytes")? + bytes)?;
+    set_counter(transaction, "rows", counter(transaction, "rows")? + rows)
+}
+
+/// Delete the oldest rows while the stored bytes exceed `max_bytes`, always leaving the newest.
+/// The counters live in `meta` and move in the same transaction, so a publish costs one insert,
+/// one counter update and at most a few deletes — not a full-table scan.
 fn prune(transaction: &rusqlite::Transaction<'_>, max_bytes: u64) -> io::Result<()> {
     loop {
-        let rows: i64 = transaction
-            .query_row("SELECT COUNT(*) FROM feed", [], |row| row.get(0))
-            .db()?;
+        let rows = counter(transaction, "rows")?;
         if rows <= 1 {
             return Ok(());
         }
-        let bytes: i64 = transaction
+        let bytes = counter(transaction, "bytes")?;
+        if (bytes as u64) <= max_bytes {
+            return Ok(());
+        }
+        let removed: i64 = transaction
             .query_row(
-                "SELECT COALESCE(SUM(LENGTH(json)), 0) FROM feed",
+                "SELECT LENGTH(CAST(json AS BLOB)) FROM feed ORDER BY seq ASC LIMIT 1",
                 [],
                 |row| row.get(0),
             )
             .db()?;
-        if (bytes as u64) <= max_bytes {
-            return Ok(());
-        }
         transaction
             .execute(
                 "DELETE FROM feed WHERE seq = (SELECT MIN(seq) FROM feed)",
                 [],
             )
             .db()?;
+        bump(transaction, -removed, -1)?;
     }
 }
 

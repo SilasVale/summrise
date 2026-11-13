@@ -114,6 +114,7 @@ const RULES = {
       "summrise-core",
       "summrise-mesh",
       "summrise-protocol",
+      "summrise-record",
       "summrise-ui",
       "summrise-winsec",
       "summrise-winsys"
