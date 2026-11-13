@@ -15,8 +15,9 @@ export const LIVE_LIMIT = 200;
  *
  * The device's journal carries no human sentence, and `session.opened on <machine>` would make the
  * reader learn the journal's own spelling. The two session events name the terminal they are
- * about; a started device names itself. Anything else is reported as the event's type, because the
- * page knows nothing about that kind beyond the fact that it happened on this machine.
+ * about, and a started device names itself; a call's outcome is described by [`callSentence`], which
+ * needs the tool the event named. Anything else is reported as the event's type, because the page
+ * knows nothing about that kind beyond the fact that it happened on this machine.
  */
 function deviceSentence(device: string, event: DeviceEvent): string {
   if (event.type === "session.opened" || event.type === "session.closed") {
@@ -31,14 +32,64 @@ function deviceSentence(device: string, event: DeviceEvent): string {
 }
 
 /**
- * One device event as a row. It is a session fact, not a call: the envelope has no HTTP status, and
- * the device's `ts` is its own clock — a body whose time cannot be read falls back to this page's,
- * which is newer than the event, never older.
+ * The sentence one call's outcome earns: what ran, and how it ended.
+ *
+ * A call the machine made on its own reaches the page as a device event, and `call.denied on
+ * <machine>` would make it read as a journal kind rather than as a call. The reason is the device's
+ * own code, shown as it wrote it rather than translated into a claim the page cannot keep; without
+ * one the parenthetical is left off instead of promising a fact the device did not supply.
  */
-function deviceLine(device: string, event: DeviceEvent): LiveLine {
+function callSentence(
+  device: string,
+  type: "call.finished" | "call.denied",
+  tool: string,
+  reason: string | undefined
+): string {
+  if (type === "call.finished") return `${tool} ran on ${device}`;
+  return reason === undefined
+    ? `${tool} was refused on ${device}`
+    : `${tool} was refused on ${device} (${reason})`;
+}
+
+/**
+ * One device event as a row, or `null` when the event is a half that earns none.
+ *
+ * A session fact is not a call: the envelope has no HTTP status, and the device's `ts` is its own
+ * clock — a body whose time cannot be read falls back to this page's, which is newer than the
+ * event, never older.
+ *
+ * A call's journal pair is one call, so only its outcome half is a row. `call.started` is the half
+ * the paired `call.finished`/`call.denied` describes, and drawing both would show one call twice —
+ * once with no outcome, once with. A started event whose outcome never comes is not worth a row
+ * either: the page must not invent a timer to guess when a call died, and an unfinished half with
+ * no answer is not a fact it can report.
+ */
+function deviceLine(device: string, event: DeviceEvent): LiveLine | null {
+  if (event.type === "call.started") return null;
   const parsed = Date.parse(event.ts);
+  const ts_ms = Number.isFinite(parsed) ? parsed : Date.now();
+  if (event.type === "call.finished" || event.type === "call.denied") {
+    const tool = event.payload.tool;
+    // The parser refuses an outcome that names no tool, so this guard only narrows the type; a row
+    // without one would be the blank the parser already rejected before the page saw it.
+    if (tool === undefined) return null;
+    // The console records a tool-level failure as 424, so a call the machine refused reads failed
+    // with every other failed call in the list rather than as a green 200.
+    const ok = event.payload.ok === true;
+    return {
+      ts_ms,
+      kind: "mcp",
+      status: ok ? 200 : 424,
+      ok,
+      device_id: device,
+      tool,
+      ...(event.trace?.call !== undefined ? { trace: event.trace.call } : {}),
+      live: true,
+      sentence: callSentence(device, event.type, tool, event.payload.reason)
+    };
+  }
   return {
-    ts_ms: Number.isFinite(parsed) ? parsed : Date.now(),
+    ts_ms,
     kind: "session",
     status: 200,
     ok: true,
@@ -186,11 +237,19 @@ export function useLiveActivity(
       finished: (id) => {
         setRunning((current) => current.filter((entry) => entry.id !== id));
       },
-      // A device event is the machine's own journal reaching the page, not a proxied call: it earns
-      // a row so a session opening is visible as it happens, and stays out of `running`, which is
-      // the proxy's in-flight calls and nothing else.
+      // A device event is the machine's own journal reaching the page. The console filters out the
+      // calls it proxied itself, so what lands here is a session fact or a call made from the
+      // machine's own panel, a mesh peer or loopback — work that would otherwise be invisible. It
+      // earns a row so that call is visible as it happens, and stays out of `running`, which is the
+      // proxy's in-flight calls and nothing else; a half that earns no row — a call still waiting
+      // for its outcome — adds none.
       device: (device, event) => {
-        setLines((current) => [deviceLine(device, event), ...current].slice(0, LIVE_LIMIT));
+        const row = deviceLine(device, event);
+        if (row === null) {
+          setState("live");
+          return;
+        }
+        setLines((current) => [row, ...current].slice(0, LIVE_LIMIT));
         setState("live");
       },
       lagged: noteGap,

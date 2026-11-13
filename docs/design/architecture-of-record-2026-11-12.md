@@ -130,9 +130,17 @@ records what the operator did: token mints, subscriptions and proxied calls. A p
 both, joined by `trace.call`; neither log is rebuilt from the other, and a reader that needs the pair
 joins them. The two windows differ — 64 MiB on the device, 8 MiB with two generations on the console
 (`device/console/src/audit.rs:54`) — so Activity must say which rows are still replayable and which are
-archived. Today the page reads only the console's audit: a call made from the device's own panel, from
-the mesh or over loopback lives in the device journal and reaches Activity only when S1's subscription
-lands. That is the current completeness gap, not a design choice.
+archived.
+
+**Shipped (2026-11-13): the call pair and the join.** The device publishes `call.started` and then
+`call.finished` or `call.denied` for every call, whichever door it came through — the console's
+channel, the mesh, the device's own panel, loopback — carrying `trace.call` and `subject`
+(`{"token"}` or `{"door"}`). The console mints that trace per proxied exchange, sends it in the frame
+(`{"id","mcp","trace",...}`), and writes it on its audit line, so the two records join on one value
+instead of on two clocks. The console relays a device `call.*` event to the page only when the trace
+is not one it minted itself: its own call is already a row from the audit, and a panel, mesh or
+loopback call reaches Activity only through this path. The gap the paragraph above described is
+closed; what remains is the page drawing the join (the archived/replayable marking).
 
 ### 4.3 Data plane
 

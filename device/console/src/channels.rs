@@ -30,7 +30,7 @@
 //! refused at once. The proxy turns that timeout into a retryable 503, so an operator's client can
 //! retry rather than lose the call.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
@@ -178,6 +178,22 @@ fn system_now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+/// This process's prefix for the `trace.call` values it mints: eight random bytes as hex.
+///
+/// Randomness, not a pid or a clock: a console that restarts must not mint a trace an earlier
+/// process already used, or the device journal would show two different calls under one id.
+fn mint_trace_prefix() -> String {
+    use rand_core::{OsRng, RngCore};
+
+    let mut bytes = [0u8; 8];
+    OsRng.fill_bytes(&mut bytes);
+    let mut text = String::with_capacity(20);
+    for byte in bytes {
+        text.push_str(&format!("{byte:02x}"));
+    }
+    format!("console-{text}")
+}
+
 /// How the attempt before a device's current one ended, as that device reported it on connecting.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RetryNote {
@@ -242,7 +258,26 @@ pub(crate) struct ChannelRegistry {
     changed: Notify,
     send_timeout: Duration,
     reply_timeout: Duration,
+    /// This process's prefix for the `trace.call` it mints: unique per console, so a trace from a
+    /// console that restarted is not mistaken for one of this process's own.
+    trace_prefix: String,
+    /// How many traces this process has minted; the second half of an id, always increasing.
+    next_trace: AtomicU64,
+    /// The traces this process minted, newest last, bounded.
+    ///
+    /// A device relays every journal event it publishes, including the `call.*` pair of a call this
+    /// console proxied. That call is already a row from the console's own audit, so relaying the
+    /// device's half as well would show one call twice; this set is how the relay tells its own
+    /// calls from the panel's, a mesh peer's and a direct loopback client's, which must still reach
+    /// the page.
+    minted_traces: Mutex<VecDeque<String>>,
 }
+
+/// How many of this process's traces the relay remembers.
+///
+/// The window only has to outlive the device's relay of a call's own pair, which happens within the
+/// call itself; a thousand is many minutes of the busiest fleet measured, and keeps the set small.
+const MINTED_TRACES: usize = 1024;
 
 impl ChannelRegistry {
     pub(crate) fn new() -> Self {
@@ -277,6 +312,44 @@ impl ChannelRegistry {
             changed: Notify::new(),
             send_timeout,
             reply_timeout,
+            trace_prefix: mint_trace_prefix(),
+            next_trace: AtomicU64::new(0),
+            minted_traces: Mutex::new(VecDeque::new()),
+        }
+    }
+
+    /// The `trace.call` for one proxied exchange: this process's prefix, a counter, and nothing that
+    /// can repeat after a restart.
+    ///
+    /// The console mints it, sends it on the frame, and writes it on the audit line; the device puts
+    /// it on both halves of its journal pair. That one value is the only join the two records have —
+    /// two clocks are not the same fact — and it is also how the relay recognises a call it already
+    /// shows (see [`Self::relays_call`]).
+    pub(crate) fn mint_trace(&self) -> String {
+        let n = self.next_trace.fetch_add(1, Ordering::Relaxed);
+        let trace = format!("{}-{n}", self.trace_prefix);
+        let mut minted = lock(&self.minted_traces);
+        minted.push_back(trace.clone());
+        while minted.len() > MINTED_TRACES {
+            minted.pop_front();
+        }
+        trace
+    }
+
+    /// Whether `trace.call` on a relayed journal event is one this console minted.
+    ///
+    /// True means the console's own audit line is already the operator's record of that call, so the
+    /// device's half must not be relayed as well. False — including a trace this console did not
+    /// mint — means the call came from the panel, a mesh peer or a loopback client, and the relay is
+    /// the only way the page ever sees it.
+    fn relays_call(&self, event: &Value) -> bool {
+        let call = event
+            .pointer("/event/trace/call")
+            .or_else(|| event.pointer("/trace/call"))
+            .and_then(Value::as_str);
+        match call {
+            Some(call) => !lock(&self.minted_traces).iter().any(|trace| trace == call),
+            None => true,
         }
     }
 
@@ -531,6 +604,20 @@ impl ChannelRegistry {
                                     {
                                         self.record_event_seq(&device_id, seq);
                                     }
+                                    // A call this console proxied is already a row from its own
+                                    // audit; the device's half of the same call is the journal's
+                                    // record, not a second row on the page. Every other call event
+                                    // — the panel's, a mesh peer's, a direct loopback client's — is
+                                    // work only the journal knows about, so it is relayed.
+                                    let call = event.get("call").is_some()
+                                        || event
+                                            .get("event")
+                                            .and_then(|envelope| envelope.get("type"))
+                                            .and_then(Value::as_str)
+                                            .is_some_and(|kind| kind.starts_with("call."));
+                                    if call && !self.relays_call(&event) {
+                                        continue;
+                                    }
                                     let value = json!({
                                         "device_event": { "device": device_id, "event": event }
                                     });
@@ -566,8 +653,9 @@ impl ChannelRegistry {
         device_id: &str,
         mcp: Value,
         auth: &RequestAuth<'_>,
+        trace: &str,
     ) -> Result<Reply, RequestError> {
-        self.request_within(device_id, mcp, auth, self.reply_timeout)
+        self.request_within(device_id, mcp, auth, trace, self.reply_timeout)
             .await
     }
 
@@ -582,6 +670,7 @@ impl ChannelRegistry {
         device_id: &str,
         mcp: Value,
         auth: &RequestAuth<'_>,
+        trace: &str,
         reply: Duration,
     ) -> Result<Reply, RequestError> {
         let _in_flight = InFlight::begin(self, device_id)?;
@@ -598,8 +687,12 @@ impl ChannelRegistry {
 
         let (accepted, accepted_rx) = oneshot::channel();
         let frame = match auth {
-            RequestAuth::Grant(grant) => json!({ "id": id, "mcp": mcp, "grant": grant }),
-            RequestAuth::Token(scope) => json!({ "id": id, "mcp": mcp, "token": scope }),
+            RequestAuth::Grant(grant) => {
+                json!({ "id": id, "mcp": mcp, "trace": trace, "grant": grant })
+            }
+            RequestAuth::Token(scope) => {
+                json!({ "id": id, "mcp": mcp, "trace": trace, "token": scope })
+            }
         }
         .to_string();
         let queued = outbound.max_capacity().saturating_sub(outbound.capacity());
@@ -650,6 +743,7 @@ impl ChannelRegistry {
         from: u64,
         mcp: Value,
         auth: &RequestAuth<'_>,
+        trace: &str,
     ) -> Result<(u64, mpsc::Receiver<Value>, Reply), RequestError> {
         let _in_flight = InFlight::begin(self, device_id)?;
         let id = self.next_request.fetch_add(1, Ordering::Relaxed);
@@ -675,12 +769,14 @@ impl ChannelRegistry {
                 "id": id,
                 "mcp": mcp,
                 "subscribe": { "session_id": session_id, "from": from },
+                "trace": trace,
                 "grant": grant,
             }),
             RequestAuth::Token(scope) => json!({
                 "id": id,
                 "mcp": mcp,
                 "subscribe": { "session_id": session_id, "from": from },
+                "trace": trace,
                 "token": scope,
             }),
         }
@@ -880,6 +976,7 @@ impl ChannelRegistry {
                 tool: Some(tool),
                 token_id: None,
                 caller: Some(Caller::Console),
+                trace: None,
             })
             .await;
     }
@@ -1339,6 +1436,85 @@ mod tests {
         assert!(deliver(&pending, &streams, r#"{"id":7,"result":{}}"#).is_none());
     }
 
+    /// The frame the console writes carries the call's `trace.call`, which is what the device puts
+    /// on its journal pair and what the console's audit line names: the join is one value, sent.
+    #[tokio::test]
+    async fn a_request_carries_the_callers_trace_on_the_wire() {
+        let registry =
+            ChannelRegistry::with_timeouts(Duration::from_millis(500), Duration::from_millis(500));
+        let open = registry.open(&device_id()).await;
+        let mut commands = open.commands;
+        let frame = tokio::spawn(async move {
+            let Some(Outbound::Text {
+                frame, accepted, ..
+            }) = commands.recv().await
+            else {
+                panic!("the registry writes one frame");
+            };
+            let _ = accepted.send(Ok(()));
+            frame
+        });
+        let _answer = tokio::spawn(async move {
+            // The device answers, so the request returns instead of timing out.
+            tokio::time::sleep(Duration::from_millis(300)).await;
+        });
+
+        tokio::spawn({
+            let registry = Arc::new(registry);
+            let registry_clone = Arc::clone(&registry);
+            async move {
+                let _ = registry_clone
+                    .request(
+                        &device_id(),
+                        json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call" }),
+                        &RequestAuth::Grant(&grant()),
+                        "console-abc-7",
+                    )
+                    .await;
+            }
+        });
+
+        let written: Value = serde_json::from_str(&frame.await.expect("the frame is written"))
+            .expect("the frame is JSON");
+        assert_eq!(written["trace"], json!("console-abc-7"), "{written}");
+        assert_eq!(written["mcp"]["method"], json!("tools/call"), "{written}");
+    }
+
+    /// A call this console proxied is already a row from its own audit; the device's half of the
+    /// same call must not be relayed as a second row. A call the console never proxied — the
+    /// panel's, a mesh peer's, a direct loopback client's — must be, or the page never sees it.
+    #[test]
+    fn the_relay_drops_a_call_this_console_minted_and_keeps_a_foreign_one() {
+        let registry = ChannelRegistry::new();
+        let own = registry.mint_trace();
+        // The frame's shape: the subscription's envelope under `event`, as `deliver` stores it.
+        let relayed = |kind: &str, trace: Value| {
+            json!({ "seq": 4, "event": { "v": 1, "plane": "control", "seq": 4, "type": kind,
+                                        "ts": "2026-11-13T00:00:00Z", "trace": trace,
+                                        "payload": {} } })
+        };
+        assert!(
+            !registry.relays_call(&relayed("call.finished", json!({ "call": own }))),
+            "the console's own call is not relayed twice"
+        );
+        assert!(
+            registry.relays_call(&relayed("call.finished", json!({ "call": "panel-3" }))),
+            "a call from another door reaches the page"
+        );
+        assert!(
+            registry.relays_call(&relayed("session.opened", Value::Null)),
+            "an event that is not a call has no trace and is still relayed"
+        );
+        // A trace minted by an earlier console process is not this process's: the prefix is random.
+        assert!(
+            registry.relays_call(&relayed(
+                "call.finished",
+                json!({ "call": "console-00000000-1" })
+            )),
+            "only this process's traces are dropped"
+        );
+    }
+
     #[tokio::test]
     async fn a_socket_that_never_accepts_a_frame_is_a_send_timeout() {
         let registry = ChannelRegistry::with_send_timeout(Duration::from_millis(50));
@@ -1350,6 +1526,7 @@ mod tests {
                 &device_id(),
                 json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }),
                 &RequestAuth::Grant(&grant()),
+                "test-trace",
             )
             .await;
 
@@ -1385,6 +1562,7 @@ mod tests {
                 &device_id(),
                 json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }),
                 &RequestAuth::Grant(&grant()),
+                "test-trace",
             )
             .await;
 
@@ -1434,6 +1612,7 @@ mod tests {
                 &device_id(),
                 json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }),
                 &RequestAuth::Grant(&grant()),
+                "test-trace",
             )
             .await;
         assert_eq!(general, Err(RequestError::ReplyTimeout));
@@ -1444,6 +1623,7 @@ mod tests {
                 &device_id(),
                 json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/call" }),
                 &RequestAuth::Grant(&grant()),
+                "test-trace",
                 Duration::from_millis(500),
             )
             .await;
@@ -1470,6 +1650,7 @@ mod tests {
                         &device_id(),
                         json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }),
                         &RequestAuth::Grant(&grant()),
+                        "test-trace",
                     )
                     .await
             }));
@@ -1494,6 +1675,7 @@ mod tests {
                 &device_id(),
                 json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" }),
                 &RequestAuth::Grant(&grant()),
+                "test-trace",
             )
             .await;
         assert_eq!(

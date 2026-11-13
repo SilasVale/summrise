@@ -361,12 +361,14 @@ async fn answer(
             grant: &envelope.grant,
             arrival: Arrival::Mesh,
             peer: Some(peer),
+            trace: None,
         },
         remote::Admitted::Token(scope) => Caller::Console {
             token_id: &scope.token_id,
             scopes: &scope.scopes,
             allow_destructive: scope.allow_destructive,
             arrival: Arrival::Mesh,
+            trace: None,
         },
     };
     let Some(mcp) = frame.mcp.as_ref() else {

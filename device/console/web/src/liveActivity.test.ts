@@ -84,6 +84,22 @@ describe("the live activity stream", () => {
     });
   });
 
+  it("keeps a proxied call's trace on its line, which is the join with the machine's journal", () => {
+    const source = new FakeSource("/events");
+    const handlers = { snapshot: vi.fn(), activity: vi.fn(), lagged: vi.fn(), error: vi.fn() };
+    openLiveActivity(handlers, () => source);
+    source.emit("activity", {
+      ...line(5, "Read the machine's facts"),
+      device_id: "abc",
+      tool: "host.facts",
+      trace: "console-abc-1",
+      live: true
+    });
+    expect(handlers.activity).toHaveBeenCalledWith(
+      expect.objectContaining({ trace: "console-abc-1", tool: "host.facts" })
+    );
+  });
+
   it("drops a line that has no sentence, because a page cannot describe it", () => {
     const source = new FakeSource("/events");
     const handlers = { snapshot: vi.fn(), activity: vi.fn(), lagged: vi.fn(), error: vi.fn() };
@@ -226,6 +242,139 @@ describe("the live activity stream", () => {
       type: "session.opened",
       subject: { session: "2" },
       payload: { id: "2", kind: "pty" }
+    });
+  });
+
+  it("hands a call event's tool, outcome, reason and trace to the page", () => {
+    const source = new FakeSource("/events");
+    const handlers = {
+      snapshot: vi.fn(),
+      activity: vi.fn(),
+      lagged: vi.fn(),
+      error: vi.fn(),
+      device: vi.fn()
+    };
+    openLiveActivity(handlers, () => source);
+
+    // The journal's call pair carries the facts a row needs and the id the console's own line joins
+    // on. The relay does not rewrite either, so the page must read them as the device wrote them.
+    source.emit("device", {
+      device_event: {
+        device: "abc",
+        event: {
+          v: 1,
+          plane: "control",
+          seq: 43,
+          ts: "2026-11-13T10:00:01.000Z",
+          type: "call.denied",
+          trace: { call: "call-7" },
+          payload: { tool: "files.read", ok: false, reason: "denied" }
+        }
+      }
+    });
+
+    expect(handlers.device).toHaveBeenCalledWith("abc", {
+      v: 1,
+      plane: "control",
+      seq: 43,
+      ts: "2026-11-13T10:00:01.000Z",
+      type: "call.denied",
+      payload: { tool: "files.read", ok: false, reason: "denied" },
+      trace: { call: "call-7" }
+    });
+  });
+
+  it("refuses a call event that cannot name its tool and outcome", () => {
+    const source = new FakeSource("/events");
+    const handlers = {
+      snapshot: vi.fn(),
+      activity: vi.fn(),
+      lagged: vi.fn(),
+      error: vi.fn(),
+      device: vi.fn()
+    };
+    openLiveActivity(handlers, () => source);
+
+    // A call row is drawn from the tool and the outcome; an event without them would be a row of
+    // blanks, and the device is the only one that can say. The page refuses the event rather than
+    // guessing what ran, exactly as it refuses any other frame it cannot read.
+    source.emit("device", {
+      device_event: {
+        device: "abc",
+        event: {
+          v: 1,
+          plane: "control",
+          seq: 44,
+          ts: "2026-11-13T10:00:02.000Z",
+          type: "call.finished",
+          payload: { tool: 42, ok: "yes" }
+        }
+      }
+    });
+    source.emit("device", {
+      device_event: {
+        device: "abc",
+        event: {
+          v: 1,
+          plane: "control",
+          seq: 45,
+          ts: "2026-11-13T10:00:03.000Z",
+          type: "call.denied",
+          payload: {}
+        }
+      }
+    });
+    source.emit("device", {
+      device_event: {
+        device: "abc",
+        event: {
+          v: 1,
+          plane: "control",
+          seq: 46,
+          ts: "2026-11-13T10:00:04.000Z",
+          type: "call.finished",
+          payload: null
+        }
+      }
+    });
+    expect(handlers.device).not.toHaveBeenCalled();
+  });
+
+  it("keeps a call whose trace is unreadable but whose facts are sound", () => {
+    const source = new FakeSource("/events");
+    const handlers = {
+      snapshot: vi.fn(),
+      activity: vi.fn(),
+      lagged: vi.fn(),
+      error: vi.fn(),
+      device: vi.fn()
+    };
+    openLiveActivity(handlers, () => source);
+
+    // The trace is the join key, not the call itself: a row that cannot be joined is still a call
+    // the page can report, so an unreadable trace is dropped rather than the event.
+    source.emit("device", {
+      device_event: {
+        device: "abc",
+        event: {
+          v: 1,
+          plane: "control",
+          seq: 47,
+          ts: "2026-11-13T10:00:05.000Z",
+          type: "call.finished",
+          trace: "call-9",
+          payload: { tool: "runs.exec", ok: true }
+        }
+      }
+    });
+
+    expect(handlers.device).toHaveBeenCalledWith("abc", {
+      v: 1,
+      plane: "control",
+      seq: 47,
+      ts: "2026-11-13T10:00:05.000Z",
+      type: "call.finished",
+      payload: { tool: "runs.exec", ok: true }
     });
   });
 

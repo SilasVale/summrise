@@ -1067,12 +1067,14 @@ fn spawn_follow(
                 grant: &envelope.grant,
                 arrival: Arrival::Console,
                 peer: None,
+                trace: frame.trace.as_deref(),
             },
             remote::Admitted::Token(scope) => Caller::Console {
                 token_id: &scope.token_id,
                 scopes: &scope.scopes,
                 allow_destructive: scope.allow_destructive,
                 arrival: Arrival::Console,
+                trace: frame.trace.as_deref(),
             },
         };
         // The ack is the first read: it carries the retained output from the cursor the console
@@ -1369,12 +1371,14 @@ async fn handle_frame(
             grant: &envelope.grant,
             arrival: Arrival::Console,
             peer: None,
+            trace: frame.trace.as_deref(),
         },
         remote::Admitted::Token(scope) => Caller::Console {
             token_id: &scope.token_id,
             scopes: &scope.scopes,
             allow_destructive: scope.allow_destructive,
             arrival: Arrival::Console,
+            trace: frame.trace.as_deref(),
         },
     };
     let Some(mcp) = frame.mcp.as_ref() else {

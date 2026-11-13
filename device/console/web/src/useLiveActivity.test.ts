@@ -26,11 +26,12 @@ const line = (ts: number, sentence: string) => ({ ts_ms: ts, kind: "mcp", status
 const deviceEvent = (
   type: string,
   ts: string,
-  payload: Record<string, unknown> = { id: "2", kind: "pty" }
+  payload: Record<string, unknown> = { id: "2", kind: "pty" },
+  trace?: Record<string, unknown>
 ) => ({
   device_event: {
     device: "abc",
-    event: { v: 1, plane: "control", seq: 7, ts, type, payload }
+    event: { v: 1, plane: "control", seq: 7, ts, type, payload, ...(trace ? { trace } : {}) }
   }
 });
 
@@ -282,6 +283,166 @@ describe("following the live activity", () => {
       "session.idle on abc",
       "abc started",
       "terminal 2 closed on abc"
+    ]);
+  });
+
+  it("draws a finished call as one mcp row carrying the tool and the trace", () => {
+    const { result } = renderHook(() => useLiveActivity(true));
+    const source = FakeSource.instances[0];
+
+    act(() => {
+      source.emit(
+        "device",
+        deviceEvent(
+          "call.started",
+          "2026-11-13T10:00:00.000Z",
+          { tool: "files.read" },
+          { call: "call-7" }
+        )
+      );
+      source.emit(
+        "device",
+        deviceEvent(
+          "call.finished",
+          "2026-11-13T10:00:01.000Z",
+          { tool: "files.read", ok: true },
+          { call: "call-7" }
+        )
+      );
+    });
+
+    // The pair is one call, not two rows: `started` is the half that says the call began, and only
+    // the outcome half carries the status a row draws. Its trace is the console audit line's id, so
+    // a call the console also proxied is drawn once when the two records are joined.
+    expect(result.current.lines).toEqual([
+      {
+        ts_ms: Date.parse("2026-11-13T10:00:01.000Z"),
+        kind: "mcp",
+        status: 200,
+        ok: true,
+        device_id: "abc",
+        tool: "files.read",
+        live: true,
+        trace: "call-7",
+        sentence: "files.read ran on abc"
+      }
+    ]);
+  });
+
+  it("says a refused call was refused, and names the reason", () => {
+    const { result } = renderHook(() => useLiveActivity(true));
+    const source = FakeSource.instances[0];
+
+    act(() => {
+      source.emit(
+        "device",
+        deviceEvent(
+          "call.denied",
+          "2026-11-13T10:00:02.000Z",
+          { tool: "runs.exec", ok: false, reason: "approval_required" },
+          { call: "call-8" }
+        )
+      );
+    });
+
+    // A refusal is a row, not a silent drop. The console records a tool-level failure as 424, so a
+    // call the machine refused reads failed with every other failed call in the list.
+    expect(result.current.lines).toEqual([
+      {
+        ts_ms: Date.parse("2026-11-13T10:00:02.000Z"),
+        kind: "mcp",
+        status: 424,
+        ok: false,
+        device_id: "abc",
+        tool: "runs.exec",
+        live: true,
+        trace: "call-8",
+        sentence: "runs.exec was refused on abc (approval_required)"
+      }
+    ]);
+  });
+
+  it("leaves the parenthetical off a refusal that names no reason", () => {
+    const { result } = renderHook(() => useLiveActivity(true));
+    const source = FakeSource.instances[0];
+
+    act(() => {
+      source.emit(
+        "device",
+        deviceEvent("call.denied", "2026-11-13T10:00:03.000Z", {
+          tool: "memory.write",
+          ok: false
+        })
+      );
+    });
+
+    // The sentence must read as English with the facts it has: an empty `()` would be a promise the
+    // device did not make, and the row must not fall back to the event type.
+    expect(result.current.lines[0].sentence).toBe("memory.write was refused on abc");
+    expect(result.current.lines[0].trace).toBeUndefined();
+  });
+
+  it("draws no row for a call that has not ended", () => {
+    const { result } = renderHook(() => useLiveActivity(true));
+    const source = FakeSource.instances[0];
+
+    act(() => {
+      source.emit(
+        "device",
+        deviceEvent(
+          "call.started",
+          "2026-11-13T10:00:04.000Z",
+          { tool: "files.read" },
+          { call: "call-9" }
+        )
+      );
+    });
+
+    // A started event is the half a paired outcome will describe; drawing it too would make one
+    // call two rows — one with no outcome and one with — and the unreported half outlives its row.
+    expect(result.current.lines).toEqual([]);
+  });
+
+  it("keeps a session's row beside the calls the same machine made", () => {
+    const { result } = renderHook(() => useLiveActivity(true));
+    const source = FakeSource.instances[0];
+
+    act(() => {
+      source.emit(
+        "device",
+        deviceEvent(
+          "call.finished",
+          "2026-11-13T10:00:05.000Z",
+          { tool: "files.read", ok: true },
+          { call: "call-11" }
+        )
+      );
+      source.emit("device", deviceEvent("session.opened", "2026-11-13T10:00:06.000Z"));
+    });
+
+    // The two kinds share one list and keep their own shapes: a call is drawn as a call, a session
+    // keeps the `session` row the Device page's Events strip reads. Newest first, like every row.
+    expect(result.current.lines).toEqual([
+      {
+        ts_ms: Date.parse("2026-11-13T10:00:06.000Z"),
+        kind: "session",
+        status: 200,
+        ok: true,
+        device_id: "abc",
+        live: true,
+        sentence: "terminal 2 opened on abc"
+      },
+      {
+        ts_ms: Date.parse("2026-11-13T10:00:05.000Z"),
+        kind: "mcp",
+        status: 200,
+        ok: true,
+        device_id: "abc",
+        tool: "files.read",
+        trace: "call-11",
+        live: true,
+        sentence: "files.read ran on abc"
+      }
     ]);
   });
 

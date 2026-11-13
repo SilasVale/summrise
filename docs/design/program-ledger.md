@@ -174,6 +174,24 @@ below ladders to that; one round completes one major item end to end.
   grammar states. Both cells are now top-aligned and the chip takes the card's next line at full width;
   the gate photographs the card it measures (`07c-fleet-390.png`). Gate PASS — 107 steps.
 
+- 2026-11-13 — **Calls are journal events, joined across the two records on `trace.call`.** §4.2 said a
+  call is exactly two events sharing one trace, and that a proxied call appears in both journals joined
+  by it; neither half existed. Now: `summrise-bus` gains `publish_traced` (the envelope's `trace.call`,
+  additive, absent on every previous publish); the device publishes `call.started` then
+  `call.finished|denied` for every call from every door — console channel, mesh, panel, loopback — with
+  `subject` naming the token or the door, and adopts the console's trace when its frame carries one
+  (`RemoteFrame.trace`, also on the grant path). The five panel operations are journal calls too. The
+  console mints `console-<8 hex>-<n>` per proxied exchange (random prefix, so a restart cannot reuse
+  one), sends it on the frame, writes it on the audit line (`Entry.trace`, absent on operator actions),
+  and **does not relay** the device's half of a call it proxied itself — the audit row is already the
+  record — while every other `call.*` still reaches the page, which is the completeness gap closed.
+  The page draws a call's outcome as one `mcp` row (`424` when refused, a sentence naming the tool and
+  reason), drops the `started` half, and carries `trace` on both kinds of row so the join is in hand.
+  Evidence: bus 13, device 649, console 174 + 254 + 15, page 1 194 and `tsc` clean,
+  `build-web --check` green; `smoke-local` asserts the pair in the real journal and `smoke-enroll`
+  asserts the join across the two real processes (`trace console-c794ca57dd780286-1: audit line joins
+  journal seq 2 -> 3`).
+
 ## Next (in order)
 
 1. Windows handoff, the interactive half — dispatch or run `summrise-shell.exe --check-window` in an

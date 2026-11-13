@@ -552,6 +552,57 @@ if [ -z "$JOURNAL_MATCH" ]; then
 fi
 pass "device journal $(basename "$JOURNAL_MATCH") contains device.started"
 
+# §4.2: the call itself is a journal pair, and both halves share one trace.call. The audit proves what
+# ran; only the journal proves the pair a reader joins the two records on.
+if ! CALL_PAIR="$(python3 - "$JOURNAL_DIR" "$MCP_TOOL" <<'PY'
+import glob
+import json
+import os
+import sys
+
+directory, tool = sys.argv[1], sys.argv[2]
+calls = []
+for path in sorted(glob.glob(os.path.join(directory, "*.seg"))):
+    for line in open(path, encoding="utf-8", errors="replace"):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+        except Exception:
+            continue
+        if str(row.get("type", "")).startswith("call."):
+            calls.append(row)
+started = {}
+finished = {}
+for row in calls:
+    call = (row.get("trace") or {}).get("call")
+    if not call:
+        continue
+    if row["type"] == "call.started":
+        started[call] = row
+    elif row["type"] in ("call.finished", "call.denied"):
+        finished[call] = row
+paired = [
+    call
+    for call in started
+    if call in finished and (started[call].get("payload") or {}).get("tool") == tool
+]
+if not paired:
+    raise SystemExit(
+        f"no started/outcome pair for {tool}: started={sorted(started)}, finished={sorted(finished)}"
+    )
+call = paired[-1]
+print(
+    f"{len(started)} calls, {len(finished)} outcomes; trace {call} pairs "
+    f"{started[call]['seq']} -> {finished[call]['seq']}"
+)
+PY
+)"; then
+    fail "device journal $JOURNAL_DIR has no call.started/call.finished pair for $MCP_TOOL"
+fi
+pass "device journal carries the call pair ($CALL_PAIR)"
+
 # --- the console ------------------------------------------------------------------------------
 # The console's required flags: --operator-token-file (64 hex), --grant-key-file (the 32-byte
 # Ed25519 seed in hex) and --data. `--setup` writes both secrets at mode 0600, which `load` checks.

@@ -150,6 +150,23 @@ impl Bus {
         subject: Option<Value>,
         payload: Value,
     ) -> io::Result<Envelope> {
+        self.publish_traced(plane, kind, subject, None, payload)
+    }
+
+    /// Publish a control-plane event whose `trace.call` names the call it belongs to.
+    ///
+    /// The architecture's §4.2 is a pair: a call is `call.started` and then `call.finished` or
+    /// `call.denied`, both carrying one `trace.call`, so a reader can always join them — and a
+    /// proxied call joins the console's audit line on the same value. `None` is a plain publish,
+    /// byte for byte what [`Bus::publish`] wrote before the field was used.
+    pub fn publish_traced(
+        &self,
+        plane: Plane,
+        kind: &str,
+        subject: Option<Value>,
+        call: Option<&str>,
+        payload: Value,
+    ) -> io::Result<Envelope> {
         let seq = self.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let envelope = Envelope {
             v: SCHEMA_VERSION,
@@ -158,7 +175,7 @@ impl Bus {
             ts: chrono::Utc::now().to_rfc3339(),
             kind: kind.to_owned(),
             subject,
-            trace: None,
+            trace: call.map(|call| serde_json::json!({ "call": call })),
             payload,
         };
         let mut line = serde_json::to_vec(&envelope)
@@ -339,6 +356,27 @@ pub struct Subscription {
 }
 
 impl Subscription {
+    /// Every event the subscription can hand over right now: the replay it opened with and
+    /// whatever is already queued live, without waiting for one more.
+    ///
+    /// Tests use it to read a journal after an action; a caller that must wait has [`Self::next`].
+    pub fn try_next(&mut self) -> Option<Envelope> {
+        if let Some(event) = self.replay.pop_front() {
+            self.last = event.seq;
+            return Some(event);
+        }
+        match self.rx.try_recv() {
+            Ok(event) => {
+                if event.seq <= self.last {
+                    return self.try_next();
+                }
+                self.last = event.seq;
+                Some((*event).clone())
+            }
+            Err(_) => None,
+        }
+    }
+
     pub async fn next(&mut self) -> Option<Envelope> {
         if let Some(event) = self.replay.pop_front() {
             self.last = event.seq;
@@ -558,6 +596,30 @@ mod tests {
         assert!(text
             .lines()
             .all(|line| serde_json::from_str::<Envelope>(line).is_ok()));
+    }
+
+    #[test]
+    fn a_traced_publish_carries_the_call_on_the_wire_and_on_disk() {
+        let dir = temp_dir("trace");
+        let bus = Bus::open(&dir).unwrap();
+        let envelope = bus
+            .publish_traced(
+                Plane::Control,
+                "call.finished",
+                None,
+                Some("call-7"),
+                Value::Null,
+            )
+            .unwrap();
+        assert_eq!(
+            envelope.trace,
+            Some(serde_json::json!({ "call": "call-7" }))
+        );
+        let written: Envelope =
+            serde_json::from_str(read_segment(&dir, 1).lines().next().unwrap()).unwrap();
+        assert_eq!(written.trace, Some(serde_json::json!({ "call": "call-7" })));
+        // A plain publish is unchanged: no trace written when the caller names none.
+        assert_eq!(bus.publish("a", Value::Null).unwrap().trace, None);
     }
 
     #[tokio::test]

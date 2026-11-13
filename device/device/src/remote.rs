@@ -44,6 +44,11 @@ pub(crate) struct RemoteFrame {
     pub(crate) grant: Option<GrantEnvelope>,
     /// The console's permanent-token scope, when the frame carries one instead of a grant.
     pub(crate) token: Option<TokenScope>,
+    /// The `trace.call` the console minted for this exchange, when it sent one. The device copies
+    /// it onto its own `call.started`/`call.finished|denied` pair, so the console's audit line and
+    /// the device journal name the same call. Absent from a build that predates the field.
+    #[serde(default)]
+    pub(crate) trace: Option<String>,
 }
 
 /// A subscription: which session to follow, and the byte offset to start from.
@@ -372,6 +377,7 @@ mod tests {
             events: None,
             grant,
             token: None,
+            trace: None,
         }
     }
 
@@ -410,6 +416,7 @@ mod tests {
             events: None,
             grant: None,
             token: Some(scope),
+            trace: None,
         };
         assert!(
             matches!(
@@ -441,6 +448,7 @@ mod tests {
                 allow_destructive: false,
                 expires_at_ms: None,
             }),
+            trace: None,
         };
         assert!(admit(
             &covered,
@@ -459,6 +467,7 @@ mod tests {
             events: None,
             grant: None,
             token: Some(narrowed),
+            trace: None,
         };
         assert_eq!(
             admit(

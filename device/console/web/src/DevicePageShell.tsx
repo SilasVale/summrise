@@ -278,7 +278,8 @@ const JOURNAL_LIMIT = 20;
  *
  * `useLiveActivity` records a device event as a `session` line with `live: true`; a snapshot line
  * was read back from the audit and has no `live`, so it belongs to the record, not this strip. A
- * call is a line too, which is why the kind matters as much as the machine.
+ * call is a line too, and an `mcp` one — the machine's own call is Activity's row, not a session
+ * this strip watches — which is why the kind matters as much as the machine.
  */
 export function deviceJournal(
   lines: readonly LiveLine[],

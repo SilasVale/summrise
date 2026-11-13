@@ -160,6 +160,10 @@ pub(crate) enum Caller<'a> {
         /// The console's outbound WebSocket proves the console, not a peer, so only a mesh channel
         /// fills this; the audit line omits it elsewhere.
         peer: Option<&'a str>,
+        /// The `trace.call` the sending console minted for this exchange, when its frame named one.
+        /// A grant-authenticated call is proxied by the console exactly as a token one is, so the
+        /// join is the frame's fact, not the credential's.
+        trace: Option<&'a str>,
     },
     /// The console's channel carried a permanent token's scope. No grant is signed: the token
     /// record is the permission, and the device applies the same `authorize` rules with it.
@@ -175,6 +179,11 @@ pub(crate) enum Caller<'a> {
         allow_destructive: bool,
         /// The wire it arrived on.
         arrival: Arrival,
+        /// The `trace.call` the console minted for this exchange. The console's audit line names the
+        /// same value, so the device journal's `call.*` pair and the operator's record join on it
+        /// rather than on two clocks. Absent for a frame from a build that predates the field; the
+        /// device then mints its own.
+        trace: Option<&'a str>,
     },
 }
 
@@ -238,6 +247,27 @@ impl<'a> Caller<'a> {
             Caller::Owner => None,
             Caller::Granted { peer, .. } => peer,
             Caller::Console { .. } => None,
+        }
+    }
+
+    /// The `trace.call` the sending console minted for this exchange, when it sent one.
+    fn trace(self) -> Option<&'a str> {
+        match self {
+            Caller::Owner => None,
+            Caller::Granted { trace, .. } => trace,
+            Caller::Console { trace, .. } => trace,
+        }
+    }
+
+    /// What the journal's `subject` says the call came from: the token record when a token proved
+    /// it, the wire otherwise. The id is the audit line's `token_id`, never the `srm_` secret.
+    fn subject(self) -> Option<Value> {
+        match self {
+            Caller::Owner => Some(serde_json::json!({ "door": "loopback" })),
+            Caller::Granted { arrival, .. } => {
+                Some(serde_json::json!({ "door": arrival.as_str() }))
+            }
+            Caller::Console { token_id, .. } => Some(serde_json::json!({ "token": token_id })),
         }
     }
 }
@@ -494,6 +524,26 @@ impl DeviceServer {
             .await
     }
 
+    /// Publish one half of a call's journal pair, when this process has a journal.
+    ///
+    /// §4.2 of the architecture: a call is exactly two events, `call.started` and then
+    /// `call.finished` or `call.denied`, both carrying the same `trace.call`, so a reader can always
+    /// pair them. The pair is the device journal's record of what ran here; the console's audit line
+    /// for the same proxied call carries the same trace, which is what lets a reader join the two
+    /// records instead of guessing from timestamps. `subject` names the device when the caller knows
+    /// it, and `payload` is the facts the row needs: the tool, and the outcome when it has one.
+    fn publish_call_event(&self, kind: &str, call: &str, subject: Option<Value>, payload: Value) {
+        if let Some(bus) = &self.bus {
+            let _ = bus.publish_traced(
+                summrise_bus::Plane::Control,
+                kind,
+                subject,
+                Some(call),
+                payload,
+            );
+        }
+    }
+
     /// Log the outcome half of a call, with a machine-readable kind and no argument value.
     #[allow(clippy::too_many_arguments)]
     async fn audit_end(
@@ -630,6 +680,24 @@ impl DeviceServer {
         let id = self.next_call_id();
         let arrival = caller.arrival();
         let peer = caller.peer();
+        // The trace the journal's pair carries: the console's own when its frame named one, so the
+        // device journal and the console's audit line join on it — otherwise this device's, unique
+        // per call and per process. It is minted before the first event, so a lost second half
+        // still leaves a started event a reader can name.
+        let trace = match caller.trace() {
+            Some(trace) if !trace.is_empty() => trace.to_owned(),
+            _ => format!("call-{id}"),
+        };
+        let subject = caller.subject();
+        // §4.2: every call is a pair, and the started half is written before anything can have a
+        // side effect. A crash between the halves leaves a started event with no outcome, which is
+        // the honest record of a call whose answer was never written.
+        self.publish_call_event(
+            "call.started",
+            &trace,
+            subject.clone(),
+            json!({ "tool": name, "door": arrival.as_str() }),
+        );
         // The record id of the permanent token that authenticated this call, when one did. It is
         // what an operator revokes and what the console's own audit names; without it a token call
         // is indistinguishable from a console-signed grant in the device's log.
@@ -649,6 +717,12 @@ impl DeviceServer {
                         .await;
                     self.audit_end(id, false, Some("unknown_tool"), arrival, peer, token_id)
                         .await;
+                    self.publish_call_event(
+                        "call.denied",
+                        &trace,
+                        subject,
+                        json!({ "tool": name, "ok": false, "reason": "unknown_tool" }),
+                    );
                     return Err(CallFailure::Arguments(format!("unknown tool: {name}")));
                 }
             },
@@ -716,6 +790,12 @@ impl DeviceServer {
                     .await;
                 self.audit_end(id, false, Some("denied"), arrival, peer, token_id)
                     .await;
+                self.publish_call_event(
+                    "call.denied",
+                    &trace,
+                    subject,
+                    json!({ "tool": name, "ok": false, "reason": "denied" }),
+                );
                 return Err(CallFailure::Denied(detail));
             }
             Decision::Ask { prompt } => {
@@ -730,6 +810,12 @@ impl DeviceServer {
                     token_id,
                 )
                 .await;
+                self.publish_call_event(
+                    "call.denied",
+                    &trace,
+                    subject,
+                    json!({ "tool": name, "ok": false, "reason": "approval_required" }),
+                );
                 // Through the console there is no interactive approval yet, so the only way to
                 // consent is the signature. Say that in the refusal rather than leaving the
                 // operator with a prompt no surface can answer.
@@ -756,6 +842,12 @@ impl DeviceServer {
             .audit_begin(id, now_ms, name, "allow", arrival, peer, token_id)
             .await
         {
+            self.publish_call_event(
+                "call.denied",
+                &trace,
+                subject,
+                json!({ "tool": name, "ok": false, "reason": "audit_unwritable" }),
+            );
             return Err(CallFailure::Internal(
                 "the audit log is not writable; the capability was not run".to_owned(),
             ));
@@ -765,21 +857,45 @@ impl DeviceServer {
             Ok(text) => {
                 self.audit_end(id, true, None, arrival, peer, token_id)
                     .await;
+                self.publish_call_event(
+                    "call.finished",
+                    &trace,
+                    subject,
+                    json!({ "tool": name, "ok": true }),
+                );
                 Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
             }
             Err(ToolError::Arguments(message)) => {
                 self.audit_end(id, false, Some("arguments"), arrival, peer, token_id)
                     .await;
+                self.publish_call_event(
+                    "call.denied",
+                    &trace,
+                    subject,
+                    json!({ "tool": name, "ok": false, "reason": "arguments" }),
+                );
                 Err(CallFailure::Arguments(message))
             }
             Err(ToolError::Refused(message)) => {
                 self.audit_end(id, false, Some("refused"), arrival, peer, token_id)
                     .await;
+                self.publish_call_event(
+                    "call.denied",
+                    &trace,
+                    subject,
+                    json!({ "tool": name, "ok": false, "reason": "refused" }),
+                );
                 Err(CallFailure::Refused(message))
             }
             Err(ToolError::Internal(message)) => {
                 self.audit_end(id, false, Some("internal"), arrival, peer, token_id)
                     .await;
+                self.publish_call_event(
+                    "call.denied",
+                    &trace,
+                    subject,
+                    json!({ "tool": name, "ok": false, "reason": "internal" }),
+                );
                 Err(CallFailure::Internal(message))
             }
         }
@@ -6902,6 +7018,207 @@ mod tests {
         );
     }
 
+    /// A call through the console's wire, carrying the trace the console minted for it.
+    async fn console_call_with_trace(
+        server: &super::DeviceServer,
+        name: &str,
+        arguments: Value,
+        trace: &str,
+    ) -> Value {
+        server
+            .handle(
+                &json!({
+                    "jsonrpc": "2.0",
+                    "id": 9,
+                    "method": "tools/call",
+                    "params": { "name": name, "arguments": arguments }
+                }),
+                super::Caller::Console {
+                    token_id: "tok-1",
+                    scopes: &["host.facts".to_owned()],
+                    allow_destructive: false,
+                    arrival: super::Arrival::Console,
+                    trace: Some(trace),
+                },
+            )
+            .await
+    }
+
+    #[tokio::test]
+    async fn a_call_from_the_console_keeps_the_trace_the_console_minted() {
+        let (server, _config, bus, _dir) = journaled_server("mcp-call-console-trace");
+
+        let reply = console_call_with_trace(&server, "host.facts", json!({}), "console-42").await;
+        assert_eq!(reply["result"]["isError"], false, "{reply}");
+
+        let calls: Vec<_> = journal_of(&bus)
+            .into_iter()
+            .filter(|event| event.kind.starts_with("call."))
+            .collect();
+        assert_eq!(calls.len(), 2, "{calls:?}");
+        // The console's own audit line names this trace, so a reader joins the two records on it
+        // instead of guessing from timestamps.
+        assert_eq!(calls[0].trace, Some(json!({ "call": "console-42" })));
+        assert_eq!(calls[1].trace, Some(json!({ "call": "console-42" })));
+    }
+
+    /// A device whose journal is open, so the call events can be read back.
+    fn journaled_server(
+        label: &str,
+    ) -> (super::DeviceServer, Config, Arc<summrise_bus::Bus>, TempDir) {
+        let (server, config, dir) = console_server(label);
+        let bus = Arc::new(
+            summrise_bus::Bus::open(config.data.join("journal")).expect("the journal opens"),
+        );
+        (server.with_bus(Some(Arc::clone(&bus))), config, bus, dir)
+    }
+
+    /// Every event the journal holds so far, in order.
+    fn journal_of(bus: &summrise_bus::Bus) -> Vec<summrise_bus::Envelope> {
+        let mut subscription = bus.subscribe(1).expect("the journal replays");
+        let mut events = Vec::new();
+        while let Some(event) = subscription.try_next() {
+            events.push(event);
+        }
+        events
+    }
+
+    /// One `tools/call` through the handler's one authorization-and-dispatch path.
+    async fn tools_call(server: &super::DeviceServer, name: &str, arguments: Value) -> Value {
+        server
+            .handle(
+                &json!({
+                    "jsonrpc": "2.0",
+                    "id": 5,
+                    "method": "tools/call",
+                    "params": { "name": name, "arguments": arguments }
+                }),
+                super::Caller::Owner,
+            )
+            .await
+    }
+
+    #[tokio::test]
+    async fn an_allowed_call_is_a_started_and_finished_pair_sharing_one_trace() {
+        let (server, config, bus, _dir) = journaled_server("mcp-call-pair");
+
+        let reply = tools_call(&server, "host.facts", json!({})).await;
+        assert_eq!(reply["result"]["isError"], false, "{reply}");
+
+        let calls: Vec<_> = journal_of(&bus)
+            .into_iter()
+            .filter(|event| event.kind.starts_with("call."))
+            .collect();
+        assert_eq!(
+            calls
+                .iter()
+                .map(|event| event.kind.as_str())
+                .collect::<Vec<_>>(),
+            vec!["call.started", "call.finished"],
+            "a call is exactly two events: {calls:?}"
+        );
+        let trace = calls[0].trace.clone().expect("the pair carries a trace");
+        let call = trace["call"]
+            .as_str()
+            .expect("trace.call is a string")
+            .to_owned();
+        assert!(
+            call.starts_with("call-"),
+            "the trace names the call: {call}"
+        );
+        assert_eq!(
+            calls[1].trace,
+            Some(trace),
+            "both halves share one trace.call"
+        );
+        assert_eq!(calls[1].seq, calls[0].seq + 1, "the pair is adjacent");
+        assert_eq!(calls[0].payload["tool"], "host.facts");
+        assert_eq!(calls[1].payload["ok"], true);
+        // The journal's pair and the audit line describe the same call: one id, one row each.
+        let audit = audit_lines_of(&config);
+        assert_eq!(
+            audit[0]["id"],
+            call.trim_start_matches("call-").parse::<u64>().unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn a_denied_call_is_call_denied_naming_the_reason_and_no_capability_runs() {
+        let (server, _config, bus, _dir) = journaled_server("mcp-call-denied");
+        let scopes: Vec<String> = Vec::new();
+        let caller = super::Caller::Console {
+            token_id: "tok-1",
+            scopes: &scopes,
+            allow_destructive: false,
+            arrival: super::Arrival::Console,
+            trace: None,
+        };
+
+        let reply = server
+            .handle(
+                &json!({
+                    "jsonrpc": "2.0",
+                    "id": 6,
+                    "method": "tools/call",
+                    "params": { "name": "files.write", "arguments": { "path": "x", "content": "y" } }
+                }),
+                caller,
+            )
+            .await;
+        assert!(
+            reply.get("error").is_some(),
+            "the denial crosses as a JSON-RPC error: {reply}"
+        );
+
+        let calls: Vec<_> = journal_of(&bus)
+            .into_iter()
+            .filter(|event| event.kind.starts_with("call."))
+            .collect();
+        assert_eq!(
+            calls
+                .iter()
+                .map(|event| event.kind.as_str())
+                .collect::<Vec<_>>(),
+            vec!["call.started", "call.denied"],
+            "a denied call is still a pair: {calls:?}"
+        );
+        assert_eq!(calls[1].payload["reason"], "denied");
+        assert_eq!(calls[1].payload["ok"], false);
+        assert_eq!(calls[0].payload["tool"], "files.write");
+        assert_eq!(calls[0].subject, Some(json!({ "token": "tok-1" })));
+    }
+
+    #[tokio::test]
+    async fn a_call_the_device_does_not_offer_is_a_denied_pair_naming_unknown_tool() {
+        let (server, _config, bus, _dir) = journaled_server("mcp-call-unknown");
+
+        let reply = tools_call(&server, "no.such_tool", json!({})).await;
+        assert!(reply.get("error").is_some(), "{reply}");
+
+        let calls: Vec<_> = journal_of(&bus)
+            .into_iter()
+            .filter(|event| event.kind.starts_with("call."))
+            .collect();
+        assert_eq!(
+            calls
+                .iter()
+                .map(|event| event.kind.as_str())
+                .collect::<Vec<_>>(),
+            vec!["call.started", "call.denied"],
+            "an unknown tool is refused before dispatch, and the pair still names why: {calls:?}"
+        );
+        assert_eq!(calls[1].payload["reason"], "unknown_tool");
+    }
+
+    #[tokio::test]
+    async fn a_device_without_a_journal_records_no_call_event() {
+        let (server, _config, _dir) = console_server("mcp-call-no-journal");
+        let reply = tools_call(&server, "host.facts", json!({})).await;
+        assert_eq!(reply["result"]["isError"], false, "{reply}");
+        // Nothing to assert on the journal: the point is that the call path never panics or needs
+        // one. The audit still records the pair of lines.
+    }
+
     #[tokio::test]
     async fn a_loopback_context_is_still_the_owner_through_the_console_handler() {
         let (server, config, _dir) = console_server("console-owner");
@@ -6944,6 +7261,7 @@ mod tests {
             scopes: &scopes,
             allow_destructive: false,
             arrival: super::Arrival::Console,
+            trace: None,
         };
         let reply = server
             .handle(
@@ -6982,6 +7300,7 @@ mod tests {
             scopes: &scopes,
             allow_destructive: false,
             arrival: super::Arrival::Console,
+            trace: None,
         };
         let reply = server
             .handle(
@@ -7030,6 +7349,7 @@ mod tests {
                     grant: &grant,
                     arrival: super::Arrival::Console,
                     peer: None,
+                    trace: None,
                 },
             )
             .await;
@@ -7084,6 +7404,7 @@ mod tests {
                     grant: &grant,
                     arrival: super::Arrival::Console,
                     peer: None,
+                    trace: None,
                 },
             )
             .await;
@@ -7265,6 +7586,7 @@ mod tests {
                     scopes: &scopes,
                     allow_destructive: false,
                     arrival: super::Arrival::Loopback,
+                    trace: None,
                 },
             )
             .await;
@@ -7286,6 +7608,7 @@ mod tests {
                     scopes: &scopes,
                     allow_destructive: false,
                     arrival: super::Arrival::Loopback,
+                    trace: None,
                 },
             )
             .await;
@@ -7302,6 +7625,7 @@ mod tests {
                     scopes: &scopes,
                     allow_destructive: false,
                     arrival: super::Arrival::Loopback,
+                    trace: None,
                 },
             )
             .await;

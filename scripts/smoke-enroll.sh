@@ -695,6 +695,75 @@ done
 [ -n "$DEVICE_AUDIT_INFO" ] || fail "device audit $DEVICE_AUDIT has no allowed begin/end pair for host.facts"
 pass "the device audit records the call ($DEVICE_AUDIT_INFO)"
 
+# §4.2's join, proven on two real processes: the console's audit line and the device journal's
+# call.started/call.finished pair name one `trace.call`, so the two records pair without clocks.
+JOIN_INFO=""
+JOIN_DEADLINE=$((SECONDS + 10))
+while [ "$SECONDS" -lt "$JOIN_DEADLINE" ]; do
+    if JOIN_INFO="$(python3 - "$CONSOLE_AUDIT" "$DEVICE_DATA/journal" "$DEVICE_ID" 2>/dev/null <<'PY'
+import glob
+import json
+import os
+import sys
+
+audit_path, journal_dir, device_id = sys.argv[1], sys.argv[2], sys.argv[3]
+traces = set()
+for line in open(audit_path, encoding="utf-8"):
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        row = json.loads(line)
+    except Exception:
+        continue
+    if (
+        row.get("kind") == "mcp"
+        and row.get("device_id") == device_id
+        and row.get("tool") == "host.facts"
+        and row.get("status") == 200
+    ):
+        trace = row.get("trace")
+        if trace:
+            traces.add(trace)
+if not traces:
+    raise SystemExit("no audit row for host.facts carries a trace")
+started, finished = {}, {}
+for path in sorted(glob.glob(os.path.join(journal_dir, "*.seg"))):
+    for line in open(path, encoding="utf-8", errors="replace"):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+        except Exception:
+            continue
+        call = (row.get("trace") or {}).get("call")
+        if not call:
+            continue
+        if row.get("type") == "call.started":
+            started[call] = row
+        elif row.get("type") in ("call.finished", "call.denied"):
+            finished[call] = row
+joined = sorted(traces & set(started) & set(finished))
+if not joined:
+    raise SystemExit(
+        f"audit traces {sorted(traces)} do not pair with journal calls "
+        f"(started {len(started)}, finished {len(finished)})"
+    )
+trace = joined[-1]
+print(
+    f"trace {trace}: audit line joins journal seq {started[trace]['seq']} -> {finished[trace]['seq']}"
+)
+PY
+)"; then
+        [ -n "$JOIN_INFO" ] && break
+    fi
+    JOIN_INFO=""
+    sleep 0.1
+done
+[ -n "$JOIN_INFO" ] || fail "the console audit and the device journal do not share a trace.call for host.facts"
+pass "the two records join on trace.call ($JOIN_INFO)"
+
 # The credential must never be in either record: both logs name the token record, never the secret.
 if grep -qF "$SRM_TOKEN" "$CONSOLE_AUDIT" "$DEVICE_AUDIT" 2>/dev/null; then
     fail "a permanent token secret was written to an audit file"

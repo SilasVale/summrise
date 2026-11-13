@@ -84,6 +84,7 @@ impl Denials {
                         tool: None,
                         token_id: None,
                         caller: None,
+                        trace: None,
                     })
                     .await;
             }

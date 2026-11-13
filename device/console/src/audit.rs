@@ -126,6 +126,14 @@ pub(crate) struct Entry<'a> {
     /// actions and on lines older than the field.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) caller: Option<Caller>,
+    /// The `trace.call` of the proxied exchange this line records, when it records one.
+    ///
+    /// §4.2's join: the device journal's `call.started` and `call.finished|denied` carry the same
+    /// value, so a reader pairs the two records on it instead of comparing two clocks. A line that
+    /// proxied nothing — a grant, a token, a sign-in, a channel boundary — has none, and neither
+    /// does a line written before this field existed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) trace: Option<&'a str>,
 }
 
 /// One absence the audit proves: the moment the device's channel came back, and how long it was
@@ -871,6 +879,45 @@ mod tests {
             text.push('\n');
         }
         std::fs::write(dir.join(AUDIT_FILE), text).expect("the audit file is writable");
+    }
+
+    /// A proxied call's line names the `trace.call` that joins it to the device journal's pair; an
+    /// operator action proxied nothing, so its line has no trace at all — not a null one.
+    #[tokio::test]
+    async fn a_proxied_call_line_carries_its_trace_and_an_operator_action_has_none() {
+        let dir = TempDir::new("trace-join");
+        let audit = Audit::new(&dir.0, AUDIT_MAX_BYTES);
+        for (kind, tool, trace) in [
+            ("mcp", Some("host.facts"), Some("console-abc-1")),
+            ("grant", None, None),
+        ] {
+            assert!(
+                audit
+                    .append(&Entry {
+                        ts_ms: 7,
+                        kind,
+                        device_id: None,
+                        status: 200,
+                        detail: None,
+                        tool,
+                        token_id: None,
+                        caller: None,
+                        trace,
+                    })
+                    .await
+            );
+        }
+        let text = std::fs::read_to_string(dir.0.join(AUDIT_FILE)).expect("the audit is written");
+        let lines: Vec<Value> = text
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("a line is JSON"))
+            .collect();
+        assert_eq!(lines[0]["trace"], serde_json::json!("console-abc-1"));
+        assert!(
+            lines[1].get("trace").is_none(),
+            "an operator action writes no trace field: {}",
+            lines[1]
+        );
     }
 
     /// The page's snapshot seam is synchronous; its read must agree with `/audit`'s about the

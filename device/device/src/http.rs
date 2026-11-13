@@ -125,6 +125,7 @@ fn router_with(
         supervised: config.supervised,
         restart,
         terminal,
+        bus,
     };
 
     // `/mcp` is the same secret as `/api/state`: the gate runs before the MCP service sees the
@@ -370,6 +371,10 @@ struct AppState {
     /// The live terminal sessions, shared with the MCP service: the panel lists the same sessions an
     /// MCP client created, because they are the same machine's terminals.
     terminal: Arc<terminal::PtyRegistry>,
+    /// The process's event journal, when one opened. A panel operation is a call like any other, so
+    /// its pair of `call.*` events goes here too: without it the person standing at the machine
+    /// would be the one actor whose work the journal cannot show.
+    bus: Option<Arc<summrise_bus::Bus>>,
 }
 
 impl AppState {
@@ -753,10 +758,31 @@ fn panel_terminal_allowed(app: &AppState, peer: SocketAddr, headers: &HeaderMap)
     peer.ip().is_loopback() && app.panel_authorized(headers)
 }
 
+/// One panel operation in flight: the audit's call id, the `trace.call` its journal pair shares,
+/// and the tool it is running.
+///
+/// The three travel together because every ending names all three: the audit's `end` line, the
+/// journal's `call.finished`/`call.denied`, and the trace a reader joins them by. The id is the
+/// audit's own counter, so one call has one id in both records.
+struct PanelCall {
+    id: u64,
+    trace: String,
+    tool: &'static str,
+}
+
 /// Begin an audited panel operation; `None` means its authorization line could not be written and
 /// the operation must not run (the same rule the MCP path follows).
-async fn panel_call_begin(app: &AppState, tool: &'static str) -> Option<u64> {
+///
+/// A panel operation is a call in §4.2's sense, so it is a journal pair too: this publishes the
+/// started half under the same `trace.call` the end publishes, and a crash between the two leaves
+/// the started half as the honest record.
+async fn panel_call_begin(app: &AppState, tool: &'static str) -> Option<PanelCall> {
     let id = app.audit.next_id();
+    let call = PanelCall {
+        id,
+        trace: format!("call-{id}"),
+        tool,
+    };
     app.audit
         .begin(
             id,
@@ -768,14 +794,22 @@ async fn panel_call_begin(app: &AppState, tool: &'static str) -> Option<u64> {
             None,
         )
         .await
-        .then_some(id)
+        .then(|| {
+            publish_panel_call(
+                app,
+                "call.started",
+                &call.trace,
+                serde_json::json!({ "tool": tool, "door": "panel" }),
+            );
+            call
+        })
 }
 
 /// Record how a panel operation ended. `error_kind` is a closed set of names, never a message.
-async fn panel_call_end(app: &AppState, id: u64, error_kind: Option<&'static str>) {
+async fn panel_call_end(app: &AppState, call: &PanelCall, error_kind: Option<&'static str>) {
     app.audit
         .end(
-            id,
+            call.id,
             now_ms(),
             error_kind.is_none(),
             error_kind,
@@ -784,6 +818,33 @@ async fn panel_call_end(app: &AppState, id: u64, error_kind: Option<&'static str
             None,
         )
         .await;
+    match error_kind {
+        None => publish_panel_call(
+            app,
+            "call.finished",
+            &call.trace,
+            serde_json::json!({ "tool": call.tool, "ok": true }),
+        ),
+        Some(kind) => publish_panel_call(
+            app,
+            "call.denied",
+            &call.trace,
+            serde_json::json!({ "tool": call.tool, "ok": false, "reason": kind }),
+        ),
+    }
+}
+
+/// Publish one half of a panel call's journal pair, when this process has a journal.
+fn publish_panel_call(app: &AppState, kind: &str, trace: &str, payload: serde_json::Value) {
+    if let Some(bus) = &app.bus {
+        let _ = bus.publish_traced(
+            summrise_bus::Plane::Control,
+            kind,
+            None,
+            Some(trace),
+            payload,
+        );
+    }
 }
 
 /// What a panel handler answers when its own audit line cannot be written: the operation did not
@@ -848,7 +909,7 @@ async fn panel_terminal_create(
     };
     match app.terminal.create(target, 24, 80).await {
         Ok(id) => {
-            panel_call_end(&app, call, None).await;
+            panel_call_end(&app, &call, None).await;
             Json(serde_json::json!({
                 "id": id.as_str(),
                 "kind": kind.as_str(),
@@ -856,7 +917,7 @@ async fn panel_terminal_create(
             .into_response()
         }
         Err(error) => {
-            panel_call_end(&app, call, Some("refused")).await;
+            panel_call_end(&app, &call, Some("refused")).await;
             error_response(
                 StatusCode::BAD_REQUEST,
                 "terminal_create_refused",
@@ -884,11 +945,11 @@ async fn panel_terminal_write(
     };
     match app.terminal.write(&id, body.data.as_bytes()).await {
         Ok(written) => {
-            panel_call_end(&app, call, None).await;
+            panel_call_end(&app, &call, None).await;
             Json(serde_json::json!({ "written": written })).into_response()
         }
         Err(error) => {
-            panel_call_end(&app, call, Some("refused")).await;
+            panel_call_end(&app, &call, Some("refused")).await;
             error_response(
                 StatusCode::BAD_REQUEST,
                 "terminal_write_refused",
@@ -917,11 +978,11 @@ async fn panel_terminal_resize(
     };
     match app.terminal.resize(&id, body.rows, body.cols).await {
         Ok(()) => {
-            panel_call_end(&app, call, None).await;
+            panel_call_end(&app, &call, None).await;
             Json(serde_json::json!({ "resized": true })).into_response()
         }
         Err(error) => {
-            panel_call_end(&app, call, Some("refused")).await;
+            panel_call_end(&app, &call, Some("refused")).await;
             error_response(
                 StatusCode::BAD_REQUEST,
                 "terminal_resize_refused",
@@ -970,11 +1031,11 @@ async fn panel_terminal_read(
         .await
     {
         Ok(answer) => {
-            panel_call_end(&app, call, None).await;
+            panel_call_end(&app, &call, None).await;
             Json(panel_read_answer(&answer.data, answer.cursor)).into_response()
         }
         Err(error) => {
-            panel_call_end(&app, call, Some("refused")).await;
+            panel_call_end(&app, &call, Some("refused")).await;
             error_response(
                 StatusCode::BAD_REQUEST,
                 "terminal_read_refused",
@@ -1001,11 +1062,11 @@ async fn panel_terminal_close(
     };
     match app.terminal.close(&id).await {
         Ok(()) => {
-            panel_call_end(&app, call, None).await;
+            panel_call_end(&app, &call, None).await;
             Json(serde_json::json!({ "closed": true })).into_response()
         }
         Err(error) => {
-            panel_call_end(&app, call, Some("refused")).await;
+            panel_call_end(&app, &call, Some("refused")).await;
             error_response(
                 StatusCode::BAD_REQUEST,
                 "terminal_close_refused",
@@ -1586,6 +1647,23 @@ mod tests {
     impl Fixture {
         fn app(&self) -> Router {
             self.app_with(None, restart::none())
+        }
+
+        /// The same router with an event journal attached, for the tests that read its pair back.
+        fn app_with_bus(&self, bus: Option<Arc<summrise_bus::Bus>>) -> Router {
+            router_with(
+                &self.config,
+                self.store.clone(),
+                terminal::Limits::default(),
+                None,
+                None,
+                None,
+                restart::none(),
+                Arc::new(PluginHost::load(&self.config.data)),
+                None,
+                bus,
+            )
+            .0
         }
 
         /// The same router with a helper identity, for the registration test.
@@ -2507,6 +2585,73 @@ mod tests {
             lines.iter().all(|line| line["token_id"].is_null()),
             "a panel call carries no token id: {lines:?}"
         );
+    }
+
+    /// A panel operation is a call in the journal's sense too: the person at the machine is not the
+    /// one actor whose work the record cannot show.
+    #[tokio::test]
+    async fn a_panel_operation_is_a_journal_call_pair_sharing_one_trace() {
+        let fixture = fixture("panel-journal-calls", None);
+        let bus = Arc::new(
+            summrise_bus::Bus::open(fixture.config.data.join("journal"))
+                .expect("the journal opens"),
+        );
+        let client = client();
+        let server = PanelServer::start(fixture.app_with_bus(Some(Arc::clone(&bus)))).await;
+        let token = served_token(&client, &server).await;
+
+        let response = client
+            .post(format!("{}/api/terminal/create", server.base_url))
+            .header("x-summrise-panel", &token)
+            .header("content-type", "application/json")
+            .body(json!({ "kind": "pty" }).to_string())
+            .send()
+            .await
+            .expect("the device answers");
+        assert_eq!(response.status(), StatusCode::OK);
+        let created: Value = serde_json::from_str(&response.text().await.unwrap())
+            .expect("the create answer is JSON");
+        let id = created["id"].as_str().expect("a session id").to_owned();
+        let response = client
+            .post(format!("{}/api/terminal/{id}/close", server.base_url))
+            .header("x-summrise-panel", &token)
+            .header("content-type", "application/json")
+            .body(json!({}).to_string())
+            .send()
+            .await
+            .expect("the device answers");
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let mut subscription = bus.subscribe(1).expect("the journal replays");
+        let mut calls = Vec::new();
+        while let Some(event) = subscription.try_next() {
+            if event.kind.starts_with("call.") {
+                calls.push(event);
+            }
+        }
+        assert_eq!(
+            calls
+                .iter()
+                .map(|event| event.kind.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "call.started",
+                "call.finished",
+                "call.started",
+                "call.finished"
+            ],
+            "create and close are two calls, each a pair: {calls:?}"
+        );
+        assert_eq!(calls[0].payload["tool"], "terminal.create");
+        assert_eq!(calls[2].payload["tool"], "terminal.close");
+        let first = calls[0].trace.clone().expect("the pair carries a trace");
+        assert_eq!(calls[1].trace, Some(first.clone()), "one trace per call");
+        assert_ne!(
+            calls[2].trace,
+            Some(first),
+            "a second call has its own trace, not the first's"
+        );
+        assert_eq!(calls[0].payload["door"], "panel");
     }
 
     #[tokio::test]

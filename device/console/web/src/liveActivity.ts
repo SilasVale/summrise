@@ -50,6 +50,13 @@ export type LiveLine = {
   ms?: number;
   /** The human sentence the console wrote for this event. */
   sentence: string;
+  /**
+   * The `trace.call` this row belongs to: the id the console's own audit line for the same proxied
+   * call also carries, so one call that both records wrote can be joined rather than guessed from
+   * its timestamp. Absent on rows written before the trace existed, and on every row that is not a
+   * call's outcome.
+   */
+  trace?: string;
   /** What the row shows when it is opened: the call's own arguments, bounded. */
   evidence?: Record<string, unknown>;
 };
@@ -77,15 +84,21 @@ export type StartedCall = {
 /**
  * The facts a device event's payload can carry that the page reads.
  *
- * The payload is the event kind's own: a session names the session it opened, and a
- * `device.started` names its port. Only the session's id is drawn here, so only the fields the page
- * can vouch for are typed rather than inventing one shape for every kind.
+ * The payload is the event kind's own: a session names the session it opened, and a call names the
+ * tool it ran and how it ended. Only the fields a row is drawn from are typed here, so this stays
+ * what the page can vouch for rather than one invented shape for every kind.
  */
 export type DevicePayload = {
   /** The session's id, on `session.opened` and `session.closed`. */
   id?: string;
   /** How the session reaches its machine: `pty`, `ssh` or `serial`. */
   kind?: string;
+  /** The tool a `call.*` event named. */
+  tool?: string;
+  /** Whether the call's outcome was a success, on `call.finished` and `call.denied`. */
+  ok?: boolean;
+  /** Why a call was refused, as a machine-readable code (`denied`, `approval_required`, …). */
+  reason?: string;
 };
 
 /**
@@ -108,6 +121,12 @@ export type DeviceEvent = {
   type: string;
   /** What the event is about, when it names a subject. */
   subject?: unknown;
+  /**
+   * What this event traces back to. A call's two journal halves share one `trace.call`, and a call
+   * the console proxied carries the same value on its audit line, which is the only join the two
+   * records have. Absent on events that belong to no call.
+   */
+  trace?: { call?: string };
   /** The facts the event kind carries. */
   payload: DevicePayload;
 };
@@ -313,7 +332,8 @@ function asLine(value: unknown): LiveLine | null {
     ...(typeof frame.ms === "number" ? { ms: frame.ms } : {}),
     ...(frame.evidence && typeof frame.evidence === "object"
       ? { evidence: frame.evidence as Record<string, unknown> }
-      : {})
+      : {}),
+    ...(typeof frame.trace === "string" && frame.trace !== "" ? { trace: frame.trace } : {})
   };
 }
 
@@ -372,6 +392,13 @@ function asDeviceEvent(
   const ts = typeof event.ts === "string" && event.ts !== "" ? event.ts : null;
   const type = typeof event.type === "string" && event.type !== "" ? event.type : null;
   if (v === null || plane === null || seq === null || ts === null || type === null) return null;
+  const payload = asDevicePayload(event.payload);
+  // A call's outcome is a row drawn from the tool it ran and whether it succeeded. An event that
+  // cannot name both would reach the page as a row of blanks, so it is refused here, where every
+  // other half-read envelope is — not drawn as if the device had said nothing.
+  const outcome = type === "call.finished" || type === "call.denied";
+  if (outcome && (payload.tool === undefined || payload.ok === undefined)) return null;
+  const trace = asDeviceTrace(event.trace);
   return {
     device,
     event: {
@@ -381,9 +408,23 @@ function asDeviceEvent(
       ts,
       type,
       ...(event.subject !== undefined ? { subject: event.subject } : {}),
-      payload: asDevicePayload(event.payload)
+      ...(trace ? { trace } : {}),
+      payload
     }
   };
+}
+
+/**
+ * The call an event's `trace` names, or `null` when it names none the page can read.
+ *
+ * A trace is a join key, not a fact about the call: an event whose trace is unreadable is still a
+ * call the page can report, so a malformed trace is dropped and the row drawn on its own facts
+ * rather than the whole event refused.
+ */
+function asDeviceTrace(value: unknown): { call?: string } | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  return typeof raw.call === "string" && raw.call !== "" ? { call: raw.call } : null;
 }
 
 /** The payload's facts the page reads. Every other field belongs to the event kind, not to this page. */
@@ -392,7 +433,10 @@ function asDevicePayload(value: unknown): DevicePayload {
   const raw = value as Record<string, unknown>;
   return {
     ...(typeof raw.id === "string" ? { id: raw.id } : {}),
-    ...(typeof raw.kind === "string" ? { kind: raw.kind } : {})
+    ...(typeof raw.kind === "string" ? { kind: raw.kind } : {}),
+    ...(typeof raw.tool === "string" && raw.tool !== "" ? { tool: raw.tool } : {}),
+    ...(typeof raw.ok === "boolean" ? { ok: raw.ok } : {}),
+    ...(typeof raw.reason === "string" && raw.reason !== "" ? { reason: raw.reason } : {})
   };
 }
 

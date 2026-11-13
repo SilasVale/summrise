@@ -118,6 +118,41 @@ describe("DevicePageShell's Events strip", () => {
     expect(screen.queryByRole("list")).toBeNull();
     expect(screen.queryByText("Live")).toBeNull();
   });
+
+  it("still offers the empty sentence when the feed holds only call rows", () => {
+    // Calls are Activity's rows, and this strip lists sessions and plugin events. A feed of calls
+    // alone is an empty strip, and its sentence must not claim the machine has done nothing: it
+    // names the two things this strip watches, which is what the reader is being told there are none of.
+    const calls: LiveLine[] = [
+      {
+        ts_ms: 9_005,
+        kind: "mcp",
+        status: 200,
+        ok: true,
+        device_id: MACHINE.id,
+        tool: "files.read",
+        trace: "call-7",
+        live: true,
+        sentence: "files.read ran on workshop"
+      },
+      {
+        ts_ms: 9_006,
+        kind: "mcp",
+        status: 424,
+        ok: false,
+        device_id: MACHINE.id,
+        tool: "runs.exec",
+        live: true,
+        sentence: "runs.exec was refused on workshop (denied)"
+      }
+    ];
+
+    renderShell("overview", MACHINE, () => undefined, calls);
+
+    expect(screen.getByText("No sessions or plugin events yet on this machine.")).toBeInTheDocument();
+    expect(screen.queryByText("files.read ran on workshop")).toBeNull();
+    expect(screen.queryByText("Live")).toBeNull();
+  });
 });
 
 describe("deviceJournal", () => {
@@ -142,6 +177,36 @@ describe("deviceJournal", () => {
       true
     );
     expect(deviceJournal(feed, null)).toEqual([]);
+  });
+
+  it("drops a call's row: the strip lists sessions and plugin events, not calls", () => {
+    // A call the machine's own journal reports is Activity's row, and `useLiveActivity` draws it as
+    // an `mcp` line. This strip's sentence promises sessions and plugin events, so a call must not
+    // appear under it — that would read as a session that never opened.
+    const call: LiveLine = {
+      ts_ms: 9_003,
+      kind: "mcp",
+      status: 200,
+      ok: true,
+      device_id: MACHINE.id,
+      tool: "files.read",
+      trace: "call-7",
+      live: true,
+      sentence: "files.read ran on workshop"
+    };
+    const refused: LiveLine = {
+      ...call,
+      ts_ms: 9_004,
+      status: 424,
+      ok: false,
+      tool: "runs.exec",
+      sentence: "runs.exec was refused on workshop (denied)"
+    };
+    const session = journalLine(9_005, "terminal 2 opened on workshop");
+
+    expect(deviceJournal([call, refused, session], MACHINE.id).map((line) => line.sentence)).toEqual(
+      ["terminal 2 opened on workshop"]
+    );
   });
 });
 
