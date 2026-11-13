@@ -801,6 +801,62 @@ PY
 fi
 pass "the console's join route asks the machine and reports the call joined ($JOIN_ANSWER)"
 
+# **THE MACHINE'S OWN RECORD, READ THROUGH THE CONSOLE (round 8).** The join proves the machine still
+# holds a call the console drew. `journal.read` is the other direction: the page asks the machine what
+# it recorded, and the route relays the machine's own summary row — its sequence, tool, outcome, door
+# and trace — so a call the console never proxied is reachable after a reload. It must be a real
+# window, never `unknown` read as "recorded nothing".
+request console-read GET "$CONSOLE_BASE/journal/read?device=$DEVICE_ID&limit=50" "" \
+    -H "Authorization: Bearer $SESSION"
+assert_status 200 "console GET /journal/read for the machine's own window"
+if ! READ_ANSWER="$(python3 - "$LAST_BODY" "$DEVICE_ID" "$JOIN_TRACE" <<'PY'
+import json
+import sys
+
+path, device_id, trace = sys.argv[1], sys.argv[2], sys.argv[3]
+document = json.load(open(path, encoding="utf-8"))
+if document.get("device") != device_id:
+    raise SystemExit(f"the read named device {document.get('device')!r}, not {device_id!r}")
+if document.get("unknown") is not False:
+    raise SystemExit(f"the console could not ask the machine: {document}")
+if document.get("journal") is not True:
+    raise SystemExit(f"the machine says it keeps no journal: {document}")
+if not isinstance(document.get("read_at_ms"), int):
+    raise SystemExit(f"the read carries no moment: {document}")
+rows = document.get("rows") or []
+if not rows:
+    raise SystemExit(f"the machine answered an empty window: {document}")
+row = next(
+    (
+        entry
+        for entry in rows
+        if entry.get("trace") == trace
+        and entry.get("type") in ("call.finished", "call.denied")
+    ),
+    None,
+)
+if row is None:
+    raise SystemExit(f"the window holds no outcome row for {trace}: {document}")
+if row.get("tool") != "host.facts":
+    raise SystemExit(f"the window's call names {row.get('tool')!r}, not host.facts: {row}")
+if row.get("ok") is not True:
+    raise SystemExit(f"the window says the call did not succeed: {row}")
+if not isinstance(row.get("seq"), int) or row["seq"] <= 0:
+    raise SystemExit(f"the row carries no machine sequence: {row}")
+if not isinstance(row.get("payload_bytes"), int):
+    raise SystemExit(f"the row does not say how much its payload held: {row}")
+if row.get("door") not in ("console", "panel", "mesh", "loopback"):
+    raise SystemExit(f"the row carries no door: {row}")
+print(
+    f"{len(rows)} row(s); trace {trace[:24]}… at seq {row['seq']} via {row['door']}, "
+    f"unknown false"
+)
+PY
+)"; then
+    fail "console GET /journal/read did not relay the machine's own row"
+fi
+pass "the console's journal read relays the machine's row ($READ_ANSWER)"
+
 # The credential must never be in either record: both logs name the token record, never the secret.
 if grep -qF "$SRM_TOKEN" "$CONSOLE_AUDIT" "$DEVICE_AUDIT" 2>/dev/null; then
     fail "a permanent token secret was written to an audit file"

@@ -156,9 +156,33 @@ both records hold wears nothing and has the agreement stated in its opened recor
 console could not check — a fleet window, an older machine without the tool, a failed read, a bounded
 scan — is `unknown` and is never marked as lost. The rule the route and the mark both keep is that the
 machine's answer is asked, not inferred: a rotated journal is not contiguous with a rotated audit file,
-so an interval would be a guess and a missing answer is not evidence. What remains is replay: a call
-the console's own window has rotated away is still unreachable, because the audit holds no `seq` into
-the machine's journal, and drawing a device-only call in Activity needs `journal.read`.
+so an interval would be a guess and a missing answer is not evidence.
+
+**Shipped (2026-11-13): the machine's record becomes readable.** Activity could draw what the console
+proxied; a call that never reached it — the panel's, a mesh peer's, a direct loopback client's — was
+drawn from the live relay and lost on reload. The device now offers `journal.read` (the `journal`
+capability): newest first, at most 200 rows, each a summary built from fields the machine already has
+(`seq`, `ts`, `type`, `trace.call`, and on a call `tool`, `ok`, `reason`, the `door` it arrived by),
+plus `payload_bytes` and `more`; never a payload, because a read that relayed one would be an export
+wearing a read's name. The console serves `GET /journal/read?device=&before=&limit=`, asks that tool
+down the machine's own channel under the operator's scope, mints a trace so the console's relay drops
+the `call.*` pair the read writes, and writes no audit line of its own. The page reads one window per
+machine and draws the calls that arrived by a door the console does not own — `panel`, `mesh`,
+`loopback`: those are the calls the console never proxied, and a `console` row is the console's own
+record's to keep (an audit line, or one of the console's own reads of the machine, which is page
+bookkeeping rather than the operator's work). A machine row is merged against the console's window
+and dropped when the console already holds the same call, matched by `trace.call` — the console's row
+is the richer record — and the journal's own `door` is drawn where a console row shows `console`. The
+footer states that the machine's journal was not read when the answer is `unknown` or the read failed;
+it stays silent when the machine's record added nothing. **An empty window is never drawn as "the machine
+recorded nothing"**: a machine with no journal answers `journal: false` with no rows, and an older
+machine, a refusal or an unreadable answer is `unknown` with a reason — a fact about the read, not
+about the record.
+
+What remains is replay of what was recorded: a `journal.read` row is a summary and its payload is not
+reachable, so paging an archived call's arguments would need a second, bounded verb; and the console's
+audit still holds no `seq` into the machine's journal, so a console row whose machine copy has rotated
+away can be marked but not read back from the machine.
 
 ### 4.3 Data plane
 
@@ -185,6 +209,15 @@ new journal — a rollback, a data-directory reset — starts a new epoch, and e
 `replay(from)`: inside the window, replay from `from`; past it, `reset{snapshot_seq, lost:{from,to}}`.
 The snapshot is always at or before the deletion boundary, so the lost range is named rather than
 silently skipped.
+
+`journal.read(before_seq, limit)` is the record itself, summarised: newest first, at most 200 rows per
+call, each row carrying its `seq`, `ts`, `type`, the `trace.call` it belongs to, and — on a call — its
+`tool`, `ok`, `reason` and the `door` it arrived by. It never returns a payload; `payload_bytes` says how
+much the row's payload held, so a page can tell "nothing more was recorded" from "more was recorded and
+this is a summary". `before_seq` pages: the answer holds only rows strictly older than it. `more` says
+whether a retained row older than the last returned one exists. This is what makes a call the console
+never proxied — the panel's, a mesh peer's, a direct
+loopback client's — reachable after a reload instead of only through the live relay.
 
 `journal.get` answers the join the other way round: given the traces a page is drawing, it scans the
 retained rows newest first (`Bus::scan_newest`) and says which of them are still there, plus

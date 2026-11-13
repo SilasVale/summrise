@@ -371,14 +371,25 @@ pub const CAPABILITIES: &[Capability] = &[
     },
     Capability {
         name: "journal",
-        tools: &[ToolDef {
-            name: "journal.get",
-            destructive: false,
-            // Read-only: it answers presence and coverage, never an event's payload, and a later
-            // read cannot be changed by it.
-            description:
-                "Read this machine's journal: which of the traces you name are still retained, and the journal's retained bounds. Presence and coverage only, never an event's payload.",
-        }],
+        tools: &[
+            ToolDef {
+                name: "journal.get",
+                destructive: false,
+                // Read-only: it answers presence and coverage, never an event's payload, and a later
+                // read cannot be changed by it.
+                description:
+                    "Read this machine's journal: which of the traces you name are still retained, and the journal's retained bounds. Presence and coverage only, never an event's payload.",
+            },
+            ToolDef {
+                name: "journal.read",
+                destructive: false,
+                // Read-only, and summarising: a row is drawn from its own frame plus its tool and
+                // outcome, and only the payload's SIZE is reported. A read that relayed payloads
+                // would let one call carry a machine's file contents, which is an export.
+                description:
+                    "Read the rows of this machine's journal, newest first and bounded: each row's sequence, time and type, and on a call its tool, outcome and the door it arrived by. Summaries only; payloads are sized, not sent.",
+            },
+        ],
     },
     Capability {
         name: "plugins",
@@ -459,7 +470,7 @@ mod tests {
             13,
             "thirteen capabilities declare the surface"
         );
-        assert_eq!(tools.len(), 50, "the surface is 50 tools");
+        assert_eq!(tools.len(), 51, "the surface is 51 tools");
         assert_eq!(
             tools,
             [
@@ -507,6 +518,7 @@ mod tests {
                 "forward.list",
                 "state.get",
                 "journal.get",
+                "journal.read",
                 "plugins.list",
                 "plugins.inspect",
                 "plugins.add",
@@ -528,7 +540,7 @@ mod tests {
         // row at all. **One of those, `system.process_kill`, is destructive** — a kill signal that
         // anyone could send through a token that never consented, with the flag that authorizes it
         // unasserted.
-        let expected: [(&str, bool); 50] = [
+        let expected: [(&str, bool); 51] = [
             ("files.read", false),
             ("files.write", true),
             ("files.mkdir", false),
@@ -570,6 +582,7 @@ mod tests {
             ("screen.capture", false),
             ("state.get", false),
             ("journal.get", false),
+            ("journal.read", false),
             ("system.net_test", false),
             ("system.process_list", false),
             ("system.process_kill", true),

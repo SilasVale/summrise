@@ -17,6 +17,12 @@ import { AuditSourceLine } from "./AuditSourceLine";
 import { ConsoleCaller } from "./CallerMark";
 import { JoinLine, JoinMark, joinRecordSentence } from "./JoinMark";
 import { markOf, type JoinMarks } from "./joinMarks";
+import {
+  EMPTY_MACHINE,
+  machineRecordSentence,
+  machineSentence,
+  type MachineCounts
+} from "./machineRows";
 
 /**
  * The counts of a window nothing was asked about: a fleet window, a filtered day with no calls, or a
@@ -395,6 +401,20 @@ function Evidence(props: {
               <dd>{joinRecordSentence(props.join)}</dd>
             </div>
           )}
+          {/* **A ROW ONLY THE MACHINE HOLDS SAYS SO (round 8).** Its position is the machine's own
+              sequence, and the sentence names why there is no console line beside it. */}
+          {typeof line.machine_seq === "number" && (
+            <div>
+              <dt>Machine sequence</dt>
+              <dd className="mono">{line.machine_seq}</dd>
+            </div>
+          )}
+          {machineRecordSentence(line) !== null && (
+            <div>
+              <dt>Record</dt>
+              <dd>{machineRecordSentence(line)}</dd>
+            </div>
+          )}
           {detail && (
             <div>
               <dt>Detail</dt>
@@ -563,6 +583,17 @@ function Row(props: {
           {/* The console's own calls stay in the record; the quiet word is how a reader tells them
               from the AI's without opening the evidence. */}
           {line.caller === "console" && <ConsoleCaller className="timeline-caller" />}
+          {/* **THE DOOR IS THE CALLER (round 8).** A row the console never proxied has no `caller`
+              field — that word is the console's. What it has is the door the call arrived by, and
+              this is where a console row says `console`; one column answers "who" for every row. */}
+          {typeof line.machine_seq === "number" && line.door ? (
+            <span
+              className="timeline-door"
+              title={`This call never crossed the console; it arrived by the ${line.door}.`}
+            >
+              {line.door}
+            </span>
+          ) : null}
           {/* **THE ONE MARK A ROW CAN WEAR (the ledger's third item).** The console's line and the
               machine's journal pair on `trace.call`; this is the row whose other half the machine's
               journal has rotated away. A joined call and an unchecked one both draw nothing — the
@@ -718,6 +749,12 @@ export function ActivityTimeline(props: {
    * for it — and then nothing is marked and the footer says nothing.
    */
   join?: JoinMarks | null;
+  /**
+   * **WHAT THE MACHINE'S OWN RECORD ADDED (round 8).** The rows the journal contributed and the
+   * read's own outcome, for the one line under the window. A fleet window asks nothing, so it passes
+   * nothing and the footer stays silent.
+   */
+  machine?: MachineCounts | null;
   empty?: string;
   /**
    * A fixed clock, for a page that is paused: the age column stops at this moment instead of
@@ -896,6 +933,7 @@ export function ActivityTimeline(props: {
   }, [paused]);
 
   const at = props.nowMs ?? now;
+  const machineLine = machineSentence(props.machine ?? EMPTY_MACHINE);
   const needle = query.trim().toLowerCase();
   const tokenNames = useMemo(
     () => new Map((props.tokens ?? []).map((entry) => [entry.id, entry.name])),
@@ -1343,6 +1381,10 @@ export function ActivityTimeline(props: {
           {/* The same fact the table states, in the same words: what the machine's journal no
               longer holds. Silent when it holds everything the window drew. */}
           <JoinLine counts={props.join?.counts ?? EMPTY_JOIN} error={props.join?.error ?? null} />
+          {/* The machine's own window, in the page's voice: silent when it added nothing and every
+              call was already the console's; a count when it added rows, and the reason when it could
+              not be read — never silence that would read as "the machine recorded nothing". */}
+          {machineLine !== null && <p className="hint timeline-machine-read">{machineLine}</p>}
         </footer>
       )}
     </div>

@@ -10905,6 +10905,614 @@ async fn the_join_route_requires_an_operator_session() {
     assert_eq!(body, json!({ "error": "unauthorized" }));
 }
 
+// ---- the machine's own record, and the window the page draws of it ------------------------------
+
+/// One `journal.read` answer as the device sends it: both ends of the retained journal, the window's
+/// rows, and whether an older retained row exists.
+fn journal_read_answer(oldest_seq: u64, last_seq: u64, rows: Value, more: bool) -> Value {
+    json!({
+        "journal": true,
+        "oldest_seq": oldest_seq,
+        "last_seq": last_seq,
+        "rows": rows,
+        "more": more,
+    })
+}
+
+/// The names one row carries, sorted: the route relays named fields, never the device's own blob.
+fn row_keys(row: &Value) -> Vec<&str> {
+    let mut keys: Vec<&str> = row
+        .as_object()
+        .expect("a row")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    keys
+}
+
+/// `GET /journal/read` asks the machine's own `journal.read` over the channel and relays its window
+/// row by row: a summary field the console cannot read as the type it names is left out, and a row
+/// with no identity is dropped rather than drawn as blanks.
+#[tokio::test]
+async fn the_journal_read_route_relays_the_machine_s_window_field_by_field() {
+    let fixture = Fixture::new("journal-read-window");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        present_device(&fixture, &server, &signing_key(0xf2)).await;
+    let session = fixture.authenticate().await;
+
+    let app = fixture.app();
+    let uri = format!("/journal/read?device={device_id}");
+    let session_for_read = session.clone();
+    let read = tokio::spawn(async move { send(app, get(&uri, Some(&session_for_read))).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(frame["mcp"]["method"], json!("tools/call"), "{frame}");
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("journal.read"),
+        "{frame}"
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"],
+        json!({ "limit": 200 }),
+        "an absent limit asks for the newest page, and a read from the newest row names no before: \
+         {frame}"
+    );
+    assert!(
+        frame["trace"]
+            .as_str()
+            .is_some_and(|trace| !trace.is_empty()),
+        "the frame carries a minted trace, so the relay drops the pair it provokes: {frame}"
+    );
+
+    answer(
+        &mut device,
+        &frame,
+        tools_call_answer(
+            json!(5),
+            &journal_read_answer(
+                41,
+                52,
+                json!([
+                    {
+                        "seq": 52,
+                        "ts": "2026-11-13T08:00:00.000Z",
+                        "type": "call.finished",
+                        "trace": "52-0",
+                        "tool": "files.write",
+                        "ok": true,
+                        "door": "panel",
+                        "payload_bytes": 210,
+                        "payload": { "path": "payload-marker-6c1d" },
+                    },
+                    {
+                        "seq": 51,
+                        "ts": "2026-11-13T07:59:00.000Z",
+                        "type": "call.denied",
+                        "trace": "51-0",
+                        "tool": "files.read",
+                        "ok": "yes",
+                        "reason": "the grant does not cover it",
+                        "door": "mesh",
+                        "payload_bytes": 90,
+                    },
+                    // A row on a device that logged no payload size: the summary keeps the facts it
+                    // was given, and zero would be the claim that the payload was empty.
+                    { "seq": 50, "ts": "2026-11-13T07:58:00.000Z", "type": "call.started" },
+                    // Neither of these identifies a row the page could draw.
+                    { "seq": 49, "type": "call.started", "payload_bytes": 12 },
+                    "not a row",
+                ]),
+                true,
+            )
+            .to_string(),
+            false,
+        ),
+    )
+    .await;
+
+    let (status, body) = read.await.expect("the read finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["device"], json!(device_id), "the canonical id: {body}");
+    assert_eq!(body["journal"], json!(true));
+    assert_eq!(body["oldest_seq"], json!(41));
+    assert_eq!(body["last_seq"], json!(52));
+    assert_eq!(body["more"], json!(true));
+    assert_eq!(body["unknown"], json!(false));
+    assert!(body.get("reason").is_none(), "{body}");
+    assert!(body["read_at_ms"].as_u64().is_some(), "{body}");
+
+    let rows = body["rows"].as_array().expect("the window's rows");
+    assert_eq!(
+        rows.iter()
+            .map(|row| row["seq"].clone())
+            .collect::<Vec<Value>>(),
+        vec![json!(52), json!(51), json!(50)],
+        "the device's order is the page's order, and the row without a ts is not drawn: {body}"
+    );
+    assert_eq!(
+        row_keys(&rows[0]),
+        [
+            "door",
+            "ok",
+            "payload_bytes",
+            "seq",
+            "tool",
+            "trace",
+            "ts",
+            "type"
+        ],
+        "a summary field by field, never the device's payload blob: {body}"
+    );
+    assert_eq!(rows[0]["ok"], json!(true));
+    assert_eq!(rows[0]["payload_bytes"], json!(210));
+    assert_eq!(rows[0]["door"], json!("panel"));
+    assert_eq!(rows[0]["type"], json!("call.finished"));
+
+    assert_eq!(
+        row_keys(&rows[1]),
+        [
+            "door",
+            "payload_bytes",
+            "reason",
+            "seq",
+            "tool",
+            "trace",
+            "ts",
+            "type"
+        ],
+        "an `ok` that is a string is left out rather than relayed: {body}"
+    );
+    assert_eq!(rows[1]["reason"], json!("the grant does not cover it"));
+    assert_eq!(rows[1]["door"], json!("mesh"));
+
+    assert_eq!(
+        row_keys(&rows[2]),
+        ["seq", "ts", "type"],
+        "a device that logged no payload size says nothing rather than zero: {body}"
+    );
+    assert!(
+        !body.to_string().contains("payload-marker-6c1d"),
+        "the read relays summaries, never payload bodies: {body}"
+    );
+}
+
+/// `before` pages backwards from a row the page already drew: the frame names the sequence, and the
+/// answer is only the older window the machine sends back.
+#[tokio::test]
+async fn a_journal_read_before_a_sequence_pages_older_than_it() {
+    let fixture = Fixture::new("journal-read-before");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        present_device(&fixture, &server, &signing_key(0xf3)).await;
+    let session = fixture.authenticate().await;
+
+    let app = fixture.app();
+    let uri = format!("/journal/read?device={device_id}&before=48&limit=2");
+    let session_for_read = session.clone();
+    let read = tokio::spawn(async move { send(app, get(&uri, Some(&session_for_read))).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"],
+        json!({ "limit": 2, "before_seq": 48 }),
+        "the page's page-forward is the device's before_seq: {frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        tools_call_answer(
+            json!(2),
+            &journal_read_answer(
+                41,
+                52,
+                json!([
+                    { "seq": 47, "ts": "2026-11-13T07:57:00.000Z", "type": "call.started" },
+                    { "seq": 46, "ts": "2026-11-13T07:56:00.000Z", "type": "call.started" },
+                ]),
+                false,
+            )
+            .to_string(),
+            false,
+        ),
+    )
+    .await;
+
+    let (status, body) = read.await.expect("the read finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["rows"]
+            .as_array()
+            .expect("the older window")
+            .iter()
+            .map(|row| row["seq"].clone())
+            .collect::<Vec<Value>>(),
+        vec![json!(47), json!(46)],
+        "the answer is the window the device sent: {body}"
+    );
+    assert_eq!(body["more"], json!(false));
+}
+
+/// The page draws one bounded window, so the read defaults to the newest 200 rows, accepts both
+/// edges of the bound, and refuses a limit outside it with the rule in the sentence.
+#[tokio::test]
+async fn a_journal_read_defaults_to_two_hundred_rows_and_refuses_a_limit_outside_the_bound() {
+    let fixture = Fixture::new("journal-read-limit");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        present_device(&fixture, &server, &signing_key(0xf4)).await;
+    let session = fixture.authenticate().await;
+
+    for limit in [None, Some(1_usize), Some(200_usize)] {
+        let requested = limit.unwrap_or(200);
+        let uri = match limit {
+            None => format!("/journal/read?device={device_id}"),
+            Some(limit) => format!("/journal/read?device={device_id}&limit={limit}"),
+        };
+        let app = fixture.app();
+        let session_for_read = session.clone();
+        let read = tokio::spawn(async move { send(app, get(&uri, Some(&session_for_read))).await });
+
+        let frame = next_json(&mut device).await;
+        assert_eq!(
+            frame["mcp"]["params"]["arguments"],
+            json!({ "limit": requested }),
+            "limit={limit:?}: {frame}"
+        );
+        answer(
+            &mut device,
+            &frame,
+            tools_call_answer(
+                json!(1),
+                &journal_read_answer(4, 9, json!([]), false).to_string(),
+                false,
+            ),
+        )
+        .await;
+
+        let (status, body) = read.await.expect("the read finishes");
+        assert_eq!(status, StatusCode::OK, "limit={limit:?}: {body}");
+        assert_eq!(body["rows"], json!([]), "limit={limit:?}: {body}");
+        assert_eq!(
+            body["unknown"],
+            json!(false),
+            "a machine with no retained rows answers that fact, not an unknown: {body}"
+        );
+        assert_eq!(body["oldest_seq"], json!(4), "limit={limit:?}");
+        assert_eq!(body["last_seq"], json!(9), "limit={limit:?}");
+    }
+
+    for limit in ["0", "201", "-1", "many", ""] {
+        let (status, body) = send(
+            fixture.app(),
+            get(
+                &format!("/journal/read?device={device_id}&limit={limit}"),
+                Some(&session),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "limit={limit}: {body}");
+        assert_eq!(body["error"], json!("invalid_limit"), "{body}");
+        assert!(
+            body["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("1 to 200")),
+            "the sentence names the rule: {body}"
+        );
+    }
+}
+
+/// `before` is the seq of the last row already drawn, so it is a positive sequence number: zero,
+/// a negative number and a word all name no row and are refused before anything is asked.
+#[tokio::test]
+async fn a_journal_read_refuses_a_before_that_is_not_a_positive_sequence() {
+    let fixture = Fixture::new("journal-read-before-invalid");
+    let (device_id, _token) = fixture.register(&signing_key(0xf5)).await;
+    let session = fixture.authenticate().await;
+
+    for before in ["0", "-3", "half", ""] {
+        let (status, body) = send(
+            fixture.app(),
+            get(
+                &format!("/journal/read?device={device_id}&before={before}"),
+                Some(&session),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "before={before}: {body}");
+        assert_eq!(body["error"], json!("invalid_before"), "{body}");
+        assert!(
+            body["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("positive")),
+            "the sentence names the rule: {body}"
+        );
+    }
+}
+
+/// The route reads one machine, and both refusals happen before the machine is asked: an absent
+/// `device` names the parameter, and an id this console does not hold is the shared 404.
+#[tokio::test]
+async fn a_journal_read_requires_a_device_and_names_an_unknown_one() {
+    let fixture = Fixture::new("journal-read-device");
+    let session = fixture.authenticate().await;
+
+    let (status, body) = send(fixture.app(), get("/journal/read", Some(&session))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"], json!("device_required"), "{body}");
+    assert!(
+        body["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("?device=")),
+        "the sentence names the parameter: {body}"
+    );
+
+    let absent = "ab".repeat(32);
+    for presented in [absent.as_str(), "not-a-device"] {
+        let (status, body) = send(
+            fixture.app(),
+            get(&format!("/journal/read?device={presented}"), Some(&session)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{presented}: {body}");
+        assert_eq!(body["error"], json!("unknown_device"), "{body}");
+        let message = body["message"].as_str().expect("a reason");
+        assert!(message.contains("no machine"), "{message}");
+        assert!(message.contains("Machines page"), "{message}");
+    }
+}
+
+/// A machine too old to offer `journal.read` is unknown, never empty: the page must not read a tool
+/// that was never there as a machine that recorded nothing.
+#[tokio::test]
+async fn a_machine_that_does_not_offer_the_journal_read_is_unknown_rather_than_empty() {
+    let fixture = Fixture::new("journal-read-unknown-tool");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        present_device(&fixture, &server, &signing_key(0xf6)).await;
+    let session = fixture.authenticate().await;
+
+    let app = fixture.app();
+    let uri = format!("/journal/read?device={device_id}");
+    let session_for_read = session.clone();
+    let read = tokio::spawn(async move { send(app, get(&uri, Some(&session_for_read))).await });
+
+    let frame = next_json(&mut device).await;
+    answer_error(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": { "code": -32602, "message": "unknown tool: journal.read" },
+        }),
+    )
+    .await;
+
+    let (status, body) = read.await.expect("the read finishes");
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "an older device is a fact about the window, not a refusal: {body}"
+    );
+    assert_eq!(body["device"], json!(device_id), "{body}");
+    assert_eq!(body["unknown"], json!(true), "{body}");
+    assert_eq!(body["reason"], json!("unknown_tool"), "{body}");
+    assert_eq!(body["rows"], json!([]));
+    assert_eq!(body["journal"], json!(false));
+    assert_eq!(body["oldest_seq"], json!(0));
+    assert_eq!(body["last_seq"], json!(0));
+    assert_eq!(body["more"], json!(false));
+    assert!(body["read_at_ms"].as_u64().is_some(), "{body}");
+}
+
+/// A device that carries a tool-level failure inside a 200 result is refusing the read, not sending a
+/// body this console could not parse: MCP puts the sentence in `isError`, and the page still reads
+/// `unknown` rather than an empty record.
+#[tokio::test]
+async fn a_journal_read_the_device_refuses_in_a_result_is_unknown_too() {
+    let fixture = Fixture::new("journal-read-refused");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        present_device(&fixture, &server, &signing_key(0xf7)).await;
+    let session = fixture.authenticate().await;
+
+    let app = fixture.app();
+    let uri = format!("/journal/read?device={device_id}");
+    let session_for_read = session.clone();
+    let read = tokio::spawn(async move { send(app, get(&uri, Some(&session_for_read))).await });
+
+    let frame = next_json(&mut device).await;
+    answer(
+        &mut device,
+        &frame,
+        tools_call_answer(
+            json!(8),
+            "this machine's journal is switched off in its configuration",
+            true,
+        ),
+    )
+    .await;
+
+    let (status, body) = read.await.expect("the read finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["unknown"], json!(true), "{body}");
+    assert_eq!(body["reason"], json!("refused"), "{body}");
+    assert_eq!(body["rows"], json!([]));
+    assert_eq!(body["journal"], json!(false));
+    assert_eq!(body["more"], json!(false));
+}
+
+/// An answer that is not a journal window is unknown too: never an empty one. That includes the
+/// right envelope with the wrong `rows` type and one missing an end of the journal, because a console
+/// that read half an answer must not draw it as a machine with nothing retained.
+#[tokio::test]
+async fn a_journal_answer_this_console_cannot_read_is_unknown_rather_than_empty() {
+    let fixture = Fixture::new("journal-read-malformed");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        present_device(&fixture, &server, &signing_key(0xf8)).await;
+    let session = fixture.authenticate().await;
+
+    let answers = [
+        "not the journal object".to_owned(),
+        json!({
+            "journal": true,
+            "oldest_seq": 1,
+            "last_seq": 2,
+            "rows": "none",
+            "more": false,
+        })
+        .to_string(),
+        json!({ "journal": true, "oldest_seq": 1, "rows": [], "more": false }).to_string(),
+    ];
+    for (index, text) in answers.into_iter().enumerate() {
+        let app = fixture.app();
+        let uri = format!("/journal/read?device={device_id}");
+        let session_for_read = session.clone();
+        let read = tokio::spawn(async move { send(app, get(&uri, Some(&session_for_read))).await });
+
+        let frame = next_json(&mut device).await;
+        answer(
+            &mut device,
+            &frame,
+            tools_call_answer(json!(index + 1), &text, false),
+        )
+        .await;
+
+        let (status, body) = read.await.expect("the read finishes");
+        assert_eq!(status, StatusCode::OK, "answer {index}: {body}");
+        assert_eq!(body["unknown"], json!(true), "answer {index}: {body}");
+        assert_eq!(body["reason"], json!("malformed"), "answer {index}: {body}");
+        assert_eq!(body["rows"], json!([]), "answer {index}: {body}");
+        assert_eq!(body["journal"], json!(false), "answer {index}: {body}");
+        assert_eq!(body["oldest_seq"], json!(0), "answer {index}: {body}");
+        assert_eq!(body["last_seq"], json!(0), "answer {index}: {body}");
+        assert_eq!(body["more"], json!(false), "answer {index}: {body}");
+    }
+}
+
+/// The read goes to one machine, so a device with no open channel is the link refusal every other
+/// per-device read answers with, in the same words.
+#[tokio::test]
+async fn an_offline_machine_cannot_be_read() {
+    let fixture = Fixture::new("journal-read-offline");
+    let (device_id, _token) = fixture.register(&signing_key(0xf9)).await;
+    let session = fixture.authenticate().await;
+
+    let (status, body) = send(
+        fixture.app(),
+        get(&format!("/journal/read?device={device_id}"), Some(&session)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert_eq!(body["error"], json!("device reconnecting"), "{body}");
+    assert_eq!(
+        body["message"],
+        json!("this machine is reconnecting; try again in a moment")
+    );
+    assert_eq!(body["retry_after_ms"], json!(1_000));
+}
+
+/// A device that takes the frame and does not answer inside the console's bound is the same 504 the
+/// tool catalogue and the join answer, with the same sentence: one silence reads one way everywhere.
+#[tokio::test]
+async fn a_journal_read_that_waits_out_the_console_bound_is_a_504() {
+    let fixture = Fixture::with_timeout("journal-read-timeout", Duration::from_millis(50));
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, _device) = present_device(&fixture, &server, &signing_key(0xfa)).await;
+    let session = fixture.authenticate().await;
+
+    let (status, body) = send(
+        fixture.app(),
+        get(&format!("/journal/read?device={device_id}"), Some(&session)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::GATEWAY_TIMEOUT, "{body}");
+    assert_eq!(body["error"], json!("device timeout"));
+    assert_eq!(
+        body["message"],
+        json!("the device did not answer; it may still be working, so try again")
+    );
+}
+
+#[tokio::test]
+async fn the_journal_read_route_requires_an_operator_session() {
+    let fixture = Fixture::new("journal-read-no-session");
+    let (device_id, _token) = fixture.register(&signing_key(0xfb)).await;
+
+    let (status, body) = send(
+        fixture.app(),
+        get(&format!("/journal/read?device={device_id}"), None),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(body, json!({ "error": "unauthorized" }));
+}
+
+/// **THE READ IS NOT AN OPERATOR ACT.** It asks the machine what its journal holds so the page can
+/// draw the rows the console never saw; a read that audited itself would grow the very window it
+/// describes, and one Activity row per page would be noise about the console reading itself.
+#[tokio::test]
+async fn a_journal_read_writes_no_audit_line() {
+    let fixture = Fixture::new("journal-read-no-audit");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        present_device(&fixture, &server, &signing_key(0xfc)).await;
+    let session = fixture.authenticate().await;
+
+    let (status, before) = send(fixture.app(), get("/audit", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK);
+    let before_count = before.as_array().expect("the audit window").len();
+
+    let app = fixture.app();
+    let uri = format!("/journal/read?device={device_id}&limit=20");
+    let session_for_read = session.clone();
+    let read = tokio::spawn(async move { send(app, get(&uri, Some(&session_for_read))).await });
+    let frame = next_json(&mut device).await;
+    let trace = frame["trace"]
+        .as_str()
+        .expect("the frame carries a trace")
+        .to_owned();
+    answer(
+        &mut device,
+        &frame,
+        tools_call_answer(
+            json!(6),
+            &journal_read_answer(
+                1,
+                6,
+                json!([{ "seq": 6, "ts": "2026-11-13T08:00:00.000Z", "type": "call.started" }]),
+                false,
+            )
+            .to_string(),
+            false,
+        ),
+    )
+    .await;
+    let (status, body) = read.await.expect("the read finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let (status, after) = send(fixture.app(), get("/audit", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        after.as_array().expect("the audit window").len(),
+        before_count,
+        "the read adds no line: {after}"
+    );
+    let text = audit_text(&fixture);
+    assert!(
+        !text.contains("journal.read"),
+        "no line names the tool the read called: {text}"
+    );
+    assert!(
+        !text.contains(&trace),
+        "no line carries the trace the read minted: {text}"
+    );
+}
+
 // ---- the terminal stream: the page's one open connection per session --------------------------
 
 /// A raw HTTP/1.1 GET whose body is read as it arrives.

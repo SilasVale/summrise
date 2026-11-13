@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  callSentence,
   openLiveActivity,
   runningAt,
   type DeviceEvent,
@@ -29,26 +30,6 @@ function deviceSentence(device: string, event: DeviceEvent): string {
   }
   if (event.type === "device.started") return `${device} started`;
   return `${event.type} on ${device}`;
-}
-
-/**
- * The sentence one call's outcome earns: what ran, and how it ended.
- *
- * A call the machine made on its own reaches the page as a device event, and `call.denied on
- * <machine>` would make it read as a journal kind rather than as a call. The reason is the device's
- * own code, shown as it wrote it rather than translated into a claim the page cannot keep; without
- * one the parenthetical is left off instead of promising a fact the device did not supply.
- */
-function callSentence(
-  device: string,
-  type: "call.finished" | "call.denied",
-  tool: string,
-  reason: string | undefined
-): string {
-  if (type === "call.finished") return `${tool} ran on ${device}`;
-  return reason === undefined
-    ? `${tool} was refused on ${device}`
-    : `${tool} was refused on ${device} (${reason})`;
 }
 
 /**

@@ -102,6 +102,31 @@ export type DevicePayload = {
 };
 
 /**
+ * The sentence one call's outcome earns: what ran, and how it ended.
+ *
+ * A call the machine made on its own reaches the page as a device event, and `call.denied on
+ * <machine>` would make it read as a journal kind rather than as a call. The reason is the device's
+ * own code, shown as it wrote it rather than translated into a claim the page cannot keep; without
+ * one the parenthetical is left off instead of promising a fact the device did not supply.
+ *
+ * **ONE SPELLING FOR TWO RECORDS (round 8).** A call the console proxied is drawn from the audit, and
+ * a call only the machine's journal holds is drawn from `journal.read`; a reader must not be able to
+ * tell the two apart by the wording. Both paths call this function, so the sentence is the same
+ * function's, not a second copy's.
+ */
+export function callSentence(
+  device: string,
+  type: "call.finished" | "call.denied",
+  tool: string,
+  reason: string | undefined
+): string {
+  if (type === "call.finished") return `${tool} ran on ${device}`;
+  return reason === undefined
+    ? `${tool} was refused on ${device}`
+    : `${tool} was refused on ${device} (${reason})`;
+}
+
+/**
  * One event from a device's own journal, as the console relays it on the stream.
  *
  * The console does not rewrite the device's envelope: `v`, `plane`, `seq`, `ts` and `type` are the

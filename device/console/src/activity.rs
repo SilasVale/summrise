@@ -123,6 +123,7 @@ pub(crate) fn describe(tool: &str, arguments: &Value) -> String {
         "runs.get" => "Read one run's record".to_owned(),
         "state.get" => "Read the machine's state".to_owned(),
         "journal.get" => "Read the machine's journal".to_owned(),
+        "journal.read" => "Read the machine's record".to_owned(),
         "screen.capture" => "Took a screenshot of the screen".to_owned(),
         "system.process_list" => "Listed the machine's processes".to_owned(),
         "system.process_kill" => {

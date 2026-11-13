@@ -1609,3 +1609,147 @@ describe("ActivityTimeline's join marks", () => {
     expect(document.querySelector(".audit-join")).toBeNull();
   });
 });
+
+// **THE MACHINE'S OWN RECORD (round 8).** A call the console never proxied is drawn from
+// `journal.read` alone; the page must show it exactly as the console would draw the same call, say
+// where the record came from, and never let a failed read look like an empty journal.
+describe("ActivityTimeline's machine rows", () => {
+  const panelCall = line({
+    ts_ms: Date.UTC(2026, 10, 5, 9, 0, 0),
+    device_id: alpha,
+    tool: "screen.capture",
+    status: 200,
+    ok: true,
+    trace: "machine-7",
+    machine_seq: 7,
+    door: "panel",
+    sentence: "screen.capture ran on Alpha"
+  });
+  const consoleCall = line({
+    ts_ms: Date.UTC(2026, 10, 5, 9, 0, 5),
+    device_id: alpha,
+    tool: "files.read",
+    status: 200,
+    ok: true,
+    trace: "console-7",
+    sentence: "files.read ran on Alpha"
+  });
+
+  it("draws a call only the machine holds, with the door it arrived by", () => {
+    render(
+      <ActivityTimeline
+        lines={[consoleCall, panelCall]}
+        devices={devices}
+        machine={{ contributed: 1, state: "read", unknown: false, error: null }}
+      />
+    );
+    const row = [...document.querySelectorAll(".timeline-row")].find((entry) =>
+      entry.textContent?.includes("screen.capture ran on Alpha")
+    );
+    expect(row).toBeTruthy();
+    expect(row?.querySelector(".timeline-door")).toHaveTextContent("panel");
+    // The console's own row keeps its word: a door is not a second caller column.
+    const consoleRow = [...document.querySelectorAll(".timeline-row")].find((entry) =>
+      entry.textContent?.includes("files.read ran on Alpha")
+    );
+    expect(consoleRow?.querySelector(".timeline-door")).toBeNull();
+  });
+
+  it("names the machine's position when the record is opened", () => {
+    render(<ActivityTimeline lines={[panelCall]} devices={devices} />);
+    const button = [...document.querySelectorAll("button.timeline-line")].find((node) =>
+      node.textContent?.includes("screen.capture ran on Alpha")
+    );
+    act(() => {
+      fireEvent.click(button!);
+    });
+    const facts = [...document.querySelectorAll(".evidence-facts dt")].map((node) =>
+      node.textContent?.trim()
+    );
+    expect(facts).toContain("Machine sequence");
+    const values = [...document.querySelectorAll(".evidence-facts dd")].map((node) =>
+      node.textContent?.trim()
+    );
+    expect(values).toContain("7");
+    expect(values.join(" | ")).toContain("only in the machine's own journal");
+  });
+
+  it("counts what the machine's record added, under the timeline", () => {
+    render(
+      <ActivityTimeline
+        lines={[consoleCall, panelCall]}
+        devices={devices}
+        machine={{ contributed: 1, state: "read", unknown: false, error: null }}
+      />
+    );
+    expect(document.querySelector(".timeline-machine-read")).toHaveTextContent(
+      "1 of these calls is on the machine's record, not this console's."
+    );
+  });
+
+  it("says why a read failed instead of drawing an empty journal", () => {
+    render(
+      <ActivityTimeline
+        lines={[consoleCall]}
+        devices={devices}
+        machine={{
+          contributed: 0,
+          state: "failed",
+          unknown: false,
+          error: "the machine is not connected"
+        }}
+      />
+    );
+    expect(document.querySelector(".timeline-machine-read")).toHaveTextContent(
+      "The machine's own journal was not read: the machine is not connected."
+    );
+  });
+
+  it("says a machine does not offer its journal rather than saying nothing", () => {
+    render(
+      <ActivityTimeline
+        lines={[consoleCall]}
+        devices={devices}
+        machine={{ contributed: 0, state: "read", unknown: true, error: null }}
+      />
+    );
+    expect(document.querySelector(".timeline-machine-read")).toHaveTextContent(
+      "The machine's own journal was not read: this machine does not offer it."
+    );
+  });
+
+  it("says nothing when the machine's record added nothing", () => {
+    render(
+      <ActivityTimeline
+        lines={[consoleCall]}
+        devices={devices}
+        machine={{ contributed: 0, state: "read", unknown: false, error: null }}
+      />
+    );
+    expect(document.querySelector(".timeline-machine-read")).toBeNull();
+  });
+
+  it("keeps the days in order when a machine row is older than the console's", () => {
+    const yesterday = line({
+      ts_ms: Date.UTC(2026, 10, 4, 22, 0, 0),
+      device_id: alpha,
+      tool: "terminal.read",
+      status: 200,
+      trace: "machine-3",
+      machine_seq: 3,
+      door: "mesh",
+      sentence: "terminal.read ran on Alpha"
+    });
+    render(
+      <ActivityTimeline
+        lines={[consoleCall, yesterday]}
+        devices={devices}
+        machine={{ contributed: 1, state: "read", unknown: false, error: null }}
+      />
+    );
+    const days = [...document.querySelectorAll(".timeline-day")];
+    expect(days).toHaveLength(2);
+    expect(days[0].textContent).toContain("files.read ran on Alpha");
+    expect(days[1].textContent).toContain("terminal.read ran on Alpha");
+  });
+});

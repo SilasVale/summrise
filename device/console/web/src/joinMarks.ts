@@ -1,4 +1,4 @@
-import type { AuditLine, JoinAnswer } from "./api";
+import { HttpError, type AuditLine, type JoinAnswer } from "./api";
 
 /**
  * **THE JOIN, DRAWN (the ledger's third item).** A proxied call is written twice: the console's audit
@@ -170,4 +170,24 @@ export function markOf(marks: JoinMarks | null | undefined, line: AuditLine): Jo
   const trace = typeof line.trace === "string" ? line.trace : "";
   if (trace === "") return "unknown";
   return marks?.kinds.get(trace) ?? "unknown";
+}
+
+/**
+ * The page's sentence for a per-machine read that failed.
+ *
+ * The console answers a failed read with a status and a code; both are the console's words, not the
+ * operator's. The three common causes get the page's voice, and anything else falls back to the
+ * error's own sentence so an unexpected failure is still stated rather than swallowed. It lives here,
+ * beside the join, because the join and the journal read are the same kind of read: the page asking
+ * one machine about the window it draws, with one voice for both.
+ */
+export function readFailureSentence(cause: unknown): string {
+  if (cause instanceof HttpError) {
+    if (cause.status === 503) return "the machine is not connected";
+    if (cause.status === 504) return "the machine did not answer in time";
+    if (cause.status === 404) return "this console does not know that machine";
+    if (cause.message && cause.message !== cause.code) return cause.message;
+    return cause.code;
+  }
+  return cause instanceof Error ? cause.message : String(cause);
 }

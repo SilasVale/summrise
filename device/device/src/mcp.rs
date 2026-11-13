@@ -95,6 +95,13 @@ const AUDIT_MAX_BYTES: u64 = 64 * 1024 * 1024;
 /// answer says `bounded: true` rather than claiming absence it did not prove.
 const SCAN_ROWS: usize = 10_000;
 
+/// The most rows one `journal.read` call may answer.
+///
+/// A page draws one window of the machine's record, and a window is bounded by what a person reads
+/// rather than by what the journal holds. The console asks for exactly this many; a caller asking for
+/// more is asking this machine to hold another machine's log in one answer, which is an export.
+const MAX_READ_ROWS: usize = 200;
+
 /// How many traces one `journal.get` call may name.
 const MAX_TRACES: usize = 512;
 
@@ -1698,6 +1705,21 @@ impl DeviceServer {
                 })?;
                 Ok(journal_traces_document(&bus, &traces, &rows).to_string())
             }
+            Handler::JournalRead => {
+                // The record itself, summarised: the console draws what it proxied, and this is what
+                // the machine ran — including the calls that never went through the console at all.
+                // A row carries its own frame and, on a call, its tool and outcome; the payload's
+                // size is the only fact about a payload, because a read that relayed payloads would
+                // be an export wearing a read's name.
+                let (before_seq, limit) = parse_read_window(arguments, name)?;
+                let Some(bus) = self.bus() else {
+                    return Ok(no_journal_window_document().to_string());
+                };
+                let (rows, more) = bus.read_window(before_seq, limit).map_err(|error| {
+                    refused(name, format!("the journal could not be read: {error}"))
+                })?;
+                Ok(journal_rows_document(&bus, &rows, more).to_string())
+            }
         }
     }
 
@@ -1841,6 +1863,7 @@ enum Handler {
     ScreenCapture,
     StateGet,
     JournalGet,
+    JournalRead,
     /// All six `plugins.*` tools; the capability's dispatch matches the exact name.
     Plugins,
 }
@@ -1896,6 +1919,7 @@ const HANDLERS: &[(&str, Handler)] = &[
     ("screen.capture", Handler::ScreenCapture),
     ("state.get", Handler::StateGet),
     ("journal.get", Handler::JournalGet),
+    ("journal.read", Handler::JournalRead),
     ("plugins.list", Handler::Plugins),
     ("plugins.inspect", Handler::Plugins),
     ("plugins.add", Handler::Plugins),
@@ -2779,6 +2803,24 @@ fn input_schema(definition: &ToolDef) -> Value {
             "required": ["traces"],
             "additionalProperties": false
         }),
+        "journal.read" => json!({
+            "type": "object",
+            "properties": {
+                "before_seq": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Answer rows older than this sequence: the last row the caller drew."
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": MAX_READ_ROWS,
+                    "description": "How many rows to answer, newest first."
+                }
+            },
+            "required": ["limit"],
+            "additionalProperties": false
+        }),
         "plugins.list" => json!({
             "type": "object",
             "properties": {},
@@ -3070,6 +3112,153 @@ fn no_journal_document() -> Value {
         "bounded": false,
         "traces": [],
         "missing": [],
+    })
+}
+
+/// Parse `journal.read`'s arguments: a required row count in 1..=200, and an optional `before_seq`.
+///
+/// The schema says the same thing, but a schema is advice a client can skip. Every refusal names the
+/// rule that was broken rather than echoing the value that broke it, because the value is a caller's
+/// number and the rule is the machine's.
+fn parse_read_window(
+    arguments: Map<String, Value>,
+    tool: &str,
+) -> Result<(Option<u64>, usize), ToolError> {
+    let invalid = |rule: String| ToolError::Arguments(format!("{tool}: {rule}"));
+    if let Some(unknown) = arguments
+        .keys()
+        .find(|key| !matches!(key.as_str(), "before_seq" | "limit"))
+    {
+        return Err(invalid(format!(
+            "the argument `{unknown}` is not what this tool takes; it takes `limit` and `before_seq`"
+        )));
+    }
+    let Some(value) = arguments.get("limit") else {
+        return Err(invalid(
+            "the argument `limit` is required: it says how many rows to answer".to_owned(),
+        ));
+    };
+    let Some(count) = value.as_u64() else {
+        return Err(invalid(
+            "`limit` is a whole number of rows, at least one".to_owned(),
+        ));
+    };
+    if count == 0 || count > MAX_READ_ROWS as u64 {
+        return Err(invalid(format!(
+            "`limit` is between 1 and {MAX_READ_ROWS} rows, and this call asked for {count}"
+        )));
+    }
+    let before_seq =
+        match arguments.get("before_seq") {
+            None => None,
+            Some(value) => match value.as_u64() {
+                Some(seq) if seq >= 1 => Some(seq),
+                _ => return Err(invalid(
+                    "`before_seq` is the last sequence the caller drew, a whole number at least 1"
+                        .to_owned(),
+                )),
+            },
+        };
+    Ok((before_seq, count as usize))
+}
+
+/// The `journal: false` answer for a device with no journal, in the window's own shape.
+///
+/// Every count is zero because nothing was read; that is a fact about this process, not a failed call.
+fn no_journal_window_document() -> Value {
+    json!({
+        "journal": false,
+        "oldest_seq": 0,
+        "last_seq": 0,
+        "rows": [],
+        "more": false,
+    })
+}
+
+/// One journal row as the page reads it: the envelope's own frame, and on a call its tool and outcome.
+///
+/// The fields copied out are the ones a row can be drawn and diagnosed from. `payload_bytes` is always
+/// present, so a caller can tell "there was nothing more" from "there was more and this is a summary" —
+/// without it, a write whose path is the only visible fact would look like the whole record.
+fn machine_row(envelope: &summrise_bus::Envelope) -> Value {
+    let payload = &envelope.payload;
+    let mut row = json!({
+        "seq": envelope.seq,
+        "ts": envelope.ts,
+        "type": envelope.kind,
+        "payload_bytes": serde_json::to_string(payload)
+            .map(|text| text.len() as u64)
+            .unwrap_or(0),
+    });
+    if let Some(trace) = envelope
+        .trace
+        .as_ref()
+        .and_then(|trace| trace.get("call"))
+        .and_then(Value::as_str)
+    {
+        row["trace"] = json!(trace);
+    }
+    // A tool name and an outcome belong to a call. The envelope's `type` is what says so, so the
+    // rule is the row's own rather than a payload field a caller could invent.
+    if envelope.kind.starts_with("call.") {
+        if let Some(tool) = payload.get("tool").and_then(Value::as_str) {
+            row["tool"] = json!(tool);
+        }
+        if let Some(ok) = payload.get("ok").and_then(Value::as_bool) {
+            row["ok"] = json!(ok);
+        }
+        if let Some(reason) = payload.get("reason").and_then(Value::as_str) {
+            row["reason"] = json!(reason);
+        }
+        if let Some(door) = payload.get("door").and_then(Value::as_str) {
+            row["door"] = json!(door);
+        }
+    }
+    row
+}
+
+/// One `journal.read` answer: the window's bounds, the rows the bus returned, and whether more lie
+/// below them.
+fn journal_rows_document(
+    bus: &summrise_bus::Bus,
+    rows: &[summrise_bus::Envelope],
+    more: bool,
+) -> Value {
+    // **THE DOOR IS WRITTEN ON THE HALF THAT HAS IT.** A call's arrival is on `call.started`; its
+    // outcome half carries only the tool and whether it worked. A page drawing outcomes would have to
+    // read both halves to say who called, so the window carries the door across, by the `trace.call`
+    // the two halves already share. A started half outside this window leaves the door unknown, which
+    // is what the page draws — nothing — rather than a guess.
+    let doors: std::collections::HashMap<&str, &str> = rows
+        .iter()
+        .filter(|row| row.kind == "call.started")
+        .filter_map(|row| {
+            let call = row.trace.as_ref()?.get("call")?.as_str()?;
+            Some((call, row.payload.get("door")?.as_str()?))
+        })
+        .collect();
+    let summarised: Vec<Value> = rows
+        .iter()
+        .map(|row| {
+            let mut summarised = machine_row(row);
+            if summarised.get("door").is_none() {
+                if let Some(door) = summarised
+                    .get("trace")
+                    .and_then(Value::as_str)
+                    .and_then(|call| doors.get(call))
+                {
+                    summarised["door"] = json!(door);
+                }
+            }
+            summarised
+        })
+        .collect();
+    json!({
+        "journal": true,
+        "oldest_seq": bus.oldest_seq(),
+        "last_seq": bus.last_seq(),
+        "rows": summarised,
+        "more": more,
     })
 }
 
@@ -4435,6 +4624,7 @@ mod tests {
                 "forward.list",
                 "state.get",
                 "journal.get",
+                "journal.read",
                 "plugins.list",
                 "plugins.inspect",
                 "plugins.add",
@@ -4658,6 +4848,193 @@ mod tests {
             .filter_map(|event| event.trace)
             .filter_map(|trace| trace.get("call").and_then(Value::as_str).map(str::to_owned))
             .collect()
+    }
+
+    /// A `journal.read` answer parsed out of a `tools/call` reply.
+    fn read_window_of(reply: &Value) -> Value {
+        assert_eq!(reply["result"]["isError"], false, "{reply}");
+        serde_json::from_str(text_of(reply)).expect("journal.read answers one JSON document")
+    }
+
+    #[tokio::test]
+    async fn journal_read_answers_the_newest_rows_with_their_own_frame() {
+        let (server, _config, _bus, _dir) = journaled_server("mcp-journal-read-window");
+        let reply = tools_call(&server, "files.list", json!({ "path": "." })).await;
+        assert_eq!(reply["result"]["isError"], false, "{reply}");
+
+        let reply = tools_call(&server, "journal.read", json!({ "limit": 2 })).await;
+        let document = read_window_of(&reply);
+        assert_eq!(document["journal"], true, "{document}");
+        let rows = document["rows"].as_array().expect("rows are an array");
+        assert_eq!(
+            rows.len(),
+            2,
+            "the window is the limit it was asked for: {document}"
+        );
+        // Newest first, and each row carries the envelope's own frame.
+        assert!(
+            rows[0]["seq"].as_u64() >= rows[1]["seq"].as_u64(),
+            "rows are newest first: {document}"
+        );
+        for row in rows {
+            assert!(row["seq"].as_u64().unwrap_or(0) > 0, "{row}");
+            assert!(
+                row["ts"].as_str().is_some_and(|ts| !ts.is_empty()),
+                "a row carries the machine's own clock: {row}"
+            );
+            assert!(
+                row["type"].as_str().is_some_and(|kind| !kind.is_empty()),
+                "a row names its kind: {row}"
+            );
+            assert!(
+                row["payload_bytes"].as_u64().is_some(),
+                "every row says how much its payload held: {row}"
+            );
+        }
+        // The journal holds more than these two, and the answer says so.
+        assert_eq!(
+            document["more"], true,
+            "the window was cut, and the answer must say so: {document}"
+        );
+    }
+
+    #[tokio::test]
+    async fn journal_read_pages_older_rows_behind_a_sequence() {
+        let (server, _config, bus, _dir) = journaled_server("mcp-journal-read-page");
+        for _ in 0..3 {
+            let reply = tools_call(&server, "host.facts", json!({})).await;
+            assert_eq!(reply["result"]["isError"], false, "{reply}");
+        }
+        let document =
+            read_window_of(&tools_call(&server, "journal.read", json!({ "limit": 2 })).await);
+        let rows = document["rows"].as_array().expect("rows are an array");
+        let oldest_shown = rows
+            .last()
+            .and_then(|row| row["seq"].as_u64())
+            .expect("the page names a sequence");
+
+        let next = read_window_of(
+            &tools_call(
+                &server,
+                "journal.read",
+                json!({ "limit": 2, "before_seq": oldest_shown }),
+            )
+            .await,
+        );
+        let next_rows = next["rows"].as_array().expect("rows are an array");
+        assert!(
+            next_rows
+                .iter()
+                .all(|row| row["seq"].as_u64().unwrap_or(0) < oldest_shown),
+            "`before_seq` is exclusive, so a page never repeats a row: {next}"
+        );
+        assert!(
+            next_rows
+                .iter()
+                .any(|row| row["seq"].as_u64().unwrap_or(0) < oldest_shown),
+            "the journal holds older rows than the first page: {next}"
+        );
+        assert!(
+            bus.last_seq() >= oldest_shown,
+            "the fixture's journal is the one being read"
+        );
+    }
+
+    #[tokio::test]
+    async fn journal_read_summarises_a_call_without_its_payload() {
+        let (server, _config, _bus, _dir) = journaled_server("mcp-journal-read-call");
+        let call = tools_call(&server, "host.facts", json!({})).await;
+        assert_eq!(call["result"]["isError"], false, "{call}");
+
+        // The call's outcome is somewhere in the newest rows; read enough to be sure it is included.
+        let document =
+            read_window_of(&tools_call(&server, "journal.read", json!({ "limit": 20 })).await);
+        let rows = document["rows"].as_array().expect("rows are an array");
+        let finished = rows
+            .iter()
+            .find(|row| row["type"] == "call.finished")
+            .unwrap_or_else(|| panic!("the call's outcome is retained: {document}"));
+        assert_eq!(
+            finished["tool"], "host.facts",
+            "a call row names its tool: {finished}"
+        );
+        assert_eq!(
+            finished["ok"], true,
+            "a call row carries its outcome: {finished}"
+        );
+        assert_eq!(
+            finished["door"], "loopback",
+            "a call row carries the door it arrived by: {finished}"
+        );
+        assert!(
+            finished["trace"]
+                .as_str()
+                .is_some_and(|trace| !trace.is_empty()),
+            "a call row carries the trace it is joined by: {finished}"
+        );
+        // **THE SUMMARY IS THE POINT.** The payload's facts are not relayed: a read that carried
+        // them would let one call answer with a machine's file contents.
+        assert!(
+            finished.get("payload").is_none(),
+            "no row relays a payload: {finished}"
+        );
+        assert!(
+            finished["payload_bytes"].as_u64().unwrap_or(0) > 0,
+            "the payload's size stands in for its contents: {finished}"
+        );
+    }
+
+    #[tokio::test]
+    async fn journal_read_without_a_journal_answers_that_there_is_none() {
+        let (server, _config, _dir) = console_server("mcp-journal-read-absent");
+
+        let reply = tools_call(&server, "journal.read", json!({ "limit": 5 })).await;
+        assert_eq!(
+            reply["result"]["isError"], false,
+            "no journal is a fact, not a failure: {reply}"
+        );
+        let document: Value =
+            serde_json::from_str(text_of(&reply)).expect("journal.read answers one JSON document");
+        assert_eq!(
+            document,
+            json!({
+                "journal": false,
+                "oldest_seq": 0,
+                "last_seq": 0,
+                "rows": [],
+                "more": false,
+            }),
+            "a device with no journal says so instead of answering an empty window: {document}"
+        );
+    }
+
+    #[tokio::test]
+    async fn journal_read_refuses_a_window_it_cannot_serve() {
+        let (server, _config, _bus, _dir) = journaled_server("mcp-journal-read-malformed");
+        for arguments in [
+            json!({}),
+            json!({ "limit": 0 }),
+            json!({ "limit": 201 }),
+            json!({ "limit": -1 }),
+            json!({ "limit": "5" }),
+            json!({ "limit": 5, "before_seq": 0 }),
+            json!({ "limit": 5, "before_seq": "7" }),
+            json!({ "limit": 5, "traces": ["call-1"] }),
+        ] {
+            let reply = tools_call(&server, "journal.read", arguments.clone()).await;
+            let error = reply
+                .get("error")
+                .unwrap_or_else(|| panic!("a malformed window is refused: {arguments} -> {reply}"));
+            assert_eq!(
+                error["code"], -32602,
+                "the refusal is a protocol error: {arguments} -> {reply}"
+            );
+            let message = error["message"].as_str().unwrap_or_default();
+            assert!(
+                message.contains("journal.read"),
+                "the refusal names the tool: {message}"
+            );
+        }
     }
 
     #[tokio::test]
@@ -6978,7 +7355,7 @@ mod tests {
     fn every_schemas_required_set_is_the_parsers_required_set() {
         // The pairs, written out because the mapping is a fact of this module and not of a name
         // convention: a handler parses ONE struct, and this test needs to know which.
-        let pairs: [(&str, Required); 50] = [
+        let pairs: [(&str, Required); 51] = [
             (
                 "files.read",
                 Required::new(&["path"], &["root", "encoding"]),
@@ -7075,6 +7452,7 @@ mod tests {
             ("screen.capture", Required::new(&[], &[])),
             ("state.get", Required::new(&[], &[])),
             ("journal.get", Required::new(&["traces"], &[])),
+            ("journal.read", Required::new(&["limit"], &["before_seq"])),
             ("plugins.list", Required::new(&[], &[])),
             ("plugins.inspect", Required::new(&["path"], &[])),
             ("plugins.add", Required::new(&["path"], &[])),
