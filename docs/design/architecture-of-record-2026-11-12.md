@@ -180,9 +180,22 @@ machine, a refusal or an unreadable answer is `unknown` with a reason — a fact
 about the record.
 
 What remains is replay of what was recorded: a `journal.read` row is a summary and its payload is not
-reachable, so paging an archived call's arguments would need a second, bounded verb; and the console's
-audit still holds no `seq` into the machine's journal, so a console row whose machine copy has rotated
-away can be marked but not read back from the machine.
+reachable, so paging an archived call's arguments would need a second, bounded verb.
+
+**Shipped (2026-11-13): the audit line learns the machine's `seq`.** The trace joined the two records,
+but the console's line could not say *where* in the machine's journal its half sat, so a call whose
+machine copy rotated could be marked `only here` and not read back. The device now puts the outcome
+half's `seq` on the channel frame (`journal_seq`, beside the JSON-RPC body, never inside it — a
+client's tool result grows no Summrise field) when this process keeps a journal and the exchange
+reached its outcome. The console writes it on the audit line and the live event as `machine_seq`. The
+page opens a proxied row by reading exactly that row back — `journal.read` with
+`before_seq = seq + 1, limit = 1` — and draws the machine's own facts (the row's own `ts`, its kind,
+the tool and outcome, the door, the payload's size) beside the console's. The row is accepted only
+when its sequence **and** its `trace.call` agree with the line: the bus has no per-journal epoch yet
+(it is target design), so a reset could make an old sequence name another call. A row the journal has
+rotated — or a position that now names a different call — is stated as gone, never as a call that did
+not happen; a read that cannot be made says why; an older device names no position, and the record
+keeps the console's facts alone.
 
 ### 4.3 Data plane
 

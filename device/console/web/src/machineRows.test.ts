@@ -254,4 +254,10 @@ describe("machineRecordSentence", () => {
   it("says nothing on a row the console drew", () => {
     expect(machineRecordSentence(line())).toBeNull();
   });
+
+  it("leaves an audit line's own position to the read-back's sentence", () => {
+    // Round 9: a proxied line now carries `machine_seq`, but it is not a journal-drawn row (no
+    // `door`) — its sentence is the read-back's, not "only in the machine's journal".
+    expect(machineRecordSentence(line({ machine_seq: 814 }))).toBeNull();
+  });
 });

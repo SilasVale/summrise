@@ -555,16 +555,24 @@ impl DeviceServer {
     /// for the same proxied call carries the same trace, which is what lets a reader join the two
     /// records instead of guessing from timestamps. `subject` names the device when the caller knows
     /// it, and `payload` is the facts the row needs: the tool, and the outcome when it has one.
-    fn publish_call_event(&self, kind: &str, call: &str, subject: Option<Value>, payload: Value) {
-        if let Some(bus) = &self.bus {
-            let _ = bus.publish_traced(
+    fn publish_call_event(
+        &self,
+        kind: &str,
+        call: &str,
+        subject: Option<Value>,
+        payload: Value,
+    ) -> Option<u64> {
+        let bus = self.bus.as_ref()?;
+        let envelope = bus
+            .publish_traced(
                 summrise_bus::Plane::Control,
                 kind,
                 subject,
                 Some(call),
                 payload,
-            );
-        }
+            )
+            .ok()?;
+        Some(envelope.seq)
     }
 
     /// Log the outcome half of a call, with a machine-readable kind and no argument value.
@@ -617,27 +625,53 @@ impl DeviceServer {
     /// The success value is a complete JSON-RPC response, not a bare result: the console and the
     /// mesh both forward the body to an MCP client unchanged. A tool-level refusal is a `CallToolResult` with
     /// `isError: true` (the MCP shape); an authorization decision is a JSON-RPC error.
+    /// Handle one exchange and drop the machine position.
+    ///
+    /// The tuple form exists for the console's channel, whose frame carries the position to the
+    /// audit line; every other surface answers the JSON-RPC body alone.
     pub(crate) async fn handle(&self, request: &Value, caller: Caller<'_>) -> Value {
+        self.handle_acknowledged(request, caller).await.0
+    }
+
+    /// Handle one exchange, with the `seq` of the outcome half this device wrote for it.
+    ///
+    /// `None` when this process keeps no journal, when the exchange is not a `tools/call`, or when
+    /// the call was refused before it reached an outcome half. The console's proxied path is the one
+    /// caller that needs it: its audit line names the machine's own position for the same call.
+    pub(crate) async fn handle_acknowledged(
+        &self,
+        request: &Value,
+        caller: Caller<'_>,
+    ) -> (Value, Option<u64>) {
         let id = request.get("id").cloned().unwrap_or(Value::Null);
         let method = request.get("method").and_then(Value::as_str);
         let Some(method) = method else {
-            return jsonrpc_error(id, ErrorCode::INVALID_REQUEST.0, "invalid request");
+            return (
+                jsonrpc_error(id, ErrorCode::INVALID_REQUEST.0, "invalid request"),
+                None,
+            );
         };
 
         match method {
-            "initialize" => jsonrpc_result(
-                id,
-                json!({
-                    "protocolVersion": "2025-06-18",
-                    "capabilities": { "tools": { "listChanged": false } },
-                    "serverInfo": {
-                        "name": "summrise-device",
-                        "version": env!("CARGO_PKG_VERSION"),
-                    },
-                }),
+            "initialize" => (
+                jsonrpc_result(
+                    id,
+                    json!({
+                        "protocolVersion": "2025-06-18",
+                        "capabilities": { "tools": { "listChanged": false } },
+                        "serverInfo": {
+                            "name": "summrise-device",
+                            "version": env!("CARGO_PKG_VERSION"),
+                        },
+                    }),
+                ),
+                None,
             ),
-            "ping" => jsonrpc_result(id, json!({})),
-            "tools/list" => jsonrpc_result(id, json!({ "tools": self.advertised_tools() })),
+            "ping" => (jsonrpc_result(id, json!({})), None),
+            "tools/list" => (
+                jsonrpc_result(id, json!({ "tools": self.advertised_tools() })),
+                None,
+            ),
             "tools/call" => {
                 let params = request.get("params");
                 let name = params
@@ -645,10 +679,13 @@ impl DeviceServer {
                     .and_then(Value::as_str)
                     .filter(|name| !name.is_empty());
                 let Some(name) = name else {
-                    return jsonrpc_error(
-                        id,
-                        ErrorCode::INVALID_PARAMS.0,
-                        "invalid params: tools/call requires params.name",
+                    return (
+                        jsonrpc_error(
+                            id,
+                            ErrorCode::INVALID_PARAMS.0,
+                            "invalid params: tools/call requires params.name",
+                        ),
+                        None,
                     );
                 };
                 let arguments = params
@@ -657,7 +694,8 @@ impl DeviceServer {
                     .cloned()
                     .unwrap_or_default();
 
-                match self.execute_call(name, arguments, caller).await {
+                let (outcome, journal_seq) = self.execute_call(name, arguments, caller).await;
+                let response = match outcome {
                     Ok(result) => match serde_json::to_value(&result) {
                         Ok(result) => jsonrpc_result(id, result),
                         Err(error) => jsonrpc_error(
@@ -679,16 +717,19 @@ impl DeviceServer {
                         }
                     }
                     Err(failure) => jsonrpc_error(id, failure.code(), failure.message()),
-                }
+                };
+                (response, journal_seq)
             }
-            _ => jsonrpc_error(
-                id,
-                ErrorCode::METHOD_NOT_FOUND.0,
-                &format!("method not found: {method}"),
+            _ => (
+                jsonrpc_error(
+                    id,
+                    ErrorCode::METHOD_NOT_FOUND.0,
+                    &format!("method not found: {method}"),
+                ),
+                None,
             ),
         }
     }
-
     /// The one authorization-and-dispatch path every surface uses.
     ///
     /// The caller supplies the identity; this method builds the [`Ctx`], makes the audit line the
@@ -698,7 +739,7 @@ impl DeviceServer {
         name: &str,
         arguments: Map<String, Value>,
         caller: Caller<'_>,
-    ) -> Result<CallToolResult, CallFailure> {
+    ) -> (Result<CallToolResult, CallFailure>, Option<u64>) {
         let now_ms = crate::http::now_ms();
         let id = self.next_call_id();
         let arrival = caller.arrival();
@@ -715,7 +756,7 @@ impl DeviceServer {
         // §4.2: every call is a pair, and the started half is written before anything can have a
         // side effect. A crash between the halves leaves a started event with no outcome, which is
         // the honest record of a call whose answer was never written.
-        self.publish_call_event(
+        let _started = self.publish_call_event(
             "call.started",
             &trace,
             subject.clone(),
@@ -740,13 +781,16 @@ impl DeviceServer {
                         .await;
                     self.audit_end(id, false, Some("unknown_tool"), arrival, peer, token_id)
                         .await;
-                    self.publish_call_event(
+                    let seq = self.publish_call_event(
                         "call.denied",
                         &trace,
                         subject,
                         json!({ "tool": name, "ok": false, "reason": "unknown_tool" }),
                     );
-                    return Err(CallFailure::Arguments(format!("unknown tool: {name}")));
+                    return (
+                        Err(CallFailure::Arguments(format!("unknown tool: {name}"))),
+                        seq,
+                    );
                 }
             },
         };
@@ -813,13 +857,13 @@ impl DeviceServer {
                     .await;
                 self.audit_end(id, false, Some("denied"), arrival, peer, token_id)
                     .await;
-                self.publish_call_event(
+                let seq = self.publish_call_event(
                     "call.denied",
                     &trace,
                     subject,
                     json!({ "tool": name, "ok": false, "reason": "denied" }),
                 );
-                return Err(CallFailure::Denied(detail));
+                return (Err(CallFailure::Denied(detail)), seq);
             }
             Decision::Ask { prompt } => {
                 self.audit_begin(id, now_ms, name, "ask", arrival, peer, token_id)
@@ -833,7 +877,7 @@ impl DeviceServer {
                     token_id,
                 )
                 .await;
-                self.publish_call_event(
+                let seq = self.publish_call_event(
                     "call.denied",
                     &trace,
                     subject,
@@ -853,7 +897,7 @@ impl DeviceServer {
                     ),
                     Caller::Owner => prompt,
                 };
-                return Err(CallFailure::Approval(prompt));
+                return (Err(CallFailure::Approval(prompt)), seq);
             }
         }
 
@@ -865,61 +909,67 @@ impl DeviceServer {
             .audit_begin(id, now_ms, name, "allow", arrival, peer, token_id)
             .await
         {
-            self.publish_call_event(
+            let seq = self.publish_call_event(
                 "call.denied",
                 &trace,
                 subject,
                 json!({ "tool": name, "ok": false, "reason": "audit_unwritable" }),
             );
-            return Err(CallFailure::Internal(
-                "the audit log is not writable; the capability was not run".to_owned(),
-            ));
+            return (
+                Err(CallFailure::Internal(
+                    "the audit log is not writable; the capability was not run".to_owned(),
+                )),
+                seq,
+            );
         }
 
         match self.dispatch(name, arguments).await {
             Ok(text) => {
                 self.audit_end(id, true, None, arrival, peer, token_id)
                     .await;
-                self.publish_call_event(
+                let seq = self.publish_call_event(
                     "call.finished",
                     &trace,
                     subject,
                     json!({ "tool": name, "ok": true }),
                 );
-                Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
+                (
+                    Ok(CallToolResult::success(vec![ContentBlock::text(text)])),
+                    seq,
+                )
             }
             Err(ToolError::Arguments(message)) => {
                 self.audit_end(id, false, Some("arguments"), arrival, peer, token_id)
                     .await;
-                self.publish_call_event(
+                let seq = self.publish_call_event(
                     "call.denied",
                     &trace,
                     subject,
                     json!({ "tool": name, "ok": false, "reason": "arguments" }),
                 );
-                Err(CallFailure::Arguments(message))
+                (Err(CallFailure::Arguments(message)), seq)
             }
             Err(ToolError::Refused(message)) => {
                 self.audit_end(id, false, Some("refused"), arrival, peer, token_id)
                     .await;
-                self.publish_call_event(
+                let seq = self.publish_call_event(
                     "call.denied",
                     &trace,
                     subject,
                     json!({ "tool": name, "ok": false, "reason": "refused" }),
                 );
-                Err(CallFailure::Refused(message))
+                (Err(CallFailure::Refused(message)), seq)
             }
             Err(ToolError::Internal(message)) => {
                 self.audit_end(id, false, Some("internal"), arrival, peer, token_id)
                     .await;
-                self.publish_call_event(
+                let seq = self.publish_call_event(
                     "call.denied",
                     &trace,
                     subject,
                     json!({ "tool": name, "ok": false, "reason": "internal" }),
                 );
-                Err(CallFailure::Internal(message))
+                (Err(CallFailure::Internal(message)), seq)
             }
         }
     }
@@ -2025,11 +2075,11 @@ impl ServerHandler for DeviceServer {
         let name = request.name.as_ref().to_owned();
         let arguments = request.arguments.unwrap_or_default();
         match self.execute_call(&name, arguments, Caller::Owner).await {
-            Ok(result) => Ok(result),
-            Err(CallFailure::Refused(message)) => {
+            (Ok(result), _) => Ok(result),
+            (Err(CallFailure::Refused(message)), _) => {
                 Ok(CallToolResult::error(vec![ContentBlock::text(message)]))
             }
-            Err(failure) => Err(failure.into_mcp_error()),
+            (Err(failure), _) => Err(failure.into_mcp_error()),
         }
     }
 }
@@ -7832,6 +7882,62 @@ mod tests {
             summrise_bus::Bus::open(config.data.join("journal")).expect("the journal opens"),
         );
         (server.with_bus(Some(Arc::clone(&bus))), config, bus, dir)
+    }
+
+    /// **ONLY A CALL THE JOURNAL HOLDS HAS A POSITION (round 9).** `tools/list` is an exchange, not
+    /// a call; a process with no journal writes no outcome half; neither names a `seq`. The console's
+    /// frame carries the field only when there is one to carry.
+    #[tokio::test]
+    async fn a_handle_acknowledges_a_sequence_only_for_a_call_the_journal_holds() {
+        let (server, _config, bus, _dir) = journaled_server("mcp-ack-sequence");
+        let (reply, seq) = server
+            .handle_acknowledged(
+                &json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }),
+                super::Caller::Owner,
+            )
+            .await;
+        assert!(reply["result"]["tools"].is_array(), "{reply}");
+        assert_eq!(
+            seq, None,
+            "an exchange that is not a call has no outcome half"
+        );
+
+        let (reply, seq) = server
+            .handle_acknowledged(
+                &json!({
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "method": "tools/call",
+                    "params": { "name": "host.facts", "arguments": {} }
+                }),
+                super::Caller::Owner,
+            )
+            .await;
+        assert_eq!(reply["result"]["isError"], false, "{reply}");
+        let seq = seq.expect("a completed call names its journal position");
+        let finished = journal_of(&bus)
+            .into_iter()
+            .find(|event| event.kind == "call.finished")
+            .map(|event| event.seq);
+        assert_eq!(Some(seq), finished, "the seq is the outcome half's own");
+
+        let (server, _config, _dir) = console_server("mcp-ack-no-journal");
+        let (reply, seq) = server
+            .handle_acknowledged(
+                &json!({
+                    "jsonrpc": "2.0",
+                    "id": 3,
+                    "method": "tools/call",
+                    "params": { "name": "host.facts", "arguments": {} }
+                }),
+                super::Caller::Owner,
+            )
+            .await;
+        assert_eq!(reply["result"]["isError"], false, "{reply}");
+        assert_eq!(
+            seq, None,
+            "a process with no journal has no position to name"
+        );
     }
 
     /// Every event the journal holds so far, in order.

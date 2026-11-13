@@ -4,6 +4,16 @@ import type { AuditLine, AuditSource, Device, TokenMeta } from "./api";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { exactMoment } from "./format";
 import { restoreGlobal } from "./test/dom";
+import { resetJournalRows } from "./useJournalRow";
+
+// The opened record's read-back is the only request the timeline makes on a click. A test that opens
+// a proxied call names its answer; every other test never asks, because no line it draws carries a
+// machine sequence.
+const apiMocks = vi.hoisted(() => ({ journalRead: vi.fn() }));
+vi.mock("./api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./api")>();
+  return { ...actual, api: { ...actual.api, journalRead: apiMocks.journalRead } };
+});
 
 // The timeline is the proof, not the summary: a row that opens must show the call as it was sent and
 // what came back. A row fetched from the audit file has no such body and must say why rather than
@@ -1607,6 +1617,131 @@ describe("ActivityTimeline's join marks", () => {
       />
     );
     expect(document.querySelector(".audit-join")).toBeNull();
+  });
+});
+
+// **THE MACHINE'S OWN COPY OF A PROXIED CALL (round 9).** The audit line names the journal sequence
+// of the call's outcome half; opening the record reads exactly that row back from the machine.
+describe("ActivityTimeline's read-back of a proxied call", () => {
+  beforeEach(() => {
+    resetJournalRows();
+    apiMocks.journalRead.mockReset();
+    apiMocks.journalRead.mockResolvedValue({
+      device: alpha,
+      journal: true,
+      oldest_seq: 700,
+      last_seq: 900,
+      rows: [
+        {
+          seq: 814,
+          ts: "2026-11-13T08:00:00.000Z",
+          type: "call.finished",
+          trace: "console-1",
+          tool: "files.read",
+          ok: true,
+          door: "console",
+          payload_bytes: 41
+        }
+      ],
+      more: false,
+      read_at_ms: 1,
+      unknown: false
+    });
+  });
+
+  it("reads the row its line names and draws the machine's own facts", async () => {
+    const proxied = line({
+      ts_ms: Date.UTC(2026, 10, 5, 9, 0, 0),
+      device_id: alpha,
+      tool: "files.read",
+      sentence: "Read notes.txt",
+      machine_seq: 814
+    });
+    render(<ActivityTimeline lines={[proxied]} devices={devices} />);
+    const button = [...document.querySelectorAll("button.timeline-line")].find((node) =>
+      node.textContent?.includes("Read notes.txt")
+    );
+    act(() => {
+      fireEvent.click(button!);
+    });
+    expect(
+      await screen.findByText(
+        "The machine's own row 814: call.finished at 2026-11-13T08:00:00.000Z, files.read ok, arrived by console, payload 41 B."
+      )
+    ).toBeInTheDocument();
+    expect(apiMocks.journalRead).toHaveBeenCalledWith(alpha, { before: 815, limit: 1 });
+  });
+
+  it("does not read back a row the journal itself drew", () => {
+    // A device-only row *is* the machine's row: its sequence is already the record, and the console
+    // has no copy to compare it with.
+    const drawn = line({
+      ts_ms: Date.UTC(2026, 10, 5, 9, 0, 0),
+      device_id: alpha,
+      tool: "screen.capture",
+      sentence: "screen.capture ran on Alpha",
+      machine_seq: 9,
+      door: "panel"
+    });
+    render(<ActivityTimeline lines={[drawn]} devices={devices} />);
+    const button = [...document.querySelectorAll("button.timeline-line")].find((node) =>
+      node.textContent?.includes("screen.capture ran on Alpha")
+    );
+    act(() => {
+      fireEvent.click(button!);
+    });
+    expect(apiMocks.journalRead).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain("Machine sequence");
+    expect(document.body.textContent).toContain("only in the machine's own journal");
+  });
+
+  it("asks nothing for a row that names no position", () => {
+    const legacy = line({
+      ts_ms: Date.UTC(2026, 10, 5, 9, 0, 0),
+      device_id: alpha,
+      tool: "files.read",
+      sentence: "Read notes.txt"
+    });
+    render(<ActivityTimeline lines={[legacy]} devices={devices} />);
+    const button = [...document.querySelectorAll("button.timeline-line")].find((node) =>
+      node.textContent?.includes("Read notes.txt")
+    );
+    act(() => {
+      fireEvent.click(button!);
+    });
+    expect(apiMocks.journalRead).not.toHaveBeenCalled();
+  });
+
+  it("says a rotated row is gone rather than that the call did not happen", async () => {
+    apiMocks.journalRead.mockResolvedValue({
+      device: alpha,
+      journal: true,
+      oldest_seq: 900,
+      last_seq: 950,
+      rows: [],
+      more: false,
+      read_at_ms: 1,
+      unknown: false
+    });
+    const proxied = line({
+      ts_ms: Date.UTC(2026, 10, 5, 9, 0, 0),
+      device_id: alpha,
+      tool: "files.read",
+      sentence: "Read notes.txt",
+      machine_seq: 814
+    });
+    render(<ActivityTimeline lines={[proxied]} devices={devices} />);
+    const button = [...document.querySelectorAll("button.timeline-line")].find((node) =>
+      node.textContent?.includes("Read notes.txt")
+    );
+    act(() => {
+      fireEvent.click(button!);
+    });
+    expect(
+      await screen.findByText(
+        "The machine no longer holds this call at row 814; its journal has rotated past it or been reset."
+      )
+    ).toBeInTheDocument();
   });
 });
 

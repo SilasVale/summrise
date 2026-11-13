@@ -857,6 +857,72 @@ PY
 fi
 pass "the console's journal read relays the machine's row ($READ_ANSWER)"
 
+# **THE CONSOLE'S LINE NAMES THE MACHINE'S POSITION (round 9).** The device's answer frame carries
+# the outcome half's journal `seq`; the console writes it on the audit line. That pointer is what lets
+# the page read the machine's own row back instead of guessing from two clocks.
+FINISHED_SEQ="$(printf '%s' "$JOIN_INFO" | sed -n 's/.*-> \([0-9][0-9]*\)$/\1/p')"
+[ -n "$FINISHED_SEQ" ] || fail "the outcome half's seq could not be read out of: $JOIN_INFO"
+request console-audit GET "$CONSOLE_BASE/audit" "" -H "Authorization: Bearer $SESSION"
+assert_status 200 "console GET /audit for the call's line"
+if ! SEQ_INFO="$(python3 - "$LAST_BODY" "$DEVICE_ID" "$FINISHED_SEQ" <<'PY'
+import json
+import sys
+
+path, device_id, finished = sys.argv[1], sys.argv[2], int(sys.argv[3])
+lines = json.load(open(path, encoding="utf-8"))
+line = next(
+    (
+        entry
+        for entry in reversed(lines)
+        if entry.get("kind") == "mcp"
+        and entry.get("device_id") == device_id
+        and entry.get("tool") == "host.facts"
+    ),
+    None,
+)
+if line is None:
+    raise SystemExit("the audit holds no host.facts line")
+if line.get("machine_seq") != finished:
+    raise SystemExit(
+        f"the line names machine seq {line.get('machine_seq')!r}, "
+        f"but the journal's outcome half is {finished}"
+    )
+print(f"the audit line names journal seq {finished}")
+PY
+)"; then
+    fail "the audit line does not carry the machine's sequence"
+fi
+pass "the console's audit line names the machine's position ($SEQ_INFO)"
+
+# And that position reads the row back: one row at that sequence, the call's outcome.
+request console-row GET "$CONSOLE_BASE/journal/read?device=$DEVICE_ID&before=$((FINISHED_SEQ + 1))&limit=1" "" \
+    -H "Authorization: Bearer $SESSION"
+assert_status 200 "console GET /journal/read at the line's position"
+if ! ROW_INFO="$(python3 - "$LAST_BODY" "$DEVICE_ID" "$FINISHED_SEQ" <<'PY'
+import json
+import sys
+
+path, device_id, finished = sys.argv[1], sys.argv[2], int(sys.argv[3])
+document = json.load(open(path, encoding="utf-8"))
+if document.get("device") != device_id:
+    raise SystemExit(f"the read named device {document.get('device')!r}")
+rows = document.get("rows") or []
+if len(rows) != 1:
+    raise SystemExit(f"one row was asked for, {len(rows)} answered: {document}")
+row = rows[0]
+if row.get("seq") != finished:
+    raise SystemExit(f"the row at seq {row.get('seq')!r} is not the line's {finished}")
+if row.get("tool") != "host.facts":
+    raise SystemExit(f"the row names {row.get('tool')!r}, not host.facts")
+if row.get("type") != "call.finished" or row.get("ok") is not True:
+    raise SystemExit(f"the row is not the call's finished half: {row}")
+print(f"row {finished} reads back: {row.get('type')} {row.get('tool')}, door {row.get('door')!r}")
+PY
+)"; then
+    fail "the machine's row could not be read back at the line's position"
+fi
+pass "the machine's own row reads back at that position ($ROW_INFO)"
+
 # The credential must never be in either record: both logs name the token record, never the secret.
 if grep -qF "$SRM_TOKEN" "$CONSOLE_AUDIT" "$DEVICE_AUDIT" 2>/dev/null; then
     fail "a permanent token secret was written to an audit file"

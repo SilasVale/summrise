@@ -126,6 +126,13 @@ pub(crate) struct Entry<'a> {
     /// actions and on lines older than the field.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) caller: Option<Caller>,
+    /// The machine journal's `seq` for this call's outcome half, when the device named one.
+    ///
+    /// §4.2's other half: the trace joins the two records, and this is *where* in the machine's
+    /// journal the joined call sits. Absent on operator actions, on exchanges that never reached the
+    /// machine, and on lines written before the field existed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) machine_seq: Option<u64>,
     /// The `trace.call` of the proxied exchange this line records, when it records one.
     ///
     /// §4.2's join: the device journal's `call.started` and `call.finished|denied` carry the same
@@ -903,6 +910,7 @@ mod tests {
                         token_id: None,
                         caller: None,
                         trace,
+                        machine_seq: None,
                     })
                     .await
             );
