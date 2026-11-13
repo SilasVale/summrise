@@ -393,6 +393,33 @@ describe("activityCountSentence", () => {
     expect(activityDaySentence(day, null)).toBe("Today: 10 client calls, 1 failed.");
   });
 
+  it("names the fleet's direct calls as the machines' share, with the same floor rule", () => {
+    const day = {
+      client_calls: 10,
+      failed: 1,
+      console: 0,
+      console_failed: 0,
+      poll: 0,
+      poll_failed: 0,
+      unattributed: 0,
+      unattributed_failed: 0
+    };
+    expect(activityDaySentence(day, { calls: 2, failed: 1, more: false, scope: "fleet" })).toBe(
+      "Today: 12 client calls, 2 failed — 2 straight to the machines (1 failed)."
+    );
+    expect(activityDaySentence(day, { calls: 1, failed: 0, more: false, scope: "fleet" })).toBe(
+      "Today: 11 client calls, 1 failed — 1 straight to a machine."
+    );
+    // A machine that was not read makes the fleet's number a floor too, even without a cut scan.
+    expect(
+      activityDaySentence(day, { calls: 3, failed: 0, more: false, scope: "fleet", unread: 1 })
+    ).toBe("Today: 13 client calls, 1 failed — at least 3 straight to the machines.");
+    // A cut scan alone is still a floor.
+    expect(activityDaySentence(day, { calls: 3, failed: 0, more: true, scope: "fleet" })).toBe(
+      "Today: 13 client calls, 1 failed — at least 3 straight to the machines."
+    );
+  });
+
   it("says since when the day's file starts after midnight", () => {
     const since = new Date(2026, 10, 5, 3, 12, 0).getTime();
     const day = {
@@ -413,5 +440,18 @@ describe("activityCountSentence", () => {
     expect(activityDaySentence({ ...day, bounded: true, scan_limit: 50_000 })).toBe(
       "Today: 10 client calls, 1 failed · since 03:12 · first 50,000 lines."
     );
+  });
+});
+
+describe("isClientCall on a machine's own row", () => {
+  it("counts a loopback door as a client, and leaves the panel and mesh doors out", () => {
+    const row = { ts_ms: NOW, kind: "mcp" as const, status: 200 };
+    // A journal row carries neither a caller nor a token: the door is the only proof it has.
+    expect(isClientCall({ ...row, door: "loopback" })).toBe(true);
+    expect(isClientCall({ ...row, door: "panel" })).toBe(false);
+    expect(isClientCall({ ...row, door: "mesh" })).toBe(false);
+    expect(isClientCall({ ...row, door: "console" })).toBe(false);
+    // The caller still wins when a line has one: a console row is not a client's.
+    expect(isClientCall({ ...row, caller: "console", door: "loopback" })).toBe(false);
   });
 });

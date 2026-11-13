@@ -10,6 +10,7 @@ import { resetLiveToolsCache } from "./useLiveTools";
 import { resetJoinMarks } from "./useJoinMarks";
 import { resetMachineDays } from "./useMachineDay";
 import { resetMachineRows } from "./useMachineRows";
+import { resetFleetRecord } from "./useFleetRecord";
 import { runLink } from "./run-link";
 
 // The shell is driven against a mocked HTTP surface: no request leaves jsdom, and the sign-in state is a
@@ -342,6 +343,7 @@ beforeEach(() => {
   // The machine's own window. A machine with nothing journaled answers with no rows, and a test that
   // draws a call only the journal holds names its own answer.
   resetMachineRows();
+  resetFleetRecord();
   mocks.journalRead.mockReset();
   mocks.journalRead.mockImplementation(async (device: string) => ({
     device,
@@ -1596,6 +1598,186 @@ describe("App", () => {
     expect(mocks.journalRead).toHaveBeenLastCalledWith(workshop.id, { before: 200, limit: 200 });
     expect(document.querySelector(".timeline-machine-end")).toHaveTextContent(
       "The machine's journal has no rows older than this."
+    );
+  });
+
+  it("draws every online machine's own record in the fleet window, and says what it read", async () => {
+    const now = Date.now();
+    mocks.audit.mockResolvedValue([]);
+    mocks.journalRead.mockImplementation(async (device: string) => ({
+      device,
+      journal: true,
+      oldest_seq: 5,
+      last_seq: 5,
+      rows: [
+        {
+          seq: 5,
+          ts: new Date(now - 60_000).toISOString(),
+          type: "call.finished",
+          trace: `machine-${device}`,
+          tool: device === workshop.id ? "screen.capture" : "memory.write",
+          ok: true,
+          door: "loopback",
+          payload_bytes: 3
+        }
+      ],
+      more: false,
+      read_at_ms: now,
+      unknown: false
+    }));
+    mocks.journalDay.mockImplementation(async (device: string, from: number, to: number) => ({
+      device,
+      journal: true,
+      day_start_ms: from,
+      day_end_ms: to,
+      oldest_seq: 5,
+      last_seq: 5,
+      scanned: 2,
+      more: false,
+      calls: {
+        console: { calls: 0, failed: 0 },
+        panel: { calls: 0, failed: 0 },
+        mesh: { calls: 0, failed: 0 },
+        loopback: { calls: device === workshop.id ? 2 : 1, failed: 0 },
+        unknown: { calls: 0, failed: 0 }
+      },
+      read_at_ms: now,
+      unknown: false
+    }));
+
+    await bootAndSignIn();
+    // No machine chosen: Activity is the fleet's window, and the page fans out to both machines.
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    await screen.findByRole("heading", { name: "Activity", level: 1 });
+
+    expect(await screen.findByText("screen.capture ran on workshop")).toBeInTheDocument();
+    expect(await screen.findByText("memory.write ran on attic")).toBeInTheDocument();
+    expect(mocks.journalRead).toHaveBeenCalledWith(workshop.id, { limit: 200 });
+    expect(mocks.journalRead).toHaveBeenCalledWith(attic.id, { limit: 200 });
+    await waitFor(() =>
+      expect(document.querySelector(".timeline-machine-read")).toHaveTextContent(
+        "2 of these calls are on the machines' records, not this console's."
+      )
+    );
+    // The day sentence adds both machines' direct calls and keeps the plural.
+    await waitFor(() =>
+      expect(document.querySelector(".activity-today")).toHaveTextContent(
+        "Today: 3 client calls — 3 straight to the machines."
+      )
+    );
+  });
+
+  it("counts a machine's loopback call as a client's under Clients only, and its panel call is not", async () => {
+    const now = Date.now();
+    mocks.audit.mockResolvedValue([]);
+    mocks.journalRead.mockImplementation(async (device: string) => ({
+      device,
+      journal: true,
+      oldest_seq: 9,
+      last_seq: 9,
+      rows: [
+        {
+          seq: 9,
+          ts: new Date(now - 60_000).toISOString(),
+          type: "call.finished",
+          trace: "direct-1",
+          tool: "host.facts",
+          ok: true,
+          door: "loopback",
+          payload_bytes: 1
+        },
+        {
+          seq: 10,
+          ts: new Date(now - 30_000).toISOString(),
+          type: "call.finished",
+          trace: "panel-1",
+          tool: "screen.capture",
+          ok: true,
+          door: "panel",
+          payload_bytes: 1
+        }
+      ],
+      more: false,
+      read_at_ms: now,
+      unknown: false
+    }));
+
+    await bootAndSignIn();
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    await screen.findByRole("heading", { name: "Activity", level: 1 });
+    // Both machines answer the same rows, at the same instants, so this is also the case where a
+    // row key without the machine would draw one row twice.
+    expect(await screen.findByText("screen.capture ran on workshop")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clients only" }));
+    // A loopback door is a token-authenticated call that never reached this console; the panel is
+    // the machine's own desktop, not the AI's client.
+    await waitFor(() =>
+      expect(screen.queryAllByText("screen.capture ran on workshop")).toEqual([])
+    );
+    expect(screen.getAllByText("host.facts ran on workshop").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("host.facts ran on attic").length).toBeGreaterThan(0);
+  });
+
+  it("names a machine whose record the fleet could not read, and does not count it as zero", async () => {
+    const now = Date.now();
+    mocks.audit.mockResolvedValue([]);
+    mocks.journalDay.mockImplementation(async (device: string, from: number, to: number) => {
+      if (device === attic.id) throw new HttpError(503, "device_offline");
+      return {
+        device,
+        journal: true,
+        day_start_ms: from,
+        day_end_ms: to,
+        oldest_seq: 5,
+        last_seq: 5,
+        scanned: 2,
+        more: false,
+        calls: {
+          console: { calls: 0, failed: 0 },
+          panel: { calls: 0, failed: 0 },
+          mesh: { calls: 0, failed: 0 },
+          loopback: { calls: 2, failed: 1 },
+          unknown: { calls: 0, failed: 0 }
+        },
+        read_at_ms: now,
+        unknown: false
+      };
+    });
+    mocks.journalRead.mockImplementation(async (device: string) => {
+      if (device === attic.id) throw new HttpError(503, "device_offline");
+      return {
+        device,
+        journal: true,
+        oldest_seq: 1,
+        last_seq: 1,
+        rows: [],
+        more: false,
+        read_at_ms: now,
+        unknown: false
+      };
+    });
+
+    await bootAndSignIn();
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    await screen.findByRole("heading", { name: "Activity", level: 1 });
+
+    // One machine answered two direct calls; the other could not be asked, so the number is a floor
+    // and the footer says whose record is missing and why.
+    await waitFor(() =>
+      expect(document.querySelector(".activity-today")).toHaveTextContent(
+        "Today: 2 client calls, 1 failed — at least 2 straight to the machines (1 failed)."
+      )
+    );
+    await waitFor(() =>
+      expect(document.querySelector(".activity-direct")).toHaveTextContent(
+        "The direct calls of 1 machine were not counted."
+      )
+    );
+    await waitFor(() =>
+      expect(document.querySelector(".timeline-machine-read")).toHaveTextContent(
+        "The journal of 1 machine was not read: attic (did not answer)."
+      )
     );
   });
 

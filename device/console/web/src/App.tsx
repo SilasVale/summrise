@@ -23,6 +23,15 @@ import { activityDaySentence } from "./activitySummary";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { useJoinMarks } from "./useJoinMarks";
 import { machineCounts, mergeMachineRows } from "./machineRows";
+import { useFleetRecord } from "./useFleetRecord";
+import {
+  fleetDay,
+  fleetDayNote,
+  fleetJournal,
+  fleetMachineRows,
+  fleetSentence,
+  mergeFleetRows
+} from "./fleetRecord";
 import { useMachineDay } from "./useMachineDay";
 import { useMachineRows } from "./useMachineRows";
 import { DEVICE_TAB_LABELS, PAGE_LABELS, Rail, type DeviceTab, type Page } from "./Rail";
@@ -587,6 +596,20 @@ export function App() {
   // Recomputed on every render (two `Date`s): the fallback block must move at midnight, and a memo
   // keyed on the cut alone would pin the mount day until a new day answer arrived.
   const machineDayRange = machineDayBlock(shownDayStartMs);
+  /**
+   * **THE FLEET'S RECORD (round 13).** A fleet window spans machines, so no single journal answers
+   * for it: it drew only the console's rows and counted only the console's audit. The page now asks
+   * the online machines the fleet names — bounded, one newest page and one day each, per 30 s — and
+   * the merge adds the calls only their journals hold. The header describes the fleet only while no
+   * machine is in it; a paused page keeps describing the window it froze, and the fan-out waits for
+   * a day answer so the block it asks is the block the labels count.
+   */
+  const fleetWindow = shownWindowDevice === null && shownDay !== null;
+  const fleet = useFleetRecord(
+    fleetWindow ? devices : [],
+    fleetWindow ? machineDayRange.from : null,
+    fleetWindow ? machineDayRange.to : null
+  );
   // **A PAUSED HEADER COUNTS THE DAY IT FROZE.** The machine's day is asked for the device the header
   // describes, not the scope a paused page has since been pointed at; its cached answer keeps the
   // frozen sentence whole.
@@ -599,7 +622,7 @@ export function App() {
   // The header describes the window it froze; a new scope's day must not be merged into it.
   const machineDayForHeader =
     shownWindowDevice === machineDayDevice ? machineDay : { state: "idle" as const, answer: null, error: null };
-  const directDay = useMemo(() => {
+  const machineDirectDay = useMemo(() => {
     const answer = machineDayForHeader.answer;
     if (machineDayForHeader.state !== "read" || answer === null) return null;
     if (answer.unknown || !answer.journal) return null;
@@ -610,12 +633,32 @@ export function App() {
     };
   }, [machineDayForHeader]);
   /**
+   * **THE FLEET'S DAY IS THE SUM OF THE MACHINES THAT ANSWERED (round 13).** Its `loopback` calls
+   * are client calls the console's audit never held, and the machines that could not be asked make
+   * the number a floor — `unread` is why the clause says "at least" even when no scan was cut.
+   */
+  const fleetDirectDay = useMemo(() => {
+    if (!fleetWindow) return null;
+    const day = fleetDay(fleet.reads, fleet.plan);
+    if (day === null) return null;
+    return {
+      calls: day.calls,
+      failed: day.failed,
+      more: day.more,
+      scope: "fleet" as const,
+      unread: day.unread
+    };
+  }, [fleetWindow, fleet.reads, fleet.plan]);
+  const directDay = fleetWindow ? fleetDirectDay : machineDirectDay;
+  /**
    * **A DAY THE MACHINE COULD NOT COUNT IS NOT A ZERO.** If the machine answered `unknown` or the
    * read failed, the sentence keeps the console's numbers and the page says the direct calls were
    * not counted, with the console's reason. A machine with no journal says nothing: its day is
    * complete in the console's audit.
    */
+  const fleetDayMissing = fleetWindow ? fleetDayNote(fleet.reads, fleet.plan) : null;
   const machineDayUnread =
+    !fleetWindow &&
     directDay === null &&
     machineDayDevice !== null &&
     // The sentence describes the window the header is showing; a paused header's device is the frozen
@@ -629,6 +672,7 @@ export function App() {
           machineDayForHeader.error ?? "this machine did not answer for its journal"
         }.`
       : null;
+  const dayNote = fleetWindow ? fleetDayMissing : machineDayNote;
   const activityCount =
     shownDay !== null && !auditReadingOther
       ? activityDaySentence(shownDay.day, directDay)
@@ -682,13 +726,20 @@ export function App() {
    * 10): the newest 200 rows are minutes on a busy machine, and the footer offers the rest.
    */
   const machineRead = useMachineRows(auditScopeDevice, auditReadingName);
+  const fleetRows = useMemo(() => fleetMachineRows(fleet.reads), [fleet.reads]);
   const machineLines = useMemo(
-    () => mergeMachineRows(shownActivity, machineRead.rows),
-    [shownActivity, machineRead.rows]
+    () =>
+      fleetWindow
+        ? mergeFleetRows(shownActivity, fleetRows)
+        : mergeMachineRows(shownActivity, machineRead.rows),
+    [fleetWindow, shownActivity, fleetRows, machineRead.rows]
   );
-  // The difference is exactly the machine's contribution: the merge keeps every console row and only
+  // The difference is exactly the machines' contribution: the merge keeps every console row and only
   // ever drops a machine row as the duplicate of one.
   const machine = machineCounts(machineRead, machineLines.length - shownActivity.length);
+  const fleetLine = fleetWindow
+    ? fleetSentence(fleet.reads, fleet.plan, machineLines.length - shownActivity.length)
+    : null;
   /**
    * The header's line, or none. A failed read has no state sentence of its own: the banner names
    * the failure and the notice says what the page can still show, so `The audit could not be read.`
@@ -1578,8 +1629,8 @@ export function App() {
                     {activityCount}
                   </p>
                 )}
-                {activityCount !== null && machineDayNote !== null && (
-                  <p className="activity-direct">{machineDayNote}</p>
+                {activityCount !== null && dayNote !== null && (
+                  <p className="activity-direct">{dayNote}</p>
                 )}
                 {/* **THE FAILED READ HAS ONE SENTENCE, AND IT IS THE BANNER'S.** This line is
                     the page's state (following, reading, paused, lagging) and is absent when the
@@ -1703,8 +1754,15 @@ export function App() {
                   unread={auditUnread}
                   source={auditSource}
                   join={join}
-                  machine={machine}
-                  onMachineOlder={machineRead.loadOlder}
+                  // A fleet window has no one journal to page and no one machine's counts; its
+                  // fan-out states itself in the same footer slot with its own sentence.
+                  machine={fleetWindow ? undefined : machine}
+                  fleet={
+                    fleetWindow
+                      ? { line: fleetLine, journal: fleetJournal(fleet.reads) }
+                      : undefined
+                  }
+                  onMachineOlder={fleetWindow ? undefined : machineRead.loadOlder}
                   query={activityFilter.tool}
                   onQuery={(tool) => setActivityFilter((current) => ({ ...current, tool }))}
                   clientsOnly={activityClientsOnly}

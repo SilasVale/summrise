@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuditLine, AuditSource, Device, TokenMeta } from "./api";
 import { ActivityTimeline } from "./ActivityTimeline";
-import { machineCounts } from "./machineRows";
+import { machineCallRows, machineCounts } from "./machineRows";
 import { exactMoment } from "./format";
 import { restoreGlobal } from "./test/dom";
 import { resetJournalRows } from "./useJournalRow";
@@ -1914,6 +1914,84 @@ describe("ActivityTimeline's machine window paging", () => {
 // **THE MACHINE'S OWN RECORD (round 8).** A call the console never proxied is drawn from
 // `journal.read` alone; the page must show it exactly as the console would draw the same call, say
 // where the record came from, and never let a failed read look like an empty journal.
+describe("ActivityTimeline's Clients only over machine rows (round 13)", () => {
+  it("keeps a loopback door and drops a panel door", () => {
+    const machineLines = [
+      ...machineCallRows(
+        {
+          device: alpha,
+          journal: true,
+          oldest_seq: 1,
+          last_seq: 2,
+          more: false,
+          read_at_ms: 1,
+          unknown: false,
+          rows: [
+            {
+              seq: 1,
+              ts: new Date(Date.UTC(2026, 10, 5, 9, 0, 0)).toISOString(),
+              type: "call.finished",
+              trace: "direct-1",
+              tool: "host.facts",
+              ok: true,
+              door: "loopback"
+            },
+            {
+              seq: 2,
+              ts: new Date(Date.UTC(2026, 10, 5, 9, 1, 0)).toISOString(),
+              type: "call.finished",
+              trace: "panel-1",
+              tool: "screen.capture",
+              ok: true,
+              door: "panel"
+            }
+          ]
+        },
+        alpha,
+        "Alpha"
+      )
+    ];
+    render(<ActivityTimeline lines={machineLines} devices={devices} />);
+    expect(screen.getByText("host.facts ran on Alpha")).toBeInTheDocument();
+    expect(screen.getByText("screen.capture ran on Alpha")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Clients only" }));
+    expect(screen.getByText("host.facts ran on Alpha")).toBeInTheDocument();
+    expect(screen.queryByText("screen.capture ran on Alpha")).toBeNull();
+  });
+});
+
+describe("ActivityTimeline's fleet record (round 13)", () => {
+  it("draws the fan-out's sentence in the footer, and no paging control beside it", () => {
+    render(
+      <ActivityTimeline
+        lines={[]}
+        devices={devices}
+        fleet={{
+          line:
+            "2 of these calls are on the machines' records, not this console's. The journal of 1 " +
+            "machine was not read: Beta (offline).",
+          journal: true
+        }}
+      />
+    );
+    expect(document.querySelector(".timeline-machine-read")).toHaveTextContent(
+      "2 of these calls are on the machines' records, not this console's. The journal of 1 machine " +
+        "was not read: Beta (offline)."
+    );
+    expect(screen.queryByRole("button", { name: "Read older rows from the machine" })).toBeNull();
+  });
+
+  it("says a direct call is read from the machine's journal when the fleet's record was read", () => {
+    render(<ActivityTimeline lines={[]} devices={devices} fleet={{ line: null, journal: true }} />);
+    expect(screen.getByText(/read from that machine's journal/)).toBeInTheDocument();
+  });
+
+  it("keeps the old empty sentence when no machine's record was read", () => {
+    render(<ActivityTimeline lines={[]} devices={devices} fleet={{ line: null, journal: false }} />);
+    expect(screen.getByText(/endpoint is not\./)).toBeInTheDocument();
+  });
+});
+
 describe("ActivityTimeline's machine rows", () => {
   const panelCall = line({
     ts_ms: Date.UTC(2026, 10, 5, 9, 0, 0),
