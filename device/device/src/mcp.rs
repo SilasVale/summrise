@@ -47,7 +47,7 @@ use crate::capabilities::{browser, forward, memory, monitor, runs, terminal};
 use crate::config::{Config, Release};
 use crate::plugins::host::PluginHost;
 use crate::restart;
-use crate::store::{Store, EVENT_TAIL};
+use crate::store::Store;
 
 /// The base64 engine the file tools use: the standard alphabet, padded, as every client library emits.
 pub(crate) const BASE64: base64::engine::general_purpose::GeneralPurpose =
@@ -844,78 +844,12 @@ impl DeviceServer {
                 restart: &self.restart,
                 bus: bus.as_deref(),
                 plugins: &self.plugins,
+                store: &self.store,
+                release_version: &self.release.version,
             };
             return crate::capabilities::call(name, arguments, &ctx).await;
         }
-        let Some(handler) = handler(name) else {
-            return self.dispatch_plugin(name, arguments).await;
-        };
-
-        match handler {
-            Handler::ScreenCapture => {
-                // The one tool that runs where this process cannot: the picture comes from the
-                // per-user helper, and "no helper" is a sentence rather than a black frame.
-                let Some(helper) = crate::helper::current() else {
-                    return Err(refused(
-                        name,
-                        "no per-user helper is running on this device",
-                    ));
-                };
-                let Some(port) = helper.port() else {
-                    return Err(refused(
-                        name,
-                        "the per-user helper has not registered this boot",
-                    ));
-                };
-                let capture = crate::helper::capture(port, helper.token())
-                    .await
-                    .map_err(|error| refused(name, error))?;
-                Ok(json!({
-                    "format": "png",
-                    "data": capture.png,
-                    "width": capture.width,
-                    "height": capture.height,
-                })
-                .to_string())
-            }
-            Handler::StateGet => {
-                // The console's device page: the document an operator would read from
-                // `/api/state`, plus the readiness answer `/api/health` would give, and the last ten
-                // events the device recorded — the same tail the local panel shows. A poisoned
-                // document is the failure this tool exists to make visible, so it is a successful
-                // call carrying `poisoned: true` and a null state, not an error the console would
-                // render as "the device is offline".
-                let (state, health) = match self.store.load() {
-                    Ok(state) => (
-                        json!(state),
-                        json!({
-                            "status": "ok",
-                            "version": self.release.version,
-                            "pid": std::process::id(),
-                            "poisoned": false,
-                        }),
-                    ),
-                    Err(error) => (
-                        Value::Null,
-                        json!({
-                            "status": "degraded",
-                            "version": self.release.version,
-                            "pid": std::process::id(),
-                            "poisoned": true,
-                            "reason": format!("state: {error}"),
-                        }),
-                    ),
-                };
-                // Best-effort: the document still answers when the log cannot be read, but the
-                // field is `null` — "the device cannot say" — not `[]`, which would claim it
-                // recorded nothing. A poisoned document still returns whatever events exist.
-                let events = match self.store.tail_events(EVENT_TAIL) {
-                    Ok(events) => json!(events),
-                    Err(_) => Value::Null,
-                };
-                Ok(json!({ "state": state, "health": health, "events": events }).to_string())
-            }
-        }
+        self.dispatch_plugin(name, arguments).await
     }
 
     async fn dispatch_plugin(
@@ -1003,59 +937,6 @@ fn jsonrpc_error(id: Value, code: i32, message: &str) -> Value {
         "id": id,
         "error": { "code": code, "message": message },
     })
-}
-
-/// One implementation of one registry tool.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Handler {
-    ScreenCapture,
-    StateGet,
-}
-
-/// The names this surface implements, and their handlers.
-///
-/// This is the one table that turns a registry name into code. Adding a tool to `CAPABILITIES`
-/// without a row here fails `every_registry_tool_has_an_implementation`; adding a row without a
-/// registry entry fails `every_implementation_is_registered`. `tools/list` cannot advertise a tool
-/// the surface cannot run without that test going red.
-const HANDLERS: &[(&str, Handler)] = &[
-    ("screen.capture", Handler::ScreenCapture),
-    ("state.get", Handler::StateGet),
-];
-
-/// **ONE PLACE BUILDS `forward.list`'s ROW, AND IT TAKES EVERY FIELD THE STATE HAS.**
-///
-/// This was a `json!` inline in the dispatch, which meant the answer's key set existed only as a
-/// literal — and a field added to [`forward::ForwardState`](crate::capabilities::forward::ForwardState)
-/// reached no client while every test in this workspace stayed green, because the device's own tests
-/// compare the STRUCT to itself. Naming the row here lets
-/// `the_forward_list_serves_every_field_the_row_state_has` compare the served keys to the state's
-/// fields, and to the console's own type, in one test.
-/// The keys [`forward_row`] serves, read from it rather than restated.
-///
-/// **THE TEST MUST NOT BUILD ITS OWN EXPECTED LIST.** A test that typed the nine names would go green
-/// on the day a tenth was added to the `json!` and nobody updated it — which is the failure the test
-/// exists to catch. Calling the same function means the answer and the assertion share one source.
-#[cfg(test)]
-fn forward_list_keys() -> Vec<String> {
-    crate::capabilities::forward::forward_row(crate::capabilities::forward::ForwardState::default())
-        .as_object()
-        .map(|object| object.keys().cloned().collect())
-        .unwrap_or_default()
-}
-
-/// The handler for `name`, or `None` when the surface has no implementation.
-fn handler(name: &str) -> Option<Handler> {
-    HANDLERS
-        .iter()
-        .find(|(declared, _)| *declared == name)
-        .map(|(_, handler)| *handler)
-}
-
-/// Whether the surface can run `name`. Read by the registry-alignment test.
-#[cfg(test)]
-fn dispatch_supports(name: &str) -> bool {
-    handler(name).is_some() || crate::capabilities::owns(name)
 }
 
 impl ServerHandler for DeviceServer {
@@ -1172,25 +1053,9 @@ impl DeviceServer {
 /// is never asked for a schema, and a declared tool with no entry gets the empty object schema
 /// rather than disappearing from the list.
 fn input_schema(definition: &ToolDef) -> Value {
-    // **THE DECLARATION OWNS THE SCHEMA (round 15).** A migrated capability writes it beside its
-    // tools; the legacy match below is the fallback for the capabilities still in the table, and
-    // `every_registry_tool_has_a_declared_schema` counts them down.
-    if let Some(schema) = definition.schema {
-        return schema();
-    }
-    match definition.name {
-        "screen.capture" => json!({
-            "type": "object",
-            "properties": {},
-            "additionalProperties": false
-        }),
-        "state.get" => json!({
-            "type": "object",
-            "properties": {},
-            "additionalProperties": false
-        }),
-        _ => json!({ "type": "object" }),
-    }
+    (definition
+        .schema
+        .expect("every declared tool has a schema beside it"))()
 }
 
 pub(crate) enum ToolError {
@@ -1328,10 +1193,6 @@ fn named_field(error: &serde_json::Error) -> Option<String> {
 /// caller believes it configured something; every kind-specific field is checked rather than
 /// silently dropped.
 /// A capability error as the tool-level refusal the client sees.
-fn refused(tool: &str, error: impl std::fmt::Display) -> ToolError {
-    ToolError::Refused(format!("{tool}: {error}"))
-}
-
 /// Parse the session id a client sent back, refusing a spelling this device never mints.
 ///
 /// The id is not echoed in the refusal for the same reason no other argument value is: a client can
@@ -1551,6 +1412,19 @@ fn audit_tool(tool: &str) -> &str {
     &tool[..end]
 }
 
+/// The keys [`forward_row`] serves, read from it rather than restated.
+///
+/// **THE TEST MUST NOT BUILD ITS OWN EXPECTED LIST.** A test that typed the nine names would go green
+/// on the day a tenth was added to the `json!` and nobody updated it — which is the failure the test
+/// exists to catch. Calling the same function means the answer and the assertion share one source.
+#[cfg(test)]
+fn forward_list_keys() -> Vec<String> {
+    crate::capabilities::forward::forward_row(crate::capabilities::forward::ForwardState::default())
+        .as_object()
+        .map(|object| object.keys().cloned().collect())
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -1581,10 +1455,7 @@ mod tests {
     use crate::store::Store;
     use crate::test_support::TempDir;
 
-    use super::{
-        dispatch_supports, forward_list_keys, handler, input_schema, registry_tools, HANDLERS,
-        MAX_BODY_BYTES, MAX_FILE_BYTES,
-    };
+    use super::{forward_list_keys, input_schema, registry_tools, MAX_BODY_BYTES, MAX_FILE_BYTES};
     use crate::capabilities::forward::ForwardState;
 
     const TOKEN: [u8; 32] = [0x6b; 32];
@@ -4693,29 +4564,17 @@ mod tests {
             .collect();
         for name in &registry {
             assert!(
-                dispatch_supports(name),
-                "{name} is advertised but has no dispatch row: add it to HANDLERS or a capability module"
+                crate::capabilities::owns(name),
+                "{name} is advertised but no capability module declares it"
             );
         }
 
-        for (name, _) in HANDLERS {
-            assert!(
-                summrise_core::registry::tool(name).is_some(),
-                "{name} has an implementation but is not in the registry"
-            );
-            assert!(dispatch_supports(name));
-        }
-
-        let mut implementations: Vec<&str> = HANDLERS
-            .iter()
-            .map(|(name, _)| *name)
-            .chain(crate::capabilities::names())
-            .collect();
+        let mut implementations: Vec<&str> = crate::capabilities::names().collect();
         implementations.sort_unstable();
         registry.sort_unstable();
         assert_eq!(
             implementations, registry,
-            "the registry and the dispatch table must name the same tools"
+            "the registry and the capability modules must name the same tools"
         );
     }
 
@@ -4738,8 +4597,8 @@ mod tests {
                     tool.name
                 );
                 assert!(
-                    handler(tool.name).is_none(),
-                    "{}: a migrated tool left the legacy dispatch table",
+                    crate::capabilities::owns(tool.name),
+                    "{}: the capability module runs every declared tool",
                     tool.name
                 );
                 assert!(
@@ -4827,7 +4686,7 @@ mod tests {
     /// `input_schema` ends with `_ => json!({ "type": "object" })`, which is what a tool with no arm
     /// would silently advertise: a schema that accepts anything, tells a client nothing, and refuses
     /// nothing. **Nothing asserted that every registry tool had an arm** — the alignment test above
-    /// checks `HANDLERS`, not the schema table, and those are two different lists.
+    /// checks the dispatch rows, not the schema table, and those were two different lists.
     ///
     /// It also validates each schema the way a client would: an object, a `properties` map, every
     /// `required` name actually a property, and `additionalProperties` set (the device's `parse`

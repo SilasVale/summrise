@@ -47,34 +47,9 @@ pub const CAPABILITIES: &[Capability] = &[
     crate::capabilities::runs::CAPABILITY,
     crate::capabilities::system::CAPABILITY,
     crate::capabilities::host::CAPABILITY,
-    Capability {
-        name: "screen",
-        tools: &[ToolDef {
-            name: "screen.capture",
-            destructive: false,
-            // The only capability that runs in the logged-in user's session: the helper captures a
-            // desktop the service cannot see, and refuses rather than answering black.
-            description:
-                "Capture the logged-in user's screen as a PNG through the per-user helper. A session that is locked, disconnected, or has no helper running is refused with a sentence; a desktop nobody is looking at is not a picture.",
-            schema: None,
-        }],
-        guide: "",
-    },
+    crate::capabilities::screen::CAPABILITY,
     crate::capabilities::forward::CAPABILITY,
-    Capability {
-        name: "state",
-        tools: &[ToolDef {
-            name: "state.get",
-            destructive: false,
-            // This is the console's device page. There is no console route for it: an operator
-            // mints a grant naming `state.get` and reads the device through `/mcp`, which also puts
-            // the call in the console's audit index.
-            description:
-                "Read this machine's state document plus its health: status (ok or degraded), release version, pid, whether the state document is poisoned (unreadable), and the last ten events the device recorded. A poisoned document is returned as null state with degraded health rather than a failed call.",
-            schema: None,
-        }],
-        guide: "",
-    },
+    crate::capabilities::state::CAPABILITY,
     crate::capabilities::journal::CAPABILITY,
     crate::capabilities::plugins::CAPABILITY,
 ];

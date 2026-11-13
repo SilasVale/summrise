@@ -17,6 +17,8 @@ pub mod memory;
 pub mod monitor;
 pub mod plugins;
 pub mod runs;
+pub mod screen;
+pub mod state;
 pub mod system;
 pub mod terminal;
 
@@ -29,8 +31,10 @@ pub const DECLARED: &[&crate::registry::Capability] = &[
     &monitor::CAPABILITY,
     &runs::CAPABILITY,
     &system::CAPABILITY,
-    &forward::CAPABILITY,
     &host::CAPABILITY,
+    &screen::CAPABILITY,
+    &forward::CAPABILITY,
+    &state::CAPABILITY,
     &journal::CAPABILITY,
     &plugins::CAPABILITY,
 ];

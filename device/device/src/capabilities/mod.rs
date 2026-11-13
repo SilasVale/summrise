@@ -16,7 +16,9 @@ pub mod monitor;
 pub(crate) mod owned;
 pub mod plugins;
 pub mod runs;
+pub mod screen;
 pub mod ssh;
+pub mod state;
 pub mod system;
 pub mod terminal;
 
@@ -53,6 +55,10 @@ pub struct Ctx<'a> {
     pub bus: Option<&'a summrise_bus::Bus>,
     /// The plugin host.
     pub plugins: &'a std::sync::Arc<crate::plugins::host::PluginHost>,
+    /// The device's own state document.
+    pub store: &'a crate::store::Store,
+    /// The release version the health answer reports.
+    pub release_version: &'a str,
 }
 
 /// Whether a migrated capability declares `tool`.
@@ -68,6 +74,8 @@ pub fn owns(tool: &str) -> bool {
         || host::owns(tool)
         || journal::owns(tool)
         || plugins::owns(tool)
+        || screen::owns(tool)
+        || state::owns(tool)
 }
 
 /// Every tool a migrated capability declares, for the registry-alignment test.
@@ -84,6 +92,8 @@ pub fn names() -> impl Iterator<Item = &'static str> {
         .chain(host::names())
         .chain(journal::names())
         .chain(plugins::names())
+        .chain(screen::names())
+        .chain(state::names())
 }
 
 /// Run a migrated capability's tool.
@@ -124,6 +134,12 @@ pub async fn call(
     }
     if plugins::owns(tool) {
         return plugins::call(ctx.plugins, tool, arguments).await;
+    }
+    if screen::owns(tool) {
+        return screen::call(tool, arguments).await;
+    }
+    if state::owns(tool) {
+        return state::call(tool, arguments, ctx.store, ctx.release_version);
     }
     Err(crate::mcp::ToolError::Internal(format!(
         "{tool}: no migrated capability declares it"

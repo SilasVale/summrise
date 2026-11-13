@@ -426,6 +426,16 @@ headings. Evidence: 669 device tests, 104 core tests, `clippy`/`fmt` clean, gate
 Next: `screen` and `state` (one tool each) finish the seam; after that `HANDLERS` and the schema
 match can be deleted rather than kept as a fallback.
 
+**Round 26 — the seam is complete.** `screen` and `state` moved (one tool each; the helper refusal and
+the state document/health shapes keep their sentences), and the legacy surface is **deleted**: no
+`Handler` enum, no `HANDLERS` table, no `handler()` lookup, no schema `match`, no `dispatch_supports`.
+`dispatch` now routes to a capability module or to a plugin, and nothing else. `input_schema` is a
+one-line resolver that reads the declaration (a missing schema is a bug, not an empty fallback), and
+the registry-alignment test compares the registry with the modules directly. Thirteen capabilities,
+52 tools, one declaration module and one implementation module each. Evidence: 669 device tests, 104
+core tests, `clippy`/`fmt` clean, gate 14 / 22 / 0. Next: the protocol types (S5) — the envelope,
+frames and feed rows as `protocol` + generated TS — then the record.
+
 
 ## Next (in order)
 
