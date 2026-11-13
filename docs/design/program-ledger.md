@@ -150,12 +150,38 @@ below ladders to that; one round completes one major item end to end.
   1 182 page tests and `tsc`, the page-staleness gate, and the release rehearsal (five ok, installer
   built, 133 s). Recorded in `v1-verification.md`.
 
+- 2026-11-13 — **The Windows runner answered the handoff's first half.** `installer.yml` dispatched on
+  `hub/v1` at `e52fd6e` ([run 43344130298](https://github.com/SilasVale/summrise/actions/runs/43344130298))
+  is green: the four exes build on `windows-latest`, the NSIS setup compiles, a silent install
+  (`/S /D=C:\SummriseCI`) leaves `SummriseLaunch` Running and `/api/health` `ok`, a silent uninstall
+  removes the service, and `SummriseSetup-0.3.993` (6,827,406 B) is attached to the run. What is left
+  is the interactive half (`--check-window`, the visual read) and the signature check —
+  no run metadata says whether a certificate was configured. Recorded in `v1-verification.md`.
+
+- 2026-11-13 — **`origin/main` and this tree now share a history.** The remote main carried two commits
+  from 2026-11-02 (PR #107: focus lands on `<main>` after a surface change; a `runs.get` in flight
+  keeps the row focusable) that the v1 program's line never had — 1,240 commits meet 2. They could not
+  merge as commits: their markup belongs to a console that predates Device tabs. Their behaviour is
+  ported (`50ba9e2`), with the tests: `<main>` takes focus after a page or machine change; the record
+  card is focusable and takes the focus when it arrives; the reading line is a `role="status"`; the
+  row's control is `aria-disabled` with a guarded click, so the operator's focus is not dropped
+  mid-read. `origin/main` is now an ancestor of `main` (`0 1242`), so a push of `main` is a
+  fast-forward, not a rewrite.
+
+- 2026-11-13 — **The phone's fleet card keeps its second line level (`e1b7ad5`).** The browser gate
+  caught what the desk never showed: the `2 failed` chip is a 44 px thumb target, so on the card it
+  grew the status cell to 104 px (79 without it) and pushed the version 12 px off the line the card's
+  grammar states. Both cells are now top-aligned and the chip takes the card's next line at full width;
+  the gate photographs the card it measures (`07c-fleet-390.png`). Gate PASS — 107 steps.
+
 ## Next (in order)
 
-1. Windows handoff — build the installer on a Windows runner, silent install/uninstall, run
-   `summrise-shell.exe --check-window` with the console down, sign the four exes. This is the only v1
-   item this Linux machine cannot verify.
-2. Keep improving from what the operator hits (one major item a round, green merges into `hub/v1`).
+1. Windows handoff, the interactive half — dispatch or run `summrise-shell.exe --check-window` in an
+   interactive session (session 0 refuses it), console down and up, look at the WebView2 panel, and
+   verify Authenticode when a certificate is configured. The runner half is green (run 43344130298).
+2. Push `origin`: `main` now contains `origin/main` and `hub/v1` (`0 1242`), so `git push origin main`
+   is a fast-forward. This is a publish, and it is the operator's call.
+3. Keep improving from what the operator hits (one major item a round, green merges into `hub/v1`).
 
 ## Rules
 

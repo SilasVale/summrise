@@ -44,16 +44,52 @@ more on that commit:
 | `bash scripts/build-web.sh --check` | the committed page is current |
 | `bash scripts/rehearse-release.sh --version 0.3.993` | five `ok` lines including device acceptance; installer built; PASS in 133 s |
 
+## The Windows runner, measured (2026-11-13)
+
+The first half of the handoff is no longer a proxy. `installer.yml` was dispatched on `hub/v1` at
+`e52fd6e` (`https://github.com/SilasVale/summrise/actions/runs/43344130298`, 2026-11-13T01:20:08Z) and
+its job **`the Windows installer` passed every step on `windows-latest`** in 9 min 51 s:
+
+| step | result |
+|---|---|
+| derive the build keys from the seeds | success |
+| build the runtime (the four exes) | success |
+| sign the four exes, when a certificate is configured | success (the step ran; whether a certificate was configured is not visible in the run's metadata) |
+| sign the first-generation sidecar | success |
+| install NSIS | success |
+| build the installer | success |
+| sign the installer, when a certificate is configured | success (same) |
+| **install it on the runner** (`/S /D=C:\SummriseCI`, then `Get-Service SummriseLaunch` = Running, `GET /api/health` = `ok`) | success |
+| **uninstall it on the runner** (`/S`, then the service must be gone) | success |
+| upload `SummriseSetup-0.3.993` (6,827,406 B) | success |
+| attach to the tag release | skipped (not a tag) |
+
+So the checklist's first three Windows items are answered with a run rather than a person: the four
+`+crt-static` exes link on Windows, the NSIS installer compiles, a silent install leaves the service
+running and `/api/health` saying `ok`, and a silent uninstall removes it.
+
+What remains for the handoff is the second half, and it is the half a headless runner cannot do:
+
+- `summrise-shell.exe --check-window` in an **interactive** session (the runner is session 0, which the
+  shell refuses by name) with the console down (must open `/panel`) and up (must open the console);
+- the visual judgement: does the panel render and read properly in WebView2;
+- Authenticode verification of the five artifacts: the signing steps passed, but a green "when a
+  certificate is configured" step does not say whether one was, so `Get-AuthenticodeSignature` on the
+  installed exes is the check that answers it.
+
 ## What this machine cannot prove
 
 The Windows handoff — the exact procedure and the evidence to keep are in
 [`windows-handoff.md`](windows-handoff.md):
 
-- the four `+crt-static` exes link and the NSIS installer compiles on a Windows runner;
-- a silent install/uninstall leaves the service and the tray correct;
+- ~~the four `+crt-static` exes link and the NSIS installer compiles on a Windows runner~~ — measured
+  above (`installer.yml`, run 43344130298, green);
+- ~~a silent install/uninstall leaves the service and the tray correct~~ — measured above (the install
+  and uninstall steps assert the service and `/api/health`);
 - `summrise-shell.exe --check-window` opens `/panel` in an interactive session when the console is
   down, and the console when it is up;
-- Authenticode signing of the four exes.
+- Authenticode signing of the four exes — the signing steps did not fail, but whether a certificate
+  was configured is not in the run's metadata; `Get-AuthenticodeSignature` is the evidence.
 
 Linux-side proxies already exist for the parts that are portable: `cargo xwin check` and
 `--target x86_64-pc-windows-gnu` build the workspace, the shell's 24 tests pass, and the rehearsal
