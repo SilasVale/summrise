@@ -199,7 +199,11 @@ below ladders to that; one round completes one major item end to end.
    verify Authenticode when a certificate is configured. The runner half is green (run 43344130298).
 2. Push `origin`: `main` now contains `origin/main` and `hub/v1` (`0 1242`), so `git push origin main`
    is a fast-forward. This is a publish, and it is the operator's call.
-3. Keep improving from what the operator hits (one major item a round, green merges into `hub/v1`).
+3. The join drawn: Activity's rows now carry `trace`, but nothing reads it yet. Next is the merge that
+   uses it — a proxied call now exists as the console's audit row *and* as the machine's pair, so the
+   page can mark a row that exists in only one record (the console's window is 8 MiB, the device's
+   64 MiB) and say which rows are archived. Both halves of the key are on the row; the drawing is not.
+4. Keep improving from what the operator hits (one major item a round, green merges into `hub/v1`).
 
 ## Rules
 
