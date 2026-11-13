@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<style>
+  :root {
+    --bg: #f5f2ea;
+    --ink: #1c1917;
+    --muted: #7c7568;
+    --line: #ddd5c6;
+    --card: #fffdf9;
+    --panel: #efeadf;
+    --panel2: #f4f0e7;
+    --accent: #b45309;
+    --accent-soft: #f7ecdc;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); }
+  body {
+    width: 1600px; height: 1000px; position: relative;
+    font-family: "Noto Sans CJK SC", "Noto Sans SC", "Source Han Sans SC", sans-serif;
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+  .canvas { position: absolute; inset: 0; width: 1600px; height: 1000px; }
+  .h1 { position: absolute; left: 48px; top: 30px; font-size: 30px; font-weight: 700; letter-spacing: .5px; }
+  .h1 small { font-size: 15px; font-weight: 400; color: var(--muted); margin-left: 14px; letter-spacing: 0; }
+  .sub { position: absolute; left: 48px; top: 72px; font-size: 13px; color: var(--muted); }
+  .proc {
+    position: absolute; border: 1.5px dashed #b8ae9c; border-radius: 16px; background: var(--panel);
+  }
+  .proc .ptitle { position: absolute; left: 20px; top: 14px; font-size: 14px; font-weight: 700; color: #5b5347; letter-spacing: .3px; }
+  .proc .ptitle em { font-style: normal; font-weight: 400; color: var(--muted); font-size: 12px; margin-left: 8px; }
+  .card {
+    position: absolute; background: var(--card); border: 1px solid var(--line); border-radius: 11px;
+    padding: 10px 12px; overflow: hidden;
+  }
+  .card .t { font-size: 14px; font-weight: 600; line-height: 1.25; }
+  .card .t en { font-style: normal; font-weight: 500; font-size: 11px; color: var(--muted); margin-left: 6px; letter-spacing: .2px; }
+  .card .d { font-size: 11.5px; color: var(--muted); line-height: 1.45; margin-top: 3px; }
+  .chips { position: absolute; left: 0; right: 0; bottom: 10px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    font-size: 11px; padding: 3px 8px; border-radius: 999px; background: #f3efe6;
+    border: 1px solid #e3dbc9; color: #574f42; white-space: nowrap;
+  }
+  .card.accent { background: var(--accent-soft); border-color: #e6c9a2; box-shadow: inset 4px 0 0 var(--accent); }
+  .card.accent .t { color: #7c3a06; }
+  .note { position: absolute; font-size: 11.5px; color: var(--muted); }
+  .verb { position: absolute; font-size: 11px; color: #5b5347; background: var(--bg); padding: 0 4px; }
+  svg.wires { position: absolute; inset: 0; width: 1600px; height: 1000px; pointer-events: none; }
+  .legend .row { display: flex; align-items: center; gap: 10px; font-size: 12px; color: #5b5347; margin: 7px 0; }
+  .legend .sw { width: 46px; height: 0; border-top: 2px solid #8a8172; position: relative; }
+  .legend .sw.dash { border-top: 2px dashed #8a8172; }
+  .legend .sw.thin { border-top: 1.5px solid #b8ae9c; }
+  .legend .sw.orange { border-top: 3px solid var(--accent); }
+</style>
+</head>
+<body>
+<div class="canvas">
+
+  <div class="h1">summrise · 目标架构<small>一个进程 · 一条日志 · 三个扩展点 · 没有第二份真相</small></div>
+  <div class="sub">重画版：按“加一个东西要改几处”设计，不是按现在的 crate 目录画。</div>
+
+  <!-- 使用者与入口 -->
+  <div class="note" style="left:48px; top:106px; letter-spacing:.4px;">使用者 · 入口</div>
+
+  <div class="card" style="left:240px; top:130px; width:360px; height:74px;">
+    <div class="t">AI 客户端 <en>MCP</en></div>
+    <div class="d">调工具、读说明。直连设备，或经控制台聚合（/mcp/all）。</div>
+  </div>
+
+  <div class="card" style="left:620px; top:130px; width:300px; height:74px;">
+    <div class="t">本机面板 <en>WebView2</en></div>
+    <div class="d">设备自己的小面板，只读加少量操作。</div>
+  </div>
+
+  <div class="card" style="left:980px; top:130px; width:250px; height:74px;">
+    <div class="t">操作者浏览器 <en>HTTP · SSE</en></div>
+    <div class="d">控制台页面：设备、调用、日志。</div>
+  </div>
+
+  <div class="card" style="left:1246px; top:130px; width:250px; height:74px;">
+    <div class="t">桌面壳 <en>托盘</en></div>
+    <div class="d">拉起设备、打开面板、更新。</div>
+  </div>
+
+  <!-- 设备进程 -->
+  <div class="proc" style="left:48px; top:236px; width:880px; height:690px;">
+    <div class="ptitle">设备进程 <em>summrise · 每台机器一个</em></div>
+
+    <div class="card" style="left:20px; top:48px; width:840px; height:64px;">
+      <div class="t">入口 <en>四个门，同一条 dispatch</en></div>
+      <div class="chips">
+        <span class="chip">MCP 服务</span><span class="chip">控制台通道</span>
+        <span class="chip">本机面板</span><span class="chip">CLI</span>
+      </div>
+    </div>
+
+    <div class="card" style="left:20px; top:124px; width:840px; height:52px;">
+      <div class="t">dispatch <en>认证 → 授权（默认全开）→ 记账 → 执行 → 记账</en></div>
+    </div>
+
+    <div class="note" style="left:22px; top:196px;">能力模块 · 一个能力一个模块：声明工具、执行调用、提供清理</div>
+
+    <!-- 能力 5x2 -->
+    <div class="card" style="left:20px;  top:216px; width:160px; height:54px;"><div class="t">files <en>文件</en></div><div class="d">读写、列目录</div></div>
+    <div class="card" style="left:192px; top:216px; width:160px; height:54px;"><div class="t">terminal <en>终端</en></div><div class="d">pty / ssh / 串口</div></div>
+    <div class="card" style="left:364px; top:216px; width:160px; height:54px;"><div class="t">browser <en>浏览器</en></div><div class="d">Chrome 页面</div></div>
+    <div class="card" style="left:536px; top:216px; width:160px; height:54px;"><div class="t">screen <en>截屏</en></div><div class="d">屏幕与窗口</div></div>
+    <div class="card" style="left:708px; top:216px; width:160px; height:54px;"><div class="t">runs <en>命令</en></div><div class="d">一次性执行与历史</div></div>
+
+    <div class="card" style="left:20px;  top:282px; width:160px; height:54px;"><div class="t">host <en>机器</en></div><div class="d">事实、网络、重启</div></div>
+    <div class="card" style="left:192px; top:282px; width:160px; height:54px;"><div class="t">memory <en>记忆</en></div><div class="d">追加式记忆</div></div>
+    <div class="card" style="left:364px; top:282px; width:160px; height:54px;"><div class="t">journal <en>日志</en></div><div class="d">读、按天、按 trace</div></div>
+    <div class="card" style="left:536px; top:282px; width:160px; height:54px;"><div class="t">plugins <en>插件</en></div><div class="d">安装、启停、查看</div></div>
+    <div class="card" style="left:708px; top:282px; width:160px; height:54px;"><div class="t">guide <en>说明</en></div><div class="d">这份架构的说明书</div></div>
+
+    <div class="card" style="left:20px;  top:352px; width:270px; height:72px;">
+      <div class="t">注册表 <en>生成</en></div>
+      <div class="d">能力声明 → tools/list · 说明书 · 面板入口 · 文档</div>
+    </div>
+    <div class="card" style="left:302px; top:352px; width:270px; height:72px;">
+      <div class="t">插件宿主 <en>子进程</en></div>
+      <div class="d">信任的 MCP 子进程；工具并入注册表</div>
+    </div>
+    <div class="card" style="left:584px; top:352px; width:276px; height:72px;">
+      <div class="t">监督 <en>supervisor</en></div>
+      <div class="d">重启、退避、隔离；每次变动都记日志</div>
+    </div>
+
+    <div class="card accent" style="left:20px; top:440px; width:840px; height:88px;">
+      <div class="t">日志 · 唯一真相 <en>journal</en></div>
+      <div class="d">(epoch, seq) · 分段 · 保留 · 快照 · 订阅 · 每一次调用成对写入（开始 / 结束或拒绝）</div>
+      <div class="d">页面、审计、回放、按天计数，全是它的投影，不另存一份。</div>
+    </div>
+
+    <div class="card" style="left:20px;  top:544px; width:270px; height:58px;">
+      <div class="t">状态 <en>投影</en></div>
+      <div class="d">state.json · 启动时快照 + 尾部重放</div>
+    </div>
+    <div class="card" style="left:302px; top:544px; width:270px; height:58px;">
+      <div class="t">更新 <en>release</en></div>
+      <div class="d">版本、自更新、修复任务</div>
+    </div>
+    <div class="card" style="left:584px; top:544px; width:276px; height:58px;">
+      <div class="t">传输 <en>transport</en></div>
+      <div class="d">拨号、重连、穿透</div>
+    </div>
+
+    <div class="note" style="left:22px; top:624px;">扩展规则：加能力 = 加一个模块；加入口 = 加一个适配器；收紧权限 = 加一个中间件。</div>
+  </div>
+
+  <!-- 控制台进程 -->
+  <div class="proc" style="left:980px; top:236px; width:572px; height:372px; background:var(--panel2);">
+    <div class="ptitle">控制台进程 <em>summrise-console · 薄</em></div>
+
+    <div class="card" style="left:20px; top:48px; width:250px; height:72px;">
+      <div class="t">钥匙 <en>keys</en></div>
+      <div class="d">enroll、设备 token；现在只当身份，不挡调用</div>
+    </div>
+    <div class="card" style="left:282px; top:48px; width:250px; height:72px;">
+      <div class="t">设备表 <en>devices</en></div>
+      <div class="d">在线状态；每台一条通道</div>
+    </div>
+
+    <div class="card" style="left:20px; top:132px; width:512px; height:58px;">
+      <div class="t">通道路由 <en>channel</en></div>
+      <div class="d">把请求转给设备，把订阅转给页面</div>
+    </div>
+
+    <div class="card" style="left:20px; top:202px; width:250px; height:76px;">
+      <div class="t">只读副本 <en>replica</en></div>
+      <div class="d">订阅设备日志，不再自己记第二本账</div>
+    </div>
+    <div class="card" style="left:282px; top:202px; width:250px; height:76px;">
+      <div class="t">HTTP · SSE <en>api</en></div>
+      <div class="d">操作者会话、/events、/audit</div>
+    </div>
+
+    <div class="card" style="left:20px; top:290px; width:512px; height:52px;">
+      <div class="t">页面 <en>web</en></div>
+      <div class="d">React 构建产物，静态资源；不持密钥</div>
+    </div>
+  </div>
+
+  <!-- 数据目录 -->
+  <div class="proc" style="left:980px; top:640px; width:572px; height:150px; background:var(--panel2);">
+    <div class="ptitle">数据目录 <em>每台机器一个</em></div>
+    <div class="card" style="left:20px; top:48px; width:160px; height:72px;"><div class="t">journal/</div><div class="d">分段 + 快照</div></div>
+    <div class="card" style="left:192px; top:48px; width:160px; height:72px;"><div class="t">state.json</div><div class="d">日志的投影</div></div>
+    <div class="card" style="left:364px; top:48px; width:168px; height:72px;"><div class="t">plugins/</div><div class="d">清单 + 目录</div></div>
+  </div>
+
+  <!-- 图例 -->
+  <div class="proc" style="left:980px; top:812px; width:572px; height:150px; background:transparent; border-style:solid; border-color:var(--line);">
+    <div class="legend" style="position:absolute; left:20px; top:10px; right:20px;">
+      <div class="row"><span class="sw"></span>调用 / 请求</div>
+      <div class="row"><span class="sw dash"></span>事件 / 订阅</div>
+      <div class="row"><span class="sw thin"></span>生成 / 监督</div>
+      <div class="row"><span class="sw orange"></span>唯一真相与它的投影</div>
+      <div class="note" style="margin-top:6px; position:static; font-size:11.5px;">设备 → 控制台：主动拨入一条 WS；请求下行，事件上行。控制台可以没有——设备自己就是 MCP 服务。</div>
+    </div>
+  </div>
+
+  <!-- 连线 -->
+  <svg class="wires" viewBox="0 0 1600 1000">
+    <defs>
+      <marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#8a8172"/>
+      </marker>
+      <marker id="ao" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#b45309"/>
+      </marker>
+    </defs>
+
+    <!-- AI 客户端 -> 设备 MCP -->
+    <line x1="420" y1="204" x2="420" y2="234" stroke="#8a8172" stroke-width="2" marker-end="url(#a)"/>
+    <text x="430" y="224" font-size="11" fill="#5b5347">MCP</text>
+
+    <!-- 面板 -> 设备 -->
+    <line x1="770" y1="204" x2="770" y2="234" stroke="#8a8172" stroke-width="2" marker-end="url(#a)"/>
+    <text x="780" y="224" font-size="11" fill="#5b5347">HTTP</text>
+
+    <!-- 浏览器 -> 控制台 -->
+    <line x1="1105" y1="204" x2="1105" y2="234" stroke="#8a8172" stroke-width="2" marker-end="url(#a)"/>
+    <text x="1115" y="224" font-size="11" fill="#5b5347">HTTP · SSE</text>
+
+    <!-- 桌面壳 -> 控制台 -->
+    <line x1="1371" y1="204" x2="1371" y2="234" stroke="#8a8172" stroke-width="2" marker-end="url(#a)"/>
+
+    <!-- 控制台 <-> 设备：WS -->
+    <line x1="980" y1="330" x2="932" y2="330" stroke="#b45309" stroke-width="2.5" marker-start="url(#ao)" marker-end="url(#ao)"/>
+    <text x="936" y="318" font-size="11" fill="#7c3a06">WS</text>
+
+    <!-- 日志 -> 数据目录（投影） -->
+    <path d="M 928 700 L 954 700 L 954 676 L 978 676" fill="none" stroke="#b45309" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#ao)"/>
+    <text x="900" y="690" font-size="11" fill="#7c3a06">投影</text>
+  </svg>
+
+</div>
+</body>
+</html>

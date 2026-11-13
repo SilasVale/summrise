@@ -316,6 +316,22 @@ below ladders to that; one round completes one major item end to end.
   the one that failed, and keep two machines' identical rows as two rows; a review found the refresh
   erase and the note/footer split, both fixed with tests before merge.
 
+## The v2 program (2026-11-13)
+
+The operator asked for the best maintainable architecture, not the current one's incremental polish.
+`next` carries the proposal (`architecture-v2-2026-11-13.md`) and its gate (`v1-parity.md`). The storage
+model changes on review: **the journal is the live stream, not the record** — it is capped at 64 MiB / 7
+days, so a record that can be rotated away is not a record. The record is SQLite per process: WAL,
+migrations, indexes, policy retention, backups, integrity check. One writer and one home per fact; the
+console's database holds operator facts, the device's holds machine facts, and a proxied call appears in
+both as two perspectives joined by its trace. The first draft's "one journal, one record" sentence is
+withdrawn here because the operator was right to reject it.
+
+The program runs as slices on `next`, each one round, each with tests and a parity row; `hub/v1` stays
+shippable and its Next list is S0 (ship v1 through the release pipeline). The first slice after S0 is
+S1 — the console record from SQLite with the `events.jsonl` import — because it is the reliability fix
+the objection names.
+
 ## Next (in order)
 
 1. Windows handoff, the interactive half — dispatch or run `summrise-shell.exe --check-window` in an
