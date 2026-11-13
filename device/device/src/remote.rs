@@ -12,87 +12,17 @@
 //! that cannot be correlated with its answer.
 
 use ed25519_dalek::VerifyingKey;
-use serde::Deserialize;
 use serde_json::{json, Value};
 
-use summrise_core::grant::{self, GrantEnvelope, CLOCK_SKEW_MS};
+pub(crate) use summrise_protocol::{Frame as RemoteFrame, GrantEnvelope, TokenScope};
+
+use summrise_core::grant::{self, CLOCK_SKEW_MS};
 
 /// The JSON-RPC code a refusal that happened before the request could run answers with.
 ///
 /// It is the console's own code for "not authorized", and the mesh answers the same one: the
 /// caller's fix is the same either way — a grant that names this device and covers the tool.
 pub(crate) const GRANT_REFUSAL_CODE: i32 = -32001;
-
-/// The frame a remote transport carries.
-#[derive(Clone, Debug, Deserialize)]
-pub(crate) struct RemoteFrame {
-    /// The sender's correlation id, echoed in the answer.
-    pub(crate) id: u64,
-    /// The JSON-RPC request itself, forwarded to the MCP handler unchanged.
-    ///
-    /// A subscribe frame carries one too: a `terminal.read`, which is what authorizes the
-    /// subscription and is the one call the device audits for it. An unsubscribe frame carries
-    /// none — it stops a subscription this same socket holds, which needs no tool authority.
-    pub(crate) mcp: Option<Value>,
-    /// "Keep sending this session's output until I say stop." Absent on a plain call.
-    pub(crate) subscribe: Option<Subscribe>,
-    /// "Also push this device's own events from this sequence." Absent on a plain call.
-    pub(crate) events: Option<EventsSubscribe>,
-    /// "Stop the subscription with this id." The id is the `subscribe` frame's own `id`.
-    pub(crate) unsubscribe: Option<Unsubscribe>,
-    /// The grant the sender says authorizes the request, when it sent one.
-    pub(crate) grant: Option<GrantEnvelope>,
-    /// The console's permanent-token scope, when the frame carries one instead of a grant.
-    pub(crate) token: Option<TokenScope>,
-    /// The `trace.call` the console minted for this exchange, when it sent one. The device copies
-    /// it onto its own `call.started`/`call.finished|denied` pair, so the console's audit line and
-    /// the device journal name the same call. Absent from a build that predates the field.
-    #[serde(default)]
-    pub(crate) trace: Option<String>,
-}
-
-/// A subscription: which session to follow, and the byte offset to start from.
-#[derive(Clone, Debug, Deserialize)]
-pub(crate) struct Subscribe {
-    /// The terminal session id `terminal.create` returned.
-    pub(crate) session_id: String,
-    /// The byte offset the subscriber already has; 0 replays everything retained.
-    #[serde(default)]
-    pub(crate) from: u64,
-}
-
-/// Where a device-event subscription starts.
-#[derive(Clone, Debug, Deserialize)]
-pub(crate) struct EventsSubscribe {
-    /// The first sequence to deliver; 0 replays whatever the journal still retains.
-    #[serde(default)]
-    pub(crate) from_seq: u64,
-}
-
-/// The end of a subscription.
-#[derive(Clone, Debug, Deserialize)]
-pub(crate) struct Unsubscribe {
-    /// The id of the `subscribe` frame this ends.
-    pub(crate) sub: u64,
-}
-
-/// A permanent token's scope, as the console's authenticated channel forwards it.
-///
-/// It is not a credential on the wire: the console authenticated the token and this channel is the
-/// console's, so the scope says what the token may do, not who holds it.
-#[derive(Clone, Debug, Deserialize)]
-pub(crate) struct TokenScope {
-    /// The token record's id (never the `srm_` secret), for the audit line.
-    pub(crate) token_id: String,
-    /// The device the console resolved the token to.
-    pub(crate) device_id: String,
-    /// The registry tools the token allows.
-    pub(crate) scopes: Vec<String>,
-    /// Whether the token's record consented to destructive tools.
-    pub(crate) allow_destructive: bool,
-    /// The token's expiry in Unix milliseconds, when it has one.
-    pub(crate) expires_at_ms: Option<u64>,
-}
 
 /// Why a frame was refused before the request could run.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

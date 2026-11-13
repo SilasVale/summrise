@@ -436,6 +436,16 @@ the registry-alignment test compares the registry with the modules directly. Thi
 core tests, `clippy`/`fmt` clean, gate 14 / 22 / 0. Next: the protocol types (S5) — the envelope,
 frames and feed rows as `protocol` + generated TS — then the record.
 
+**Round 27 — the wire is one crate.** `protocol` (`summrise-protocol`) now owns `Frame`, `Answer`,
+`Body`, `Subscribe`, `EventsSubscribe`, `Unsubscribe` and `TokenScope` (the grant envelope is
+re-exported from core), with constructors for the four frame shapes and golden fixtures under
+`protocol/tests/fixtures/`. The device parses `Frame` and builds `Answer` (its private copies are
+gone); the console builds the call/follow/events/unsubscribe frames with the same type, parses
+`Answer`, and its `TokenScope` is the protocol's. The gate knows the crate: 15 packages, 25 edges,
+0 upward. Evidence: 669 device tests, 5 protocol tests, 175 console lib tests, 283 console integration
+tests, `clippy`/`fmt` clean. Next: generated TypeScript from these types for the page (the last half
+of S5), then the record (SQLite).
+
 
 ## Next (in order)
 

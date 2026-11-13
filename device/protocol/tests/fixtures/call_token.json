@@ -1,0 +1,16 @@
+{
+  "id": 7,
+  "mcp": {
+    "jsonrpc": "2.0",
+    "id": 7,
+    "method": "tools/call",
+    "params": { "name": "files.read", "arguments": { "path": "a.txt" } }
+  },
+  "token": {
+    "token_id": "tok-1",
+    "device_id": "ab12",
+    "scopes": ["files.read"],
+    "allow_destructive": false
+  },
+  "trace": "console-abc-1"
+}

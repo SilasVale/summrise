@@ -46,6 +46,10 @@ const RULES = {
   // The kernel: decisions as values, no I/O, and no crate above it.
   "summrise-core": { mayUse: [] },
 
+  // The wire: the frame a console sends and the answer a device returns. It names core for the
+  // grant envelope it carries, and nothing above it.
+  "summrise-protocol": { mayUse: ["summrise-core"] },
+
   // The journal/dispatch layer: core only. It has no workspace dependency today; the permission is
   // the target's, so the bus can take core without touching this table.
   "summrise-bus": { mayUse: ["summrise-core"] },
@@ -85,6 +89,7 @@ const RULES = {
       "summrise-core",
       "summrise-mesh",
       "summrise-plugin-host",
+      "summrise-protocol",
       "summrise-release",
       "summrise-ui",
       "summrise-winsec",
@@ -104,6 +109,7 @@ const RULES = {
       "summrise-console-page",
       "summrise-core",
       "summrise-mesh",
+      "summrise-protocol",
       "summrise-ui",
       "summrise-winsec",
       "summrise-winsys"

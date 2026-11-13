@@ -36,7 +36,6 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use axum::extract::ws::{close_code, CloseFrame, Message, WebSocket};
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, oneshot, Notify};
@@ -64,17 +63,7 @@ impl RequestAuth<'_> {
     }
 }
 
-/// A permanent token's scope, as the console forwards it. The device checks the same facts it
-/// checks on a grant: device, expiry, tool coverage.
-#[derive(Serialize)]
-pub(crate) struct TokenScope {
-    pub(crate) token_id: String,
-    pub(crate) device_id: String,
-    pub(crate) scopes: Vec<String>,
-    pub(crate) allow_destructive: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) expires_at_ms: Option<u64>,
-}
+pub(crate) use summrise_protocol::TokenScope;
 
 /// How often a connected device reports on its channel.
 ///
@@ -544,7 +533,9 @@ impl ChannelRegistry {
         // is answered by the device with a reset frame.
         let events_id = self.next_request.fetch_add(1, Ordering::SeqCst);
         let from_seq = self.events_from(&device_id);
-        let subscribe = json!({ "id": events_id, "events": { "from_seq": from_seq } }).to_string();
+        let subscribe =
+            serde_json::to_string(&summrise_protocol::Frame::events(events_id, from_seq))
+                .expect("the frame serializes");
         if socket.send(Message::Text(subscribe)).await.is_err() {
             self.close(&device_id, open.generation, &open.pending).await;
             return;
@@ -715,15 +706,13 @@ impl ChannelRegistry {
         };
 
         let (accepted, accepted_rx) = oneshot::channel();
-        let frame = match auth {
-            RequestAuth::Grant(grant) => {
-                json!({ "id": id, "mcp": mcp, "trace": trace, "grant": grant })
-            }
-            RequestAuth::Token(scope) => {
-                json!({ "id": id, "mcp": mcp, "trace": trace, "token": scope })
-            }
+        let mut frame = summrise_protocol::Frame::call(id, mcp);
+        frame.trace = Some(trace.to_owned());
+        match auth {
+            RequestAuth::Grant(grant) => frame.grant = Some((*grant).clone()),
+            RequestAuth::Token(scope) => frame.token = Some((*scope).clone()),
         }
-        .to_string();
+        let frame = serde_json::to_string(&frame).expect("the frame serializes");
         let queued = outbound.max_capacity().saturating_sub(outbound.capacity());
         match outbound.try_send(Outbound::Text {
             id,
@@ -793,23 +782,13 @@ impl ChannelRegistry {
             id,
         };
         let (accepted, accepted_rx) = oneshot::channel();
-        let frame = match auth {
-            RequestAuth::Grant(grant) => json!({
-                "id": id,
-                "mcp": mcp,
-                "subscribe": { "session_id": session_id, "from": from },
-                "trace": trace,
-                "grant": grant,
-            }),
-            RequestAuth::Token(scope) => json!({
-                "id": id,
-                "mcp": mcp,
-                "subscribe": { "session_id": session_id, "from": from },
-                "trace": trace,
-                "token": scope,
-            }),
+        let mut frame = summrise_protocol::Frame::follow(id, mcp, session_id.to_owned(), from);
+        frame.trace = Some(trace.to_owned());
+        match auth {
+            RequestAuth::Grant(grant) => frame.grant = Some((*grant).clone()),
+            RequestAuth::Token(scope) => frame.token = Some((*scope).clone()),
         }
-        .to_string();
+        let frame = serde_json::to_string(&frame).expect("the frame serializes");
         match outbound.try_send(Outbound::Text {
             id,
             frame,
@@ -848,7 +827,8 @@ impl ChannelRegistry {
             return;
         };
         let id = self.next_request.fetch_add(1, Ordering::Relaxed);
-        let frame = json!({ "id": id, "unsubscribe": { "sub": sub } }).to_string();
+        let frame = serde_json::to_string(&summrise_protocol::Frame::unsubscribe(id, sub))
+            .expect("the frame serializes");
         let (accepted, _dropped) = oneshot::channel();
         let _ = outbound.try_send(Outbound::Text {
             id,
@@ -1090,26 +1070,6 @@ impl Drop for PendingGuard {
     }
 }
 
-/// The fields of a device answer. `untagged` makes `{"id","result"}` and `{"id","error"}` the two
-/// accepted shapes; a frame with neither is malformed and logged.
-#[derive(Deserialize)]
-struct DeviceFrame {
-    id: u64,
-    /// The machine's own sequence for the call's outcome half. Absent on an older device, on a
-    /// process with no journal, and on an answer that is not a call's outcome.
-    #[serde(default)]
-    journal_seq: Option<u64>,
-    #[serde(flatten)]
-    body: DeviceBody,
-}
-
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum DeviceBody {
-    Result { result: Value },
-    Error { error: Value },
-}
-
 /// The two sections an unsolicited status frame may carry: the machine facts and the device's own
 /// update story. Either may be absent; a frame with neither is simply not stored.
 struct Unsolicited {
@@ -1179,7 +1139,7 @@ fn deliver(
             reset: None,
         });
     }
-    let frame: DeviceFrame = match serde_json::from_value(value) {
+    let frame: summrise_protocol::Answer = match serde_json::from_value(value) {
         Ok(frame) => frame,
         Err(error) => {
             eprintln!("summrise-console: device sent a malformed frame: {error}");
@@ -1188,8 +1148,8 @@ fn deliver(
     };
 
     let reply = match frame.body {
-        DeviceBody::Result { result } => Reply::Result(result),
-        DeviceBody::Error { error } => Reply::Error(error),
+        summrise_protocol::Body::Result { result } => Reply::Result(result),
+        summrise_protocol::Body::Error { error } => Reply::Error(error),
     };
 
     match lock(pending).remove(&frame.id) {

@@ -4831,6 +4831,7 @@ dependencies = [
  "summrise-console-page",
  "summrise-core",
  "summrise-mesh",
+ "summrise-protocol",
  "summrise-ui",
  "tokio",
  "tokio-tungstenite 0.24.0",
@@ -4881,6 +4882,7 @@ dependencies = [
  "summrise-launch",
  "summrise-mesh",
  "summrise-plugin-host",
+ "summrise-protocol",
  "summrise-release",
  "summrise-ui",
  "summrise-winsec",
@@ -4934,6 +4936,15 @@ dependencies = [
  "summrise-bus",
  "summrise-core",
  "tokio",
+]
+
+[[package]]
+name = "summrise-protocol"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "summrise-core",
 ]
 
 [[package]]

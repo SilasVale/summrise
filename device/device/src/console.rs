@@ -1386,19 +1386,20 @@ async fn handle_frame(
         return None;
     };
     let (response, journal_seq) = server.handle_acknowledged(mcp, caller).await;
-    let mut answer = if response.get("error").is_some() {
-        json!({ "id": frame.id, "error": response })
+    // **ONE WIRE TYPE, TWO SIDES.** The answer is `summrise_protocol::Answer`, the type the console
+    // parses: the outcome half's journal `seq` rides the frame, never the JSON-RPC body an MCP
+    // client sees. It is absent when this process keeps no journal or the call never finished.
+    let body = if response.get("error").is_some() {
+        summrise_protocol::Body::Error { error: response }
     } else {
-        json!({ "id": frame.id, "result": response })
+        summrise_protocol::Body::Result { result: response }
     };
-    // **THE MACHINE'S OWN POSITION FOR THIS CALL (round 9).** The console's audit line is written
-    // from this answer, so the frame — never the JSON-RPC body, which an MCP client sees — carries
-    // the outcome half's journal `seq`. Absent when this process keeps no journal, or when the call
-    // never reached its outcome half.
-    if let Some(seq) = journal_seq {
-        answer["journal_seq"] = json!(seq);
-    }
-    Some(answer)
+    let answer = summrise_protocol::Answer {
+        id: frame.id,
+        journal_seq,
+        body,
+    };
+    serde_json::to_value(answer).ok()
 }
 
 #[cfg(test)]

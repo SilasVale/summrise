@@ -11,6 +11,7 @@ summrise-bus = { path = "../bus" }
 # re-exports it as its `plugins` module; the feature-bearing dev-dependency below adds the scripted
 # launcher for this crate's tests without compiling it into a shipped binary.
 summrise-plugin-host = { path = "../plugin-host" }
+summrise-protocol = { path = "../protocol" }
 summrise-ui = { path = "../ui" }
 # The panel's Timeline cuts at this machine's local midnight, the same cut the console's Activity
 # timeline draws. `clock` is only the local-timezone lookup; the panel keeps no calendar of its own.
