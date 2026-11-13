@@ -23,6 +23,7 @@ import {
   machineSentence,
   type MachineCounts
 } from "./machineRows";
+import { journalRowSentence, useJournalRow } from "./useJournalRow";
 
 /**
  * The counts of a window nothing was asked about: a fleet window, a filtered day with no calls, or a
@@ -280,6 +281,22 @@ function ExpectedArguments(props: { deviceId: string; tool: string }) {
   );
 }
 
+/**
+ * **THE MACHINE'S OWN COPY, READ BACK (round 9).** A proxied call's audit line names the machine
+ * journal sequence of its outcome half. Opening the record asks `journal.read` for exactly that row:
+ * one small request, only for a record someone opened, and its answer states the machine's own facts
+ * instead of asking the reader to trust the console's.
+ */
+function MachineRowBack(props: { deviceId: string; seq: number; trace: string | null }) {
+  const row = useJournalRow(props.deviceId, props.seq, props.trace);
+  const sentence = journalRowSentence(row, props.seq);
+  return (
+    <span className="hint evidence-machine-row">
+      {sentence ?? `Reading row ${props.seq} from the machine…`}
+    </span>
+  );
+}
+
 function Evidence(props: {
   line: AuditLine;
   /** What the machine said about this one call: the join's own word, when there is one. */
@@ -407,6 +424,21 @@ function Evidence(props: {
             <div>
               <dt>Machine sequence</dt>
               <dd className="mono">{line.machine_seq}</dd>
+            </div>
+          )}
+          {/* A console row's sequence is a pointer into the machine's journal; the opened record
+              follows it. A row the journal drew has no console copy to read back — it *is* the
+              machine's row. */}
+          {typeof line.machine_seq === "number" && line.device_id && line.door === undefined && (
+            <div>
+              <dt>The machine's own row</dt>
+              <dd>
+                <MachineRowBack
+                  deviceId={line.device_id}
+                  seq={line.machine_seq}
+                  trace={line.trace ?? null}
+                />
+              </dd>
             </div>
           )}
           {machineRecordSentence(line) !== null && (

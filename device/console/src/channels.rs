@@ -142,7 +142,19 @@ pub(crate) enum RequestError {
 }
 
 /// The answer a waiter receives: the device's reply, or the reason it will never arrive.
-type Answer = Result<Reply, RequestError>;
+/// One machine answer, with the position it names for this call's outcome half.
+///
+/// The device puts the journal `seq` on the frame (never inside the JSON-RPC body, which an MCP
+/// client sees). The console's proxied path writes it on its audit line, so a row can be read back
+/// from the machine by its own sequence instead of guessed from two clocks.
+#[derive(Debug)]
+pub(crate) struct Answered {
+    pub(crate) reply: Reply,
+    /// The machine journal's `seq` for the outcome half, when the device named one.
+    pub(crate) journal_seq: Option<u64>,
+}
+
+type Answer = Result<Answered, RequestError>;
 
 /// A frame queued for the socket.
 enum Outbound {
@@ -655,7 +667,23 @@ impl ChannelRegistry {
         auth: &RequestAuth<'_>,
         trace: &str,
     ) -> Result<Reply, RequestError> {
-        self.request_within(device_id, mcp, auth, trace, self.reply_timeout)
+        self.request_within_acknowledged(device_id, mcp, auth, trace, self.reply_timeout)
+            .await
+            .map(|answered| answered.reply)
+    }
+
+    /// Forward an exchange and keep the machine position the answer names.
+    ///
+    /// The proxied path is the one caller that needs it: its audit line records the same call, and
+    /// the position is what lets a reader fetch the machine's own row later.
+    pub(crate) async fn request_acknowledged(
+        &self,
+        device_id: &str,
+        mcp: Value,
+        auth: &RequestAuth<'_>,
+        trace: &str,
+    ) -> Result<Answered, RequestError> {
+        self.request_within_acknowledged(device_id, mcp, auth, trace, self.reply_timeout)
             .await
     }
 
@@ -665,14 +693,15 @@ impl ChannelRegistry {
     /// milliseconds. `runs.exec` is the exception: it blocks on the device for the command's own
     /// timeout, so the proxy passes the run's wait here — otherwise the console would answer 504 while
     /// the command kept running and its history row was still written.
-    pub(crate) async fn request_within(
+    /// Forward an exchange, wait `reply` for an answer, and keep the machine's position for it.
+    pub(crate) async fn request_within_acknowledged(
         &self,
         device_id: &str,
         mcp: Value,
         auth: &RequestAuth<'_>,
         trace: &str,
         reply: Duration,
-    ) -> Result<Reply, RequestError> {
+    ) -> Result<Answered, RequestError> {
         let _in_flight = InFlight::begin(self, device_id)?;
         let id = self.next_request.fetch_add(1, Ordering::Relaxed);
         let (outbound, pending, receiver) = self
@@ -798,9 +827,9 @@ impl ChannelRegistry {
         }
         match tokio::time::timeout(self.reply_timeout, receiver).await {
             Err(_) => Err(RequestError::ReplyTimeout),
-            Ok(Ok(answer)) => answer.map(|ack| {
+            Ok(Ok(answer)) => answer.map(|answered| {
                 guard.disarm();
-                (id, stream, ack)
+                (id, stream, answered.reply)
             }),
             Ok(Err(_)) => Err(RequestError::Disconnected),
         }
@@ -977,6 +1006,7 @@ impl ChannelRegistry {
                 token_id: None,
                 caller: Some(Caller::Console),
                 trace: None,
+                machine_seq: None,
             })
             .await;
     }
@@ -1065,6 +1095,10 @@ impl Drop for PendingGuard {
 #[derive(Deserialize)]
 struct DeviceFrame {
     id: u64,
+    /// The machine's own sequence for the call's outcome half. Absent on an older device, on a
+    /// process with no journal, and on an answer that is not a call's outcome.
+    #[serde(default)]
+    journal_seq: Option<u64>,
     #[serde(flatten)]
     body: DeviceBody,
 }
@@ -1160,7 +1194,10 @@ fn deliver(
 
     match lock(pending).remove(&frame.id) {
         Some(sender) => {
-            let _ = sender.send(Ok(reply));
+            let _ = sender.send(Ok(Answered {
+                reply,
+                journal_seq: frame.journal_seq,
+            }));
         }
         None => {
             eprintln!(
@@ -1404,6 +1441,50 @@ mod tests {
         );
     }
 
+    /// **THE MACHINE'S POSITION RIDES THE FRAME, NOT THE BODY (round 9).** A device answer may name
+    /// the outcome half's journal `seq` beside its JSON-RPC body; the waiter receives it, and an
+    /// answer that names none is the shape every older device sends.
+    #[test]
+    fn an_answer_carries_the_machines_sequence_beside_its_body() {
+        let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
+        let streams: Mutex<HashMap<u64, mpsc::Sender<Value>>> = Mutex::new(HashMap::new());
+        let (sender, receiver) = oneshot::channel();
+        lock(&pending).insert(7, sender);
+
+        assert!(deliver(
+            &pending,
+            &streams,
+            r#"{"id":7,"result":{"jsonrpc":"2.0","id":7,"result":{}},"journal_seq":814}"#,
+        )
+        .is_none());
+        let answered = receiver
+            .blocking_recv()
+            .expect("the waiter gets an answer")
+            .expect("the exchange answered");
+        assert_eq!(answered.journal_seq, Some(814));
+        assert_eq!(
+            answered.reply,
+            Reply::Result(serde_json::json!({ "jsonrpc": "2.0", "id": 7, "result": {} }))
+        );
+
+        let (sender, receiver) = oneshot::channel();
+        lock(&pending).insert(8, sender);
+        assert!(deliver(
+            &pending,
+            &streams,
+            r#"{"id":8,"result":{"jsonrpc":"2.0","id":8,"result":{}}}"#,
+        )
+        .is_none());
+        let answered = receiver
+            .blocking_recv()
+            .expect("the waiter gets an answer")
+            .expect("the exchange answered");
+        assert_eq!(
+            answered.journal_seq, None,
+            "an older device names no position"
+        );
+    }
+
     /// The update section has its own slot on the stored frame. It is not folded into the host facts
     /// and it is not composed here: a device that sends both keeps them apart on the way through.
     #[test]
@@ -1619,14 +1700,15 @@ mod tests {
 
         // A run's own wait lets the same device answer.
         let run = registry
-            .request_within(
+            .request_within_acknowledged(
                 &device_id(),
                 json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/call" }),
                 &RequestAuth::Grant(&grant()),
                 "test-trace",
                 Duration::from_millis(500),
             )
-            .await;
+            .await
+            .map(|answered| answered.reply);
         assert!(
             matches!(run, Ok(Reply::Result(ref value)) if value["answered"] == json!(true)),
             "the run's wait reads the late answer: {run:?}"

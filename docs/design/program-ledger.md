@@ -230,6 +230,22 @@ below ladders to that; one round completes one major item end to end.
   174 + 279 + 15, page 1 290 and `tsc` clean; `smoke-enroll` reads the machine's own window through the
   console and finds the call's row with its `seq`, tool, outcome, door and trace.
 
+- 2026-11-13 — **The audit line learns the machine's `seq`: a proxied call can be read back, not only
+  proved present.** `journal.read` made the machine's record readable and the join proved a call was
+  still there, but the console's line named no position in the machine's journal. Now the device puts
+  the outcome half's `seq` on the channel frame (`journal_seq`, beside the JSON-RPC body, never inside
+  it: an MCP client sees its result unchanged), only when this process keeps a journal and the
+  exchange reached its outcome. The console carries it on the channel answer, writes it on the audit
+  entry and the live event (`machine_seq`), and serves it with the rest of the line. The page reads
+  that row back when a record is opened — `GET /journal/read?before=<seq + 1>&limit=1`, one small
+  request per opened row, cached by `(device, seq)` — and draws the machine's own facts beside the
+  console's; a rotated row is stated as gone, an `unknown` answer as not offered, a failed read as
+  why, and a console row with no position keeps the console's facts alone. The device's refusals are
+  also silent on values again (the round-9 review's finding): a bound breach names the bound, an
+  unknown key the two accepted keys. Evidence: device 661, console 175 + 280 + 15, page 1 313 and
+  `tsc` clean, `smoke-enroll` reads the audit line's `machine_seq` back as the journal's own outcome
+  row across two processes.
+
 ## Next (in order)
 
 1. Windows handoff, the interactive half — dispatch or run `summrise-shell.exe --check-window` in an
@@ -237,13 +253,12 @@ below ladders to that; one round completes one major item end to end.
    verify Authenticode when a certificate is configured. The runner half is green (run 43344130298).
 2. Push `origin`: `main` now contains `origin/main` and `hub/v1` (`0 1242`), so `git push origin main`
    is a fast-forward. This is a publish, and it is the operator's call.
-3. The audit line learns the machine's `seq`: `journal.read` makes the machine's record readable, but
-   the console's audit still holds no `seq` into it, so a proxied call whose machine copy has rotated
-   away can be marked `only here` and cannot be fetched by its own record. The device's answer to a
-   proxied call should carry the finished half's `seq`, the console should write it on the audit line,
-   and the page should use it the way the join uses `trace.call` — then the join's two halves can be
-   read back, not only proved present. (The durable fix; a payload/export verb stays a separate item
-   because a summary is not an archive.)
+3. The machine's window pages: Activity asks the machine for its newest 200 rows once, so a busy
+   machine's older device-only calls are unreachable and the timeline never says the machine's record
+   is cut. `journal.read` already takes `before_seq` and answers `more`; the page should offer the
+   next page at the timeline's end (bounded by the window it draws), say when the machine's record is
+   only partly read, and keep the console's row winning duplicates across pages. (The payload/export
+   verb stays a separate item: a summary is not an archive.)
 4. Keep improving from what the operator hits (one major item a round, green merges into `hub/v1`).
 
 ## Rules

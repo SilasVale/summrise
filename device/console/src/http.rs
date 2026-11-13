@@ -538,6 +538,8 @@ struct AuditFacts<'a> {
     /// pair, which share it. An operator action (a grant, a token, a sign-in) proxied nothing, so
     /// it has none.
     trace: Option<&'a str>,
+    /// The machine journal's `seq` for this call's outcome half, when the device named one.
+    machine_seq: Option<u64>,
 }
 
 /// Who a proxied call belongs to, and the permanent token record that proved it, when one did.
@@ -579,6 +581,8 @@ struct LiveCall<'a> {
     token_id: Option<&'a str>,
     /// The `trace.call` this exchange is known by, on the frame, the audit line and the journal.
     trace: Option<&'a str>,
+    /// The machine journal's `seq` for this call's outcome half, when the device named one.
+    machine_seq: Option<u64>,
 }
 
 /// A running call, cleared when the proxy stops waiting.
@@ -777,6 +781,7 @@ impl Inner {
                 token_id: facts.token_id,
                 caller: facts.caller,
                 trace: facts.trace,
+                machine_seq: facts.machine_seq,
             })
             .await;
         // A call's live event is published by the proxy, which has the call's arguments; everything
@@ -800,6 +805,9 @@ impl Inner {
             }
             if let Some(trace) = facts.trace {
                 event["trace"] = json!(trace);
+            }
+            if let Some(machine_seq) = facts.machine_seq {
+                event["machine_seq"] = json!(machine_seq);
             }
             if let Some(detail) = facts.detail {
                 event["detail"] = json!(detail);
@@ -843,6 +851,9 @@ impl Inner {
         }
         if let Some(trace) = call.trace {
             event["trace"] = json!(trace);
+        }
+        if let Some(machine_seq) = call.machine_seq {
+            event["machine_seq"] = json!(machine_seq);
         }
         if !call.detail.is_empty() {
             event["detail"] = json!(call.detail);
@@ -907,6 +918,7 @@ impl Inner {
             token_id,
             caller: None,
             trace: None,
+            machine_seq: None,
         })
         .await;
     }
@@ -935,6 +947,7 @@ impl Inner {
             token_id: None,
             caller,
             trace: None,
+            machine_seq: None,
         })
         .await;
         error
@@ -970,6 +983,7 @@ impl Inner {
                 token_id: None,
                 caller: None,
                 trace: None,
+                machine_seq: None,
             })
             .await;
         error
@@ -3634,6 +3648,7 @@ async fn proxy_reply(
                 token_id: identity.token_id,
                 caller: Some(identity.caller),
                 trace: Some(&trace),
+                machine_seq: None,
             })
             .await;
             return Err(Box::new(jsonrpc_error(
@@ -3676,6 +3691,7 @@ async fn proxy_reply(
                 token_id: identity.token_id,
                 caller: Some(identity.caller),
                 trace: Some(&trace),
+                machine_seq: None,
             })
             .await;
             return Err(Box::new(jsonrpc_error(
@@ -3710,7 +3726,7 @@ async fn proxy_reply(
             tokio::time::timeout(
                 wait + WAIT_BACKSTOP_GRACE,
                 app.channels
-                    .request_within(device_id, request, auth, &trace, wait),
+                    .request_within_acknowledged(device_id, request, auth, &trace, wait),
             )
             .await
         }
@@ -3718,7 +3734,8 @@ async fn proxy_reply(
         None => {
             tokio::time::timeout(
                 app.mcp_timeout,
-                app.channels.request(device_id, request, auth, &trace),
+                app.channels
+                    .request_acknowledged(device_id, request, auth, &trace),
             )
             .await
         }
@@ -3740,6 +3757,7 @@ async fn proxy_reply(
                     caller: identity.caller,
                     token_id: identity.token_id,
                     trace: Some(&trace),
+                    machine_seq: None,
                 },
             );
             app.record_facts(AuditFacts {
@@ -3751,6 +3769,7 @@ async fn proxy_reply(
                 token_id: identity.token_id,
                 caller: Some(identity.caller),
                 trace: Some(&trace),
+                machine_seq: None,
             })
             .await;
             Err(Box::new(
@@ -3774,6 +3793,7 @@ async fn proxy_reply(
                     caller: identity.caller,
                     token_id: identity.token_id,
                     trace: Some(&trace),
+                    machine_seq: None,
                 },
             );
             app.record_facts(AuditFacts {
@@ -3785,11 +3805,17 @@ async fn proxy_reply(
                 token_id: identity.token_id,
                 caller: Some(identity.caller),
                 trace: Some(&trace),
+                machine_seq: None,
             })
             .await;
             Err(Box::new(failure.into_response()))
         }
-        Ok(Ok(mut reply)) => {
+        Ok(Ok(answered)) => {
+            // **THE MACHINE'S OWN POSITION FOR THIS CALL (round 9).** The frame named the outcome
+            // half's journal `seq`; the audit line below records it, so the row can be read back
+            // from the machine by its own sequence rather than guessed from two clocks.
+            let machine_seq = answered.journal_seq;
+            let mut reply = answered.reply;
             // A device answers -32002 when a destructive call's credential did not consent to it.
             // There is no ninety-second hold: the token's consent was the decision, and a call it
             // did not authorize is refused now, with a sentence that says how to authorize it.
@@ -3815,6 +3841,7 @@ async fn proxy_reply(
                         caller: identity.caller,
                         token_id: identity.token_id,
                         trace: Some(&trace),
+                        machine_seq,
                     },
                 );
                 app.record_facts(AuditFacts {
@@ -3826,6 +3853,7 @@ async fn proxy_reply(
                     token_id: identity.token_id,
                     caller: Some(identity.caller),
                     trace: Some(&trace),
+                    machine_seq,
                 })
                 .await;
                 return Ok(reply);
@@ -3932,6 +3960,7 @@ async fn proxy_reply(
                         caller: identity.caller,
                         token_id: identity.token_id,
                         trace: Some(&trace),
+                        machine_seq,
                     },
                 );
                 app.record_facts(AuditFacts {
@@ -3943,6 +3972,7 @@ async fn proxy_reply(
                     token_id: identity.token_id,
                     caller: Some(identity.caller),
                     trace: Some(&trace),
+                    machine_seq,
                 })
                 .await;
             }
@@ -4171,6 +4201,7 @@ async fn standard_mcp(
                         token_id: None,
                         caller: Some(Caller::Client),
                         trace: None,
+                        machine_seq: None,
                     })
                     .await;
                     return invalid_bearer(
@@ -4192,6 +4223,7 @@ async fn standard_mcp(
                         token_id: None,
                         caller: Some(Caller::Client),
                         trace: None,
+                        machine_seq: None,
                     })
                     .await;
                     return invalid_bearer(
@@ -4598,6 +4630,7 @@ async fn aggregate_mcp(State(app): State<AppState>, request: axum::extract::Requ
                         token_id: Some(&record.id),
                         caller: Some(Caller::Client),
                         trace: None,
+                        machine_seq: None,
                     })
                     .await;
                     return jsonrpc_error(
@@ -4656,6 +4689,7 @@ async fn aggregate_mcp(State(app): State<AppState>, request: axum::extract::Requ
                         token_id: Some(&record.id),
                         caller: Some(Caller::Client),
                         trace: None,
+                        machine_seq: None,
                     })
                     .await;
                     jsonrpc_error(
@@ -4683,6 +4717,7 @@ async fn aggregate_mcp(State(app): State<AppState>, request: axum::extract::Requ
                         token_id: Some(&record.id),
                         caller: Some(Caller::Client),
                         trace: None,
+                        machine_seq: None,
                     })
                     .await;
                     let message = match &resolution {

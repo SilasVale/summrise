@@ -496,8 +496,9 @@ export type AuditLine = {
    */
   door?: string;
   /**
-   * The machine's own sequence for a row the page built from `journal.read`. Absent on every audit
-   * line, whose record is this console's; it is what the opened record names as the machine's position.
+   * The machine journal's sequence for this call's outcome half, when the machine named one
+   * (`journal.read` rows and, since round 9, proxied audit lines: the device's answer carries it and
+   * the console writes it). The page reads that row back from the machine by this pointer.
    */
   machine_seq?: number;
   /** The evidence for this call, when the live stream carried it. */

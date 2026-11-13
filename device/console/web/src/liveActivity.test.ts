@@ -100,6 +100,22 @@ describe("the live activity stream", () => {
     );
   });
 
+  it("keeps the machine's position on a live line, so an opened row can be read back", () => {
+    const source = new FakeSource("/events");
+    const handlers = { snapshot: vi.fn(), activity: vi.fn(), lagged: vi.fn(), error: vi.fn() };
+    openLiveActivity(handlers, () => source);
+    source.emit("activity", {
+      ...line(6, "Read the machine's facts"),
+      device_id: "abc",
+      tool: "host.facts",
+      machine_seq: 814,
+      live: true
+    });
+    expect(handlers.activity).toHaveBeenCalledWith(
+      expect.objectContaining({ machine_seq: 814, tool: "host.facts" })
+    );
+  });
+
   it("drops a line that has no sentence, because a page cannot describe it", () => {
     const source = new FakeSource("/events");
     const handlers = { snapshot: vi.fn(), activity: vi.fn(), lagged: vi.fn(), error: vi.fn() };

@@ -1385,12 +1385,20 @@ async fn handle_frame(
         eprintln!("summrise-device: a frame carried neither a request nor a subscription");
         return None;
     };
-    let response = server.handle(mcp, caller).await;
-    if response.get("error").is_some() {
-        Some(json!({ "id": frame.id, "error": response }))
+    let (response, journal_seq) = server.handle_acknowledged(mcp, caller).await;
+    let mut answer = if response.get("error").is_some() {
+        json!({ "id": frame.id, "error": response })
     } else {
-        Some(json!({ "id": frame.id, "result": response }))
+        json!({ "id": frame.id, "result": response })
+    };
+    // **THE MACHINE'S OWN POSITION FOR THIS CALL (round 9).** The console's audit line is written
+    // from this answer, so the frame — never the JSON-RPC body, which an MCP client sees — carries
+    // the outcome half's journal `seq`. Absent when this process keeps no journal, or when the call
+    // never reached its outcome half.
+    if let Some(seq) = journal_seq {
+        answer["journal_seq"] = json!(seq);
     }
+    Some(answer)
 }
 
 #[cfg(test)]
@@ -2776,6 +2784,125 @@ mod tests {
         );
         let lines = audit_lines(&config);
         assert_eq!(lines[0]["decision"], "allow");
+        handle.abort();
+    }
+
+    /// **THE ANSWER FRAME NAMES THE MACHINE'S POSITION (round 9).** The console's audit line is
+    /// written from this frame, so it carries the outcome half's journal `seq` — beside the JSON-RPC
+    /// body, never inside it: an MCP client's tool result must not grow a Summrise field.
+    #[tokio::test]
+    async fn an_answer_frame_names_the_outcome_half_s_sequence() {
+        let (server, config, _dir) = fixture("console-journal-seq");
+        fs::write(config.files_root.join("notes.txt"), "read by position")
+            .expect("the fixture file is written");
+        let bus = Arc::new(
+            summrise_bus::Bus::open(config.data.join("journal")).expect("the journal opens"),
+        );
+        let server = server.with_bus(Some(Arc::clone(&bus)));
+        let mut console = FakeConsole::start().await;
+        let handle = spawn_with_key(
+            endpoint(&console.url),
+            server,
+            Some(signing().verifying_key()),
+        );
+        let mut connection = console.next().await;
+        let trace = "console-round9-frame-1";
+        send_frame(
+            &mut connection.socket,
+            json!({
+                "id": 11,
+                "mcp": read_call(110, "notes.txt"),
+                "trace": trace,
+                "grant": grant(&["files.read"], now_ms() as u64 + 60_000),
+            }),
+        )
+        .await;
+        let reply = next_frame(&mut connection.socket).await;
+        assert_eq!(reply["id"], 11, "the frame id is echoed: {reply}");
+        assert_eq!(
+            reply["result"]["result"]["content"][0]["text"], "read by position",
+            "{reply}"
+        );
+        assert!(
+            reply["result"].get("journal_seq").is_none(),
+            "the JSON-RPC body carries no Summrise field: {reply}"
+        );
+        let seq = reply["journal_seq"]
+            .as_u64()
+            .unwrap_or_else(|| panic!("the frame names the machine's sequence: {reply}"));
+
+        let mut subscription = bus.subscribe(1).expect("the journal replays");
+        let mut finished = None;
+        while let Some(event) = subscription.try_next() {
+            let call = event
+                .trace
+                .as_ref()
+                .and_then(|trace| trace.get("call"))
+                .and_then(Value::as_str);
+            if event.kind == "call.finished" && call == Some(trace) {
+                finished = Some(event.seq);
+            }
+        }
+        assert_eq!(
+            Some(seq),
+            finished,
+            "the frame's seq is the outcome half's own, not the started half's"
+        );
+
+        // A refused call reaches its outcome half too: the journal writes `call.denied`, and the
+        // frame names that half's sequence. A fresh nonce keeps the replay check out of the way.
+        let denial = signed_by(
+            &signing(),
+            Grant {
+                device_id: device_id(),
+                tools: vec!["no.such.tool".to_owned()],
+                expires_at_ms: now_ms() as u64 + 60_000,
+                allow_destructive: false,
+                nonce: "6b6b".repeat(8),
+            },
+        );
+        let denied_trace = "console-round9-frame-2";
+        send_frame(
+            &mut connection.socket,
+            json!({
+                "id": 12,
+                "mcp": json!({
+                    "jsonrpc": "2.0",
+                    "id": 112,
+                    "method": "tools/call",
+                    "params": { "name": "no.such.tool", "arguments": {} },
+                }),
+                "trace": denied_trace,
+                "grant": denial,
+            }),
+        )
+        .await;
+        let refused = next_frame(&mut connection.socket).await;
+        assert!(
+            refused["error"].is_object(),
+            "an unknown tool is refused: {refused}"
+        );
+        assert!(
+            refused["journal_seq"].as_u64().is_some(),
+            "a refusal that reached its outcome half names its sequence: {refused}"
+        );
+        let mut subscription = bus.subscribe(1).expect("the journal replays");
+        let mut denied = None;
+        while let Some(event) = subscription.try_next() {
+            let call = event
+                .trace
+                .as_ref()
+                .and_then(|trace| trace.get("call"))
+                .and_then(Value::as_str);
+            if event.kind == "call.denied" && call == Some(denied_trace) {
+                denied = Some(event.seq);
+            }
+        }
+        assert_eq!(
+            refused["journal_seq"].as_u64(),
+            denied,
+            "the refused frame names the denied half's own seq: {refused}"
+        );
         handle.abort();
     }
 

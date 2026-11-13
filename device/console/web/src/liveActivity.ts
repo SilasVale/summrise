@@ -57,6 +57,12 @@ export type LiveLine = {
    * call's outcome.
    */
   trace?: string;
+  /**
+   * The machine journal's `seq` for a proxied call's outcome half (round 9). The console writes it on
+   * the audit line and the live event, so a row opened before a reload can read the machine's own
+   * copy back by its position.
+   */
+  machine_seq?: number;
   /** What the row shows when it is opened: the call's own arguments, bounded. */
   evidence?: Record<string, unknown>;
 };
@@ -358,7 +364,8 @@ function asLine(value: unknown): LiveLine | null {
     ...(frame.evidence && typeof frame.evidence === "object"
       ? { evidence: frame.evidence as Record<string, unknown> }
       : {}),
-    ...(typeof frame.trace === "string" && frame.trace !== "" ? { trace: frame.trace } : {})
+    ...(typeof frame.trace === "string" && frame.trace !== "" ? { trace: frame.trace } : {}),
+    ...(typeof frame.machine_seq === "number" ? { machine_seq: frame.machine_seq } : {})
   };
 }
 

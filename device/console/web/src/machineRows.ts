@@ -239,7 +239,9 @@ export function machineSentence(counts: MachineCounts): string | null {
  * line: a call the panel made never had one to write.
  */
 export function machineRecordSentence(row: AuditLine): string | null {
-  if (typeof row.machine_seq !== "number") return null;
+  // A `door` is set only on a row the journal drew; an audit line that now carries `machine_seq`
+  // is still this console's row, and its sentence is the read-back's, not this one's.
+  if (typeof row.machine_seq !== "number" || row.door === undefined) return null;
   const base = "This call is only in the machine's own journal; the console never proxied it.";
   if (typeof row.door !== "string" || row.door === "") return base;
   return `${base} It arrived by the ${row.door}.`;

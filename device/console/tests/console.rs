@@ -12615,6 +12615,83 @@ async fn a_proxied_calls_live_event_carries_the_trace() {
     );
 }
 
+/// **THE AUDIT LINE NAMES THE MACHINE'S OWN POSITION (round 9).** The device's answer frame carries
+/// the outcome half's journal `seq` beside the JSON-RPC body; the console writes it on the audit line
+/// and the live event, and the body the client received is unchanged. That sequence is what lets the
+/// page read the machine's own row back instead of guessing from two clocks.
+#[tokio::test]
+async fn a_proxied_calls_line_carries_the_machines_sequence() {
+    let fixture = Fixture::new("activity-call-machine-seq");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x61)).await;
+    let session = fixture.authenticate().await;
+
+    let mut socket = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut socket, &mut seen, "event: snapshot").await;
+
+    let app = fixture.app();
+    let call = tokio::spawn(async move {
+        send(
+            app,
+            post_json_bearer(
+                "/mcp",
+                &session,
+                json!({
+                    "device_id": device_id,
+                    "request": {
+                        "jsonrpc": "2.0",
+                        "id": 31,
+                        "method": "tools/call",
+                        "params": { "name": "files.read", "arguments": { "path": "positioned.txt" } },
+                    },
+                }),
+            ),
+        )
+        .await
+    });
+
+    let frame = next_json(&mut device).await;
+    // The real device puts this beside the body (`summrise-device`, console.rs), never inside it.
+    let reply = json!({
+        "id": frame["id"].clone(),
+        "result": tools_call_answer(json!(31), "positioned", false),
+        "journal_seq": 814,
+    });
+    device
+        .send(WsMessage::Text(reply.to_string()))
+        .await
+        .expect("the device answers with its position");
+
+    let (status, body) = call.await.expect("the call finished");
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body.get("journal_seq").is_none(),
+        "the client's body carries no Summrise field: {body}"
+    );
+
+    read_until(&mut socket, &mut seen, "814").await;
+    let activity = last_event(&seen, "activity");
+    assert_eq!(
+        activity["machine_seq"],
+        json!(814),
+        "the live copy names the machine's position: {activity}"
+    );
+
+    let lines = audit_lines(&fixture);
+    let line = lines
+        .iter()
+        .rev()
+        .find(|line| line["kind"] == json!("mcp"))
+        .expect("the call's audit line");
+    assert_eq!(
+        line["machine_seq"],
+        json!(814),
+        "the line names the machine's position: {line}"
+    );
+}
+
 /// A call that is still waiting is announced before its answer, and the announcement is not a line
 /// in the audit: the record holds finished calls, while the band is what says one is running.
 #[tokio::test]

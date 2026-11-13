@@ -85,6 +85,7 @@ impl Denials {
                         token_id: None,
                         caller: None,
                         trace: None,
+                        machine_seq: None,
                     })
                     .await;
             }
