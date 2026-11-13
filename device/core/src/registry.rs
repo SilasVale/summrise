@@ -43,51 +43,7 @@ pub const CAPABILITIES: &[Capability] = &[
     crate::capabilities::memory::CAPABILITY,
     crate::capabilities::terminal::CAPABILITY,
     crate::capabilities::browser::CAPABILITY,
-    Capability {
-        name: "monitor",
-        tools: &[
-            // Monitoring only observes and configures the probe itself; none of these tools writes
-            // a file outside the capability's own target list, starts a process, or changes
-            // anything a later read cannot see. `monitor.add` and `monitor.remove` configure a
-            // watch, which is why they are not destructive in the registry's sense.
-            ToolDef {
-                name: "monitor.add",
-                destructive: false,
-                description:
-                    "Watch a host:port and persist the watch; tcp connects, http GETs path and is up on a status below 500 whose body contains expect when set. At most 16 targets, an interval of at least 5000 ms, and the last 60 samples are summarized.",
-                schema: None,
-            },
-            ToolDef {
-                name: "monitor.remove",
-                destructive: false,
-                description:
-                    "Stop watching a target by id and discard its in-memory series; removed says whether a watch existed.",
-                schema: None,
-            },
-            ToolDef {
-                name: "monitor.list",
-                destructive: false,
-                description:
-                    "List the watched targets with their settings and summary: up_now, since_ms, up_pct, drops and last_status from the last 60 probes.",
-                schema: None,
-            },
-            ToolDef {
-                name: "monitor.probe",
-                destructive: false,
-                description:
-                    "Probe one watched target now and return the sample {ts, ok, latency_ms}; it is recorded like a scheduled probe.",
-                schema: None,
-            },
-            ToolDef {
-                name: "monitor.status",
-                destructive: false,
-                description:
-                    "Return one target's summary over its last 60 probes: up_now, since_ms, up_pct, drops and last_status.",
-                schema: None,
-            },
-        ],
-        guide: "",
-    },
+    crate::capabilities::monitor::CAPABILITY,
     Capability {
         name: "runs",
         tools: &[

@@ -1011,6 +1011,7 @@ impl DeviceServer {
                 memory: self.memory.as_ref(),
                 terminal: self.terminal.as_ref(),
                 browser: self.browser.as_ref(),
+                monitor: &self.monitor,
             };
             return crate::capabilities::call(name, arguments, &ctx).await;
         }
@@ -1047,70 +1048,6 @@ impl DeviceServer {
             Handler::ForwardList => {
                 let state: Vec<Value> = self.forwards.list().into_iter().map(forward_row).collect();
                 Ok(Value::Array(state).to_string())
-            }
-            Handler::MonitorAdd => {
-                let arguments: MonitorAddArgs = parse(arguments, name)?;
-                let target = self
-                    .monitor
-                    .add(monitor::TargetSpec {
-                        kind: arguments.kind,
-                        host: arguments.host,
-                        port: arguments.port,
-                        path: arguments.path,
-                        expect: arguments.expect,
-                        interval_ms: arguments.interval_ms,
-                    })
-                    .map_err(|error| refused(name, error))?;
-                Ok(json!(target).to_string())
-            }
-            Handler::MonitorRemove => {
-                let arguments: MonitorIdArgs = parse(arguments, name)?;
-                let removed = self
-                    .monitor
-                    .remove(&arguments.id)
-                    .map_err(|error| refused(name, error))?;
-                Ok(json!({ "removed": removed }).to_string())
-            }
-            Handler::MonitorList => {
-                let targets: Vec<Value> = self
-                    .monitor
-                    .list()
-                    .iter()
-                    .map(|target| {
-                        json!({
-                            "id": target.id,
-                            "kind": target.kind,
-                            "host": target.host,
-                            "port": target.port,
-                            "path": target.path,
-                            "expect": target.expect,
-                            "interval_ms": target.interval_ms,
-                            "summary": self.monitor.summary(&target.id).unwrap_or_default(),
-                        })
-                    })
-                    .collect();
-                Ok(Value::Array(targets).to_string())
-            }
-            Handler::MonitorProbe => {
-                let arguments: MonitorIdArgs = parse(arguments, name)?;
-                let sample = self
-                    .monitor
-                    .probe(&arguments.id)
-                    .await
-                    .map_err(|error| refused(name, error))?;
-                Ok(json!(sample).to_string())
-            }
-            Handler::MonitorStatus => {
-                let arguments: MonitorIdArgs = parse(arguments, name)?;
-                let summary = self.monitor.summary(&arguments.id).ok_or_else(|| {
-                    refused(
-                        name,
-                        monitor::MonitorError::UnknownTarget {
-                            id: arguments.id.clone(),
-                        },
-                    )
-                })?;
-                Ok(json!(summary).to_string())
             }
             Handler::RunsExec => {
                 let arguments: RunsExecArgs = parse(arguments, name)?;
@@ -1458,11 +1395,6 @@ enum Handler {
     ForwardAdd,
     ForwardRemove,
     ForwardList,
-    MonitorAdd,
-    MonitorRemove,
-    MonitorList,
-    MonitorProbe,
-    MonitorStatus,
     RunsExec,
     RunsList,
     RunsGet,
@@ -1490,11 +1422,6 @@ const HANDLERS: &[(&str, Handler)] = &[
     ("forward.add", Handler::ForwardAdd),
     ("forward.remove", Handler::ForwardRemove),
     ("forward.list", Handler::ForwardList),
-    ("monitor.add", Handler::MonitorAdd),
-    ("monitor.remove", Handler::MonitorRemove),
-    ("monitor.list", Handler::MonitorList),
-    ("monitor.probe", Handler::MonitorProbe),
-    ("monitor.status", Handler::MonitorStatus),
     ("runs.exec", Handler::RunsExec),
     ("runs.list", Handler::RunsList),
     ("runs.get", Handler::RunsGet),
@@ -1739,80 +1666,6 @@ fn input_schema(definition: &ToolDef) -> Value {
         "forward.list" => json!({
             "type": "object",
             "properties": {},
-            "additionalProperties": false
-        }),
-        "monitor.add" => json!({
-            "type": "object",
-            "properties": {
-                "kind": {
-                    "type": "string",
-                    "enum": ["tcp", "http"],
-                    "description": "tcp makes a TCP connection; http performs a GET of path."
-                },
-                "host": {
-                    "type": "string",
-                    "minLength": 1,
-                    "description": "IP address or name, e.g. \"192.168.1.1\" or \"example.com\"; no scheme and no brackets."
-                },
-                "port": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 65535,
-                    "description": "The TCP port the service listens on."
-                },
-                "path": {
-                    "type": "string",
-                    "description": "For an http target, the path to GET (default \"/\"); it is normalized to start with a slash."
-                },
-                "expect": {
-                    "type": "string",
-                    "description": "For an http target, text the body MUST contain. A page that answers 200 without it is down."
-                },
-                "interval_ms": {
-                    "type": "integer",
-                    "minimum": monitor::MIN_INTERVAL_MS,
-                    "description": format!("How often to probe, in milliseconds; the minimum is {}.", monitor::MIN_INTERVAL_MS)
-                }
-            },
-            "required": ["kind", "host", "port", "interval_ms"],
-            "additionalProperties": false
-        }),
-        "monitor.remove" => json!({
-            "type": "object",
-            "properties": {
-                "id": {
-                    "type": "string",
-                    "description": "The target id monitor.list returned. Its in-memory series is discarded."
-                }
-            },
-            "required": ["id"],
-            "additionalProperties": false
-        }),
-        "monitor.list" => json!({
-            "type": "object",
-            "properties": {},
-            "additionalProperties": false
-        }),
-        "monitor.probe" => json!({
-            "type": "object",
-            "properties": {
-                "id": {
-                    "type": "string",
-                    "description": "The target id monitor.list returned; the probe is recorded in its series."
-                }
-            },
-            "required": ["id"],
-            "additionalProperties": false
-        }),
-        "monitor.status" => json!({
-            "type": "object",
-            "properties": {
-                "id": {
-                    "type": "string",
-                    "description": "The target id monitor.list returned; its summary covers the last 60 probes."
-                }
-            },
-            "required": ["id"],
             "additionalProperties": false
         }),
         "runs.exec" => json!({
@@ -2747,25 +2600,6 @@ struct ForwardAddArgs {
 #[serde(deny_unknown_fields)]
 struct ForwardNameArgs {
     name: String,
-}
-
-/// The arguments `monitor.add` takes.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct MonitorAddArgs {
-    kind: monitor::Kind,
-    host: String,
-    port: u16,
-    path: Option<String>,
-    expect: Option<String>,
-    interval_ms: u64,
-}
-
-/// The arguments `monitor.remove`, `monitor.probe` and `monitor.status` take.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct MonitorIdArgs {
-    id: String,
 }
 
 /// The arguments `runs.exec` takes.

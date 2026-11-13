@@ -374,6 +374,14 @@ Evidence: 669 device tests, 104 core tests, `clippy`/`fmt` clean, gate 14 / 22 /
 (five tools), then `runs` (three), `system` (three), `forward` (three), `host` (two), `journal`
 (three), `plugins` (five) and `guide`.
 
+**Round 19 — `monitor` moves.** Five tools (add, remove, list, probe, status) declared in
+`core/src/capabilities/monitor.rs`; the 5 s minimum interval is the declaration's constant, re-exported
+by the implementation so schema and validation agree. `Ctx` carries the `Arc<MonitorRegistry>` (`add`
+installs per-target timers, so it needs the shared handle). Guide: five capabilities, 30 tool headings.
+Evidence: 669 device tests, 104 core tests, `clippy`/`fmt` clean, gate 14 / 22 / 0. Next: `runs`
+(three), then `system`, `forward`, `host`, `journal`, `plugins`, `guide`.
+
+
 ## Next (in order)
 
 1. Windows handoff, the interactive half — dispatch or run `summrise-shell.exe --check-window` in an
