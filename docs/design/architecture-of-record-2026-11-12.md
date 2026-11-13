@@ -213,6 +213,20 @@ the 30 s newest-page cache stays (it is what makes a remount free). The drawn li
 1 000-line cut, is the window paging deepens: those older machine rows were already drawn as older
 days, and clamping to the console's cut would remove the calls the machine window exists for.
 
+**Shipped (2026-11-13): the counts name the calls the console cannot see.** A client that calls the
+machine's own endpoint — the journal's `loopback` door — is a client call the console's audit never
+holds, so `/audit/day` cannot count it; the Activity header's `Today` is that day read, the same rule
+the hub serves, and inflating it with a page of the machine's window would both break that parity and
+state a day total the page cannot know. The page therefore names those calls beside the count:
+"N calls drawn today came straight to this machine, not through this console (M failed, when M is
+not zero)." It is counted from the same contribution the timeline draws, within the day's start (the
+console's `day_start_ms` when the answer names one, otherwise the page's own midnight — the boundary
+its labels already use) and never past the next midnight, so the header and the rows can be read
+together; `panel` (the desktop), `mesh` (a peer device) and `console` (this
+proxy) are not client calls, and a failed direct call is named rather than folded into the day's
+failure count. A true day count of a machine's direct calls needs a time-bounded read of its journal,
+which `journal.read` does not offer yet — the next item.
+
 ### 4.3 Data plane
 
 A stream has an id (`terminal:<device>/<session>`, `file:<id>`, `screen:<id>`) and a byte offset.

@@ -1573,6 +1573,193 @@ describe("App", () => {
     );
   });
 
+  it("names the client calls the console's day cannot see", async () => {
+    const now = Date.now();
+    // One client call through the console: the day sentence counts it and only it.
+    mocks.audit.mockResolvedValue([
+      {
+        ...tokenCall,
+        ts_ms: now - 60_000,
+        tool: "files.read",
+        caller: "client",
+        sentence: "files.read ran on workshop"
+      }
+    ]);
+    mocks.journalRead.mockResolvedValue({
+      device: workshop.id,
+      journal: true,
+      oldest_seq: 27,
+      last_seq: 30,
+      rows: [
+        {
+          seq: 30,
+          ts: new Date(now - 30_000).toISOString(),
+          type: "call.finished",
+          trace: "direct-1",
+          tool: "terminal.read",
+          ok: true,
+          door: "loopback",
+          payload_bytes: 5
+        },
+        {
+          seq: 29,
+          ts: new Date(now - 35_000).toISOString(),
+          type: "call.denied",
+          trace: "direct-2",
+          tool: "runs.exec",
+          ok: false,
+          reason: "denied",
+          door: "loopback",
+          payload_bytes: 5
+        },
+        {
+          seq: 28,
+          ts: new Date(now - 40_000).toISOString(),
+          type: "call.finished",
+          trace: "panel-1",
+          tool: "screen.capture",
+          ok: true,
+          door: "panel",
+          payload_bytes: 5
+        }
+      ],
+      more: false,
+      read_at_ms: now,
+      unknown: false
+    });
+
+    await bootAndSignIn();
+    selectDevice("workshop");
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    await screen.findByRole("heading", { name: "Activity", level: 1 });
+
+    // The day is the console's audit day, unchanged...
+    expect(await screen.findByText("Today: 1 client call.")).toBeInTheDocument();
+    // ...and the direct calls the console never saw are named beside it, with their failure.
+    expect(
+      await screen.findByText(
+        "2 calls drawn today came straight to this machine, not through this console (1 failed)."
+      )
+    ).toBeInTheDocument();
+    // The panel's call is drawn too, but the desktop is not a client.
+    expect(await screen.findByText("screen.capture ran on workshop")).toBeInTheDocument();
+  });
+
+  it("names a single direct call without a failure clause it does not have", async () => {
+    const now = Date.now();
+    mocks.audit.mockResolvedValue([
+      { ...tokenCall, ts_ms: now - 60_000, caller: "client", tool: "files.read", sentence: "files.read ran on workshop" }
+    ]);
+    mocks.journalRead.mockResolvedValue({
+      device: workshop.id,
+      journal: true,
+      oldest_seq: 5,
+      last_seq: 5,
+      rows: [
+        {
+          seq: 5,
+          ts: new Date(now - 30_000).toISOString(),
+          type: "call.finished",
+          trace: "direct-1",
+          tool: "terminal.read",
+          ok: true,
+          door: "loopback",
+          payload_bytes: 3
+        }
+      ],
+      more: false,
+      read_at_ms: now,
+      unknown: false
+    });
+    await bootAndSignIn();
+    selectDevice("workshop");
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    await screen.findByRole("heading", { name: "Activity", level: 1 });
+    const line = await screen.findByText(
+      "1 call drawn today came straight to this machine, not through this console."
+    );
+    expect(line).toBeInTheDocument();
+    expect(line.textContent).not.toContain("0 failed");
+  });
+
+  it("hides the direct-call note when a day range, not the day, is in hand", async () => {
+    const now = Date.now();
+    mocks.audit.mockResolvedValue([
+      { ...tokenCall, ts_ms: now - 60_000, caller: "client", tool: "files.read", sentence: "files.read ran on workshop" }
+    ]);
+    mocks.journalRead.mockResolvedValue({
+      device: workshop.id,
+      journal: true,
+      oldest_seq: 5,
+      last_seq: 5,
+      rows: [
+        {
+          seq: 5,
+          ts: new Date(now - 30_000).toISOString(),
+          type: "call.finished",
+          trace: "direct-1",
+          tool: "terminal.read",
+          ok: true,
+          door: "loopback",
+          payload_bytes: 3
+        }
+      ],
+      more: false,
+      read_at_ms: now,
+      unknown: false
+    });
+    await bootAndSignIn();
+    selectDevice("workshop");
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    await screen.findByRole("heading", { name: "Activity", level: 1 });
+    expect(document.querySelector(".activity-direct")).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Table" }));
+    fireEvent.change(screen.getByLabelText("When"), { target: { value: "hour" } });
+    await waitFor(() => expect(mocks.auditRange).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("tab", { name: "Timeline" }));
+    await waitFor(() => expect(document.querySelector(".activity-direct")).toBeNull());
+  });
+
+  it("does not count a paused page's new scope in the frozen day", async () => {
+    const now = Date.now();
+    mocks.audit.mockResolvedValue([
+      { ...tokenCall, ts_ms: now - 60_000, caller: "client", tool: "files.read", sentence: "files.read ran on workshop" }
+    ]);
+    mocks.journalRead.mockImplementation(async (device: string) => ({
+      device,
+      journal: true,
+      oldest_seq: 5,
+      last_seq: 5,
+      rows: [
+        {
+          seq: 5,
+          ts: new Date(now - 30_000).toISOString(),
+          type: "call.finished",
+          trace: `direct-${device}`,
+          tool: "terminal.read",
+          ok: true,
+          door: "loopback",
+          payload_bytes: 3
+        }
+      ],
+      more: false,
+      read_at_ms: now,
+      unknown: false
+    }));
+    await bootAndSignIn();
+    selectDevice("workshop");
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    await screen.findByRole("heading", { name: "Activity", level: 1 });
+    expect(await screen.findByText(/came straight to this machine/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+    // The header still describes the frozen workshop window; attic's rows are not counted into it.
+    selectDevice("attic");
+    await waitFor(() => expect(screen.queryByText(/came straight to this machine/)).toBeNull());
+    expect(screen.getByText("Today: 1 client call.")).toBeInTheDocument();
+  });
+
   it("reads the scope's machine window and widens to the fleet in one request", async () => {
     await bootAndSignIn();
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));

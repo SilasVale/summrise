@@ -22,7 +22,7 @@ import { mergeActivityWindow, type WindowCounts } from "./activityMerge";
 import { activityDaySentence } from "./activitySummary";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { useJoinMarks } from "./useJoinMarks";
-import { machineCounts, mergeMachineRows } from "./machineRows";
+import { directClientCalls, machineContribution, machineCounts, mergeMachineRows } from "./machineRows";
 import { useMachineRows } from "./useMachineRows";
 import { DEVICE_TAB_LABELS, PAGE_LABELS, Rail, type DeviceTab, type Page } from "./Rail";
 import { Modal } from "./Modal";
@@ -617,6 +617,12 @@ export function App() {
    * 10): the newest 200 rows are minutes on a busy machine, and the footer offers the rest.
    */
   const machineRead = useMachineRows(auditScopeDevice, auditReadingName);
+  // The rows only the machine recorded: the merge's own filter, named, because the header needs the
+  // same set the footer counts (and the merge does not hand it back).
+  const machineOnly = useMemo(
+    () => machineContribution(shownActivity, machineRead.rows),
+    [shownActivity, machineRead.rows]
+  );
   const machineLines = useMemo(
     () => mergeMachineRows(shownActivity, machineRead.rows),
     [shownActivity, machineRead.rows]
@@ -624,6 +630,33 @@ export function App() {
   // The difference is exactly the machine's contribution: the merge keeps every console row and only
   // ever drops a machine row as the duplicate of one.
   const machine = machineCounts(machineRead, machineLines.length - shownActivity.length);
+  /**
+   * **THE CLIENT CALLS THE CONSOLE'S DAY CANNOT COUNT (round 11).** A client that calls the machine's
+   * own endpoint is recorded only in the machine's journal (the `loopback` door); the day sentence
+   * counts the console's audit, the same number the hub serves, and must not be inflated with a
+   * partial window's rows. So the page names those calls beside the count instead: they are real
+   * client calls, and without the line the reader had no way to reconcile the header with the rows.
+   * The line is about the rows drawn (`drawn today`), not a day total — the machine window is a page,
+   * and a window that starts after midnight cannot speak for the whole day.
+   */
+  const directToday = useMemo(() => {
+    // **THE BLOCK IS THE LABEL'S.** With a cut from the console's day answer, the labels index
+    // 24-hour steps from it, so the block is `[cut, cut + 24h)` whatever the zone does in between.
+    // Without one, the labels fall back to the page's own midnights, and so does this.
+    if (shownDayStartMs !== null) {
+      return directClientCalls(machineOnly, {
+        from: shownDayStartMs,
+        to: shownDayStartMs + 24 * 60 * 60_000
+      });
+    }
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 1);
+    end.setHours(0, 0, 0, 0);
+    return directClientCalls(machineOnly, { from: start.getTime(), to: end.getTime() });
+  }, [machineOnly, shownDayStartMs]);
+
   /**
    * The header's line, or none. A failed read has no state sentence of its own: the banner names
    * the failure and the notice says what the page can still show, so `The audit could not be read.`
@@ -1511,6 +1544,19 @@ export function App() {
                     data-interval-to={activityPaused && pausedAt !== null ? pausedAt : undefined}
                   >
                     {activityCount}
+                  </p>
+                )}
+                {activityCount !== null &&
+                  activityRange === null &&
+                  // The header describes the window it froze; a new scope's machine rows must not be
+                  // counted into the old day's sentence while the page is paused.
+                  shownWindowDevice === auditScopeDevice &&
+                  directToday.calls > 0 && (
+                  <p className="activity-direct">
+                    {directToday.calls === 1
+                      ? "1 call drawn today came straight to this machine, not through this console"
+                      : `${directToday.calls} calls drawn today came straight to this machine, not through this console`}
+                    {directToday.failed > 0 ? ` (${directToday.failed} failed)` : ""}.
                   </p>
                 )}
                 {/* **THE FAILED READ HAS ONE SENTENCE, AND IT IS THE BANNER'S.** This line is
