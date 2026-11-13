@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuditLine, AuditSource, Device, TokenMeta } from "./api";
 import { ActivityTimeline } from "./ActivityTimeline";
+import { machineCounts } from "./machineRows";
 import { exactMoment } from "./format";
 import { restoreGlobal } from "./test/dom";
 import { resetJournalRows } from "./useJournalRow";
@@ -1745,6 +1746,171 @@ describe("ActivityTimeline's read-back of a proxied call", () => {
   });
 });
 
+// **PAGING THE MACHINE'S WINDOW (round 10).** The newest 200 rows are minutes on a busy machine; the
+// footer offers the rest, says why an older page failed, and says when the record ends.
+describe("ActivityTimeline's machine window paging", () => {
+  const machine = (over: Partial<Parameters<typeof machineCounts>[0]> = {}) => ({
+    contributed: 1,
+    state: "read" as const,
+    unknown: false,
+    journal: true,
+    error: null,
+    more: true,
+    paged: false,
+    readingOlder: false,
+    olderError: null,
+    answer: {
+      device: "d".repeat(64),
+      journal: true,
+      oldest_seq: 1,
+      last_seq: 10,
+      rows: [],
+      more: false,
+      read_at_ms: 1,
+      unknown: false
+    },
+    ...over
+  });
+  const counts = (over: Partial<Parameters<typeof machineCounts>[0]> = {}) =>
+    machineCounts(machine(over), 1);
+
+  it("offers the next older page while the machine holds one", () => {
+    const older = vi.fn();
+    render(<ActivityTimeline lines={[]} devices={devices} machine={counts()} onMachineOlder={older} />);
+    const button = screen.getByRole("button", { name: "Read older rows from the machine" });
+    fireEvent.click(button);
+    expect(older).toHaveBeenCalledTimes(1);
+  });
+
+  it("says an older page is being read, and does not ask twice", () => {
+    const older = vi.fn();
+    render(
+      <ActivityTimeline
+        lines={[]}
+        devices={devices}
+        machine={counts({ readingOlder: true })}
+        onMachineOlder={older}
+      />
+    );
+    const button = screen.getByRole("button", { name: "Reading older rows…" });
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(older).not.toHaveBeenCalled();
+  });
+
+  it("says why an older page failed, beside the retry", () => {
+    render(
+      <ActivityTimeline
+        lines={[]}
+        devices={devices}
+        machine={counts({ olderError: "the machine is not connected" })}
+        onMachineOlder={vi.fn()}
+      />
+    );
+    expect(document.querySelector(".timeline-machine-error")).toHaveTextContent(
+      "The older rows could not be read: the machine is not connected."
+    );
+    expect(document.querySelector(".timeline-machine-more")).toHaveTextContent(
+      "Read older rows from the machine"
+    );
+  });
+
+  it("says the record has ended once the operator pages to it", () => {
+    render(
+      <ActivityTimeline
+        lines={[]}
+        devices={devices}
+        machine={counts({ more: false, paged: true })}
+        onMachineOlder={vi.fn()}
+      />
+    );
+    expect(document.querySelector(".timeline-machine-more")).toBeNull();
+    expect(document.querySelector(".timeline-machine-end")).toHaveTextContent(
+      "The machine's journal has no rows older than this."
+    );
+  });
+
+  it("offers nothing when the page has no way to ask", () => {
+    render(<ActivityTimeline lines={[]} devices={devices} machine={counts()} />);
+    expect(document.querySelector(".timeline-machine-more")).toBeNull();
+  });
+
+  it("does not end a record on a machine that keeps no journal", () => {
+    render(
+      <ActivityTimeline
+        lines={[]}
+        devices={devices}
+        machine={machineCounts(
+          {
+            state: "read",
+            error: null,
+            answer: {
+              device: "d".repeat(64),
+              journal: false,
+              oldest_seq: 0,
+              last_seq: 0,
+              rows: [],
+              more: false,
+              read_at_ms: 1,
+              unknown: false
+            },
+            more: false,
+            paged: true
+          },
+          0
+        )}
+        onMachineOlder={vi.fn()}
+      />
+    );
+    expect(document.querySelector(".timeline-machine-end")).toBeNull();
+  });
+
+  it("keeps the count, not 'not read', after a refresh the machine could not answer", () => {
+    // The hook keeps the window it read when a later refresh answers `unknown`; the footer must keep
+    // stating what was drawn instead of claiming the journal was never read.
+    render(
+      <ActivityTimeline
+        lines={[]}
+        devices={devices}
+        machine={machineCounts(machine({ more: false, paged: true }), 2)}
+        onMachineOlder={vi.fn()}
+      />
+    );
+    expect(document.querySelector(".timeline-machine-read")).toHaveTextContent(
+      "2 of these calls are on the machine's record, not this console's."
+    );
+    expect(document.body.textContent).not.toContain("was not read");
+  });
+
+  it("still offers the next page on a paused window", () => {
+    render(
+      <ActivityTimeline
+        lines={[]}
+        devices={devices}
+        machine={counts()}
+        onMachineOlder={vi.fn()}
+        nowMs={Date.UTC(2026, 10, 5, 9, 0, 0)}
+      />
+    );
+    expect(document.querySelector(".timeline-machine-more")).toHaveTextContent(
+      "Read older rows from the machine"
+    );
+  });
+
+  it("neither offers nor ends a record that was never paged", () => {
+    render(
+      <ActivityTimeline
+        lines={[]}
+        devices={devices}
+        machine={counts({ more: false, paged: false })}
+        onMachineOlder={vi.fn()}
+      />
+    );
+    expect(document.querySelector(".timeline-machine-more")).toBeNull();
+    expect(document.querySelector(".timeline-machine-end")).toBeNull();
+  });
+});
+
 // **THE MACHINE'S OWN RECORD (round 8).** A call the console never proxied is drawn from
 // `journal.read` alone; the page must show it exactly as the console would draw the same call, say
 // where the record came from, and never let a failed read look like an empty journal.
@@ -1775,7 +1941,7 @@ describe("ActivityTimeline's machine rows", () => {
       <ActivityTimeline
         lines={[consoleCall, panelCall]}
         devices={devices}
-        machine={{ contributed: 1, state: "read", unknown: false, journal: true, error: null }}
+        machine={{ contributed: 1, state: "read", unknown: false, journal: true, error: null, more: false, paged: false, readingOlder: false, olderError: null }}
       />
     );
     const row = [...document.querySelectorAll(".timeline-row")].find((entry) =>
@@ -1814,7 +1980,7 @@ describe("ActivityTimeline's machine rows", () => {
       <ActivityTimeline
         lines={[consoleCall, panelCall]}
         devices={devices}
-        machine={{ contributed: 1, state: "read", unknown: false, journal: true, error: null }}
+        machine={{ contributed: 1, state: "read", unknown: false, journal: true, error: null, more: false, paged: false, readingOlder: false, olderError: null }}
       />
     );
     expect(document.querySelector(".timeline-machine-read")).toHaveTextContent(
@@ -1832,7 +1998,11 @@ describe("ActivityTimeline's machine rows", () => {
           state: "failed",
           journal: false,
           unknown: false,
-          error: "the machine is not connected"
+          error: "the machine is not connected",
+          more: false,
+          paged: false,
+          readingOlder: false,
+          olderError: null
         }}
       />
     );
@@ -1846,7 +2016,7 @@ describe("ActivityTimeline's machine rows", () => {
       <ActivityTimeline
         lines={[consoleCall]}
         devices={devices}
-        machine={{ contributed: 0, state: "read", unknown: true, journal: false, error: null }}
+        machine={{ contributed: 0, state: "read", unknown: true, journal: false, error: null, more: false, paged: false, readingOlder: false, olderError: null }}
       />
     );
     expect(document.querySelector(".timeline-machine-read")).toHaveTextContent(
@@ -1859,7 +2029,7 @@ describe("ActivityTimeline's machine rows", () => {
       <ActivityTimeline
         lines={[consoleCall]}
         devices={devices}
-        machine={{ contributed: 0, state: "read", unknown: false, journal: true, error: null }}
+        machine={{ contributed: 0, state: "read", unknown: false, journal: true, error: null, more: false, paged: false, readingOlder: false, olderError: null }}
       />
     );
     expect(document.querySelector(".timeline-machine-read")).toBeNull();
@@ -1870,7 +2040,7 @@ describe("ActivityTimeline's machine rows", () => {
       <ActivityTimeline
         lines={[]}
         devices={devices}
-        machine={{ contributed: 0, state: "read", unknown: false, journal: true, error: null }}
+        machine={{ contributed: 0, state: "read", unknown: false, journal: true, error: null, more: false, paged: false, readingOlder: false, olderError: null }}
       />
     );
     expect(document.body.textContent).toContain("is read from that machine's journal");
@@ -1881,7 +2051,7 @@ describe("ActivityTimeline's machine rows", () => {
       <ActivityTimeline
         lines={[]}
         devices={devices}
-        machine={{ contributed: 0, state: "read", unknown: true, journal: false, error: null }}
+        machine={{ contributed: 0, state: "read", unknown: true, journal: false, error: null, more: false, paged: false, readingOlder: false, olderError: null }}
       />
     );
     expect(document.body.textContent).not.toContain("is read from that machine's journal");
@@ -1895,7 +2065,7 @@ describe("ActivityTimeline's machine rows", () => {
       <ActivityTimeline
         lines={[]}
         devices={devices}
-        machine={{ contributed: 0, state: "read", unknown: false, journal: false, error: null }}
+        machine={{ contributed: 0, state: "read", unknown: false, journal: false, error: null, more: false, paged: false, readingOlder: false, olderError: null }}
       />
     );
     expect(document.body.textContent).not.toContain("is read from that machine's journal");
@@ -1916,7 +2086,7 @@ describe("ActivityTimeline's machine rows", () => {
       <ActivityTimeline
         lines={[consoleCall, yesterday]}
         devices={devices}
-        machine={{ contributed: 1, state: "read", unknown: false, journal: true, error: null }}
+        machine={{ contributed: 1, state: "read", unknown: false, journal: true, error: null, more: false, paged: false, readingOlder: false, olderError: null }}
       />
     );
     const days = [...document.querySelectorAll(".timeline-day")];

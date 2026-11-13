@@ -613,7 +613,8 @@ export function App() {
    * the machine ran on its own — the panel's, a mesh peer's, a direct loopback client's — is written
    * only in its journal, and after a reload the page drew nothing of it. The hook reads that window,
    * and the merge adds what the console does not already hold: the richer console row always wins the
-   * same call, so one call is still one row.
+   * same call, so one call is still one row. `loadOlder` pages deeper into the same journal (round
+   * 10): the newest 200 rows are minutes on a busy machine, and the footer offers the rest.
    */
   const machineRead = useMachineRows(auditScopeDevice, auditReadingName);
   const machineLines = useMemo(
@@ -1635,6 +1636,7 @@ export function App() {
                   source={auditSource}
                   join={join}
                   machine={machine}
+                  onMachineOlder={machineRead.loadOlder}
                   query={activityFilter.tool}
                   onQuery={(tool) => setActivityFilter((current) => ({ ...current, tool }))}
                   clientsOnly={activityClientsOnly}

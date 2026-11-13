@@ -1508,6 +1508,71 @@ describe("App", () => {
     await waitFor(() => expect(screen.queryByText("screen.capture ran on workshop")).toBeNull());
   });
 
+  it("pages the machine's window from the footer, and draws the older call", async () => {
+    const now = Date.now();
+    mocks.audit.mockResolvedValue([]);
+    mocks.journalRead.mockImplementation(async (_device: string, options: { before?: number } = {}) =>
+      options.before === undefined
+        ? {
+            device: workshop.id,
+            journal: true,
+            oldest_seq: 200,
+            last_seq: 200,
+            rows: [
+              {
+                seq: 200,
+                ts: new Date(now - 60_000).toISOString(),
+                type: "call.finished",
+                trace: "newest",
+                tool: "files.read",
+                ok: true,
+                door: "panel",
+                payload_bytes: 1
+              }
+            ],
+            more: true,
+            read_at_ms: now,
+            unknown: false
+          }
+        : {
+            device: workshop.id,
+            journal: true,
+            oldest_seq: 199,
+            last_seq: 199,
+            rows: [
+              {
+                seq: 199,
+                ts: new Date(now - 120_000).toISOString(),
+                type: "call.finished",
+                trace: "older",
+                tool: "terminal.read",
+                ok: true,
+                door: "mesh",
+                payload_bytes: 2
+              }
+            ],
+            more: false,
+            read_at_ms: now,
+            unknown: false
+          }
+    );
+
+    await bootAndSignIn();
+    selectDevice("workshop");
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    await screen.findByRole("heading", { name: "Activity", level: 1 });
+    expect(await screen.findByText("files.read ran on workshop")).toBeInTheDocument();
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Read older rows from the machine" })
+    );
+    expect(await screen.findByText("terminal.read ran on workshop")).toBeInTheDocument();
+    expect(mocks.journalRead).toHaveBeenLastCalledWith(workshop.id, { before: 200, limit: 200 });
+    expect(document.querySelector(".timeline-machine-end")).toHaveTextContent(
+      "The machine's journal has no rows older than this."
+    );
+  });
+
   it("reads the scope's machine window and widens to the fleet in one request", async () => {
     await bootAndSignIn();
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));

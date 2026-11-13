@@ -787,6 +787,12 @@ export function ActivityTimeline(props: {
    * nothing and the footer stays silent.
    */
   machine?: MachineCounts | null;
+  /**
+   * **PAGING THE MACHINE'S WINDOW (round 10).** Ask the machine for the next older page of its
+   * journal. Absent for a fleet window, and while the machine's oldest fetched row is already at the
+   * start of the window this page draws.
+   */
+  onMachineOlder?: () => void;
   empty?: string;
   /**
    * A fixed clock, for a page that is paused: the age column stops at this moment instead of
@@ -1426,6 +1432,38 @@ export function ActivityTimeline(props: {
               call was already the console's; a count when it added rows, and the reason when it could
               not be read — never silence that would read as "the machine recorded nothing". */}
           {machineLine !== null && <p className="hint timeline-machine-read">{machineLine}</p>}
+          {/* **THE MACHINE'S RECORD IS DEEPER THAN ONE PAGE (round 10).** The control is drawn while
+              the machine holds an older row and the page was given a way to ask; asking deepens the
+              drawn list rather than the console's 1 000-line cut. A failed older page keeps the rows
+              already drawn and turns this into a retry, never into silence. */}
+          {props.machine?.more === true && props.onMachineOlder !== undefined && (
+            <p className="hint timeline-machine-pages">
+              <button
+                type="button"
+                className="link timeline-machine-more"
+                onClick={props.onMachineOlder}
+                disabled={props.machine.readingOlder}
+                aria-busy={props.machine.readingOlder}
+              >
+                {props.machine.readingOlder
+                  ? "Reading older rows…"
+                  : "Read older rows from the machine"}
+              </button>
+            </p>
+          )}
+          {props.machine?.olderError != null && (
+            <p className="hint timeline-machine-error">
+              The older rows could not be read:{" "}
+              {props.machine.olderError.replace(/\.$/, "")}.
+            </p>
+          )}
+          {props.machine?.paged === true &&
+            props.machine.more === false &&
+            props.machine.journal === true && (
+              <p className="hint timeline-machine-end">
+                The machine's journal has no rows older than this.
+              </p>
+            )}
         </footer>
       )}
     </div>

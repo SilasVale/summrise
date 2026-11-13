@@ -241,6 +241,35 @@ describe("machineSentence", () => {
       )
     ).toBe("The machine's own journal was not read: this machine does not offer it.");
   });
+
+  it("carries the paging facts the footer draws", () => {
+    const counts = machineCounts(
+      {
+        state: "read",
+        error: null,
+        answer: answer(),
+        more: true,
+        paged: true,
+        readingOlder: true,
+        olderError: "the machine is not connected"
+      },
+      3
+    );
+    expect(counts).toMatchObject({
+      contributed: 3,
+      more: true,
+      paged: true,
+      readingOlder: true,
+      olderError: "the machine is not connected"
+    });
+    // A caller that predates paging is not a paging machine.
+    expect(machineCounts({ state: "read", error: null, answer: answer() }, 1)).toMatchObject({
+      more: false,
+      paged: false,
+      readingOlder: false,
+      olderError: null
+    });
+  });
 });
 
 describe("machineRecordSentence", () => {

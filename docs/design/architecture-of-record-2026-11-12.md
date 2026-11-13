@@ -197,6 +197,22 @@ rotated — or a position that now names a different call — is stated as gone,
 not happen; a read that cannot be made says why; an older device names no position, and the record
 keeps the console's facts alone.
 
+**Shipped (2026-11-13): the machine's window pages.** The newest 200 journal rows are minutes on a
+busy machine, so a device-only call older than that page was unreachable from Activity even though
+the journal still held it — the page used neither `journal.read`'s `before_seq` nor its `more`. The
+page now keeps a fetch session: the newest page on the machine scope, `before_seq = oldest fetched`
+for each older page, and, once the operator has asked, a last page's `more: false` is stated as "The
+machine's journal has no rows older than this." A 30 s refresh re-reads the newest page and merges it
+in front of the pages already asked for by `seq`, so new calls appear without dropping history; pages
+are deduplicated by sequence. A failed older page keeps the rows already drawn and turns the control
+into a retry with its reason — a failed page is not a lost window; the same holds when a later refresh
+answers `unknown` or "no journal", which does not retract a window that was read, only a window that
+never existed. A fetch session does not outlive the window it was read for: a scope change (the fleet,
+another machine) drops the pages asked for, so re-entering starts from the newest page again, while
+the 30 s newest-page cache stays (it is what makes a remount free). The drawn list, not the console's
+1 000-line cut, is the window paging deepens: those older machine rows were already drawn as older
+days, and clamping to the console's cut would remove the calls the machine window exists for.
+
 ### 4.3 Data plane
 
 A stream has an id (`terminal:<device>/<session>`, `file:<id>`, `screen:<id>`) and a byte offset.
