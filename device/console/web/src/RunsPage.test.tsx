@@ -305,6 +305,46 @@ describe("RunsPage", () => {
     expect(consumed).toHaveBeenCalled();
   });
 
+  it("keeps the opened row's button focusable while runs.get is in flight", async () => {
+    // The record's read is slow on purpose: the state the operator sees while it is in flight is the
+    // one this test is about. A `disabled` button was grayed out under the operator's own focus and
+    // dropped it with no element to hand it to; `aria-disabled` states the same fact without refusing
+    // the focus, and the guarded click means a second press cannot start a second read.
+    mocked.mockImplementation(async (_grant, name) => {
+      if (name === "runs.list") return JSON.stringify([CARGO]);
+      if (name === "runs.get") return getRecord.promise;
+      throw new Error(`the test did not expect a ${name} call`);
+    });
+    let resolveRecord!: (record: string) => void;
+    const getRecord = { promise: new Promise<string>((resolve) => { resolveRecord = resolve; }) as Promise<string> };
+
+    render(<RunsPage grant={GRANT} />);
+    const opener = await screen.findByRole("button", { name: "cargo test" });
+    // The operator's focus is on the row's control when they press it. jsdom's `fireEvent.click`
+    // does not move focus, so the test puts it there — that is the state the defect was about.
+    opener.focus();
+    fireEvent.click(opener);
+
+    // The button is still focusable and still the operator's; only the click is guarded.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "cargo test" })).toHaveAttribute(
+        "aria-disabled",
+        "true"
+      )
+    );
+    const button = screen.getByRole("button", { name: "cargo test" });
+    expect(button).not.toBeDisabled();
+    expect(button).toHaveFocus();
+    // The reading line states the wait as a status, so a screen reader hears it. (It is not the
+    // record card's own `status`: the detail is not drawn yet.)
+    expect(screen.getByText(/^Reading run run-1…$/)).toHaveAttribute("role", "status");
+    // A second press while the read is in flight does not ask again.
+    fireEvent.click(button);
+    expect(called("runs.get")).toHaveLength(1);
+
+    resolveRecord(JSON.stringify(CARGO));
+  });
+
   it("brings the record it opens into view, so a phone's read starts at the record", async () => {
     mocked.mockImplementation(async (_grant, name) => {
       if (name === "runs.list") return JSON.stringify([HELLO]);
@@ -361,6 +401,7 @@ describe("RunsPage", () => {
     const heading = await screen.findByRole("heading", { name: "Command" });
     const detail = heading.closest("section");
     expect(detail).not.toBeNull();
+    await waitFor(() => expect(detail).toHaveFocus());
     expect(within(detail as HTMLElement).getByText("run-2")).toBeInTheDocument();
     expect(within(detail as HTMLElement).getByText("echo hello")).toBeInTheDocument();
     expect(within(detail as HTMLElement).getByText("exit 0")).toBeInTheDocument();

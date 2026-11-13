@@ -384,6 +384,8 @@ export function App() {
       : null
   );
   const [selected, setSelected] = useState<string | null>(initialSelected);
+  const mainRef = useRef<HTMLElement>(null);
+  const mounted = useRef(false);
   // A run id handed from Activity to Runs; RunsPage consumes it once and clears it.
   const [runsFocus, setRunsFocus] = useState<string | null>(initialRun?.runId ?? null);
   /**
@@ -883,6 +885,18 @@ export function App() {
     if (window.location.hash !== wanted) window.history.replaceState(null, "", wanted);
   }, [page, tab, screenView, openTool, runsFocus, session?.authenticated, activityRange, signInRoute]);
 
+  // A page or a machine change replaces the control the operator pressed: a rail click left focus on
+  // the rail, and a fleet row's door unmounted its own button. The new page's <main> takes the focus,
+  // so the heading and its first control are one Tab away instead of a traversal from the top. The
+  // first render is exempt: sign-in keeps the focus the browser gave its own form.
+  useEffect(() => {
+    if (!mounted.current) {
+      mounted.current = true;
+      return;
+    }
+    mainRef.current?.focus();
+  }, [page, selected]);
+
   // **THE ADDRESS BAR IS PART OF THE SURFACE, NOT ONLY A RECORD OF IT.** Every navigation wrote the
   // fragment and nothing read it back: Back and Forward moved the URL and left the view where it was,
   // and a link pasted into a running tab did nothing until a reload. The same parsers the first render
@@ -1345,6 +1359,7 @@ export function App() {
 
       <main
         id="main"
+        ref={mainRef}
         tabIndex={-1}
         className={page === "device" && tab === "terminal" ? "terminal-main" : undefined}
       >

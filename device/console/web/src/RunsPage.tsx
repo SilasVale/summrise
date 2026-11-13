@@ -174,6 +174,11 @@ export function RunsPage({
   useEffect(() => {
     if (!detail) return;
     detailRef.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+    // **THE RECORD TAKES FOCUS WHEN IT ARRIVES.** The reading line told a screen reader that a read
+    // was in flight and the record then appeared silently below it; the row's own button kept focus
+    // only because the row now stays focusable (`aria-disabled`, not `disabled`), so the operator's
+    // next Tab has somewhere to land. The card is the thing that changed, so it is the thing focused.
+    detailRef.current?.focus?.();
   }, [detail]);
 
   const copyCommand = async (text: string) => {
@@ -208,11 +213,15 @@ export function RunsPage({
         </button>
       </div>
       {historyError && <p className="error">{historyError}</p>}
-      {detailId && <p className="hint">Reading run {detailId}…</p>}
+      {detailId && (
+        <p className="hint" role="status">
+          Reading run {detailId}…
+        </p>
+      )}
       {detailError && <p className="error">{detailError}</p>}
 
       {detail && (
-        <section className="card runs-detail" ref={detailRef}>
+        <section className="card runs-detail" ref={detailRef} tabIndex={-1}>
           <header>
             <strong className="mono">{detail.id}</strong>
             <div className="actions">
@@ -333,7 +342,7 @@ export function RunsPage({
                       type="button"
                       className="runs-open"
                       aria-expanded={detail?.id === row.id}
-                      disabled={detailId !== null}
+                      aria-disabled={detailId !== null}
                       title={commandLine(row)}
                       onClick={() => void show(row)}
                     >

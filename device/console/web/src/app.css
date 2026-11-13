@@ -1655,7 +1655,11 @@ button.runs-open:hover {
   color: var(--accent);
   text-decoration: underline;
 }
-button.runs-open:disabled {
+/* A ROW IS GUARDED WHILE A RECORD IS BEING READ — `aria-disabled`, not `disabled` (the twenty-
+   second list, PR #107): a disabled button dropped the focus the operator had on it. The muted
+   colour is the same statement without taking the focus. */
+button.runs-open:disabled,
+button.runs-open[aria-disabled="true"] {
   color: var(--ink-muted);
   text-decoration: none;
   cursor: default;

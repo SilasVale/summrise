@@ -1824,6 +1824,9 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
     expect(screen.getByRole("heading", { name: "Activity", level: 1 })).toBeInTheDocument();
+    // A rail click replaces the button it came from, so the destination itself takes the focus:
+    // the next Tab is the page's first control, not the next rail destination.
+    expect(screen.getByRole("main")).toHaveFocus();
     // The empty sentence below is the table's; Activity opens on the timeline, so open the table.
     fireEvent.click(screen.getByRole("tab", { name: "Table" }));
     expect(screen.getByText(/No calls yet\./)).toBeInTheDocument();
@@ -2088,6 +2091,9 @@ describe("App", () => {
     const workspace = await screen.findByTestId("workspace");
     expect(mocks.grant).not.toHaveBeenCalled();
     expect(workspace).toHaveAttribute("data-visible", "yes");
+    // The fleet door's own button unmounts when the workspace replaces Home; the page takes the
+    // focus it would otherwise have left on <body>.
+    expect(screen.getByRole("main")).toHaveFocus();
 
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
     // The empty sentence below is the table's; Activity opens on the timeline, so open the table.
