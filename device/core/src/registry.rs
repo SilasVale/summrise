@@ -46,31 +46,7 @@ pub const CAPABILITIES: &[Capability] = &[
     crate::capabilities::monitor::CAPABILITY,
     crate::capabilities::runs::CAPABILITY,
     crate::capabilities::system::CAPABILITY,
-    Capability {
-        name: "host",
-        tools: &[
-            ToolDef {
-                name: "host.facts",
-                destructive: false,
-                // Read-only, and the console's device page is the caller: an operator should not need a
-                // grant to learn what machine a device is.
-                description:
-                    "Read what this machine is running on: operating system and build, host name, uptime, CPU cores, memory and disk totals, and the Windows sessions with their state (active, connected, disconnected, idle). Also whether the per-user helper is registered, its pid and session. Facts that cannot be read are zero or empty, never an error.",
-                schema: None,
-            },
-            ToolDef {
-                name: "host.restart",
-                destructive: true,
-                // The app ends and the launcher starts it again: every live session ends with it.
-                // The budget is the launcher's, so it is stated where the operator chooses, not
-                // discovered by repeating the call until the device stays down.
-                description:
-                    "Restart this machine's app through its launcher. Terminals, browser tabs and runs on this machine end, and the machine goes offline briefly. The launcher allows three consecutive restarts, so repeated restarts can leave the device down; a standalone process refuses.",
-                schema: None,
-            },
-        ],
-        guide: "",
-    },
+    crate::capabilities::host::CAPABILITY,
     Capability {
         name: "screen",
         tools: &[ToolDef {

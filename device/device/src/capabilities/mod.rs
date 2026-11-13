@@ -9,6 +9,7 @@
 pub mod browser;
 pub mod files;
 pub mod forward;
+pub mod host;
 pub mod memory;
 pub mod monitor;
 pub(crate) mod owned;
@@ -42,6 +43,11 @@ pub struct Ctx<'a> {
     pub runs: &'a std::sync::Arc<runs::Runs>,
     /// The forward rules.
     pub forwards: &'a std::sync::Arc<forward::ForwardRegistry>,
+    /// Where the device keeps its files (the facts read the boot journal there).
+    pub data_dir: &'a std::path::Path,
+    /// Whether the launcher started this process, and the hook that asks it to restart.
+    pub supervised: bool,
+    pub restart: &'a crate::restart::Hook,
 }
 
 /// Whether a migrated capability declares `tool`.
@@ -54,6 +60,7 @@ pub fn owns(tool: &str) -> bool {
         || runs::owns(tool)
         || system::owns(tool)
         || forward::owns(tool)
+        || host::owns(tool)
 }
 
 /// Every tool a migrated capability declares, for the registry-alignment test.
@@ -67,6 +74,7 @@ pub fn names() -> impl Iterator<Item = &'static str> {
         .chain(runs::names())
         .chain(system::names())
         .chain(forward::names())
+        .chain(host::names())
 }
 
 /// Run a migrated capability's tool.
@@ -98,6 +106,9 @@ pub async fn call(
     }
     if forward::owns(tool) {
         return forward::call(ctx.forwards, tool, arguments);
+    }
+    if host::owns(tool) {
+        return host::call(tool, arguments, ctx.data_dir, ctx.supervised, ctx.restart);
     }
     Err(crate::mcp::ToolError::Internal(format!(
         "{tool}: no migrated capability declares it"

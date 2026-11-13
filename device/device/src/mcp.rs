@@ -36,7 +36,7 @@ use rmcp::transport::streamable_http_server::session::local::LocalSessionManager
 use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
 use rmcp::{ErrorData as McpError, ServerHandler};
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::{json, Map, Value};
 use summrise_core::grant::{Grant as ConsoleGrant, CLOCK_SKEW_MS};
 use summrise_core::{
@@ -521,20 +521,6 @@ impl DeviceServer {
     /// caller, and the handler cannot observe the write itself. A standalone app never calls the
     /// hook — exiting there would end the app with nothing to bring it back — so the refusal is the
     /// answer, not a failed attempt.
-    fn restart_app(&self) -> Result<String, ToolError> {
-        if !self.supervised {
-            return Err(ToolError::Refused(
-                "this device was not started by the launcher; restarting it here would not bring it \
-                 back"
-                    .to_owned(),
-            ));
-        }
-
-        let answer = json!({ "restarting": true }).to_string();
-        (self.restart)();
-        Ok(answer)
-    }
-
     /// Log the authorization half of a call before anything can have a side effect.
     ///
     /// The caller awaits this before `dispatch`; a session close or process stop after dispatch but
@@ -1010,6 +996,9 @@ impl DeviceServer {
                 monitor: &self.monitor,
                 runs: &self.runs,
                 forwards: &self.forwards,
+                data_dir: self.store.data_dir(),
+                supervised: self.supervised,
+                restart: &self.restart,
             };
             return crate::capabilities::call(name, arguments, &ctx).await;
         }
@@ -1018,15 +1007,6 @@ impl DeviceServer {
         };
 
         match handler {
-            Handler::HostFacts => {
-                // Read-only, and the one tool an operator can call without minting a grant: knowing
-                // what machine a device is is context for every decision that follows.
-                Ok(crate::host::facts(self.store.data_dir()).to_string())
-            }
-            Handler::HostRestart => {
-                let _arguments: EmptyArgs = parse(arguments, name)?;
-                self.restart_app()
-            }
             Handler::ScreenCapture => {
                 // The one tool that runs where this process cannot: the picture comes from the
                 // per-user helper, and "no helper" is a sentence rather than a black frame.
@@ -1253,8 +1233,6 @@ fn jsonrpc_error(id: Value, code: i32, message: &str) -> Value {
 /// One implementation of one registry tool.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Handler {
-    HostFacts,
-    HostRestart,
     ScreenCapture,
     StateGet,
     JournalGet,
@@ -1271,8 +1249,6 @@ enum Handler {
 /// registry entry fails `every_implementation_is_registered`. `tools/list` cannot advertise a tool
 /// the surface cannot run without that test going red.
 const HANDLERS: &[(&str, Handler)] = &[
-    ("host.facts", Handler::HostFacts),
-    ("host.restart", Handler::HostRestart),
     ("screen.capture", Handler::ScreenCapture),
     ("state.get", Handler::StateGet),
     ("journal.get", Handler::JournalGet),
@@ -1442,16 +1418,6 @@ fn input_schema(definition: &ToolDef) -> Value {
         return schema();
     }
     match definition.name {
-        "host.facts" => json!({
-            "type": "object",
-            "properties": {},
-            "additionalProperties": false
-        }),
-        "host.restart" => json!({
-            "type": "object",
-            "properties": {},
-            "additionalProperties": false
-        }),
         "screen.capture" => json!({
             "type": "object",
             "properties": {},
@@ -2202,11 +2168,6 @@ fn journal_traces_document(
         "missing": if bounded { Vec::new() } else { missing },
     })
 }
-
-/// A tool whose input schema declares no properties.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct EmptyArgs {}
 
 /// Parse the session id a client sent back, refusing a spelling this device never mints.
 ///

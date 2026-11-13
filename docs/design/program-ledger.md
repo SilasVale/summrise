@@ -402,6 +402,13 @@ carries the `Arc<ForwardRegistry>` (a rule installs its own listener). Guide: ei
 tool headings. Evidence: 669 device tests, 104 core tests, `clippy`/`fmt` clean, gate 14 / 22 / 0.
 Next: `host` (two), then `journal`, `plugins`, `guide`.
 
+**Round 23 — `host` moves.** Two tools (facts, restart) declared in `core/src/capabilities/host.rs`.
+The facts still come from `crate::host::facts`, but the tool surface and the restart rule live in
+`capabilities/host.rs`: the `Ctx` now carries the data directory, the launcher flag and the restart
+hook, and the old `restart_app` method is gone (a second copy of the rule). Guide: nine capabilities,
+41 tool headings. Evidence: 669 device tests, 104 core tests, `clippy`/`fmt` clean, gate 14 / 22 / 0.
+Next: `journal` (three), then `plugins` (five), `guide`.
+
 
 ## Next (in order)
 
