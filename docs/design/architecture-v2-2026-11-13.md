@@ -30,7 +30,24 @@ decision that replaces it is D1.
 
 ### D1 — Two jobs, two stores
 
-| | stream (`journal`) | record (`SQLite`) |
+**The contract is the architecture; the engine is not.** A record here must: append a unit of work in
+one transaction; list and paginate by time, tool, token, device and status; aggregate a day; find a row
+by trace; delete by a retention policy; back itself up and restore; check its own integrity at boot; and
+refuse to be written by more than one process. Those requirements come from the product ("record and
+brake"), not from a database vendor, and any engine that meets them is acceptable.
+
+SQLite is the **default engine** because it meets them cheaply on Windows: transactions and WAL crash
+recovery, indexes for the queries above, one file to copy for a backup (`VACUUM INTO`), `quick_check`,
+no server to operate, bundled into the binary. It is not a load-bearing architectural choice: the
+boundary rule is that **SQL lives only in the `store` module**, and every caller uses record operations
+(`append_call`, `list_calls`, `day_counts`, `find_trace`, `prune`, `backup`, `check`). Replacing the
+engine is replacing that module plus an export/import; no capability, entry or page changes.
+
+The one thing the interface must not become is a generic CRUD layer. It names the product's questions;
+when the questions change, the interface changes with them. That is cheaper than an abstraction built
+to anticipate an engine swap that may never happen.
+
+| | stream (`journal`) | record (default engine: SQLite) |
 |---|---|---|
 | what it is | append-only events, fsync, segmented | transactional tables, WAL, indexed |
 | what it is for | live subscriptions, replay of recent events | the record: calls, sessions, plugins, tokens, deploys |
@@ -46,9 +63,26 @@ console refused). The device's database is the home of machine-side facts (what 
 with what outcome). A proxied call appears in both as two *perspectives* joined by `trace.call` — not as
 two copies of one fact.
 
-Why SQLite and not JSON Lines: transactions, WAL crash recovery, indexes for "show me the calls that
-failed today", a single file to back up (`VACUUM INTO`), `PRAGMA integrity_check`, and no server to
-operate. It compiles into the binary (bundled), so Windows still has no runtime dependency.
+Why not JSON Lines: no transactions, no indexes, no integrity check, and a rotation that silently
+drops the oldest rows — which is exactly the failure this design replaces. The engine is the cheap part;
+the guarantees are the point.
+
+### D1b — The bus stays, as the stream
+
+Nothing about subscriptions is removed. The `journal` module keeps the whole event mechanism the
+product already uses: `subscribe(from_seq)` with replay-then-live, the channel's `sub` / `evt` / `reset`
+frames, `lagged` when a subscriber falls behind, terminal follow on a session's notifier, and the page's
+SSE. The event names stay too: `call.started`, `call.finished` / `call.denied`, `session.opened` /
+`closed`, the plugin lifecycle, state changes.
+
+What changes is its job. The stream is published **after** the record commits (an outbox, not a second
+home). A subscriber that lags or is reset recovers by querying the record — not by replaying a stream
+that retention may have shortened. That is what lets the stream be small; it is also why the console can
+stop being the second writer of a call and become a reader of the device's perspective.
+
+The crate is gone, the mechanism is not: `bus` becomes `device/src/journal`, owned by one process. It
+stops being a general-purpose library the console also links, because there is now only one writer and
+one reader shape.
 
 ### D2 — Every fact carries its identity
 

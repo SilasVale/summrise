@@ -58,8 +58,8 @@
 <body>
 <div class="canvas">
 
-  <div class="h1">summrise · 目标架构<small>一个进程 · 一条日志 · 三个扩展点 · 没有第二份真相</small></div>
-  <div class="sub">重画版：按“加一个东西要改几处”设计，不是按现在的 crate 目录画。</div>
+  <div class="h1">summrise · 目标架构<small>一个设备进程 · 一条事件流 · 一个 SQLite 记录 · 三个扩展点</small></div>
+  <div class="sub">重画版：事件流负责实时，记录负责持久；账本不再押在会被轮转的日志上。</div>
 
   <!-- 使用者与入口 -->
   <div class="note" style="left:48px; top:106px; letter-spacing:.4px;">使用者 · 入口</div>
@@ -124,30 +124,36 @@
       <div class="d">信任的 MCP 子进程；工具并入注册表</div>
     </div>
     <div class="card" style="left:584px; top:352px; width:276px; height:72px;">
-      <div class="t">监督 <en>supervisor</en></div>
-      <div class="d">重启、退避、隔离；每次变动都记日志</div>
+      <div class="t">订阅 <en>subscribe</en></div>
+      <div class="d">控制台、面板、插件宿主订阅事件；落后说 lagged，越界说 reset</div>
     </div>
 
-    <div class="card accent" style="left:20px; top:440px; width:840px; height:88px;">
-      <div class="t">日志 · 唯一真相 <en>journal</en></div>
-      <div class="d">(epoch, seq) · 分段 · 保留 · 快照 · 订阅 · 每一次调用成对写入（开始 / 结束或拒绝）</div>
-      <div class="d">页面、审计、回放、按天计数，全是它的投影，不另存一份。</div>
+    <div class="card accent" style="left:20px; top:440px; width:500px; height:96px;">
+      <div class="t">记录 · SQLite <en>the record</en></div>
+      <div class="d">调用、会话、插件、状态；WAL · 索引 · 按策略保留 · 备份 · 启动自检</div>
+      <div class="d">每条事实的家：页面列表、审计、按天计数都查它，不扫日志。</div>
     </div>
 
-    <div class="card" style="left:20px;  top:544px; width:270px; height:58px;">
-      <div class="t">状态 <en>投影</en></div>
-      <div class="d">state.json · 启动时快照 + 尾部重放</div>
+    <div class="card" style="left:532px; top:440px; width:328px; height:96px;">
+      <div class="t">事件流 <en>journal</en></div>
+      <div class="d">有界（大小 + 时间）；订阅、回放、(epoch, seq)、lagged / reset</div>
+      <div class="d">只负责实时推送；旧事件被轮转掉没关系，记录里还在。</div>
     </div>
-    <div class="card" style="left:302px; top:544px; width:270px; height:58px;">
+
+    <div class="card" style="left:20px;  top:548px; width:270px; height:58px;">
       <div class="t">更新 <en>release</en></div>
       <div class="d">版本、自更新、修复任务</div>
     </div>
-    <div class="card" style="left:584px; top:544px; width:276px; height:58px;">
+    <div class="card" style="left:302px; top:548px; width:270px; height:58px;">
       <div class="t">传输 <en>transport</en></div>
       <div class="d">拨号、重连、穿透</div>
     </div>
+    <div class="card" style="left:584px; top:548px; width:276px; height:58px;">
+      <div class="t">监督 <en>supervisor</en></div>
+      <div class="d">重启、退避、隔离；每次变动进记录</div>
+    </div>
 
-    <div class="note" style="left:22px; top:624px;">扩展规则：加能力 = 加一个模块；加入口 = 加一个适配器；收紧权限 = 加一个中间件。</div>
+    <div class="note" style="left:22px; top:622px;">扩展规则：加能力 = 加一个模块；加入口 = 加一个适配器；收紧权限 = 加一个中间件。</div>
   </div>
 
   <!-- 控制台进程 -->
@@ -165,12 +171,12 @@
 
     <div class="card" style="left:20px; top:132px; width:512px; height:58px;">
       <div class="t">通道路由 <en>channel</en></div>
-      <div class="d">把请求转给设备，把订阅转给页面</div>
+      <div class="d">请求下行；事件上行（sub / evt / reset）</div>
     </div>
 
     <div class="card" style="left:20px; top:202px; width:250px; height:76px;">
-      <div class="t">只读副本 <en>replica</en></div>
-      <div class="d">订阅设备日志，不再自己记第二本账</div>
+      <div class="t">记录 <en>SQLite</en></div>
+      <div class="d">操作者的事实：token、enroll、拒绝、部署；设备的事实经通道来</div>
     </div>
     <div class="card" style="left:282px; top:202px; width:250px; height:76px;">
       <div class="t">HTTP · SSE <en>api</en></div>
@@ -186,8 +192,8 @@
   <!-- 数据目录 -->
   <div class="proc" style="left:980px; top:640px; width:572px; height:150px; background:var(--panel2);">
     <div class="ptitle">数据目录 <em>每台机器一个</em></div>
-    <div class="card" style="left:20px; top:48px; width:160px; height:72px;"><div class="t">journal/</div><div class="d">分段 + 快照</div></div>
-    <div class="card" style="left:192px; top:48px; width:160px; height:72px;"><div class="t">state.json</div><div class="d">日志的投影</div></div>
+    <div class="card" style="left:20px; top:48px; width:160px; height:72px;"><div class="t">record.db</div><div class="d">SQLite 记录（WAL）</div></div>
+    <div class="card" style="left:192px; top:48px; width:160px; height:72px;"><div class="t">journal/</div><div class="d">事件流（有界）</div></div>
     <div class="card" style="left:364px; top:48px; width:168px; height:72px;"><div class="t">plugins/</div><div class="d">清单 + 目录</div></div>
   </div>
 
@@ -197,7 +203,7 @@
       <div class="row"><span class="sw"></span>调用 / 请求</div>
       <div class="row"><span class="sw dash"></span>事件 / 订阅</div>
       <div class="row"><span class="sw thin"></span>生成 / 监督</div>
-      <div class="row"><span class="sw orange"></span>唯一真相与它的投影</div>
+      <div class="row"><span class="sw orange"></span>记录写入 / 查询</div>
       <div class="note" style="margin-top:6px; position:static; font-size:11.5px;">设备 → 控制台：主动拨入一条 WS；请求下行，事件上行。控制台可以没有——设备自己就是 MCP 服务。</div>
     </div>
   </div>
@@ -234,7 +240,7 @@
 
     <!-- 日志 -> 数据目录（投影） -->
     <path d="M 928 700 L 954 700 L 954 676 L 978 676" fill="none" stroke="#b45309" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#ao)"/>
-    <text x="900" y="690" font-size="11" fill="#7c3a06">投影</text>
+    <text x="900" y="690" font-size="11" fill="#7c3a06">写入</text>
   </svg>
 
 </div>
