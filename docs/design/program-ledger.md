@@ -292,24 +292,29 @@ below ladders to that; one round completes one major item end to end.
 
 - 2026-11-13 — **The fleet's record is asked for, bounded: "All machines" draws and counts the
   machines' own journals.** A fleet window spans machines, so it drew only the console's rows and
-  counted only the console's audit. The page now fans out to the online machines the fleet names — at
+  counted only the console's audit. Activity now fans out to the online machines the fleet names — at
   most 8, in the fleet's order, one newest `journal.read` page and one `journal.day` of the block the
-  header counts each, cached 30 s — merges their `panel`/`mesh`/`loopback` calls into the console's
-  rows (the console's row wins a call by `trace.call`; the untraced fallback names the machine, and
-  the row key gained the machine too, because two journals can write the same instant and tool), and
-  adds their `loopback` counts to the day sentence as "N straight to the machines". What was not read
-  is named, never zeroed: the footer lists the machines whose journal was not read and why and the
-  machines the cap left out, and a header note gives the count of machines whose direct calls are
-  missing — silent while a read is in flight. A journal-less machine is complete, not missing. Three
-  stated limits: 16 device calls per 30 s at the cap (~3 MB a day per asked machine in its journal,
-  console-door rows the page never draws), a fleet day that is a floor above 8 machines, and join
-  marks that stay a machine window's fact. **"Clients only" now counts a `loopback` door as a client
-  call** (a machine row's only proof; `panel`/`mesh` are not the AI's clients), page-only: the shared
-  audit table has no door. Evidence: page 1 389 and `tsc` clean, `build-web.sh --check` green, the
-  browser gate PASS (107 steps — its stub now answers both journal routes, because the fan-out asks
-  them for every machine it draws), `scripts/check.sh` every command passed; App tests fan out to
-  two machines, count both days, name the one that failed, and keep two machines' identical rows as
-  two rows.
+  header counts each, cached 30 s, only while Activity shows the fleet window (Home and the Device
+  picker ask nothing) — merges their `panel`/`mesh`/`loopback` calls into the console's rows (the
+  console's row wins a call by `trace.call`; the untraced fallback names the machine, and the row key
+  is the machine plus the journal's own position, because two machines — or two calls on one — can
+  write the same instant, tool and outcome), and adds their `loopback` counts to the day sentence as
+  "N straight to the machines". A refresh keeps the page and day it had (a failed refresh does not
+  turn an answered machine into an unread one), a still-running read makes the number "at least", and
+  what was not read is named, never zeroed: the footer lists the machines whose journal was not read
+  and why and the machines the cap left out, and the header's note names the machines whose **day** is
+  missing — a machine whose rows were read but whose day failed is only in the note, and vice versa.
+  A journal-less machine is complete, not missing, from either answer. Four stated limits: 16 device
+  calls per 30 s at the cap while Activity is open (~3 MB a day per asked machine in its journal,
+  console-door rows the page never draws), a fleet day that is a floor above 8 machines, a window the
+  page left forgotten after ten cache windows, and join marks that stay a machine window's fact.
+  **"Clients only" now counts a `loopback` door as a client call** (a machine row's only proof;
+  `panel`/`mesh` are not the AI's clients), page-only: the shared audit table has no door. Evidence:
+  page 1 396 and `tsc` clean, `build-web.sh --check` green, the browser gate PASS (107 steps — its
+  stub now answers both journal routes, because the fan-out asks them for every machine it draws),
+  `scripts/check.sh` every command passed; App tests fan out to two machines, count both days, name
+  the one that failed, and keep two machines' identical rows as two rows; a review found the refresh
+  erase and the note/footer split, both fixed with tests before merge.
 
 ## Next (in order)
 

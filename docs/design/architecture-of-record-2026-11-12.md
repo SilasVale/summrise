@@ -247,17 +247,24 @@ in the fleet's order, one `journal.read` of the newest page and one `journal.day
 header counts each, cached 30 s — and merges what they say. A machine's `panel`/`mesh`/`loopback`
 calls join the console's rows; the console's row wins a call by `trace.call`, and the untraced
 fallback names the machine, because two journals can write the same instant, tool and outcome (the
-page's row key gained the machine for the same reason). The machines' `loopback` counts are added to
-the day sentence as "N straight to the machines", with "at least" when a scan was cut **or** a machine
-was not counted. What was not read is named rather than folded into a zero: the footer lists the
-machines whose journal was not read and why (did not answer, does not offer it, offline) and the
-machines the cap left out; the header's note gives the count of machines whose direct calls the day
-does not hold, and is silent while a read is in flight — counting is not the same as not counted. A
-journal-less machine is complete, not missing: its calls are all in the console's audit. Three limits
-are stated with the feature: the fan-out costs 16 device calls per 30 s at the cap (each a
-console-door call the page never draws, two journal events, about 3 MB a day per asked machine at the
-retention the journal keeps); the fleet's day therefore sums at most 8 machines and says when it is a
-floor; and the join marks remain a machine window's fact — a fleet window asks no single journal for
+page's row key is the machine plus the journal's own position for the same reason). The machines'
+`loopback` counts are added to the day sentence as "N straight to the machines", with "at least" when
+a scan was cut **or** a machine was not counted — including one whose read is still in flight, so a
+partial sum never looks precise. What was not read is named rather than folded into a zero: the
+footer lists the machines whose journal was not read and why (did not answer, does not offer it,
+offline) and the machines the cap left out; the header's note names the machines whose **day** is
+missing — up to three, then a count — because a machine whose rows were read but whose day failed is
+absent from the footer and must still be findable; both are silent while a read is in flight, since
+counting is not the same as not counted. A journal-less machine is complete, not missing: either
+answer's `journal: false` says its calls are all in the console's audit. **A refresh keeps the answer
+it had**: the hook holds the last page and day while a new read is out and keeps them when that read
+fails, so a 30 s cycle neither blinks the rows nor turns an answered machine into an unread one. Four
+limits are stated with the feature: the fan-out costs 16 device calls per 30 s at the cap while
+Activity shows the fleet window (Home and the Device picker ask nothing; each call is a console-door
+call the page never draws, two journal events, about 3 MB a day per asked machine at the retention the
+journal keeps); the fleet's day therefore sums at most 8 machines and says when it is a floor; a
+window the page left is forgotten after ten cache windows, so a long-lived tab does not grow without
+bound; and the join marks remain a machine window's fact — a fleet window asks no single journal for
 them, so a fleet row is still never marked `only here`. **"Clients only" now counts a `loopback` door
 as a client call**: a machine row has no caller and no token, and the door is its only proof, while
 `panel` (the desktop) and `mesh` (a peer) are not the AI's clients. The shared audit table
