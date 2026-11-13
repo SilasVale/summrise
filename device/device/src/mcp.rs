@@ -21,7 +21,6 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
 
 use axum::body::{Body, Bytes};
 use axum::http::{header, Request, StatusCode};
@@ -46,7 +45,7 @@ use summrise_core::{
 use tokio::io::AsyncWriteExt;
 
 use crate::capabilities::{
-    browser, forward, memory, monitor, plugins as plugins_capability, runs, ssh, system, terminal,
+    browser, forward, memory, monitor, plugins as plugins_capability, runs, ssh, terminal,
 };
 use crate::config::{Config, Release};
 use crate::plugins::host::PluginHost;
@@ -71,9 +70,6 @@ pub(crate) const MAX_FILE_BYTES: usize = 1024 * 1024;
 pub(crate) const MAX_BODY_BYTES: usize = 8 * 1024 * 1024;
 
 /// How many trailing lines `terminal.screen` returns when the caller names no count.
-/// How long `system.net_test` waits when the caller names no timeout.
-const DEFAULT_NET_TIMEOUT_MS: u64 = 5_000;
-
 /// The terminal size `terminal.create` uses when the caller names none.
 /// The largest the audit file may become before it is rotated to `events.1.jsonl`.
 const AUDIT_MAX_BYTES: u64 = 64 * 1024 * 1024;
@@ -1050,65 +1046,6 @@ impl DeviceServer {
                 let state: Vec<Value> = self.forwards.list().into_iter().map(forward_row).collect();
                 Ok(Value::Array(state).to_string())
             }
-            Handler::SystemProcessList => {
-                let arguments: ProcessListArgs = parse(arguments, name)?;
-                let found = system::processes(arguments.name.as_deref())
-                    .map_err(|error| refused(name, error))?;
-                let found: Vec<Value> = found
-                    .iter()
-                    .map(|process| {
-                        json!({
-                            "pid": process.pid,
-                            "name": process.name,
-                            "memory_kb": process.memory_kb,
-                        })
-                    })
-                    .collect();
-                Ok(Value::Array(found).to_string())
-            }
-            Handler::SystemProcessKill => {
-                let arguments: ProcessKillArgs = parse(arguments, name)?;
-                let report = system::kill(arguments.pid, arguments.name.as_deref())
-                    .map_err(|error| refused(name, error))?;
-                let failed: Vec<Value> = report
-                    .failed
-                    .iter()
-                    .map(|(pid, reason)| json!({ "pid": pid, "reason": reason }))
-                    .collect();
-                Ok(json!({ "killed": report.killed, "failed": failed }).to_string())
-            }
-            Handler::SystemNetTest => {
-                let arguments: NetTestArgs = parse(arguments, name)?;
-                let timeout = Duration::from_millis(
-                    arguments
-                        .timeout_ms
-                        .unwrap_or(DEFAULT_NET_TIMEOUT_MS)
-                        .clamp(1, system::MAX_TIMEOUT_MS),
-                );
-                // **THE RESOLVER IS A BLOCKING CALL AND THIS IS A REACTOR THREAD.** A name the DNS
-                // server never answers used to park a Tokio worker for the resolver's own budget before
-                // the connect timeout even started, and every other call on that worker waited behind
-                // it — which is how a healthy device answers a console call 30 s late. The work moves to
-                // the blocking pool, where parking it costs nothing.
-                let (host, port) = (arguments.host.clone(), arguments.port);
-                let report =
-                    tokio::task::spawn_blocking(move || system::net_test(&host, port, timeout))
-                        .await
-                        .map_err(|_| {
-                            refused(
-                                name,
-                                system::SystemError::Unresolved(arguments.host.clone()),
-                            )
-                        })?
-                        .map_err(|error| refused(name, error))?;
-                Ok(json!({
-                    "addresses": report.addresses,
-                    "connected": report.connected,
-                    "latency_ms": report.latency_ms,
-                    "error": report.error,
-                })
-                .to_string())
-            }
             Handler::HostFacts => {
                 // Read-only, and the one tool an operator can call without minting a grant: knowing
                 // what machine a device is is context for every decision that follows.
@@ -1347,9 +1284,6 @@ enum Handler {
     ForwardAdd,
     ForwardRemove,
     ForwardList,
-    SystemProcessList,
-    SystemProcessKill,
-    SystemNetTest,
     HostFacts,
     HostRestart,
     ScreenCapture,
@@ -1371,9 +1305,6 @@ const HANDLERS: &[(&str, Handler)] = &[
     ("forward.add", Handler::ForwardAdd),
     ("forward.remove", Handler::ForwardRemove),
     ("forward.list", Handler::ForwardList),
-    ("system.process_list", Handler::SystemProcessList),
-    ("system.process_kill", Handler::SystemProcessKill),
-    ("system.net_test", Handler::SystemNetTest),
     ("host.facts", Handler::HostFacts),
     ("host.restart", Handler::HostRestart),
     ("screen.capture", Handler::ScreenCapture),
@@ -1612,54 +1543,6 @@ fn input_schema(definition: &ToolDef) -> Value {
         "forward.list" => json!({
             "type": "object",
             "properties": {},
-            "additionalProperties": false
-        }),
-        "system.process_list" => json!({
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Only processes whose executable name contains this text, case-insensitively."
-                }
-            },
-            "additionalProperties": false
-        }),
-        "system.process_kill" => json!({
-            "type": "object",
-            "properties": {
-                "pid": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "description": "A process id; name a pid or a name, not both."
-                },
-                "name": {
-                    "type": "string",
-                    "description": "An exact executable name, case-insensitive; every match is ended."
-                }
-            },
-            "additionalProperties": false
-        }),
-        "system.net_test" => json!({
-            "type": "object",
-            "properties": {
-                "host": {
-                    "type": "string",
-                    "description": "A host name or IP address to resolve and connect to."
-                },
-                "port": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 65535,
-                    "description": "The TCP port to connect to."
-                },
-                "timeout_ms": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": system::MAX_TIMEOUT_MS,
-                    "description": format!("The total time to spend resolving and connecting (default {DEFAULT_NET_TIMEOUT_MS}).")
-                }
-            },
-            "required": ["host", "port"],
             "additionalProperties": false
         }),
         "host.facts" => json!({
@@ -2427,30 +2310,6 @@ fn journal_traces_document(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct EmptyArgs {}
-
-/// The arguments `system.process_list` takes.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ProcessListArgs {
-    name: Option<String>,
-}
-
-/// The arguments `system.process_kill` takes: one target, a pid or a name.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ProcessKillArgs {
-    pid: Option<u32>,
-    name: Option<String>,
-}
-
-/// The arguments `system.net_test` takes.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct NetTestArgs {
-    host: String,
-    port: u16,
-    timeout_ms: Option<u64>,
-}
 
 /// The arguments `forward.add` takes.
 #[derive(Deserialize)]

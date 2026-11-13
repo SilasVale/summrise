@@ -45,35 +45,7 @@ pub const CAPABILITIES: &[Capability] = &[
     crate::capabilities::browser::CAPABILITY,
     crate::capabilities::monitor::CAPABILITY,
     crate::capabilities::runs::CAPABILITY,
-    Capability {
-        name: "system",
-        tools: &[
-            // Killing ends a process the device may not own, so it is destructive. Listing and a
-            // network test only observe, and neither changes what a later read sees.
-            ToolDef {
-                name: "system.process_list",
-                destructive: false,
-                description:
-                    "List running processes on this machine: pid, executable name and resident memory, optionally filtered by name.",
-                schema: None,
-            },
-            ToolDef {
-                name: "system.process_kill",
-                destructive: true,
-                description:
-                    "Terminate processes by pid or by exact name; the result names the pids that were signalled and the pids that could not be.",
-                schema: None,
-            },
-            ToolDef {
-                name: "system.net_test",
-                destructive: false,
-                description:
-                    "Resolve a host name and connect to one TCP port from this machine, returning the addresses resolved and the connect latency; ICMP needs raw sockets, so it is not offered.",
-                schema: None,
-            },
-        ],
-        guide: "",
-    },
+    crate::capabilities::system::CAPABILITY,
     Capability {
         name: "host",
         tools: &[

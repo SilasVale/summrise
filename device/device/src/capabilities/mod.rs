@@ -50,6 +50,7 @@ pub fn owns(tool: &str) -> bool {
         || browser::owns(tool)
         || monitor::owns(tool)
         || runs::owns(tool)
+        || system::owns(tool)
 }
 
 /// Every tool a migrated capability declares, for the registry-alignment test.
@@ -61,6 +62,7 @@ pub fn names() -> impl Iterator<Item = &'static str> {
         .chain(browser::names())
         .chain(monitor::names())
         .chain(runs::names())
+        .chain(system::names())
 }
 
 /// Run a migrated capability's tool.
@@ -86,6 +88,9 @@ pub async fn call(
     }
     if runs::owns(tool) {
         return runs::call(ctx.runs, tool, arguments).await;
+    }
+    if system::owns(tool) {
+        return system::call(tool, arguments).await;
     }
     Err(crate::mcp::ToolError::Internal(format!(
         "{tool}: no migrated capability declares it"

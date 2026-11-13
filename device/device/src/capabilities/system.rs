@@ -27,8 +27,8 @@ use std::time::{Duration, Instant};
 /// The most processes one listing returns. A desktop with more is unusual; a list is for a person.
 pub const MAX_PROCESSES: usize = 4096;
 
-/// The longest a `system.net_test` may wait: one port, not a sweep.
-pub const MAX_TIMEOUT_MS: u64 = 60_000;
+/// The declaration's cap: the schema and this implementation read the same number.
+pub use summrise_core::capabilities::system::MAX_TIMEOUT_MS;
 
 /// One process, as the device can see it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -515,4 +515,119 @@ mod tests {
         let _ = child.kill();
         panic!("a killed child did not exit");
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The declaration's implementation: the device side of `summrise_core::capabilities::system`.
+// ---------------------------------------------------------------------------------------------
+
+use serde::Deserialize;
+use serde_json::{json, Map, Value};
+
+use crate::mcp::{parse, ToolError};
+use summrise_core::capabilities::system::{CAPABILITY, DEFAULT_NET_TIMEOUT_MS};
+
+/// Whether `tool` is one this capability declares.
+pub fn owns(tool: &str) -> bool {
+    CAPABILITY
+        .tools
+        .iter()
+        .any(|declared| declared.name == tool)
+}
+
+/// Every tool this capability declares, for the registry-alignment test.
+#[cfg(test)]
+pub fn names() -> impl Iterator<Item = &'static str> {
+    CAPABILITY.tools.iter().map(|tool| tool.name)
+}
+
+/// Run one of this capability's tools. The work is the machine's; there is no state to pass.
+pub async fn call(tool: &str, arguments: Map<String, Value>) -> Result<String, ToolError> {
+    match tool {
+        "system.process_list" => {
+            let arguments: ProcessListArgs = parse(arguments, tool)?;
+            let found =
+                processes(arguments.name.as_deref()).map_err(|error| refused(tool, error))?;
+            let found: Vec<Value> = found
+                .iter()
+                .map(|process| {
+                    json!({
+                        "pid": process.pid,
+                        "name": process.name,
+                        "memory_kb": process.memory_kb,
+                    })
+                })
+                .collect();
+            Ok(Value::Array(found).to_string())
+        }
+        "system.process_kill" => {
+            let arguments: ProcessKillArgs = parse(arguments, tool)?;
+            let report = kill(arguments.pid, arguments.name.as_deref())
+                .map_err(|error| refused(tool, error))?;
+            let failed: Vec<Value> = report
+                .failed
+                .iter()
+                .map(|(pid, reason)| json!({ "pid": pid, "reason": reason }))
+                .collect();
+            Ok(json!({ "killed": report.killed, "failed": failed }).to_string())
+        }
+        "system.net_test" => {
+            let arguments: NetTestArgs = parse(arguments, tool)?;
+            let timeout = Duration::from_millis(
+                arguments
+                    .timeout_ms
+                    .unwrap_or(DEFAULT_NET_TIMEOUT_MS)
+                    .clamp(1, MAX_TIMEOUT_MS),
+            );
+            // **THE RESOLVER IS A BLOCKING CALL AND THIS IS A REACTOR THREAD.** A name the DNS
+            // server never answers would park a Tokio worker before the connect timeout even
+            // starts. The work moves to the blocking pool, where parking costs nothing.
+            let (host, port) = (arguments.host.clone(), arguments.port);
+            let report = tokio::task::spawn_blocking(move || net_test(&host, port, timeout))
+                .await
+                .map_err(|_| refused(tool, SystemError::Unresolved(arguments.host.clone())))?
+                .map_err(|error| refused(tool, error))?;
+            Ok(json!({
+                "addresses": report.addresses,
+                "connected": report.connected,
+                "latency_ms": report.latency_ms,
+                "error": report.error,
+            })
+            .to_string())
+        }
+        other => Err(ToolError::Internal(format!(
+            "{other}: the system capability does not declare this tool"
+        ))),
+    }
+}
+
+fn refused(tool: &str, error: impl std::fmt::Display) -> ToolError {
+    ToolError::Refused(format!("{tool}: {error}"))
+}
+
+/// The arguments `system.process_list` takes.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProcessListArgs {
+    name: Option<String>,
+}
+
+/// The arguments `system.process_kill` takes: one target, a pid or a name.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProcessKillArgs {
+    pid: Option<u32>,
+    name: Option<String>,
+}
+
+/// The arguments `system.net_test` takes.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NetTestArgs {
+    host: String,
+    port: u16,
+    timeout_ms: Option<u64>,
 }

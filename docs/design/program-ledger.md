@@ -388,6 +388,13 @@ tool-level failure" rule inside the capability module, which also took the failu
 six capabilities, 33 tool headings. Evidence: 669 device tests, 104 core tests, `clippy`/`fmt` clean,
 gate 14 / 22 / 0. Next: `system` (three), then `forward`, `host`, `journal`, `plugins`, `guide`.
 
+**Round 21 — `system` moves.** Three tools (process_list, process_kill, net_test) declared in
+`core/src/capabilities/system.rs`; the network-test caps (60 s ceiling, 5 s default) are the
+declaration's constants and the implementation re-exports them. `net_test` keeps its blocking-pool
+discipline inside the module: the resolver parks there, not on a reactor worker. Guide: seven
+capabilities, 36 tool headings. Evidence: 669 device tests, 104 core tests, `clippy`/`fmt` clean, gate
+14 / 22 / 0. Next: `forward` (three), then `host`, `journal`, `plugins`, `guide`.
+
 
 ## Next (in order)
 

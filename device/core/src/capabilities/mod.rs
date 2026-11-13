@@ -13,6 +13,7 @@ pub mod files;
 pub mod memory;
 pub mod monitor;
 pub mod runs;
+pub mod system;
 pub mod terminal;
 
 /// The capabilities whose declarations live here, in registry order.
@@ -23,4 +24,5 @@ pub const DECLARED: &[&crate::registry::Capability] = &[
     &browser::CAPABILITY,
     &monitor::CAPABILITY,
     &runs::CAPABILITY,
+    &system::CAPABILITY,
 ];
