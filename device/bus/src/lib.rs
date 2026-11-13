@@ -589,7 +589,7 @@ fn read_window_from(
 fn envelope_moment_ms(ts: &str) -> Option<u64> {
     chrono::DateTime::parse_from_rfc3339(ts)
         .ok()
-        .map(|at| u64::try_from(at.timestamp_millis()).unwrap_or(0))
+        .and_then(|at| u64::try_from(at.timestamp_millis()).ok())
 }
 
 /// The rows of one time range, newest first, walking segments and lines backwards.
@@ -1174,14 +1174,25 @@ mod tests {
         let mut bad = good.clone();
         bad.seq = 2;
         bad.ts = "not a moment".to_owned();
+        // A moment before the epoch is not a day this reader can count; it is skipped, never read
+        // as zero (which would end the scan at the newest row and hide everything older).
         text.push_str(&serde_json::to_string(&good).unwrap());
         text.push('\n');
         text.push_str(&serde_json::to_string(&bad).unwrap());
         text.push('\n');
+        let mut before_epoch = good.clone();
+        before_epoch.seq = 3;
+        before_epoch.ts = "1969-12-31T23:59:59Z".to_owned();
+        text.push_str(&serde_json::to_string(&before_epoch).unwrap());
+        text.push('\n');
         fs::write(dir.join(segment_name(1)), text).unwrap();
         let bus = Bus::open(&dir).unwrap();
         let (rows, _) = bus.read_between(0, 3_000, 10).unwrap();
-        assert_eq!(rows.iter().map(|row| row.seq).collect::<Vec<_>>(), vec![1]);
+        assert_eq!(
+            rows.iter().map(|row| row.seq).collect::<Vec<_>>(),
+            vec![1],
+            "the malformed and pre-epoch rows are skipped, and the scan still reaches row 1"
+        );
     }
 
     #[test]

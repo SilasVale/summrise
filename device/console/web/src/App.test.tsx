@@ -1666,6 +1666,16 @@ describe("App", () => {
         "The machine's direct calls were not counted: the machine is not connected."
       )
     );
+
+    // The header still counts today when the rows show a range: the sentence is the day's, so its
+    // warning about the machine's share is not tied to the rows' window.
+    fireEvent.click(screen.getByRole("tab", { name: "Table" }));
+    fireEvent.change(screen.getByLabelText("When"), { target: { value: "hour" } });
+    await waitFor(() =>
+      expect(document.querySelector(".activity-direct")).toHaveTextContent(
+        "The machine's direct calls were not counted: the machine is not connected."
+      )
+    );
   });
 
   it("does not count a paused page's new scope into the frozen day", async () => {

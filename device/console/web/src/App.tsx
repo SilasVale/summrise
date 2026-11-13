@@ -618,8 +618,9 @@ export function App() {
   const machineDayUnread =
     directDay === null &&
     machineDayDevice !== null &&
-    shownWindowDevice === auditScopeDevice &&
-    activityRange === null &&
+    // The sentence describes the window the header is showing; a paused header's device is the frozen
+    // one, so its own failed day read still annotates its own sentence.
+    shownWindowDevice === machineDayDevice &&
     (machineDayForHeader.state === "failed" ||
       (machineDayForHeader.state === "read" && machineDayForHeader.answer?.unknown === true));
   const machineDayNote =
