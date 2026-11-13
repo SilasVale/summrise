@@ -968,9 +968,10 @@ pub fn names() -> impl Iterator<Item = &'static str> {
 pub fn call(
     tool: &str,
     arguments: Map<String, Value>,
-    workspace: &Path,
-    shared: Option<&Path>,
+    ctx: &super::Ctx<'_>,
 ) -> Result<String, ToolError> {
+    let workspace = ctx.files_root;
+    let shared = ctx.files_shared_root;
     match tool {
         "files.read" => {
             let arguments: ReadArgs = parse(arguments, tool)?;

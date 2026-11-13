@@ -40,52 +40,7 @@ pub struct Capability {
 /// change rather than a refactor.
 pub const CAPABILITIES: &[Capability] = &[
     crate::capabilities::files::CAPABILITY,
-    Capability {
-        name: "memory",
-        tools: &[
-            ToolDef {
-                name: "memory.append",
-                destructive: true,
-                description: "Append one entry to this machine's append-only memory and return its id; the id is what memory.update and memory.delete name.",
-                schema: None,
-            },
-            ToolDef {
-                name: "memory.update",
-                destructive: true,
-                description:
-                    "Replace the text and tags of the entry an id names; both are required, tags is the complete new list (send [] to clear them), validation is exactly memory.append's, and an id that is not live is refused as no_such_entry.",
-                schema: None,
-            },
-            ToolDef {
-                name: "memory.delete",
-                destructive: true,
-                description:
-                    "Retire one remembered entry by id; every later read omits it, and a second delete is refused as no_such_entry.",
-                schema: None,
-            },
-            ToolDef {
-                name: "memory.search",
-                destructive: false,
-                description: "Search this machine's memory, newest entries first.",
-                schema: None,
-            },
-            ToolDef {
-                name: "memory.list",
-                destructive: false,
-                description:
-                    "Enumerate remembered entries, newest first, optionally only those carrying one tag; a search matches text, this lists what is there.",
-                schema: None,
-            },
-            ToolDef {
-                name: "memory.export",
-                destructive: false,
-                description:
-                    "Export the whole store as JSONL text, up to 2 MiB; the result names the entry count and whether the cap cut it.",
-                schema: None,
-            },
-        ],
-        guide: "",
-    },
+    crate::capabilities::memory::CAPABILITY,
     Capability {
         name: "terminal",
         tools: &[

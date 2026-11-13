@@ -65,7 +65,7 @@ pub const MAX_TAG_BYTES: usize = 128;
 pub const MAX_ENTRIES: usize = 10_000;
 
 /// The largest number of results one search may return.
-pub const MAX_RESULTS: usize = 100;
+pub use summrise_core::capabilities::memory::MAX_RESULTS;
 
 /// The journal lines a store may carry beyond the two per live entry before it is rewritten as a
 /// snapshot: the two cover an entry's append and one correction, and the allowance keeps a small
@@ -2404,3 +2404,161 @@ mod tests {
         );
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// The declaration's implementation: the device side of `summrise_core::capabilities::memory`.
+// ---------------------------------------------------------------------------------------------
+
+use serde_json::{json, Map, Value};
+use summrise_core::capabilities::memory::{CAPABILITY, DEFAULT_RESULTS};
+
+use crate::mcp::{parse, ToolError};
+
+/// Whether `tool` is one this capability declares.
+pub fn owns(tool: &str) -> bool {
+    CAPABILITY
+        .tools
+        .iter()
+        .any(|declared| declared.name == tool)
+}
+
+/// Every tool this capability declares, for the registry-alignment test.
+#[cfg(test)]
+pub fn names() -> impl Iterator<Item = &'static str> {
+    CAPABILITY.tools.iter().map(|tool| tool.name)
+}
+
+/// Run one of this capability's tools against the store.
+pub fn call(
+    store: &Memory,
+    tool: &str,
+    arguments: Map<String, Value>,
+) -> Result<String, ToolError> {
+    match tool {
+        "memory.append" => {
+            let arguments: AppendArgs = parse(arguments, tool)?;
+            let entry = store
+                .append(&arguments.text, &arguments.tags)
+                .map_err(|error| refused(tool, error))?;
+            Ok(json!({ "appended": true, "id": entry.id }).to_string())
+        }
+        "memory.update" => {
+            let arguments: UpdateArgs = parse(arguments, tool)?;
+            let entry = store
+                .update(&arguments.id, &arguments.text, &arguments.tags)
+                .map_err(|error| refused(tool, error))?;
+            Ok(json!({
+                "id": entry.id,
+                "text": entry.text,
+                "tags": entry.tags,
+            })
+            .to_string())
+        }
+        "memory.delete" => {
+            let arguments: DeleteArgs = parse(arguments, tool)?;
+            store
+                .delete(&arguments.id)
+                .map_err(|error| refused(tool, error))?;
+            Ok(json!({ "deleted": true, "id": arguments.id }).to_string())
+        }
+        "memory.search" => {
+            let arguments: SearchArgs = parse(arguments, tool)?;
+            let limit = arguments.limit.unwrap_or(DEFAULT_RESULTS);
+            let found = store
+                .search(&arguments.query, limit)
+                .map_err(|error| refused(tool, error))?;
+            Ok(entries(&found))
+        }
+        "memory.list" => {
+            let arguments: ListArgs = parse(arguments, tool)?;
+            let limit = arguments.limit.unwrap_or(DEFAULT_RESULTS);
+            let found = store
+                .list(limit, arguments.tag.as_deref())
+                .map_err(|error| refused(tool, error))?;
+            Ok(entries(&found))
+        }
+        "memory.export" => {
+            let _arguments: EmptyArgs = parse(arguments, tool)?;
+            let export = store
+                .export(MAX_EXPORT_BYTES)
+                .map_err(|error| refused(tool, error))?;
+            Ok(json!({
+                "text": export.text,
+                "entries": export.entries,
+                "truncated": export.truncated,
+                "total_bytes": export.total_bytes,
+            })
+            .to_string())
+        }
+        other => Err(ToolError::Internal(format!(
+            "{other}: the memory capability does not declare this tool"
+        ))),
+    }
+}
+
+fn entries(found: &[Entry]) -> String {
+    let found: Vec<Value> = found
+        .iter()
+        .map(|entry| json!({ "id": entry.id, "text": entry.text, "tags": entry.tags }))
+        .collect();
+    Value::Array(found).to_string()
+}
+
+fn refused(tool: &str, error: impl std::fmt::Display) -> ToolError {
+    ToolError::Refused(format!("{tool}: {error}"))
+}
+
+/// The arguments `memory.append` takes.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AppendArgs {
+    text: String,
+    /// Tags are optional: a plain note is still a fact worth remembering.
+    #[serde(default)]
+    tags: Vec<String>,
+}
+
+/// The arguments `memory.update` takes.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UpdateArgs {
+    id: String,
+    text: String,
+    /// The complete replacement, not a patch: an update that omitted tags would silently clear
+    /// them, so the schema requires the field and names [] as the way to clear.
+    tags: Vec<String>,
+}
+
+/// The arguments `memory.delete` takes.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DeleteArgs {
+    id: String,
+}
+
+/// The arguments `memory.search` takes.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SearchArgs {
+    query: String,
+    limit: Option<usize>,
+}
+
+/// The arguments `memory.list` takes.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ListArgs {
+    limit: Option<usize>,
+    tag: Option<String>,
+}
+
+/// A tool whose input schema declares no properties.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EmptyArgs {}

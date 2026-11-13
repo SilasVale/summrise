@@ -345,6 +345,16 @@ the declaration. Evidence: 669 device tests (the full bin suite), `clippy` and `
 `check-architecture` 14 packages / 22 edges / 0 upward. The other twelve capabilities migrate one per
 round; the legacy `input_schema` match and `HANDLERS` shrink as they do.
 
+**Round 16 — `memory` follows the same shape.** Six tools moved to
+`core/src/capabilities/memory.rs`; its two caps (100 results, default 10) are constants of the
+declaration now, and the device module imports them rather than keeping a second copy. The router
+dispatches two capabilities through one `Ctx` (files roots + the memory store), which is the narrow
+context the contract asks for. The seam tests no longer name `files`: they iterate
+`core::capabilities::DECLARED`, so every new capability is held to the same four rules — schema
+declared beside the tool, legacy dispatch row gone, one guide heading, router covers the declaration.
+Evidence: 669 device tests, 104 core tests, `clippy`/`fmt` clean, gate 14 packages / 22 edges / 0
+upward. Next: `terminal` (seven tools, the largest), then the rest.
+
 ## Next (in order)
 
 1. Windows handoff, the interactive half — dispatch or run `summrise-shell.exe --check-window` in an

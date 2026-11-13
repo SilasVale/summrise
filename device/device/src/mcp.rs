@@ -71,9 +71,6 @@ pub(crate) const MAX_FILE_BYTES: usize = 1024 * 1024;
 /// chunked body fails while it is collected; neither reaches serde or a capability.
 pub(crate) const MAX_BODY_BYTES: usize = 8 * 1024 * 1024;
 
-/// How many entries `memory.search` returns when the caller names no limit.
-const DEFAULT_SEARCH_RESULTS: usize = 10;
-
 /// How many trailing lines `terminal.screen` returns when the caller names no count.
 const DEFAULT_SCREEN_LINES: usize = 60;
 
@@ -1014,86 +1011,18 @@ impl DeviceServer {
         // declaration in `summrise_core::capabilities` is the one list; a capability that migrated
         // is dispatched here, before the legacy table, so its tools leave that table as they move.
         if crate::capabilities::owns(name) {
-            return crate::capabilities::call(
-                name,
-                arguments,
-                &self.files_root,
-                self.files_shared_root.as_deref(),
-            );
+            let ctx = crate::capabilities::Ctx {
+                files_root: &self.files_root,
+                files_shared_root: self.files_shared_root.as_deref(),
+                memory: self.memory.as_ref(),
+            };
+            return crate::capabilities::call(name, arguments, &ctx);
         }
         let Some(handler) = handler(name) else {
             return self.dispatch_plugin(name, arguments).await;
         };
 
         match handler {
-            Handler::MemoryAppend => {
-                let arguments: AppendArgs = parse(arguments, name)?;
-                let entry = self
-                    .memory
-                    .append(&arguments.text, &arguments.tags)
-                    .map_err(|error| refused(name, error))?;
-                Ok(json!({ "appended": true, "id": entry.id }).to_string())
-            }
-            Handler::MemoryUpdate => {
-                let arguments: UpdateArgs = parse(arguments, name)?;
-                let entry = self
-                    .memory
-                    .update(&arguments.id, &arguments.text, &arguments.tags)
-                    .map_err(|error| refused(name, error))?;
-                Ok(json!({
-                    "id": entry.id,
-                    "text": entry.text,
-                    "tags": entry.tags,
-                })
-                .to_string())
-            }
-            Handler::MemoryDelete => {
-                let arguments: DeleteArgs = parse(arguments, name)?;
-                self.memory
-                    .delete(&arguments.id)
-                    .map_err(|error| refused(name, error))?;
-                Ok(json!({ "deleted": true, "id": arguments.id }).to_string())
-            }
-            Handler::MemorySearch => {
-                let arguments: SearchArgs = parse(arguments, name)?;
-                let limit = arguments.limit.unwrap_or(DEFAULT_SEARCH_RESULTS);
-                let found = self
-                    .memory
-                    .search(&arguments.query, limit)
-                    .map_err(|error| refused(name, error))?;
-                let found: Vec<Value> = found
-                    .iter()
-                    .map(|entry| json!({ "id": entry.id, "text": entry.text, "tags": entry.tags }))
-                    .collect();
-                Ok(Value::Array(found).to_string())
-            }
-            Handler::MemoryList => {
-                let arguments: MemoryListArgs = parse(arguments, name)?;
-                let limit = arguments.limit.unwrap_or(DEFAULT_SEARCH_RESULTS);
-                let found = self
-                    .memory
-                    .list(limit, arguments.tag.as_deref())
-                    .map_err(|error| refused(name, error))?;
-                let found: Vec<Value> = found
-                    .iter()
-                    .map(|entry| json!({ "id": entry.id, "text": entry.text, "tags": entry.tags }))
-                    .collect();
-                Ok(Value::Array(found).to_string())
-            }
-            Handler::MemoryExport => {
-                let _arguments: EmptyArgs = parse(arguments, name)?;
-                let export = self
-                    .memory
-                    .export(memory::MAX_EXPORT_BYTES)
-                    .map_err(|error| refused(name, error))?;
-                Ok(json!({
-                    "text": export.text,
-                    "entries": export.entries,
-                    "truncated": export.truncated,
-                    "total_bytes": export.total_bytes,
-                })
-                .to_string())
-            }
             Handler::TerminalCreate => {
                 let arguments: PtyCreateArgs = parse(arguments, name)?;
                 // The kind is the capability's to validate, and its refusal is typed: a client
@@ -1852,12 +1781,6 @@ fn jsonrpc_error(id: Value, code: i32, message: &str) -> Value {
 /// One implementation of one registry tool.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Handler {
-    MemoryAppend,
-    MemoryUpdate,
-    MemoryDelete,
-    MemorySearch,
-    MemoryList,
-    MemoryExport,
     TerminalCreate,
     TerminalWrite,
     TerminalRead,
@@ -1905,12 +1828,6 @@ enum Handler {
 /// registry entry fails `every_implementation_is_registered`. `tools/list` cannot advertise a tool
 /// the surface cannot run without that test going red.
 const HANDLERS: &[(&str, Handler)] = &[
-    ("memory.append", Handler::MemoryAppend),
-    ("memory.update", Handler::MemoryUpdate),
-    ("memory.delete", Handler::MemoryDelete),
-    ("memory.search", Handler::MemorySearch),
-    ("memory.list", Handler::MemoryList),
-    ("memory.export", Handler::MemoryExport),
     ("terminal.create", Handler::TerminalCreate),
     ("terminal.write", Handler::TerminalWrite),
     ("terminal.read", Handler::TerminalRead),
@@ -2125,93 +2042,6 @@ fn input_schema(definition: &ToolDef) -> Value {
         return schema();
     }
     match definition.name {
-        "memory.append" => json!({
-            "type": "object",
-            "properties": {
-                "text": {
-                    "type": "string",
-                    "minLength": 1,
-                    "description": "The fact to remember; an empty text is refused."
-                },
-                "tags": {
-                    "type": "array",
-                    "items": { "type": "string" },
-                    "description": "Free-form tags; a search matches them as well as the text. At most 32 tags of 128 bytes each."
-                }
-            },
-            "required": ["text"],
-            "additionalProperties": false
-        }),
-        "memory.update" => json!({
-            "type": "object",
-            "properties": {
-                "id": {
-                    "type": "string",
-                    "description": "The id memory.list, memory.search or memory.append returned."
-                },
-                "text": {
-                    "type": "string",
-                    "minLength": 1,
-                    "description": "The entry's new text; it replaces what the entry said. An empty text is refused: a delete retires an entry."
-                },
-                "tags": {
-                    "type": "array",
-                    "items": { "type": "string" },
-                    "description": "The entry's complete new tag list, not a patch: at most 32 tags of 128 bytes each, and [] clears them."
-                }
-            },
-            "required": ["id", "text", "tags"],
-            "additionalProperties": false
-        }),
-        "memory.delete" => json!({
-            "type": "object",
-            "properties": {
-                "id": {
-                    "type": "string",
-                    "description": "The id memory.list, memory.search or memory.append returned."
-                }
-            },
-            "required": ["id"],
-            "additionalProperties": false
-        }),
-        "memory.search" => json!({
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Case-insensitive substring matched against text and tags."
-                },
-                "limit": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": memory::MAX_RESULTS,
-                    "description": format!("How many entries to return, newest first (default {DEFAULT_SEARCH_RESULTS}).")
-                }
-            },
-            "required": ["query"],
-            "additionalProperties": false
-        }),
-        "memory.list" => json!({
-            "type": "object",
-            "properties": {
-                "limit": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": memory::MAX_RESULTS,
-                    "description": format!("How many entries to return, newest first (default {DEFAULT_SEARCH_RESULTS}).")
-                },
-                "tag": {
-                    "type": "string",
-                    "description": "Only entries carrying exactly this tag, matched case-insensitively."
-                }
-            },
-            "additionalProperties": false
-        }),
-        "memory.export" => json!({
-            "type": "object",
-            "properties": {},
-            "additionalProperties": false
-        }),
         "terminal.create" => json!({
             "type": "object",
             "properties": {
@@ -3512,50 +3342,6 @@ fn run_failure_sentence(run: &runs::ExecResult) -> String {
         Some(code) => format!("run {} exited {code} in {} ms", run.id, run.duration_ms),
         None => format!("run {} ended without an exit code", run.id),
     }
-}
-
-/// The arguments `memory.append` takes.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct AppendArgs {
-    text: String,
-    /// Tags are optional: a plain note is still a fact worth remembering.
-    #[serde(default)]
-    tags: Vec<String>,
-}
-
-/// The arguments `memory.update` takes.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct UpdateArgs {
-    id: String,
-    text: String,
-    /// The complete replacement, not a patch: an update that omitted tags would silently clear
-    /// them, so the schema requires the field and names [] as the way to clear.
-    tags: Vec<String>,
-}
-
-/// The arguments `memory.delete` takes.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct DeleteArgs {
-    id: String,
-}
-
-/// The arguments `memory.search` takes.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SearchArgs {
-    query: String,
-    limit: Option<usize>,
-}
-
-/// The arguments `memory.list` takes.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct MemoryListArgs {
-    limit: Option<usize>,
-    tag: Option<String>,
 }
 
 /// A tool whose input schema declares no properties.
@@ -7220,34 +7006,49 @@ mod tests {
         );
     }
 
-    /// **A MIGRATED TOOL OWNS ITS SCHEMA AND ITS GUIDE (round 15).** The declaration is the one
-    /// place; the legacy schema match and the legacy dispatch table must not still carry it.
+    /// **A MIGRATED TOOL OWNS ITS SCHEMA AND ITS GUIDE (rounds 15–16).** The declaration is the
+    /// one place; the legacy schema match and the legacy dispatch table must not still carry it.
     #[test]
     fn every_migrated_tool_has_a_declared_schema_and_a_guide() {
-        let files = summrise_core::capabilities::files::CAPABILITY;
-        assert!(
-            !files.guide.is_empty(),
-            "files: a migrated capability has a guide"
+        let declared: Vec<_> = summrise_core::capabilities::DECLARED.to_vec();
+        assert!(!declared.is_empty(), "at least one capability has migrated");
+        for capability in declared {
+            assert!(
+                !capability.guide.is_empty(),
+                "{}: a migrated capability has a guide",
+                capability.name
+            );
+            for tool in capability.tools {
+                assert!(
+                    tool.schema.is_some(),
+                    "{}: a migrated capability declares its schema beside its tools",
+                    tool.name
+                );
+                assert!(
+                    handler(tool.name).is_none(),
+                    "{}: a migrated tool left the legacy dispatch table",
+                    tool.name
+                );
+                assert!(
+                    summrise_core::registry::tool(tool.name).is_some(),
+                    "{}: the declaration is in the registry",
+                    tool.name
+                );
+            }
+        }
+        // The migrated set and the capability router agree, tool for tool.
+        let mut router: Vec<&str> = crate::capabilities::names().collect();
+        let mut declared_names: Vec<&str> = summrise_core::capabilities::DECLARED
+            .iter()
+            .flat_map(|capability| capability.tools)
+            .map(|tool| tool.name)
+            .collect();
+        router.sort_unstable();
+        declared_names.sort_unstable();
+        assert_eq!(
+            router, declared_names,
+            "the router runs every declared tool"
         );
-        for tool in files.tools {
-            assert!(
-                tool.schema.is_some(),
-                "{}: a migrated capability declares its schema beside its tools",
-                tool.name
-            );
-        }
-        for name in crate::capabilities::names() {
-            assert!(
-                handler(name).is_none(),
-                "{name}: a migrated tool left the legacy dispatch table"
-            );
-        }
-        for name in crate::capabilities::names() {
-            assert!(
-                summrise_core::registry::tool(name).is_some(),
-                "{name}: the declaration is in the registry"
-            );
-        }
     }
 
     /// The guide is generated from the declarations; every migrated tool appears once, and no tool
@@ -7256,20 +7057,22 @@ mod tests {
     fn the_guide_names_each_migrated_tool_once() {
         let guide = summrise_core::registry::guide();
         let mut headings = 0;
-        for tool in summrise_core::capabilities::files::CAPABILITY.tools {
-            let heading = format!("## {}", tool.name);
-            assert_eq!(
-                guide.matches(&heading).count(),
-                1,
-                "{}: one heading per tool",
-                tool.name
-            );
-            headings += 1;
+        for capability in summrise_core::capabilities::DECLARED {
+            for tool in capability.tools {
+                let heading = format!("## {}", tool.name);
+                assert_eq!(
+                    guide.matches(&heading).count(),
+                    1,
+                    "{}: one heading per tool",
+                    tool.name
+                );
+                headings += 1;
+            }
         }
         assert_eq!(
-            guide.matches("## files.").count(),
+            guide.matches("## ").count(),
             headings,
-            "the guide has no heading for a tool the declaration does not own"
+            "the guide has no heading for a tool the declarations do not own"
         );
         assert!(guide.starts_with("# files"), "the capability heading leads");
     }
@@ -7277,30 +7080,33 @@ mod tests {
     /// The advertised schema is the declaration's, not a copy: a change in the module changes the
     /// wire without touching the surface.
     #[test]
-    fn the_files_schema_comes_from_the_declaration() {
-        let declared = summrise_core::capabilities::files::CAPABILITY
-            .tools
-            .iter()
-            .find(|tool| tool.name == "files.read")
-            .expect("files.read is declared");
-        let schema = (declared
-            .schema
-            .expect("a migrated tool declares its schema"))();
-        let advertised = summrise_core::registry::tool("files.read").expect("in the registry");
-        assert_eq!(input_schema(advertised), schema);
-        assert_eq!(
-            schema["properties"]["path"]["type"], "string",
-            "the schema is the one the surface serves"
-        );
+    fn every_migrated_schema_comes_from_its_declaration() {
+        for capability in summrise_core::capabilities::DECLARED {
+            for declared in capability.tools {
+                let schema = (declared
+                    .schema
+                    .expect("a migrated tool declares its schema"))();
+                let advertised =
+                    summrise_core::registry::tool(declared.name).expect("in the registry");
+                assert_eq!(
+                    input_schema(advertised),
+                    schema,
+                    "{}: the advertised schema is the declared one",
+                    declared.name
+                );
+            }
+        }
     }
 
-    /// A name the capability does not declare is not its call to answer: the router leaves it to
-    /// the plugin path, so a plugin may still own that name.
+    /// A name a capability does not declare is not its call to answer: the router leaves it to the
+    /// plugin path, so a plugin may still own that name.
     #[test]
-    fn an_unknown_files_tool_falls_through_the_capability_router() {
+    fn an_unknown_tool_falls_through_the_capability_router() {
         assert!(crate::capabilities::owns("files.read"));
+        assert!(crate::capabilities::owns("memory.append"));
         assert!(!crate::capabilities::owns("files.nope"));
-        assert!(!crate::capabilities::owns("files"));
+        assert!(!crate::capabilities::owns("memory.nope"));
+        assert!(!crate::capabilities::owns("memory"));
     }
 
     /// **EVERY ADVERTISED SCHEMA IS A REAL OBJECT SCHEMA, AND NO TOOL FALLS INTO THE FALLBACK.**

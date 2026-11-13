@@ -23,23 +23,41 @@ pub mod terminal;
 /// Kept as a name the HTTP handler already calls; the value is `core`'s.
 pub use summrise_core::registry::is_destructive as destructive;
 
+/// The context a migrated capability's tools need. A capability takes exactly what it reads, so a
+/// module cannot reach for the device's config, its audit or another capability.
+pub struct Ctx<'a> {
+    /// The `workspace` root `files` is sandboxed to.
+    pub files_root: &'a std::path::Path,
+    /// The optional `shared` root.
+    pub files_shared_root: Option<&'a std::path::Path>,
+    /// This machine's memory store.
+    pub memory: &'a memory::Memory,
+}
+
 /// Whether a migrated capability declares `tool`.
 pub fn owns(tool: &str) -> bool {
-    files::owns(tool)
+    files::owns(tool) || memory::owns(tool)
 }
 
 /// Every tool a migrated capability declares, for the registry-alignment test.
 #[cfg(test)]
 pub fn names() -> impl Iterator<Item = &'static str> {
-    files::names()
+    files::names().chain(memory::names())
 }
 
-/// Run a migrated capability's tool; the roots are the device's resolved paths.
+/// Run a migrated capability's tool.
 pub fn call(
     tool: &str,
     arguments: serde_json::Map<String, serde_json::Value>,
-    workspace: &std::path::Path,
-    shared: Option<&std::path::Path>,
+    ctx: &Ctx<'_>,
 ) -> Result<String, crate::mcp::ToolError> {
-    files::call(tool, arguments, workspace, shared)
+    if files::owns(tool) {
+        return files::call(tool, arguments, ctx);
+    }
+    if memory::owns(tool) {
+        return memory::call(ctx.memory, tool, arguments);
+    }
+    Err(crate::mcp::ToolError::Internal(format!(
+        "{tool}: no migrated capability declares it"
+    )))
 }

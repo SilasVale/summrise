@@ -9,3 +9,7 @@
 //! its implementation — not to a shared table, a schema match and a dispatch match.
 
 pub mod files;
+pub mod memory;
+
+/// The capabilities whose declarations live here, in registry order.
+pub const DECLARED: &[&crate::registry::Capability] = &[&files::CAPABILITY, &memory::CAPABILITY];
