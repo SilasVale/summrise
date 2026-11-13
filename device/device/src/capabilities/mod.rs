@@ -10,6 +10,7 @@ pub mod browser;
 pub mod files;
 pub mod forward;
 pub mod host;
+pub mod journal;
 pub mod memory;
 pub mod monitor;
 pub(crate) mod owned;
@@ -48,6 +49,8 @@ pub struct Ctx<'a> {
     /// Whether the launcher started this process, and the hook that asks it to restart.
     pub supervised: bool,
     pub restart: &'a crate::restart::Hook,
+    /// This process's live record, when it has one.
+    pub bus: Option<&'a summrise_bus::Bus>,
 }
 
 /// Whether a migrated capability declares `tool`.
@@ -61,6 +64,7 @@ pub fn owns(tool: &str) -> bool {
         || system::owns(tool)
         || forward::owns(tool)
         || host::owns(tool)
+        || journal::owns(tool)
 }
 
 /// Every tool a migrated capability declares, for the registry-alignment test.
@@ -75,6 +79,7 @@ pub fn names() -> impl Iterator<Item = &'static str> {
         .chain(system::names())
         .chain(forward::names())
         .chain(host::names())
+        .chain(journal::names())
 }
 
 /// Run a migrated capability's tool.
@@ -109,6 +114,9 @@ pub async fn call(
     }
     if host::owns(tool) {
         return host::call(tool, arguments, ctx.data_dir, ctx.supervised, ctx.restart);
+    }
+    if journal::owns(tool) {
+        return journal::call(tool, arguments, ctx.bus);
     }
     Err(crate::mcp::ToolError::Internal(format!(
         "{tool}: no migrated capability declares it"

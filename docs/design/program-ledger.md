@@ -409,6 +409,15 @@ hook, and the old `restart_app` method is gone (a second copy of the rule). Guid
 41 tool headings. Evidence: 669 device tests, 104 core tests, `clippy`/`fmt` clean, gate 14 / 22 / 0.
 Next: `journal` (three), then `plugins` (five), `guide`.
 
+**Round 24 — `journal` moves.** Three tools (read, get, day) declared in
+`core/src/capabilities/journal.rs`; the row/document shapes, the day counting, the trace scan and the
+five caps (10 000 scan, 200 read, 20 000 day, 26 h span, 512 traces) moved into
+`capabilities/journal.rs`, and the `Ctx` now carries `Option<&Bus>` — a device with no journal still
+answers `journal: false` rather than failing. The declaration keeps the registry's wire order
+(get, read, day). Guide: ten capabilities, 44 tool headings. Evidence: 669 device tests, 104 core
+tests, `clippy`/`fmt` clean, gate 14 / 22 / 0. Next: `plugins` (five), then `guide`; after that the
+legacy `HANDLERS` and the schema match are only the fallback for `plugins`/`state`/`screen`.
+
 
 ## Next (in order)
 

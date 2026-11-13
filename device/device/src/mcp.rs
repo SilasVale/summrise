@@ -17,7 +17,6 @@
 //! than an allocation. The per-tool caps (1 MiB file, 1 MiB serialized memory entry) then apply to a
 //! payload the process has already agreed to hold.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -74,52 +73,6 @@ pub(crate) const MAX_BODY_BYTES: usize = 8 * 1024 * 1024;
 /// The largest the audit file may become before it is rotated to `events.1.jsonl`.
 const AUDIT_MAX_BYTES: u64 = 64 * 1024 * 1024;
 
-/// How many journal rows `journal.get` scans before it calls its answer bounded.
-///
-/// A retained window can be 64 MiB. Scanning all of it to answer "do these traces still exist" would
-/// spend a caller's call on the bulk of a log it cannot use, so the scan stops at this cap and the
-/// answer says `bounded: true` rather than claiming absence it did not prove.
-const SCAN_ROWS: usize = 10_000;
-
-/// The most rows one `journal.read` call may answer.
-///
-/// A page draws one window of the machine's record, and a window is bounded by what a person reads
-/// rather than by what the journal holds. The console asks for exactly this many; a caller asking for
-/// more is asking this machine to hold another machine's log in one answer, which is an export.
-const MAX_READ_ROWS: usize = 200;
-
-/// The most rows one `journal.day` may count.
-///
-/// A day of a busy machine is thousands of calls and twice as many rows; this bound is what keeps one
-/// read from walking the whole retention window. When it is reached the answer says `more: true` and
-/// the caller's counts are "at least", never a quiet undercount.
-const MAX_DAY_ROWS: usize = 20_000;
-
-/// How many rows below the day one `journal.day` may read to resolve a call's door.
-///
-/// A call's door is on its `call.started` half; an outcome whose started half is just below the day
-/// would otherwise count as `unknown`. Two thousand rows is far more than one call's pair, and a call
-/// that started further back than that is counted as unknown rather than guessed.
-const DAY_LOOKBACK_ROWS: usize = 2_000;
-
-/// One page of the lookback below a day (`journal.read`'s own row bound).
-const DAY_LOOKBACK_PAGE: usize = 200;
-
-/// The longest span one `journal.day` may be asked about.
-///
-/// A local day is 23–25 hours; a caller passing a cut-based block asks for 24. The bound is the
-/// console's, stated here first so the device refuses one sentence rather than scanning a month.
-const MAX_DAY_SPAN_MS: u64 = 26 * 60 * 60 * 1000;
-
-/// How many traces one `journal.get` call may name.
-const MAX_TRACES: usize = 512;
-
-/// How long one trace id may be.
-///
-/// A trace is a call id a console minted (`console-ab12cd34-1`) or this device minted (`call-7`),
-/// so this is room to spare. Bounding it keeps one call's answer proportional to its request.
-const MAX_TRACE_CHARS: usize = 128;
-
 /// How much of a tool name an audit line keeps.
 ///
 /// Registry names are short; only an unknown name can be long, and the body limit bounds it. Capping
@@ -129,113 +82,51 @@ const MAX_AUDIT_TOOL_BYTES: usize = 128;
 /// The device's MCP handler: one session per client, one registry for every session.
 #[derive(Clone)]
 pub(crate) struct DeviceServer {
-    /// The root `files` is sandboxed to.
     files_root: PathBuf,
-    /// An optional second root, exposed as `shared`; only the operator's config enables it.
     files_shared_root: Option<PathBuf>,
-    /// The state document; `state.get` is the console's device page (there is no console route).
     store: Store,
-    /// The release facts `state.get`'s health half reports, the same ones `/api/health` uses.
     release: Release,
-    /// The append-only memory; stateless, so every session shares the one capability.
     memory: Arc<memory::Memory>,
-    /// The live pseudo-terminals. Shared: an MCP session may create a PTY that another client reads,
-    /// and the device (not an HTTP session) owns a child.
     terminal: Arc<terminal::PtyRegistry>,
-    /// The browser. Shared like the PTY registry, and lazy: nothing starts Chrome until a browser
-    /// tool is called, and dropping the last server (the service) kills it.
     browser: Arc<browser::BrowserRegistry>,
-    /// The reachability monitors. Shared like the PTY registry: one set of watches with one probe
-    /// loop per target, whichever MCP session asks.
     monitor: Arc<monitor::MonitorRegistry>,
-    /// The forward rules. Shared like the monitors: one listener per rule, not one per session.
     forwards: Arc<forward::ForwardRegistry>,
-    /// The run history, and through it the files root `runs.exec`'s cwd resolves against.
     runs: Arc<runs::Runs>,
-    /// The per-call audit log; shared so concurrent sessions serialize their appends.
     audit: Arc<Audit>,
-    /// The grant nonces this device has admitted, so a captured frame cannot run twice.
     nonces: crate::remote::NonceLog,
-    /// Whether the launcher started this process (`Config.supervised`). Only then may
-    /// `host.restart` ask for the hook: a standalone app that exits would not come back.
     supervised: bool,
-    /// What `host.restart` does after the answer is built. The production hook exits after a short
-    /// delay; tests record the call instead.
     restart: restart::Hook,
-    /// The process's one update checker. The console channel asks it when a connection is a wake;
-    /// a server built without one (a test, a device with no update source) simply never checks.
     update_check: Option<Arc<crate::update_check::UpdateChecker>>,
-    /// The plugin host: the `plugins.*` tools and the namespaced tools of every running plugin.
     plugins: Arc<PluginHost>,
-    /// The process's event journal, when one opened. Absent leaves event subscriptions refused.
     bus: Option<Arc<summrise_bus::Bus>>,
 }
 
-/// Who is asking the handler to run a call.
-///
-/// The loopback HTTP surface proves the install token, so it is [`Caller::Owner`]. A remote frame
-/// — the console's channel or a mesh peer's — carries a grant its transport has already verified
-/// offline; it is [`Caller::Granted`], and the handler applies the same [`authorize`] rules a
-/// loopback request would, with the grant as the subject's permission rather than an unexamined
-/// claim from the wire.
 #[derive(Clone, Copy)]
 pub(crate) enum Caller<'a> {
-    /// The install token was presented on loopback.
     Owner,
-    /// A remote frame carried this verified grant, over `arrival`.
     Granted {
-        /// The grant whose signature the transport verified.
         grant: &'a ConsoleGrant,
-        /// The wire it arrived on, which the audit line records.
         arrival: Arrival,
-        /// The calling channel's pinned public key in hex, when the wire authenticates a peer.
-        /// The console's outbound WebSocket proves the console, not a peer, so only a mesh channel
-        /// fills this; the audit line omits it elsewhere.
         peer: Option<&'a str>,
-        /// The `trace.call` the sending console minted for this exchange, when its frame named one.
-        /// A grant-authenticated call is proxied by the console exactly as a token one is, so the
-        /// join is the frame's fact, not the credential's.
         trace: Option<&'a str>,
     },
-    /// The console's channel carried a permanent token's scope. No grant is signed: the token
-    /// record is the permission, and the device applies the same `authorize` rules with it.
     // The variant lands before the console's frame format switches to it (both must ship
     // together); until then only the test constructs it.
     #[allow(dead_code)]
     Console {
-        /// The token record's id (never the `srm_` secret), for the audit line.
         token_id: &'a str,
-        /// The registry tools the token allows, in the order the console recorded them.
         scopes: &'a [String],
-        /// Whether the token's record consented to destructive tools.
         allow_destructive: bool,
-        /// The wire it arrived on.
         arrival: Arrival,
-        /// The `trace.call` the console minted for this exchange. The console's audit line names the
-        /// same value, so the device journal's `call.*` pair and the operator's record join on it
-        /// rather than on two clocks. Absent for a frame from a build that predates the field; the
-        /// device then mints its own.
         trace: Option<&'a str>,
     },
 }
 
-/// How a call reached the handler, as the audit line records it.
-///
-/// It is not `core`'s [`Transport`]: that type answers the authorization question — a loopback
-/// socket or a remote frame — and this one names the actual wire, which is the fact an operator
-/// reading the log needs. A mesh channel authorizes as [`Transport::Relay`], because the mesh is
-/// the relay-or-direct path that variant names, while the line says `mesh`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Arrival {
-    /// The loopback HTTP surface, with the install token.
     Loopback,
-    /// The device's own page on loopback, with this boot's panel token. The operator standing at
-    /// the machine, which is the same trust as `Loopback` but a different door: a terminal session
-    /// opened from the page must be findable in the log as one.
     Panel,
-    /// The console's outbound WebSocket.
     Console,
-    /// A mesh channel: a peer reached this device directly or through the relay.
     Mesh,
 }
 
@@ -372,12 +263,6 @@ pub(crate) fn service_with_terminal(
     )
 }
 
-/// Refuse a request body larger than [`MAX_BODY_BYTES`] before the MCP service sees it.
-///
-/// `axum::extract::DefaultBodyLimit` is an extension the axum extractors consult; rmcp reads the
-/// body itself, so that layer would not apply here. This middleware checks `Content-Length` first
-/// (a 10 GB header is refused without reading a byte) and collects the body with the same limit,
-/// handing rmcp an in-memory body only after it fits.
 pub(crate) async fn limit_request_body(request: Request<Body>, next: Next) -> Response {
     if let Some(declared) = request
         .headers()
@@ -515,17 +400,6 @@ impl DeviceServer {
         self
     }
 
-    /// `host.restart`: ask the launcher to replace this process, or refuse in the device's words.
-    ///
-    /// The answer is built before the hook is asked: the hook's delay is what lets it reach the
-    /// caller, and the handler cannot observe the write itself. A standalone app never calls the
-    /// hook — exiting there would end the app with nothing to bring it back — so the refusal is the
-    /// answer, not a failed attempt.
-    /// Log the authorization half of a call before anything can have a side effect.
-    ///
-    /// The caller awaits this before `dispatch`; a session close or process stop after dispatch but
-    /// before the `end` line leaves this line on disk, which is the honest record. `false` means the
-    /// line could not be written, and an allowed call must not run without it.
     #[allow(clippy::too_many_arguments)]
     async fn audit_begin(
         &self,
@@ -570,7 +444,6 @@ impl DeviceServer {
         Some(envelope.seq)
     }
 
-    /// Log the outcome half of a call, with a machine-readable kind and no argument value.
     #[allow(clippy::too_many_arguments)]
     async fn audit_end(
         &self,
@@ -598,8 +471,6 @@ impl DeviceServer {
         self.audit.next_id()
     }
 
-    /// Log a refusal that happened before a call was dispatched: a bad grant, a tool outside it,
-    /// or another transport-level authorization failure.
     pub(crate) async fn audit_refused(
         &self,
         tool: &str,
@@ -615,24 +486,10 @@ impl DeviceServer {
             .await;
     }
 
-    /// Handle one JSON-RPC exchange from a remote frame, with the caller's context.
-    ///
-    /// The success value is a complete JSON-RPC response, not a bare result: the console and the
-    /// mesh both forward the body to an MCP client unchanged. A tool-level refusal is a `CallToolResult` with
-    /// `isError: true` (the MCP shape); an authorization decision is a JSON-RPC error.
-    /// Handle one exchange and drop the machine position.
-    ///
-    /// The tuple form exists for the console's channel, whose frame carries the position to the
-    /// audit line; every other surface answers the JSON-RPC body alone.
     pub(crate) async fn handle(&self, request: &Value, caller: Caller<'_>) -> Value {
         self.handle_acknowledged(request, caller).await.0
     }
 
-    /// Handle one exchange, with the `seq` of the outcome half this device wrote for it.
-    ///
-    /// `None` when this process keeps no journal, when the exchange is not a `tools/call`, or when
-    /// the call was refused before it reached an outcome half. The console's proxied path is the one
-    /// caller that needs it: its audit line names the machine's own position for the same call.
     pub(crate) async fn handle_acknowledged(
         &self,
         request: &Value,
@@ -725,10 +582,6 @@ impl DeviceServer {
             ),
         }
     }
-    /// The one authorization-and-dispatch path every surface uses.
-    ///
-    /// The caller supplies the identity; this method builds the [`Ctx`], makes the audit line the
-    /// decision implies, and only then reaches [`Self::dispatch`].
     async fn execute_call(
         &self,
         name: &str,
@@ -969,15 +822,6 @@ impl DeviceServer {
         }
     }
 
-    /// Resolve a `files.*` call's root. The default is the workspace; `shared` exists only when the
-    /// operator configured `--files-shared-root`, so the AI cannot invent a root.
-    /// Route one already-authorized call to its capability.
-    ///
-    /// The name was resolved against the registry by the caller; [`handler`] is the one table that
-    /// gives it an implementation, and its `None` arm is a registry entry nobody dispatches — a bug
-    /// the server reports instead of hiding. The terminal tools are async because create and close
-    /// take the audit/state lock the session rows are written under; `dispatch` is therefore async
-    /// even though the files and memory arms do no awaiting.
     async fn dispatch(
         &self,
         name: &str,
@@ -987,6 +831,7 @@ impl DeviceServer {
         // declaration in `summrise_core::capabilities` is the one list; a capability that migrated
         // is dispatched here, before the legacy table, so its tools leave that table as they move.
         if crate::capabilities::owns(name) {
+            let bus = self.bus();
             let ctx = crate::capabilities::Ctx {
                 files_root: &self.files_root,
                 files_shared_root: self.files_shared_root.as_deref(),
@@ -999,6 +844,7 @@ impl DeviceServer {
                 data_dir: self.store.data_dir(),
                 supervised: self.supervised,
                 restart: &self.restart,
+                bus: bus.as_deref(),
             };
             return crate::capabilities::call(name, arguments, &ctx).await;
         }
@@ -1081,68 +927,9 @@ impl DeviceServer {
                 };
                 Ok(json!({ "state": state, "health": health, "events": events }).to_string())
             }
-            Handler::JournalGet => {
-                // The join half of §4.2, device side: the console has the audit line, this machine
-                // has the pair, and both carry one `trace.call`. This answers only which traces the
-                // retained journal still holds — never an event's payload — so a page can mark a
-                // call that exists in one record and not the other.
-                let traces = parse_traces(arguments, name)?;
-                let Some(bus) = self.bus() else {
-                    return Ok(no_journal_document().to_string());
-                };
-                let rows = bus.scan_newest(SCAN_ROWS).map_err(|error| {
-                    refused(name, format!("the journal could not be read: {error}"))
-                })?;
-                Ok(journal_traces_document(&bus, &traces, &rows).to_string())
-            }
-            Handler::JournalDay => {
-                // **A DAY IS COUNTS, NOT A PAGE.** The console's day sentence counts its own audit;
-                // a client may also call this machine directly, and those calls exist only here.
-                // Answering a day of rows would be an export in a read's clothes and a window the
-                // page cannot count; the aggregate is what the header can merge.
-                let (day_start, day_end) = parse_day_range(arguments, name)?;
-                let Some(bus) = self.bus() else {
-                    return Ok(no_journal_day_document(day_start, day_end).to_string());
-                };
-                let (rows, more) =
-                    bus.read_between(day_start, day_end, MAX_DAY_ROWS)
-                        .map_err(|error| {
-                            refused(name, format!("the journal could not be read: {error}"))
-                        })?;
-                Ok(day_calls_document(&bus, day_start, day_end, &rows, more).to_string())
-            }
-            Handler::JournalRead => {
-                // The record itself, summarised: the console draws what it proxied, and this is what
-                // the machine ran — including the calls that never went through the console at all.
-                // A row carries its own frame and, on a call, its tool and outcome; the payload's
-                // size is the only fact about a payload, because a read that relayed payloads would
-                // be an export wearing a read's name.
-                let (before_seq, limit) = parse_read_window(arguments, name)?;
-                let Some(bus) = self.bus() else {
-                    return Ok(no_journal_window_document().to_string());
-                };
-                // **ONE ROW PAST THE PAGE KEEPS THE DOOR AT THE BOUNDARY.** A call's arrival is on
-                // its `call.started` half, which is the row below an outcome that sits last on the
-                // page; reading one extra row lets that door travel with the outcome without
-                // returning the extra row. The flag is then true when the bus had more below the
-                // extra row, or when the extra row itself exists.
-                let (window, bus_more) =
-                    bus.read_window(before_seq, limit + 1).map_err(|error| {
-                        refused(name, format!("the journal could not be read: {error}"))
-                    })?;
-                let shown = window.len().min(limit);
-                let more = bus_more || window.len() > limit;
-                Ok(journal_rows_document(&bus, &window, shown, more).to_string())
-            }
         }
     }
 
-    /// Route one name the handler table does not own: a plugin tool, or a bug.
-    ///
-    /// Only a running plugin's tools reach here — [`DeviceServer::execute_call`] has already resolved
-    /// the destructive flag and denied a name neither the registry nor a live plugin advertises. The
-    /// plugin receives its own tool name; the device's namespaced name is the advertised and audited
-    /// one.
     async fn dispatch_plugin(
         &self,
         name: &str,
@@ -1235,10 +1022,6 @@ fn jsonrpc_error(id: Value, code: i32, message: &str) -> Value {
 enum Handler {
     ScreenCapture,
     StateGet,
-    JournalGet,
-    JournalRead,
-    JournalDay,
-    /// All six `plugins.*` tools; the capability's dispatch matches the exact name.
     Plugins,
 }
 
@@ -1251,9 +1034,6 @@ enum Handler {
 const HANDLERS: &[(&str, Handler)] = &[
     ("screen.capture", Handler::ScreenCapture),
     ("state.get", Handler::StateGet),
-    ("journal.get", Handler::JournalGet),
-    ("journal.read", Handler::JournalRead),
-    ("journal.day", Handler::JournalDay),
     ("plugins.list", Handler::Plugins),
     ("plugins.inspect", Handler::Plugins),
     ("plugins.add", Handler::Plugins),
@@ -1428,59 +1208,6 @@ fn input_schema(definition: &ToolDef) -> Value {
             "properties": {},
             "additionalProperties": false
         }),
-        "journal.get" => json!({
-            "type": "object",
-            "properties": {
-                "traces": {
-                    "type": "array",
-                    "items": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": MAX_TRACE_CHARS
-                    },
-                    "minItems": 1,
-                    "maxItems": MAX_TRACES,
-                    "description": "The trace ids to look for: the value of a call's `trace.call`."
-                }
-            },
-            "required": ["traces"],
-            "additionalProperties": false
-        }),
-        "journal.day" => json!({
-            "type": "object",
-            "properties": {
-                "day_start_ms": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "description": "The first moment of the range, in Unix milliseconds (inclusive)."
-                },
-                "day_end_ms": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "description": "The moment after the range, in Unix milliseconds (exclusive)."
-                }
-            },
-            "required": ["day_start_ms", "day_end_ms"],
-            "additionalProperties": false
-        }),
-        "journal.read" => json!({
-            "type": "object",
-            "properties": {
-                "before_seq": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "description": "Answer rows older than this sequence: the last row the caller drew."
-                },
-                "limit": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": MAX_READ_ROWS,
-                    "description": "How many rows to answer, newest first."
-                }
-            },
-            "required": ["limit"],
-            "additionalProperties": false
-        }),
         "plugins.list" => json!({
             "type": "object",
             "properties": {},
@@ -1551,13 +1278,9 @@ fn input_schema(definition: &ToolDef) -> Value {
     }
 }
 
-/// Why a call did not produce a successful text result.
 pub(crate) enum ToolError {
-    /// The arguments do not match the tool's input schema.
     Arguments(String),
-    /// The capability refused or failed; the sentence is for the client to render.
     Refused(String),
-    /// The registry declares a tool this surface cannot run.
     Internal(String),
 }
 
@@ -1694,481 +1417,6 @@ fn refused(tool: &str, error: impl std::fmt::Display) -> ToolError {
     ToolError::Refused(format!("{tool}: {error}"))
 }
 
-/// Parse `journal.get`'s traces: an array of 1 to 512 non-empty ids of at most 128 characters.
-///
-/// The schema says the same thing, but a schema is advice a client can skip: this is the device's
-/// own refusal, and every branch names the rule that was broken rather than echoing the value that
-/// broke it. A trace is a call id, so the sentence also says where a caller finds one.
-fn parse_traces(arguments: Map<String, Value>, tool: &str) -> Result<Vec<String>, ToolError> {
-    let invalid = |rule: String| ToolError::Arguments(format!("{tool}: {rule}"));
-    if let Some(unknown) = arguments.keys().find(|key| key.as_str() != "traces") {
-        return Err(invalid(format!(
-            "the argument `{unknown}` is not what this tool takes; it takes `traces`"
-        )));
-    }
-    let Some(value) = arguments.get("traces") else {
-        return Err(invalid(
-            "the argument `traces` is required: it names the call traces to look for".to_owned(),
-        ));
-    };
-    let Some(items) = value.as_array() else {
-        return Err(invalid(
-            "`traces` is an array of trace ids, the value of a call's `trace.call`".to_owned(),
-        ));
-    };
-    if items.is_empty() {
-        return Err(invalid(
-            "`traces` names at least one trace, and this call named none".to_owned(),
-        ));
-    }
-    if items.len() > MAX_TRACES {
-        return Err(invalid(format!(
-            "`traces` names at most {MAX_TRACES} traces, and this call named {}",
-            items.len()
-        )));
-    }
-    let mut traces = Vec::with_capacity(items.len());
-    for (position, item) in items.iter().enumerate() {
-        let Some(trace) = item.as_str() else {
-            return Err(invalid(format!(
-                "`traces[{position}]` is a string, the value of a call's `trace.call`"
-            )));
-        };
-        if trace.is_empty() {
-            return Err(invalid(format!(
-                "`traces[{position}]` is not empty: a trace names a call"
-            )));
-        }
-        if trace.chars().count() > MAX_TRACE_CHARS {
-            return Err(invalid(format!(
-                "`traces[{position}]` is at most {MAX_TRACE_CHARS} characters"
-            )));
-        }
-        traces.push(trace.to_owned());
-    }
-    Ok(traces)
-}
-
-/// The `journal: false` answer: this process has no journal, and says so.
-///
-/// `traces` and `missing` are empty and every count is zero because nothing was read; that is a
-/// fact about this device, not a failed call.
-fn no_journal_document() -> Value {
-    json!({
-        "journal": false,
-        "oldest_seq": 0,
-        "last_seq": 0,
-        "scanned": 0,
-        "bounded": false,
-        "traces": [],
-        "missing": [],
-    })
-}
-
-/// The call a journal row belongs to, when its trace names one.
-fn call_of(envelope: &summrise_bus::Envelope) -> Option<&str> {
-    envelope
-        .trace
-        .as_ref()
-        .and_then(|trace| trace.get("call"))
-        .and_then(Value::as_str)
-}
-
-/// Parse `journal.day`'s arguments: the range's first moment and the moment after it.
-///
-/// The device keeps no timezone: the caller names the two instants it counts. The rules are the
-/// span and the order, and each refusal states the rule rather than echoing the caller's number.
-fn parse_day_range(arguments: Map<String, Value>, tool: &str) -> Result<(u64, u64), ToolError> {
-    let invalid = |rule: String| ToolError::Arguments(format!("{tool}: {rule}"));
-    if arguments
-        .keys()
-        .any(|key| !matches!(key.as_str(), "day_start_ms" | "day_end_ms"))
-    {
-        return Err(invalid(
-            "the arguments are not what this tool takes; it takes `day_start_ms` and `day_end_ms`"
-                .to_owned(),
-        ));
-    }
-    let start = match arguments.get("day_start_ms").and_then(Value::as_u64) {
-        Some(start) => start,
-        None => {
-            return Err(invalid(
-                "`day_start_ms` is the range's first moment, in Unix milliseconds".to_owned(),
-            ))
-        }
-    };
-    let end = match arguments.get("day_end_ms").and_then(Value::as_u64) {
-        Some(end) => end,
-        None => {
-            return Err(invalid(
-                "`day_end_ms` is the moment after the range, in Unix milliseconds".to_owned(),
-            ))
-        }
-    };
-    if end <= start {
-        return Err(invalid(
-            "`day_end_ms` must be after `day_start_ms`: the range is half-open, [start, end)"
-                .to_owned(),
-        ));
-    }
-    if end - start > MAX_DAY_SPAN_MS {
-        return Err(invalid(format!(
-            "the range must be no more than {} hours apart",
-            MAX_DAY_SPAN_MS / 3_600_000
-        )));
-    }
-    Ok((start, end))
-}
-
-/// The `journal: false` answer for a device with no journal, in the day's own shape.
-///
-/// Every count is zero because nothing was read; the range is echoed so a caller can tell which day
-/// this machine cannot answer for.
-fn no_journal_day_document(day_start: u64, day_end: u64) -> Value {
-    json!({
-        "journal": false,
-        "day_start_ms": day_start,
-        "day_end_ms": day_end,
-        "oldest_seq": 0,
-        "last_seq": 0,
-        "scanned": 0,
-        "more": false,
-        "calls": {
-            "console": { "calls": 0, "failed": 0 },
-            "panel": { "calls": 0, "failed": 0 },
-            "mesh": { "calls": 0, "failed": 0 },
-            "loopback": { "calls": 0, "failed": 0 },
-            "unknown": { "calls": 0, "failed": 0 },
-        },
-    })
-}
-
-/// One `journal.day` answer: the day's outcome rows counted by the door they arrived by.
-///
-/// A call's door is written on its `call.started` half. The day's rows carry the started halves of
-/// calls that finished inside the day; the halves of a call that started before it are read below the
-/// day, bounded, and an outcome whose half is not found is counted as `unknown` — never as a client's.
-/// `more` is the bus's own answer that the day held more rows than [`MAX_DAY_ROWS`].
-fn day_calls_document(
-    bus: &summrise_bus::Bus,
-    day_start: u64,
-    day_end: u64,
-    rows: &[summrise_bus::Envelope],
-    more: bool,
-) -> Value {
-    let mut doors: HashMap<String, String> = HashMap::new();
-    let mut unresolved: HashSet<String> = HashSet::new();
-    for row in rows {
-        let Some(call) = call_of(row) else { continue };
-        match row.kind.as_str() {
-            "call.started" => {
-                if let Some(door) = row.payload.get("door").and_then(Value::as_str) {
-                    doors.insert(call.to_owned(), door.to_owned());
-                }
-            }
-            "call.finished" | "call.denied" if !doors.contains_key(call) => {
-                unresolved.insert(call.to_owned());
-            }
-            _ => {}
-        }
-    }
-
-    // **THE HALF BELOW THE DAY, BOUNDED.** A call that started before midnight and finished after it
-    // is an outcome of the day whose door is on the older row. Reading just below the oldest row of
-    // the range resolves those halves; a call starting further back is unknown by the rule, not by
-    // silence.
-    let mut cursor = rows.last().map(|row| row.seq);
-    let mut looked = 0;
-    while !unresolved.is_empty() && looked < DAY_LOOKBACK_ROWS {
-        let Some(before) = cursor else { break };
-        let Ok((window, _)) = bus.read_window(Some(before), DAY_LOOKBACK_PAGE) else {
-            break;
-        };
-        if window.is_empty() {
-            break;
-        }
-        for row in &window {
-            if row.kind != "call.started" {
-                continue;
-            }
-            let Some(call) = call_of(row) else { continue };
-            if !unresolved.contains(call) {
-                continue;
-            }
-            if let Some(door) = row.payload.get("door").and_then(Value::as_str) {
-                doors.insert(call.to_owned(), door.to_owned());
-                unresolved.remove(call);
-            }
-        }
-        looked += window.len();
-        cursor = window.last().map(|row| row.seq);
-    }
-
-    let mut counts: BTreeMap<&'static str, (u64, u64)> = BTreeMap::from([
-        ("console", (0, 0)),
-        ("panel", (0, 0)),
-        ("mesh", (0, 0)),
-        ("loopback", (0, 0)),
-        ("unknown", (0, 0)),
-    ]);
-    for row in rows {
-        if !matches!(row.kind.as_str(), "call.finished" | "call.denied") {
-            continue;
-        }
-        let door = call_of(row)
-            .and_then(|call| doors.get(call))
-            .map(String::as_str)
-            .filter(|door| matches!(*door, "console" | "panel" | "mesh" | "loopback"))
-            .unwrap_or("unknown");
-        let failed = row.payload.get("ok").and_then(Value::as_bool) != Some(true);
-        let entry = counts
-            .get_mut(door)
-            .expect("the five doors are initialized");
-        entry.0 += 1;
-        if failed {
-            entry.1 += 1;
-        }
-    }
-
-    let oldest_seq = bus.oldest_seq();
-    let oldest_ts = if oldest_seq == 0 {
-        None
-    } else {
-        bus.read_window(Some(oldest_seq.saturating_add(1)), 1)
-            .ok()
-            .and_then(|(window, _)| window.into_iter().next())
-            .map(|row| row.ts)
-    };
-
-    let mut document = json!({
-        "journal": true,
-        "day_start_ms": day_start,
-        "day_end_ms": day_end,
-        "oldest_seq": oldest_seq,
-        "last_seq": bus.last_seq(),
-        "scanned": rows.len(),
-        "more": more,
-        "calls": counts
-            .into_iter()
-            .map(|(door, (calls, failed))| {
-                (door.to_owned(), json!({ "calls": calls, "failed": failed }))
-            })
-            .collect::<serde_json::Map<_, _>>(),
-    });
-    if let Some(ts) = oldest_ts {
-        document["oldest_ts"] = json!(ts);
-    }
-    document
-}
-
-/// Parse `journal.read`'s arguments: a required row count in 1..=200, and an optional `before_seq`.
-///
-/// The schema says the same thing, but a schema is advice a client can skip. Every refusal names the
-/// rule that was broken rather than echoing the value that broke it, because the value is a caller's
-/// number and the rule is the machine's.
-fn parse_read_window(
-    arguments: Map<String, Value>,
-    tool: &str,
-) -> Result<(Option<u64>, usize), ToolError> {
-    let invalid = |rule: String| ToolError::Arguments(format!("{tool}: {rule}"));
-    if arguments
-        .keys()
-        .any(|key| !matches!(key.as_str(), "before_seq" | "limit"))
-    {
-        // **THE RULE, NOT THE VALUE.** An unknown key is a caller's own bytes; naming it back would
-        // echo whatever was sent, which is the rule this tool's refusals keep (a client that put a
-        // secret in the wrong field must not read it out of the refusal). The two keys it does take
-        // are the rule, so they are the sentence.
-        return Err(invalid(
-            "the arguments are not what this tool takes; it takes `limit` and `before_seq`"
-                .to_owned(),
-        ));
-    }
-    let Some(value) = arguments.get("limit") else {
-        return Err(invalid(
-            "the argument `limit` is required: it says how many rows to answer".to_owned(),
-        ));
-    };
-    let Some(count) = value.as_u64() else {
-        return Err(invalid(
-            "`limit` is a whole number of rows, at least one".to_owned(),
-        ));
-    };
-    if count == 0 || count > MAX_READ_ROWS as u64 {
-        // The number asked for is the caller's, never the machine's: the refusal states the bound,
-        // not the value that crossed it.
-        return Err(invalid(format!(
-            "`limit` is between 1 and {MAX_READ_ROWS} rows"
-        )));
-    }
-    let before_seq =
-        match arguments.get("before_seq") {
-            None => None,
-            Some(value) => match value.as_u64() {
-                Some(seq) if seq >= 1 => Some(seq),
-                _ => return Err(invalid(
-                    "`before_seq` is the last sequence the caller drew, a whole number at least 1"
-                        .to_owned(),
-                )),
-            },
-        };
-    Ok((before_seq, count as usize))
-}
-
-/// The `journal: false` answer for a device with no journal, in the window's own shape.
-///
-/// Every count is zero because nothing was read; that is a fact about this process, not a failed call.
-fn no_journal_window_document() -> Value {
-    json!({
-        "journal": false,
-        "oldest_seq": 0,
-        "last_seq": 0,
-        "rows": [],
-        "more": false,
-    })
-}
-
-/// One journal row as the page reads it: the envelope's own frame, and on a call its tool and outcome.
-///
-/// The fields copied out are the ones a row can be drawn and diagnosed from. `payload_bytes` is always
-/// present, so a caller can tell "there was nothing more" from "there was more and this is a summary" —
-/// without it, a write whose path is the only visible fact would look like the whole record.
-fn machine_row(envelope: &summrise_bus::Envelope) -> Value {
-    let payload = &envelope.payload;
-    let mut row = json!({
-        "seq": envelope.seq,
-        "ts": envelope.ts,
-        "type": envelope.kind,
-        "payload_bytes": serde_json::to_string(payload)
-            .map(|text| text.len() as u64)
-            .unwrap_or(0),
-    });
-    if let Some(trace) = envelope
-        .trace
-        .as_ref()
-        .and_then(|trace| trace.get("call"))
-        .and_then(Value::as_str)
-    {
-        row["trace"] = json!(trace);
-    }
-    // A tool name and an outcome belong to a call. The envelope's `type` is what says so, so the
-    // rule is the row's own rather than a payload field a caller could invent.
-    if envelope.kind.starts_with("call.") {
-        if let Some(tool) = payload.get("tool").and_then(Value::as_str) {
-            row["tool"] = json!(tool);
-        }
-        if let Some(ok) = payload.get("ok").and_then(Value::as_bool) {
-            row["ok"] = json!(ok);
-        }
-        if let Some(reason) = payload.get("reason").and_then(Value::as_str) {
-            row["reason"] = json!(reason);
-        }
-        if let Some(door) = payload.get("door").and_then(Value::as_str) {
-            row["door"] = json!(door);
-        }
-    }
-    row
-}
-
-/// One `journal.read` answer: the window's bounds, the rows the bus returned, and whether more lie
-/// below them.
-///
-/// `window` is what was read — the page plus the one row past it — and `shown` is how many of those
-/// rows the answer returns. The extra row is used for one fact only (the door of a call whose outcome
-/// is the page's last row) and never leaks into `rows`.
-fn journal_rows_document(
-    bus: &summrise_bus::Bus,
-    window: &[summrise_bus::Envelope],
-    shown: usize,
-    more: bool,
-) -> Value {
-    // **THE DOOR IS WRITTEN ON THE HALF THAT HAS IT.** A call's arrival is on `call.started`; its
-    // outcome half carries only the tool and whether it worked. A page drawing outcomes would have to
-    // read both halves to say who called, so the window carries the door across, by the `trace.call`
-    // the two halves already share. Reading one row past the page is what keeps a door from
-    // disappearing just because its outcome sat on the boundary; a started half truly outside the
-    // window still leaves the door unknown, rather than a guess.
-    let doors: std::collections::HashMap<&str, &str> = window
-        .iter()
-        .filter(|row| row.kind == "call.started")
-        .filter_map(|row| {
-            let call = row.trace.as_ref()?.get("call")?.as_str()?;
-            Some((call, row.payload.get("door")?.as_str()?))
-        })
-        .collect();
-    let summarised: Vec<Value> = window
-        .iter()
-        .take(shown)
-        .map(|row| {
-            let mut summarised = machine_row(row);
-            if summarised.get("door").is_none() {
-                if let Some(door) = summarised
-                    .get("trace")
-                    .and_then(Value::as_str)
-                    .and_then(|call| doors.get(call))
-                {
-                    summarised["door"] = json!(door);
-                }
-            }
-            summarised
-        })
-        .collect();
-    json!({
-        "journal": true,
-        "oldest_seq": bus.oldest_seq(),
-        "last_seq": bus.last_seq(),
-        "rows": summarised,
-        "more": more,
-    })
-}
-
-/// Which of the asked traces the scanned rows hold, split into retained and missing.
-///
-/// A row matches when its `trace` is an object whose `call` is the asked string. Rows that are not
-/// calls — a boot event, a state write — are simply not matches.
-fn trace_matches(rows: &[summrise_bus::Envelope], traces: &[String]) -> (Vec<String>, Vec<String>) {
-    let held: std::collections::HashSet<&str> = rows
-        .iter()
-        .filter_map(|row| row.trace.as_ref())
-        .filter_map(|trace| trace.get("call"))
-        .filter_map(Value::as_str)
-        .collect();
-    let mut found = Vec::new();
-    let mut missing = Vec::new();
-    for trace in traces {
-        if held.contains(trace.as_str()) {
-            found.push(trace.clone());
-        } else {
-            missing.push(trace.clone());
-        }
-    }
-    (found, missing)
-}
-
-/// One `journal.get` answer: the journal's retained bounds, the coverage of the scan, and which
-/// asked traces it still holds.
-///
-/// `missing` is empty once the scan hit its row cap: absence beyond the cap is not something a
-/// bounded read of the newest rows can claim, and a page that marked those calls missing would be
-/// wrong about a call the journal simply did not reach.
-fn journal_traces_document(
-    bus: &summrise_bus::Bus,
-    traces: &[String],
-    rows: &[summrise_bus::Envelope],
-) -> Value {
-    let (found, missing) = trace_matches(rows, traces);
-    let bounded = rows.len() >= SCAN_ROWS;
-    json!({
-        "journal": true,
-        "oldest_seq": bus.oldest_seq(),
-        "last_seq": bus.last_seq(),
-        "scanned": rows.len(),
-        "bounded": bounded,
-        "traces": found,
-        "missing": if bounded { Vec::new() } else { missing },
-    })
-}
-
 /// Parse the session id a client sent back, refusing a spelling this device never mints.
 ///
 /// The id is not echoed in the refusal for the same reason no other argument value is: a client can
@@ -2181,18 +1429,9 @@ struct AuditBegin<'a> {
     event: &'static str,
     tool: &'a str,
     decision: &'a str,
-    /// How the call arrived. Recorded on every line, because two calls with the same tool and the
-    /// same decision are not the same event when one came from the loopback socket and one from a
-    /// peer: only this field tells an operator which door was used.
     transport: &'static str,
-    /// The mesh caller's pinned public key in hex. Absent on every other wire, where the transport
-    /// authenticates the console or the local owner rather than a peer.
     #[serde(skip_serializing_if = "Option::is_none")]
     peer: Option<&'a str>,
-    /// The permanent token's record id, when one authenticated the call. Absent on the owner's
-    /// loopback calls and on console-signed grants (a grant names no token); present on console
-    /// channel calls, where the token is the permission and the record id is what the operator
-    /// revokes. Never the `srm_` secret.
     #[serde(skip_serializing_if = "Option::is_none")]
     token_id: Option<&'a str>,
 }
@@ -2208,10 +1447,8 @@ struct AuditEnd<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     error_kind: Option<&'a str>,
     transport: &'static str,
-    /// The mesh caller's pinned public key in hex; absent on the console and loopback wires.
     #[serde(skip_serializing_if = "Option::is_none")]
     peer: Option<&'a str>,
-    /// The permanent token's record id, when one authenticated the call; see `AuditBegin`.
     #[serde(skip_serializing_if = "Option::is_none")]
     token_id: Option<&'a str>,
 }
@@ -2240,7 +1477,6 @@ pub(crate) struct Audit {
     rotated: PathBuf,
     max_bytes: u64,
     next_id: AtomicU64,
-    /// Shared with the terminal capability: see the struct's doc comment.
     append: Arc<tokio::sync::Mutex<()>>,
 }
 
@@ -2268,7 +1504,6 @@ impl Audit {
         self.next_id.fetch_add(1, Ordering::Relaxed)
     }
 
-    /// Write the authorization line. `false` means no line was written.
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn begin(
         &self,
@@ -2367,7 +1602,6 @@ impl Audit {
         true
     }
 
-    /// Rotate the current file to `events.1.jsonl` when the next line would cross the cap.
     async fn rotate_if_needed(&self, incoming: u64) -> std::io::Result<()> {
         let current = match tokio::fs::metadata(&self.path).await {
             Ok(metadata) => metadata.len(),
@@ -2448,9 +1682,7 @@ mod tests {
     struct Device {
         mcp_url: String,
         config: Config,
-        /// Kept alive so every path the config names exists for the whole test.
         _dir: TempDir,
-        /// The serving task; the test runtime drops it.
         _server: tokio::task::JoinHandle<()>,
     }
 
@@ -2458,12 +1690,10 @@ mod tests {
         start_with_limits(label, terminal::Limits::default()).await
     }
 
-    /// The same device with a second, operator-configured root — the `H:\tmp` shape.
     async fn start_with_shared(label: &str) -> Device {
         start_with_limits_and_shared(label, terminal::Limits::default(), true).await
     }
 
-    /// The same device, with the terminal capability's limits replaced.
     async fn start_with_limits(label: &str, limits: terminal::Limits) -> Device {
         start_with_limits_and_shared(label, limits, false).await
     }
@@ -2624,7 +1854,6 @@ mod tests {
             .await
         }
 
-        /// One `tools/call`, returning the JSON-RPC envelope (a result or an error).
         async fn call(&mut self, name: &str, arguments: Value) -> Value {
             let response = self
                 .request(
@@ -2643,7 +1872,6 @@ mod tests {
         }
     }
 
-    /// The one JSON-RPC message an SSE response carries; the priming event has no data.
     async fn message_json(response: reqwest::Response) -> Value {
         let body = response.text().await.expect("the SSE body is readable");
         let data = body
@@ -2993,11 +2221,6 @@ mod tests {
         );
     }
 
-    /// **THE THREE TOOLS ON THE WIRE.** A rule added through `forward.add` is listed by
-    /// `forward.list`, an unchosen rule reports its own failure rather than a plausible zero, and
-    /// `forward.remove` closes the listener it owned.
-    ///
-    /// MUTATION: drop the `forward.add` dispatch arm -> the call answers a refusal and this fails.
     #[tokio::test]
     async fn the_forward_tools_add_list_and_remove_a_rule() {
         let device = start("mcp-forward").await;
@@ -3046,21 +2269,6 @@ mod tests {
         assert_eq!(text_of(&after), "[]", "{after}");
     }
 
-    /// **`forward.add` IS DESTRUCTIVE, AND A TOKEN THAT DID NOT CONSENT STILL CHARTS A RULE.**
-    ///
-    /// The registry marks `forward.add` and `forward.remove` destructive because they change a
-    /// listening socket and persist a credential. **A destructive tool is auto-approved for the
-    /// OWNER and refused for a token that did not say `allow_destructive` — but "destructive" is a
-    /// field of the ROW, not of the tool's name, and the gate reads it from `registry::is_destructive`.**
-    /// A tool added to the registry without its destructive row would be callable by every token,
-    /// and that is the kind of omission a suite with one arm per tool does not catch.
-    ///
-    /// This asserts the WORSE half: the owner may do it (a rule is the operator's own act), and the
-    /// pair of tools that write the table is exactly the pair the registry calls destructive.
-    ///
-    /// MUTATION (run, not asserted): dropping the annotation (`destructive_hint = None`) made this
-    /// fail with `forward.add is annotated with the flag it is authorized by: {"annotations":
-    /// {"readOnlyHint":false}, …}` against `right: Some(true)`. Restored, green.
     #[tokio::test]
     async fn the_tools_that_write_the_forward_table_are_the_destructive_ones() {
         // The registry is the single source of this fact for both surfaces: the console's catalogue
@@ -4152,9 +3360,6 @@ mod tests {
         );
     }
 
-    /// **A RUN THAT EXITED NON-ZERO IS A FAILURE**, even though `runs.exec` returned a value: an
-    /// MCP client that only reads the result has no other fact to go on, and the console must not
-    /// draw the run green. The run itself still happened, so its history row exists.
     #[cfg(unix)]
     #[tokio::test]
     async fn a_run_that_exits_non_zero_is_a_tool_level_failure() {
@@ -4190,9 +3395,6 @@ mod tests {
         );
     }
 
-    /// A program that does not exist never starts, and the refusal says so in the same words on
-    /// every platform instead of leaking the operating system's message. It is a **tool-level**
-    /// failure: a `tools/call` result with `isError: true`, not a protocol error envelope.
     #[cfg(unix)]
     #[tokio::test]
     async fn a_run_whose_program_is_missing_is_a_tool_level_failure() {
@@ -4220,9 +3422,6 @@ mod tests {
         );
     }
 
-    /// A run the timeout killed is a failure for the same reason an exit 2 is: the process did not
-    /// succeed, and an MCP client that only reads the result has no other fact. `timed_out` is the
-    /// run's own evidence and the reason says so.
     #[cfg(unix)]
     #[tokio::test]
     async fn a_run_killed_by_its_timeout_is_a_tool_level_failure() {
@@ -4259,9 +3458,6 @@ mod tests {
         assert_eq!(rows[0]["exit_code"], Value::Null);
     }
 
-    /// **A MALFORMED REQUEST IS STILL A PROTOCOL ERROR.** The rule above moves a run's own failure
-    /// into the result; it must not turn a request the device cannot parse into a tool refusal. The
-    /// envelope keeps `error` and carries no `result`.
     #[cfg(unix)]
     #[tokio::test]
     async fn a_malformed_run_request_keeps_the_error_envelope() {
@@ -5117,10 +4313,6 @@ mod tests {
         assert_eq!(closed["result"]["isError"], false, "{closed}");
     }
 
-    /// The pid of the shell behind `id`, discovered through the session itself.
-    ///
-    /// `terminal.list` reports `{id, kind, started_at_ms}` and no process id, so the test asks the
-    /// shell to print its own pid and reads the answer through `terminal.read`.
     #[cfg(target_os = "linux")]
     async fn session_pid(client: &mut Client, id: &str) -> i32 {
         let written = client
@@ -6346,7 +5538,6 @@ mod tests {
         (server, calls, dir)
     }
 
-    /// One `host.restart` call through the handler's one authorization-and-dispatch path.
     async fn host_restart(server: &super::DeviceServer, id: u64) -> Value {
         server
             .handle(
@@ -6403,7 +5594,6 @@ mod tests {
         );
     }
 
-    /// A call through the console's wire, carrying the trace the console minted for it.
     async fn console_call_with_trace(
         server: &super::DeviceServer,
         name: &str,
@@ -6458,7 +5648,6 @@ mod tests {
         (server.with_bus(Some(Arc::clone(&bus))), config, bus, dir)
     }
 
-    /// One `journal.day` answer, parsed: the tool's document is a JSON text item.
     async fn day_of(server: &super::DeviceServer, start: u64, end: u64) -> Value {
         let reply = tools_call(
             server,
@@ -6471,9 +5660,6 @@ mod tests {
         serde_json::from_str(text_of(&reply)).expect("journal.day answers one JSON document")
     }
 
-    /// **A DAY IS COUNTED BY ITS DOORS (round 12).** The console's day counts its own audit; a client
-    /// may call this machine directly, and those calls exist only in this journal. The aggregate says
-    /// how many finished inside the range by each door, and which of them failed.
     #[tokio::test]
     async fn journal_day_counts_the_day_by_door_and_failure() {
         let (server, _config, bus, _dir) = journaled_server("mcp-journal-day-doors");
@@ -6555,8 +5741,6 @@ mod tests {
         );
     }
 
-    /// **A CALL THAT STARTED BEFORE THE DAY IS STILL THE DAY'S CALL.** Its outcome is in range; its
-    /// door is on the half below the range, read back by the bounded lookback rather than guessed.
     #[tokio::test]
     async fn journal_day_reads_a_door_from_below_the_range() {
         let (server, config, _dir) = console_server("mcp-journal-day-below");
@@ -6595,8 +5779,6 @@ mod tests {
         assert_eq!(document["journal"], true);
     }
 
-    /// **THE DAY'S RULES ARE THE DEVICE'S, NOT THE CALLER'S.** A range must be ordered, bounded and
-    /// named with the tool's own keys; every refusal states the rule and never the value.
     #[tokio::test]
     async fn journal_day_refusals_name_the_rule_and_never_the_value() {
         let (server, _config, _bus, _dir) = journaled_server("mcp-journal-day-refusals");
@@ -6640,8 +5822,6 @@ mod tests {
         }
     }
 
-    /// A process with no journal answers the day's shape with zeros, not an error: it cannot count a
-    /// day it never recorded, and the caller can tell that from a day the machine says was empty.
     #[tokio::test]
     async fn journal_day_without_a_journal_answers_zeroes() {
         let (server, _config, _dir) = console_server("mcp-journal-day-no-journal");
@@ -6656,9 +5836,6 @@ mod tests {
         assert_eq!(document["day_end_ms"], 2_000);
     }
 
-    /// **ONLY A CALL THE JOURNAL HOLDS HAS A POSITION (round 9).** `tools/list` is an exchange, not
-    /// a call; a process with no journal writes no outcome half; neither names a `seq`. The console's
-    /// frame carries the field only when there is one to carry.
     #[tokio::test]
     async fn a_handle_acknowledges_a_sequence_only_for_a_call_the_journal_holds() {
         let (server, _config, bus, _dir) = journaled_server("mcp-ack-sequence");
@@ -6722,7 +5899,6 @@ mod tests {
         events
     }
 
-    /// One `tools/call` through the handler's one authorization-and-dispatch path.
     async fn tools_call(server: &super::DeviceServer, name: &str, arguments: Value) -> Value {
         server
             .handle(
@@ -7063,10 +6239,6 @@ mod tests {
         assert_eq!(lines[0]["decision"], "allow");
     }
 
-    /// A server whose plugin host has one running scripted `hello` plugin.
-    ///
-    /// The host and the device share `config.data`, which is what boot does: the plugin registry,
-    /// the plugin logs and the audit are one directory.
     async fn server_with_plugin(
         label: &str,
     ) -> (

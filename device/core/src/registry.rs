@@ -75,41 +75,7 @@ pub const CAPABILITIES: &[Capability] = &[
         }],
         guide: "",
     },
-    Capability {
-        name: "journal",
-        tools: &[
-            ToolDef {
-                name: "journal.get",
-                destructive: false,
-                // Read-only: it answers presence and coverage, never an event's payload, and a later
-                // read cannot be changed by it.
-                description:
-                    "Read this machine's journal: which of the traces you name are still retained, and the journal's retained bounds. Presence and coverage only, never an event's payload.",
-                schema: None,
-            },
-            ToolDef {
-                name: "journal.read",
-                destructive: false,
-                // Read-only, and summarising: a row is drawn from its own frame plus its tool and
-                // outcome, and only the payload's SIZE is reported. A read that relayed payloads
-                // would let one call carry a machine's file contents, which is an export.
-                description:
-                    "Read the rows of this machine's journal, newest first and bounded: each row's sequence, time and type, and on a call its tool, outcome and the door it arrived by. Summaries only; payloads are sized, not sent.",
-                schema: None,
-            },
-            ToolDef {
-                name: "journal.day",
-                destructive: false,
-                // Read-only and aggregated: counts of a day's calls by the door they arrived by,
-                // never a row and never a payload. The console asks it for the day its header
-                // counts, because a page of rows is not a day.
-                description:
-                    "Count this machine's journal for a time range you name: the calls and failures of each arrival door (console, panel, mesh, loopback, unknown) that finished inside the range, the journal's retained bounds, and whether the scan was cut. Aggregates only; no rows and no payloads.",
-                schema: None,
-            },
-        ],
-        guide: "",
-    },
+    crate::capabilities::journal::CAPABILITY,
     Capability {
         name: "plugins",
         tools: &[
