@@ -50,9 +50,18 @@ pub struct Record {
 impl Record {
     /// Open (or create) the record in `dir`, at `dir/record.db`, with a byte budget.
     pub fn open(dir: impl AsRef<Path>, max_bytes: u64) -> io::Result<Self> {
-        let dir = dir.as_ref().to_path_buf();
+        Self::open_file(dir.as_ref().join(FILE), max_bytes)
+    }
+
+    /// Open (or create) the record at an explicit file path.
+    pub fn open_file(path: impl AsRef<Path>, max_bytes: u64) -> io::Result<Self> {
+        let path = path.as_ref().to_path_buf();
+        let dir = path
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from("."));
         std::fs::create_dir_all(&dir)?;
-        let conn = Connection::open(dir.join(FILE)).db()?;
+        let conn = Connection::open(&path).db()?;
         conn.execute_batch(
             "PRAGMA journal_mode = WAL;
              PRAGMA synchronous = FULL;
@@ -220,6 +229,17 @@ impl Record {
         let more = rows.len() > limit;
         rows.truncate(limit);
         Ok((rows, more))
+    }
+
+    /// The oldest and newest moments the record retains, each when it has a row.
+    pub fn span(&self) -> io::Result<(Option<i64>, Option<i64>)> {
+        let conn = self.lock();
+        let (oldest, newest): (Option<i64>, Option<i64>) = conn
+            .query_row("SELECT MIN(ts_ms), MAX(ts_ms) FROM feed", [], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .db()?;
+        Ok((oldest, newest))
     }
 
     /// One meta value.

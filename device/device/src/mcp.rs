@@ -2228,6 +2228,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn state_get_names_the_record_and_its_bounds() {
+        let (server, _config, _bus, _dir) = journaled_server("mcp-state-record");
+        let reply = tools_call(&server, "state.get", json!({})).await;
+        assert!(reply.get("error").is_none(), "{reply}");
+        let document: Value =
+            serde_json::from_str(text_of(&reply)).expect("state.get answers one document");
+        let record = &document["record"];
+        assert!(
+            record["path"]
+                .as_str()
+                .is_some_and(|path| path.ends_with("record.db")),
+            "the page can name the file: {document}"
+        );
+        assert_eq!(record["schema_version"], 1);
+        assert!(
+            record["last_seq"].as_u64().is_some_and(|seq| seq >= 1),
+            "the audited call is a row: {document}"
+        );
+        assert!(
+            record["oldest_seq"].as_u64().is_some_and(|seq| seq >= 1),
+            "the retained window starts at the first row: {document}"
+        );
+    }
+
+    #[tokio::test]
     async fn state_get_returns_the_event_tail_oldest_first() {
         let device = start("mcp-state-events").await;
         fs::write(

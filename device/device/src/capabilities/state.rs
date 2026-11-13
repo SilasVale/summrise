@@ -27,6 +27,7 @@ pub fn call(
     _arguments: Map<String, Value>,
     store: &Store,
     version: &str,
+    bus: Option<&summrise_bus::Bus>,
 ) -> Result<String, ToolError> {
     match tool {
         "state.get" => {
@@ -60,7 +61,20 @@ pub fn call(
                 Ok(events) => json!(events),
                 Err(_) => Value::Null,
             };
-            Ok(json!({ "state": state, "health": health, "events": events }).to_string())
+            // The record's facts are the device page's answer to "is my history here": where it
+            // lives, how big it is, and the sequence bounds. `null` on a process with no record,
+            // never an invented zero.
+            let record = match bus.and_then(|bus| bus.facts().ok()) {
+                Some(facts) => json!(facts),
+                None => Value::Null,
+            };
+            Ok(json!({
+                "state": state,
+                "health": health,
+                "events": events,
+                "record": record,
+            })
+            .to_string())
         }
         other => Err(ToolError::Internal(format!(
             "{other}: the state capability does not declare this tool"

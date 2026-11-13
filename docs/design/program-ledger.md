@@ -491,6 +491,18 @@ device tests, clippy/fmt clean, gate 16 packages / 26 edges / 0 upward. Next: th
 record — open its own `record.db` through `summrise-record`, import `events.jsonl` once, and let
 `/audit` reads and the page use the record.
 
+**Round 32 — the device page names the record.** `state.get` now carries `record`: the file path,
+its size, `schema_version`, and the sequence bounds (`last_seq` / `oldest_seq`), `null` on a process
+with no record. `Record` gained `open_file` and `span` — the two things a console-side store will
+need. The console cut-over to `summrise-record` was built and **backed out this round**: the
+console's `/audit/source` answer and a dozen integration tests name `audit.jsonl`, its one rotated
+generation and `rotations: 1`. Moving to a record changes that answer (`audit.db`, no generation),
+so it is a page-contract change, not a storage swap — it needs the page's `AuditSource` type and
+the tests updated in the same slice. Nothing half-migrated shipped. Evidence: 670 device tests,
+clippy/fmt clean, gate 16 / 26 / 0. Next: the console record with that contract change in one
+slice — import `events.jsonl`/`denials.jsonl` once, `source` reports `audit.db` with `rotations: 0`
+and no `rotated`, retention replaces rotation, and the page's type and tests move with it.
+
 
 ## Next (in order)
 

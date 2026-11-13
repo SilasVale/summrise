@@ -139,7 +139,7 @@ pub async fn call(
         return screen::call(tool, arguments).await;
     }
     if state::owns(tool) {
-        return state::call(tool, arguments, ctx.store, ctx.release_version);
+        return state::call(tool, arguments, ctx.store, ctx.release_version, ctx.bus);
     }
     Err(crate::mcp::ToolError::Internal(format!(
         "{tool}: no migrated capability declares it"

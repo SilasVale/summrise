@@ -66,6 +66,21 @@ pub struct Reset {
     pub lost_to: u64,
 }
 
+/// What the record reports about itself: the file, its size, its sequence bounds.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RecordFacts {
+    /// The database file, as a path a person can open.
+    pub path: String,
+    /// Its size in bytes, as the filesystem states it.
+    pub bytes: u64,
+    /// The schema version the record was written with.
+    pub schema_version: u8,
+    /// The last sequence written. Zero when the record is empty.
+    pub last_seq: u64,
+    /// The first sequence still retained. Zero when the record is empty.
+    pub oldest_seq: u64,
+}
+
 /// The record and its live fan-out. One writer, one sequence.
 pub struct Bus {
     dir: PathBuf,
@@ -265,6 +280,19 @@ impl Bus {
             snapshot_seq: oldest - 1,
             lost_from: from,
             lost_to: oldest - 1,
+        })
+    }
+
+    /// The record's own facts: where it is, how big, and which sequences it holds.
+    pub fn facts(&self) -> io::Result<RecordFacts> {
+        let path = self.dir.join(RECORD_FILE);
+        let bytes = std::fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0);
+        Ok(RecordFacts {
+            path: path.display().to_string(),
+            bytes,
+            schema_version: SCHEMA_VERSION,
+            last_seq: self.last_seq(),
+            oldest_seq: self.oldest_seq(),
         })
     }
 
