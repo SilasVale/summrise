@@ -1640,7 +1640,7 @@ describe("ActivityTimeline's machine rows", () => {
       <ActivityTimeline
         lines={[consoleCall, panelCall]}
         devices={devices}
-        machine={{ contributed: 1, state: "read", unknown: false, error: null }}
+        machine={{ contributed: 1, state: "read", unknown: false, journal: true, error: null }}
       />
     );
     const row = [...document.querySelectorAll(".timeline-row")].find((entry) =>
@@ -1679,7 +1679,7 @@ describe("ActivityTimeline's machine rows", () => {
       <ActivityTimeline
         lines={[consoleCall, panelCall]}
         devices={devices}
-        machine={{ contributed: 1, state: "read", unknown: false, error: null }}
+        machine={{ contributed: 1, state: "read", unknown: false, journal: true, error: null }}
       />
     );
     expect(document.querySelector(".timeline-machine-read")).toHaveTextContent(
@@ -1695,6 +1695,7 @@ describe("ActivityTimeline's machine rows", () => {
         machine={{
           contributed: 0,
           state: "failed",
+          journal: false,
           unknown: false,
           error: "the machine is not connected"
         }}
@@ -1710,7 +1711,7 @@ describe("ActivityTimeline's machine rows", () => {
       <ActivityTimeline
         lines={[consoleCall]}
         devices={devices}
-        machine={{ contributed: 0, state: "read", unknown: true, error: null }}
+        machine={{ contributed: 0, state: "read", unknown: true, journal: false, error: null }}
       />
     );
     expect(document.querySelector(".timeline-machine-read")).toHaveTextContent(
@@ -1723,7 +1724,7 @@ describe("ActivityTimeline's machine rows", () => {
       <ActivityTimeline
         lines={[consoleCall]}
         devices={devices}
-        machine={{ contributed: 0, state: "read", unknown: false, error: null }}
+        machine={{ contributed: 0, state: "read", unknown: false, journal: true, error: null }}
       />
     );
     expect(document.querySelector(".timeline-machine-read")).toBeNull();
@@ -1734,10 +1735,35 @@ describe("ActivityTimeline's machine rows", () => {
       <ActivityTimeline
         lines={[]}
         devices={devices}
-        machine={{ contributed: 0, state: "read", unknown: false, error: null }}
+        machine={{ contributed: 0, state: "read", unknown: false, journal: true, error: null }}
       />
     );
     expect(document.body.textContent).toContain("is read from that machine's journal");
+  });
+
+  it("does not claim the journal was read when the machine does not offer it", () => {
+    render(
+      <ActivityTimeline
+        lines={[]}
+        devices={devices}
+        machine={{ contributed: 0, state: "read", unknown: true, journal: false, error: null }}
+      />
+    );
+    expect(document.body.textContent).not.toContain("is read from that machine's journal");
+    expect(document.querySelector(".timeline-machine-read")).toHaveTextContent(
+      "this machine does not offer it"
+    );
+  });
+
+  it("does not claim a journal on a machine that keeps none", () => {
+    render(
+      <ActivityTimeline
+        lines={[]}
+        devices={devices}
+        machine={{ contributed: 0, state: "read", unknown: false, journal: false, error: null }}
+      />
+    );
+    expect(document.body.textContent).not.toContain("is read from that machine's journal");
   });
 
   it("keeps the days in order when a machine row is older than the console's", () => {
@@ -1755,7 +1781,7 @@ describe("ActivityTimeline's machine rows", () => {
       <ActivityTimeline
         lines={[consoleCall, yesterday]}
         devices={devices}
-        machine={{ contributed: 1, state: "read", unknown: false, error: null }}
+        machine={{ contributed: 1, state: "read", unknown: false, journal: true, error: null }}
       />
     );
     const days = [...document.querySelectorAll(".timeline-day")];

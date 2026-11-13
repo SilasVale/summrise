@@ -58,6 +58,13 @@ export type MachineCounts = {
   state: MachineReadState;
   /** True when the machine answered that it does not offer `journal.read` (or the answer was unusable). */
   unknown: boolean;
+  /**
+   * True when the machine keeps a journal and answered for it.
+   *
+   * A `journal: false` machine is a fact, not a failure, but it is also not a record the page read:
+   * the empty state must not say a direct call "is read from that machine's journal" there.
+   */
+  journal: boolean;
   /** The console's sentence for a failed read, already in the page's voice. */
   error: string | null;
 };
@@ -67,6 +74,7 @@ export const EMPTY_MACHINE: MachineCounts = {
   contributed: 0,
   state: "idle",
   unknown: false,
+  journal: false,
   error: null
 };
 
@@ -158,21 +166,26 @@ export function mergeMachineRows(
 ): AuditLine[] {
   if (machineRows.length === 0) return consoleLines;
   const traces = new Set<string>();
-  const keys = new Set<string>();
+  // **ONLY AN UNTRACED CONSOLE ROW CAN MATCH ON THE COMPOSITE KEY.** If both records carry a trace,
+  // the trace is the join — two different traces name two different calls, whatever their clocks or
+  // tools say. The composite key is the fallback for the half that has no trace to offer, so it is
+  // kept for the console rows that wrote none, and for every console row when the machine's row is
+  // the one without one.
+  const untracedConsoleKeys = new Set<string>();
+  const everyConsoleKey = new Set<string>();
   for (const line of consoleLines) {
-    if (line.kind === "mcp" && typeof line.trace === "string" && line.trace !== "") {
-      traces.add(line.trace);
-    }
-    keys.add(fallbackKey(line));
+    const traced = line.kind === "mcp" && typeof line.trace === "string" && line.trace !== "";
+    if (traced) traces.add(line.trace as string);
+    everyConsoleKey.add(fallbackKey(line));
+    if (!traced) untracedConsoleKeys.add(fallbackKey(line));
   }
   const contributed = machineRows.filter((row) => {
+    const traced = typeof row.trace === "string" && row.trace !== "";
+    if (!traced) return !everyConsoleKey.has(fallbackKey(row));
     // **THE TRACE IS THE JOIN, NOT THE CLOCK.** Both records write one `trace.call` for a proxied
     // call; comparing the machine's `ts` with the console's would be comparing two clocks.
-    if (typeof row.trace === "string" && row.trace !== "" && traces.has(row.trace)) return false;
-    // **THE FALLBACK RUNS WHICHEVER HALF LACKS A TRACE.** An audit line written before the trace
-    // existed has none, so the machine's row — which does — could never match it on the trace; the
-    // composite key is the only thing left to try, and it must be tried even when this row has one.
-    return !keys.has(fallbackKey(row));
+    if (traces.has(row.trace as string)) return false;
+    return !untracedConsoleKeys.has(fallbackKey(row));
   });
   if (contributed.length === 0) return consoleLines;
   const merged = [...consoleLines, ...contributed];
@@ -186,10 +199,12 @@ export function machineCounts(
   read: { state: MachineReadState; error: string | null; answer: MachineReadAnswer | null },
   contributed: number
 ): MachineCounts {
+  const answer = read.answer;
   return {
     contributed,
     state: read.state,
-    unknown: read.answer?.unknown === true,
+    unknown: answer?.unknown === true,
+    journal: read.state === "read" && answer !== null && answer.journal && !answer.unknown,
     error: read.error
   };
 }

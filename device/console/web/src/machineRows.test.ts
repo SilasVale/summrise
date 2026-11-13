@@ -151,6 +151,21 @@ describe("mergeMachineRows", () => {
     expect(mergeMachineRows([proxied], [copy])).toEqual([proxied]);
   });
 
+  it("keeps a machine-only call when both rows carry different traces", () => {
+    // Two different traces name two different calls, whatever their instants, tools and statuses
+    // say: the composite fallback must not drop a real call because an unrelated console row
+    // happened to land on the same millisecond.
+    const consoleRow = line({ trace: "console-1" });
+    const machineCall = line({ trace: "machine-1", machine_seq: 6, door: "panel" });
+    expect(mergeMachineRows([consoleRow], [machineCall])).toEqual([consoleRow, machineCall]);
+  });
+
+  it("drops a machine row with no trace against a traced console row on the same key", () => {
+    const consoleRow = line({ trace: "console-1" });
+    const machineCopy = { ...line({ trace: undefined }), machine_seq: 7, door: "console" };
+    expect(mergeMachineRows([consoleRow], [machineCopy])).toEqual([consoleRow]);
+  });
+
   it("falls back to the composite key when only the machine's row carries a trace", () => {
     // An audit line from before the trace existed has no trace; the machine's copy does. Matching on
     // the trace alone would draw the same call twice.
@@ -178,6 +193,21 @@ describe("mergeMachineRows", () => {
   it("returns the console's window untouched when nothing was added", () => {
     const consoleLines = [proxied];
     expect(mergeMachineRows(consoleLines, [])).toBe(consoleLines);
+  });
+});
+
+describe("machineCounts", () => {
+  it("says the journal was read only when the machine keeps one and answered for it", () => {
+    const read = (over: Partial<MachineReadAnswer>) =>
+      machineCounts({ state: "read", error: null, answer: answer(over) }, 0);
+    expect(read({}).journal).toBe(true);
+    // An older machine's refusal is not a record read.
+    expect(read({ unknown: true }).journal).toBe(false);
+    // A machine that keeps no journal answered, but there is no window to claim.
+    expect(read({ journal: false }).journal).toBe(false);
+    // A failed read and a fleet window claim nothing either.
+    expect(machineCounts({ state: "failed", error: "offline", answer: null }, 0).journal).toBe(false);
+    expect(EMPTY_MACHINE.journal).toBe(false);
   });
 });
 

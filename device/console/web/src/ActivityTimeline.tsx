@@ -1261,7 +1261,7 @@ export function ActivityTimeline(props: {
               // that machine's own journal. A fleet window still has no one journal to read, so it
               // keeps the old sentence; a machine window whose read failed says so in the footer,
               // and claiming to have read it here would be a second, contradictory voice.
-              (props.machine?.state === "read"
+              (props.machine?.journal === true
                 ? "No activity yet. Calls routed through this console are written here; a call " +
                   "made straight to a machine's own endpoint is read from that machine's journal. " +
                   "Connect a client sets up the credential that routes one here."
