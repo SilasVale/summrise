@@ -124,7 +124,7 @@
       <div class="d">信任的 MCP 子进程；工具并入注册表</div>
     </div>
     <div class="card" style="left:584px; top:352px; width:276px; height:72px;">
-      <div class="t">订阅 <en>subscribe</en></div>
+      <div class="t">订阅 · 分发 <en>bus</en></div>
       <div class="d">控制台、面板、插件宿主订阅事件；落后说 lagged，越界说 reset</div>
     </div>
 
@@ -135,9 +135,9 @@
     </div>
 
     <div class="card" style="left:532px; top:440px; width:328px; height:96px;">
-      <div class="t">事件流 <en>journal</en></div>
-      <div class="d">有界（大小 + 时间）；订阅、回放、(epoch, seq)、lagged / reset</div>
-      <div class="d">只负责实时推送；旧事件被轮转掉没关系，记录里还在。</div>
+      <div class="t">总线 · 事件流 <en>bus</en></div>
+      <div class="d">控制事件：有界、可回放、(epoch, seq)；数据面（终端 / 屏幕）只推送，不入日志</div>
+      <div class="d">只负责实时；旧事件被轮转掉没关系，记录里还在。</div>
     </div>
 
     <div class="card" style="left:20px;  top:548px; width:270px; height:58px;">
@@ -240,7 +240,7 @@
 
     <!-- 日志 -> 数据目录（投影） -->
     <path d="M 928 700 L 954 700 L 954 676 L 978 676" fill="none" stroke="#b45309" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#ao)"/>
-    <text x="900" y="690" font-size="11" fill="#7c3a06">写入</text>
+    <text x="930" y="722" font-size="10.5" fill="#7c3a06">写入</text>
   </svg>
 
 </div>

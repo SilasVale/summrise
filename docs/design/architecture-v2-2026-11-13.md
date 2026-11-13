@@ -75,6 +75,11 @@ frames, `lagged` when a subscriber falls behind, terminal follow on a session's 
 SSE. The event names stay too: `call.started`, `call.finished` / `call.denied`, `session.opened` /
 `closed`, the plugin lifecycle, state changes.
 
+It also keeps the two delivery classes §4.1 defines: **control events** are journaled, ordered and
+replayable; **data-plane** frames (terminal bytes, screen frames) are pushed to their subscriber on the
+session's own notifier and never journaled, so a PTY flood cannot grow the record. One bus, two
+delivery classes — the same rule as v1, not a new one.
+
 What changes is its job. The stream is published **after** the record commits (an outbox, not a second
 home). A subscriber that lags or is reset recovers by querying the record — not by replaying a stream
 that retention may have shortened. That is what lets the stream be small; it is also why the console can
