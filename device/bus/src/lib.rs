@@ -1,36 +1,50 @@
-//! The device's event bus: a segmented journal, one sequence, subscribers with cursors.
+//! The record's change feed: one durable row per event, one sequence, one writer.
 //!
-//! S1 of `docs/design/architecture-of-record-2026-11-12.md`: the control plane is a single logical
-//! journal with a monotonic `seq`, written and fsynced before an event is published, and read back by
-//! subscribers from a cursor. S2 splits that journal into fixed-size segment files
-//! (`000001.seg`, `000002.seg`, ...) so retention can delete the oldest segment without rewriting
-//! sealed ones. The data plane is not here yet.
+//! **THE RECORD IS SQLITE, AND THE FEED IS ITS TABLE.** A publish is one transaction that inserts
+//! the envelope and prunes older rows under the retention budget; a reader is one query. The
+//! process is the only writer, so the sequence is monotonic without coordination, and a crash
+//! leaves the last committed transaction — not a torn line.
+//!
+//! Subscribers get the replay they asked for and then live rows. A cursor below the oldest retained
+//! row is a [`Reset`]: the caller learns exactly what retention took, instead of silently reading a
+//! gap.
 
-use std::collections::{BTreeMap, VecDeque};
-use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read, Write};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+use chrono::DateTime;
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::broadcast;
 
-/// The envelope's major schema. Additive changes stay at 1.
+/// The wire shape's version. A reader that does not know it must refuse the row, not guess.
 pub const SCHEMA_VERSION: u8 = 1;
 
-/// How many published events a live subscriber may fall behind before it is told it lagged.
-pub const CHANNEL_CAPACITY: usize = 1024;
+/// The name of the database inside the directory a [`Bus`] is opened on.
+pub const RECORD_FILE: &str = "record.db";
 
-/// The production segment size: 4 MiB. A segment is sealed once the next line would exceed it.
+/// Kept for callers that asked for a segment size; the record has no segments.
 pub const DEFAULT_SEGMENT_BYTES: u64 = 4 * 1024 * 1024;
 
-/// The production retention ceiling: 64 MiB across all segments.
+/// The default retention budget: the bytes of retained envelope JSON.
 pub const DEFAULT_MAX_BYTES: u64 = 64 * 1024 * 1024;
 
-/// How many published events apart the journal writes a snapshot.
+/// Kept for callers that asked for a snapshot cadence; the record needs no snapshots.
 pub const DEFAULT_SNAPSHOT_EVERY: u64 = 1_000;
+
+/// SQLite errors become the `io::Result` this API already returns.
+trait Db<T> {
+    fn db(self) -> io::Result<T>;
+}
+
+impl<T> Db<T> for rusqlite::Result<T> {
+    fn db(self) -> io::Result<T> {
+        self.map_err(io::Error::other)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -39,7 +53,7 @@ pub enum Plane {
     Data,
 }
 
-/// One event: the unit the journal stores and subscribers receive.
+/// One event: the unit the record stores and subscribers receive.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Envelope {
     pub v: u8,
@@ -59,7 +73,7 @@ pub struct Envelope {
 /// What a subscriber lost to retention when its cursor fell behind the oldest retained row.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reset {
-    /// The last sequence a snapshot could cover: everything up to it is gone.
+    /// The last sequence that is gone: everything up to it was pruned.
     pub snapshot_seq: u64,
     /// The first lost sequence, inclusive.
     pub lost_from: u64,
@@ -67,34 +81,23 @@ pub struct Reset {
     pub lost_to: u64,
 }
 
-/// The journal and its live fan-out. One writer, one sequence.
+/// The record and its live fan-out. One writer, one sequence.
 pub struct Bus {
     dir: PathBuf,
-    journal: Mutex<Journal>,
-    segment_bytes: u64,
+    record: Mutex<Connection>,
     max_bytes: u64,
-    snapshot_every: u64,
     seq: AtomicU64,
     tx: broadcast::Sender<Arc<Envelope>>,
 }
 
-/// The active segment and the sizes of every live segment, under one writer's lock.
-struct Journal {
-    file: File,
-    index: u64,
-    size: u64,
-    segments: BTreeMap<u64, u64>,
-}
-
 impl Bus {
-    /// Open (or create) a segmented journal in `dir` with the production sizes, recovering the last
-    /// durable `seq` and truncating a torn tail in the last segment.
+    /// Open (or create) the record in `dir`, at `dir/record.db`.
     pub fn open(dir: impl AsRef<Path>) -> io::Result<Self> {
         Self::open_with(dir, DEFAULT_SEGMENT_BYTES, DEFAULT_MAX_BYTES)
     }
 
-    /// Open (or create) a segmented journal with explicit segment and retention sizes. Tests use
-    /// small values; production goes through [`Bus::open`].
+    /// Open with an explicit retention budget. `segment_bytes` is accepted for callers that still
+    /// pass it; the record has no segments. Tests use small budgets.
     pub fn open_with(
         dir: impl AsRef<Path>,
         segment_bytes: u64,
@@ -103,46 +106,61 @@ impl Bus {
         Self::open_with_snapshot(dir, segment_bytes, max_bytes, DEFAULT_SNAPSHOT_EVERY)
     }
 
-    /// Open (or create) a segmented journal with explicit sizes and snapshot cadence. A cadence of
-    /// zero disables snapshots; tests otherwise use small values.
+    /// Open with a snapshot cadence. The cadence is ignored: a record needs no snapshots, and the
+    /// parameter stays so an older caller's intent is visible rather than silently dropped.
     pub fn open_with_snapshot(
         dir: impl AsRef<Path>,
-        segment_bytes: u64,
+        _segment_bytes: u64,
         max_bytes: u64,
-        snapshot_every: u64,
+        _snapshot_every: u64,
     ) -> io::Result<Self> {
         let dir = dir.as_ref().to_path_buf();
-        fs::create_dir_all(&dir)?;
-        let (last_seq, mut segments) = recover(&dir)?;
-        let index = segments.keys().next_back().copied().unwrap_or(1);
-        let file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(dir.join(segment_name(index)))?;
-        let size = *segments.entry(index).or_insert(0);
-        let (tx, _) = broadcast::channel(CHANNEL_CAPACITY);
+        std::fs::create_dir_all(&dir)?;
+        let path = dir.join(RECORD_FILE);
+        let record = Connection::open(&path).db()?;
+        record
+            .execute_batch(
+                "PRAGMA journal_mode = WAL;
+             PRAGMA synchronous = FULL;
+             PRAGMA busy_timeout = 5000;
+             CREATE TABLE IF NOT EXISTS feed (
+                 seq    INTEGER PRIMARY KEY,
+                 ts_ms  INTEGER NOT NULL,
+                 json   TEXT NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS meta (
+                 key TEXT PRIMARY KEY,
+                 value TEXT NOT NULL
+             );
+             INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '1');",
+            )
+            .db()?;
+        let last: i64 = record
+            .query_row("SELECT COALESCE(MAX(seq), 0) FROM feed", [], |row| {
+                row.get(0)
+            })
+            .db()?;
+        let (tx, _) = broadcast::channel(1024);
         Ok(Self {
             dir,
-            journal: Mutex::new(Journal {
-                file,
-                index,
-                size,
-                segments,
-            }),
-            segment_bytes,
+            record: Mutex::new(record),
             max_bytes,
-            snapshot_every,
-            seq: AtomicU64::new(last_seq),
+            seq: AtomicU64::new(last.max(0) as u64),
             tx,
         })
     }
 
-    /// Publish a control-plane event. The sequence is assigned, the line is appended and fsynced, and
-    /// only then does it reach subscribers — a published `seq` is durable.
+    /// The directory the record lives in.
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+
+    /// Publish one control-plane event.
     pub fn publish(&self, kind: &str, payload: Value) -> io::Result<Envelope> {
         self.publish_on(Plane::Control, kind, None, payload)
     }
 
+    /// Publish one event on `plane`.
     pub fn publish_on(
         &self,
         plane: Plane,
@@ -154,11 +172,6 @@ impl Bus {
     }
 
     /// Publish a control-plane event whose `trace.call` names the call it belongs to.
-    ///
-    /// The architecture's §4.2 is a pair: a call is `call.started` and then `call.finished` or
-    /// `call.denied`, both carrying one `trace.call`, so a reader can always join them — and a
-    /// proxied call joins the console's audit line on the same value. `None` is a plain publish,
-    /// byte for byte what [`Bus::publish`] wrote before the field was used.
     pub fn publish_traced(
         &self,
         plane: Plane,
@@ -167,59 +180,88 @@ impl Bus {
         call: Option<&str>,
         payload: Value,
     ) -> io::Result<Envelope> {
-        let seq = self.seq.fetch_add(1, Ordering::SeqCst) + 1;
+        self.publish_traced_at(
+            plane,
+            kind,
+            subject,
+            call,
+            &chrono::Utc::now().to_rfc3339(),
+            payload,
+        )
+    }
+
+    /// Publish a traced event with an explicit moment.
+    ///
+    /// The import path (an old record rewritten into this one) needs it: a row's moment is the
+    /// moment it happened, not the moment it was migrated.
+    pub fn publish_traced_at(
+        &self,
+        plane: Plane,
+        kind: &str,
+        subject: Option<Value>,
+        call: Option<&str>,
+        ts: &str,
+        payload: Value,
+    ) -> io::Result<Envelope> {
         let envelope = Envelope {
             v: SCHEMA_VERSION,
             plane,
-            seq,
-            ts: chrono::Utc::now().to_rfc3339(),
+            seq: 0,
+            ts: ts.to_owned(),
             kind: kind.to_owned(),
             subject,
             trace: call.map(|call| serde_json::json!({ "call": call })),
             payload,
         };
-        let mut line = serde_json::to_vec(&envelope)
+        self.append(envelope)
+    }
+
+    /// Insert one envelope, prune under the budget, and fan it out after the commit.
+    fn append(&self, mut envelope: Envelope) -> io::Result<Envelope> {
+        let mut record = self
+            .record
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let transaction = record.transaction().db()?;
+        let seq = self.seq.load(Ordering::SeqCst) + 1;
+        envelope.seq = seq;
+        let json = serde_json::to_string(&envelope)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-        line.push(b'\n');
-        {
-            let mut journal = self
-                .journal
-                .lock()
-                .unwrap_or_else(|poison| poison.into_inner());
-            if journal.size > 0
-                && journal.size.saturating_add(line.len() as u64) > self.segment_bytes
-            {
-                self.rotate(&mut journal)?;
-            }
-            journal.file.write_all(&line)?;
-            journal.file.sync_all()?;
-            journal.size += line.len() as u64;
-            let (index, size) = (journal.index, journal.size);
-            if let Some(tracked) = journal.segments.get_mut(&index) {
-                *tracked = size;
-            }
-        }
-        // The event is durable before this point. Snapshots are derived data, so a failure to write
-        // one must not fail a publish that already succeeded.
-        let _ = self.write_snapshot(seq, &envelope.ts);
+        let ts_ms = moment_ms(&envelope.ts);
+        transaction
+            .execute(
+                "INSERT INTO feed (seq, ts_ms, json) VALUES (?1, ?2, ?3)",
+                params![seq as i64, ts_ms, json],
+            )
+            .db()?;
+        prune(&transaction, self.max_bytes)?;
+        transaction.commit().db()?;
+        self.seq.store(seq, Ordering::SeqCst);
         let _ = self.tx.send(Arc::new(envelope.clone()));
         Ok(envelope)
     }
 
-    /// A subscriber from `from_seq` inclusive: every segment's tail first, then live events,
+    /// A subscriber from `from_seq` inclusive: the retained tail first, then live events,
     /// deduplicated by `seq`.
     pub fn subscribe(&self, from_seq: u64) -> io::Result<Subscription> {
         let rx = self.tx.subscribe();
-        let indices: Vec<u64> = {
-            let journal = self
-                .journal
+        let replay = {
+            let record = self
+                .record
                 .lock()
                 .unwrap_or_else(|poison| poison.into_inner());
-            journal.segments.keys().copied().collect()
+            let mut statement = record
+                .prepare("SELECT json FROM feed WHERE seq >= ?1 ORDER BY seq ASC")
+                .db()?;
+            let rows = statement
+                .query_map(params![from_seq as i64], |row| row.get::<_, String>(0))
+                .db()?;
+            let mut events = Vec::new();
+            for row in rows {
+                events.push(parse_row(&row.map_err(io::Error::other)?)?);
+            }
+            events
         };
-        let replay = read_from(&self.dir, &indices, from_seq)?;
-        // The cursor is the last seq actually handed out, not `from_seq - 1`: a subscriber asking
-        // past the end must still receive the next live event, not skip it.
         let last = replay.last().map(|event| event.seq).unwrap_or(0);
         Ok(Subscription {
             replay: replay.into(),
@@ -228,17 +270,8 @@ impl Bus {
         })
     }
 
-    /// The last durable sequence. Zero when the journal is empty.
-    /// The rows whose moment falls in `[from_ms, to_ms)`, newest first, at most `limit` rows.
-    ///
-    /// A read of a machine's own record by time, for the one question its page asks that a page of
-    /// rows cannot answer: how many calls did a day hold. `more` is true when the day held more rows
-    /// than the answer — the caller's counts are then "at least".
-    ///
-    /// The scan walks the journal from its newest row backwards and stops at the first row older
-    /// than the range: the journal appends each envelope with its own moment, so its order is that
-    /// order. A clock that steps backwards writes a row out of that order, and a full scan would be
-    /// the only way to find it; the reader accepts the journal's order, as every other read does.
+    /// The rows whose moment falls in `[from_ms, to_ms)`, newest first, at most `limit` rows, and
+    /// whether the range held more rows than the answer.
     pub fn read_between(
         &self,
         from_ms: u64,
@@ -248,45 +281,51 @@ impl Bus {
         if limit == 0 || to_ms <= from_ms {
             return Ok((Vec::new(), false));
         }
-        let indices: Vec<u64> = {
-            let journal = self
-                .journal
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            journal.segments.keys().copied().collect()
-        };
-        read_between_from(&self.dir, &indices, from_ms, to_ms, limit)
+        let record = self
+            .record
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let mut statement = record
+            .prepare(
+                "SELECT json FROM feed WHERE ts_ms >= ?1 AND ts_ms < ?2 ORDER BY seq DESC LIMIT ?3",
+            )
+            .db()?;
+        let rows = statement
+            .query_map(
+                params![from_ms as i64, to_ms as i64, (limit + 1) as i64],
+                |row| row.get::<_, String>(0),
+            )
+            .db()?;
+        let mut events = Vec::new();
+        for row in rows {
+            events.push(parse_row(&row.map_err(io::Error::other)?)?);
+        }
+        let more = events.len() > limit;
+        events.truncate(limit);
+        Ok((events, more))
     }
 
+    /// The last durable sequence. Zero when the record is empty.
     pub fn last_seq(&self) -> u64 {
         self.seq.load(Ordering::SeqCst)
     }
 
-    /// The first sequence still retained on disk. Zero when the journal is empty.
+    /// The first sequence still retained. Zero when the record is empty.
     pub fn oldest_seq(&self) -> u64 {
-        let indices: Vec<u64> = {
-            let journal = self
-                .journal
-                .lock()
-                .unwrap_or_else(|poison| poison.into_inner());
-            journal.segments.keys().copied().collect()
-        };
-        for index in indices {
-            let Ok(bytes) = fs::read(self.dir.join(segment_name(index))) else {
-                // Retention may delete a segment between the snapshot of the index list and this
-                // read; the next retained segment still answers.
-                continue;
-            };
-            for line in bytes.split(|byte| *byte == b'\n') {
-                if line.is_empty() {
-                    continue;
-                }
-                if let Ok(envelope) = serde_json::from_slice::<Envelope>(line) {
-                    return envelope.seq;
-                }
-            }
-        }
-        0
+        let record = self
+            .record
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        record
+            .query_row("SELECT MIN(seq) FROM feed", [], |row| {
+                row.get::<_, Option<i64>>(0)
+            })
+            .optional()
+            .ok()
+            .flatten()
+            .flatten()
+            .map(|seq| seq.max(0) as u64)
+            .unwrap_or(0)
     }
 
     /// The newest `limit` retained rows, newest first.
@@ -294,22 +333,25 @@ impl Bus {
         if limit == 0 {
             return Ok(Vec::new());
         }
-        let indices: Vec<u64> = {
-            let journal = self
-                .journal
-                .lock()
-                .unwrap_or_else(|poison| poison.into_inner());
-            journal.segments.keys().copied().collect()
-        };
-        scan_newest_from(&self.dir, &indices, limit)
+        let record = self
+            .record
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let mut statement = record
+            .prepare("SELECT json FROM feed ORDER BY seq DESC LIMIT ?1")
+            .db()?;
+        let rows = statement
+            .query_map(params![limit as i64], |row| row.get::<_, String>(0))
+            .db()?;
+        let mut events = Vec::new();
+        for row in rows {
+            events.push(parse_row(&row.map_err(io::Error::other)?)?);
+        }
+        Ok(events)
     }
 
-    /// A page of the journal, newest first: up to `limit` retained rows older than `before_seq`
+    /// A page of the record, newest first: up to `limit` retained rows older than `before_seq`
     /// (from the newest row when it is `None`), and whether a retained row lies below the page.
-    ///
-    /// The caller gets whole envelopes, because retention is the bus's fact and a summary is the
-    /// tool's; the `more` flag is what lets a page stop asking, and it is found by reading exactly
-    /// one row past the page rather than by walking the rest of the window.
     pub fn read_window(
         &self,
         before_seq: Option<u64>,
@@ -318,18 +360,40 @@ impl Bus {
         if limit == 0 {
             return Ok((Vec::new(), false));
         }
-        let indices: Vec<u64> = {
-            let journal = self
-                .journal
-                .lock()
-                .unwrap_or_else(|poison| poison.into_inner());
-            journal.segments.keys().copied().collect()
+        let record = self
+            .record
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let events = match before_seq {
+            Some(before) => {
+                let mut statement = record
+                    .prepare("SELECT json FROM feed WHERE seq < ?1 ORDER BY seq DESC LIMIT ?2")
+                    .db()?;
+                let rows = statement
+                    .query_map(params![before as i64, (limit + 1) as i64], |row| {
+                        row.get::<_, String>(0)
+                    })
+                    .db()?;
+                collect_rows(rows)?
+            }
+            None => {
+                let mut statement = record
+                    .prepare("SELECT json FROM feed ORDER BY seq DESC LIMIT ?1")
+                    .db()?;
+                let rows = statement
+                    .query_map(params![(limit + 1) as i64], |row| row.get::<_, String>(0))
+                    .db()?;
+                collect_rows(rows)?
+            }
         };
-        read_window_from(&self.dir, &indices, before_seq, limit)
+        let more = events.len() > limit;
+        let mut events = events;
+        events.truncate(limit);
+        Ok((events, more))
     }
 
     /// The lost range for a subscriber whose cursor is `from`, or `None` when that cursor is still
-    /// inside the retained window (or the journal is empty).
+    /// inside the retained window (or the record is empty).
     pub fn reset(&self, from: u64) -> Option<Reset> {
         let oldest = self.oldest_seq();
         if oldest == 0 || from >= oldest {
@@ -342,92 +406,44 @@ impl Bus {
         })
     }
 
-    /// Write `snapshot-<seq>.json` when this sequence is due one. An existing snapshot is never
-    /// rewritten, and the file appears atomically: write the `.tmp` sibling, fsync, rename.
-    fn write_snapshot(&self, seq: u64, ts: &str) -> io::Result<()> {
-        if self.snapshot_every == 0 || !seq.is_multiple_of(self.snapshot_every) {
-            return Ok(());
-        }
-        let path = self.dir.join(snapshot_name(seq));
-        if path.exists() {
-            return Ok(());
-        }
-        #[derive(Serialize)]
-        struct Snapshot<'a> {
-            v: u8,
-            seq: u64,
-            ts: &'a str,
-        }
-        let bytes = serde_json::to_vec(&Snapshot {
-            v: SCHEMA_VERSION,
-            seq,
-            ts,
-        })
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-        let tmp = self.dir.join(format!("{}.tmp", snapshot_name(seq)));
-        let mut file = OpenOptions::new()
-            .create(true)
-            .truncate(true)
-            .write(true)
-            .open(&tmp)?;
-        file.write_all(&bytes)?;
-        file.sync_all()?;
-        drop(file);
-        fs::rename(&tmp, &path)
-    }
-
-    /// Seal the active segment, start the next index, and prune old segments if retention demands it.
-    fn rotate(&self, journal: &mut Journal) -> io::Result<()> {
-        journal.file.sync_all()?;
-        let index = journal.index + 1;
-        let file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(self.dir.join(segment_name(index)))?;
-        let size = file.metadata()?.len();
-        journal.file = file;
-        journal.index = index;
-        journal.size = size;
-        journal.segments.insert(index, size);
-        self.prune(journal);
+    /// Copy the record to `path` (`VACUUM INTO`): a consistent snapshot a backup can ship.
+    pub fn backup_to(&self, path: impl AsRef<Path>) -> io::Result<()> {
+        let record = self
+            .record
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        record
+            .execute("VACUUM INTO ?1", params![path.as_ref().to_string_lossy()])
+            .db()?;
         Ok(())
     }
 
-    /// Delete the oldest segments while the total exceeds `max_bytes`, always leaving one.
-    fn prune(&self, journal: &mut Journal) {
-        while journal.segments.len() > 1 {
-            let total: u64 = journal.segments.values().copied().sum();
-            if total <= self.max_bytes {
-                break;
-            }
-            let Some((&oldest, _)) = journal.segments.iter().next() else {
-                break;
-            };
-            match fs::remove_file(self.dir.join(segment_name(oldest))) {
-                Ok(()) => {
-                    journal.segments.remove(&oldest);
-                }
-                Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                    journal.segments.remove(&oldest);
-                }
-                Err(_) => break,
-            }
+    /// `PRAGMA integrity_check`: `Ok` only when SQLite answers `ok`.
+    pub fn check(&self) -> io::Result<()> {
+        let record = self
+            .record
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let answer: String = record
+            .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+            .db()?;
+        if answer == "ok" {
+            Ok(())
+        } else {
+            Err(io::Error::new(io::ErrorKind::InvalidData, answer))
         }
     }
 }
 
-/// A subscriber's cursor: journal rows, then live events.
+/// A subscriber's cursor: record rows, then live events.
 pub struct Subscription {
-    replay: VecDeque<Envelope>,
+    replay: std::collections::VecDeque<Envelope>,
     rx: broadcast::Receiver<Arc<Envelope>>,
     last: u64,
 }
 
 impl Subscription {
-    /// Every event the subscription can hand over right now: the replay it opened with and
-    /// whatever is already queued live, without waiting for one more.
-    ///
-    /// Tests use it to read a journal after an action; a caller that must wait has [`Self::next`].
+    /// Every event the subscription can hand over right now, without waiting for one more.
     pub fn try_next(&mut self) -> Option<Envelope> {
         if let Some(event) = self.replay.pop_front() {
             self.last = event.seq;
@@ -466,231 +482,61 @@ impl Subscription {
     }
 }
 
-/// `000001.seg`, zero-padded to six digits.
-fn segment_name(index: u64) -> String {
-    format!("{index:06}.seg")
+/// The moment of a row in Unix milliseconds; a timestamp this reader cannot parse is stored as 0
+/// and stays out of every time range rather than being guessed into one.
+fn moment_ms(ts: &str) -> i64 {
+    DateTime::parse_from_rfc3339(ts)
+        .map(|moment| moment.timestamp_millis())
+        .unwrap_or(0)
 }
 
-/// `snapshot-<seq>.json`.
-fn snapshot_name(seq: u64) -> String {
-    format!("snapshot-{seq}.json")
+fn parse_row(json: &str) -> io::Result<Envelope> {
+    serde_json::from_str(json).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
 }
 
-/// The index a segment file name carries, or `None` for anything else in the directory.
-fn segment_index(name: &str) -> Option<u64> {
-    let digits = name.strip_suffix(".seg")?;
-    if digits.len() != 6 || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
-        return None;
-    }
-    digits.parse().ok()
-}
-
-/// The segment indices present in `dir`, in journal order.
-fn segment_indices(dir: &Path) -> io::Result<Vec<u64>> {
-    let mut indices = Vec::new();
-    for entry in fs::read_dir(dir)? {
-        let entry = entry?;
-        if !entry.file_type()?.is_file() {
-            continue;
-        }
-        let name = entry.file_name();
-        let Some(name) = name.to_str() else {
-            continue;
-        };
-        if let Some(index) = segment_index(name) {
-            indices.push(index);
-        }
-    }
-    indices.sort_unstable();
-    Ok(indices)
-}
-
-/// Scan the segments in order for the last durable sequence, truncating a torn tail only in the last
-/// one, and return each segment's live size.
-fn recover(dir: &Path) -> io::Result<(u64, BTreeMap<u64, u64>)> {
-    let indices = segment_indices(dir)?;
-    let last = indices.last().copied();
-    let mut last_seq = 0;
-    let mut sizes = BTreeMap::new();
-    for index in indices {
-        let path = dir.join(segment_name(index));
-        let mut bytes = Vec::new();
-        File::open(&path)?.read_to_end(&mut bytes)?;
-        let mut valid_end = 0;
-        let mut offset = 0;
-        for line in bytes.split_inclusive(|byte| *byte == b'\n') {
-            offset += line.len();
-            if line == b"\n" {
-                valid_end = offset;
-                continue;
-            }
-            match serde_json::from_slice::<Envelope>(line) {
-                Ok(envelope) => {
-                    last_seq = last_seq.max(envelope.seq);
-                    valid_end = offset;
-                }
-                Err(_) => break,
-            }
-        }
-        // Only the last segment may be rewritten; a sealed segment's torn tail is left untouched.
-        if Some(index) == last && valid_end < bytes.len() {
-            let file = OpenOptions::new().write(true).open(&path)?;
-            file.set_len(valid_end as u64)?;
-            file.sync_all()?;
-            sizes.insert(index, valid_end as u64);
-        } else {
-            sizes.insert(index, bytes.len() as u64);
-        }
-    }
-    Ok((last_seq, sizes))
-}
-
-/// One page of the journal, newest first: rows older than `before_seq` (all of them when it is
-/// `None`), at most `limit`, plus whether a retained row lies below the page.
-///
-/// The walk is the same one [`scan_newest_from`] makes — segments newest-first, each walked from its
-/// last line backwards — because a page is the tail of the record, and a reader that asked for twenty
-/// rows must not parse a 64 MiB window to answer. `more` costs exactly one extra matching row: once the
-/// page is full, the next row the walk meets is the proof that something lies below it, and the read
-/// stops there rather than counting the rest.
-fn read_window_from(
-    dir: &Path,
-    indices: &[u64],
-    before_seq: Option<u64>,
-    limit: usize,
-) -> io::Result<(Vec<Envelope>, bool)> {
-    let mut rows = Vec::new();
-    for &index in indices.iter().rev() {
-        let bytes = match fs::read(dir.join(segment_name(index))) {
-            Ok(bytes) => bytes,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-            Err(error) => return Err(error),
-        };
-        for line in bytes.split(|byte| *byte == b'\n').rev() {
-            if line.is_empty() {
-                continue;
-            }
-            let Ok(envelope) = serde_json::from_slice::<Envelope>(line) else {
-                continue;
-            };
-            if before_seq.is_some_and(|before| envelope.seq >= before) {
-                continue;
-            }
-            if rows.len() == limit {
-                return Ok((rows, true));
-            }
-            rows.push(envelope);
-        }
-    }
-    Ok((rows, false))
-}
-
-/// The moment a row says it happened, in Unix milliseconds; `None` when the row's `ts` is not one.
-fn envelope_moment_ms(ts: &str) -> Option<u64> {
-    chrono::DateTime::parse_from_rfc3339(ts)
-        .ok()
-        .and_then(|at| u64::try_from(at.timestamp_millis()).ok())
-}
-
-/// The rows of one time range, newest first, walking segments and lines backwards.
-///
-/// A row whose `ts` cannot be read is skipped: it belongs to no day this reader can count, and a
-/// malformed moment must not become "inside every range". Rows at or after `to_ms` are skipped but
-/// the scan continues — a machine's clock can step forward across a day's end.
-fn read_between_from(
-    dir: &Path,
-    indices: &[u64],
-    from_ms: u64,
-    to_ms: u64,
-    limit: usize,
-) -> io::Result<(Vec<Envelope>, bool)> {
-    let mut rows = Vec::new();
-    for &index in indices.iter().rev() {
-        let bytes = match fs::read(dir.join(segment_name(index))) {
-            Ok(bytes) => bytes,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-            Err(error) => return Err(error),
-        };
-        for line in bytes.split(|byte| *byte == b'\n').rev() {
-            if line.is_empty() {
-                continue;
-            }
-            let Ok(envelope) = serde_json::from_slice::<Envelope>(line) else {
-                continue;
-            };
-            let Some(moment) = envelope_moment_ms(&envelope.ts) else {
-                continue;
-            };
-            if moment < from_ms {
-                // The journal's order is its moments: every row below this one is older.
-                return Ok((rows, false));
-            }
-            if moment >= to_ms {
-                continue;
-            }
-            if rows.len() == limit {
-                return Ok((rows, true));
-            }
-            rows.push(envelope);
-        }
-    }
-    Ok((rows, false))
-}
-
-fn read_from(dir: &Path, indices: &[u64], from: u64) -> io::Result<Vec<Envelope>> {
+fn collect_rows<F>(rows: rusqlite::MappedRows<'_, F>) -> io::Result<Vec<Envelope>>
+where
+    F: FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<String>,
+{
     let mut events = Vec::new();
-    for &index in indices {
-        let bytes = match fs::read(dir.join(segment_name(index))) {
-            Ok(bytes) => bytes,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-            Err(error) => return Err(error),
-        };
-        for line in bytes.split(|byte| *byte == b'\n') {
-            if line.is_empty() {
-                continue;
-            }
-            let Ok(envelope) = serde_json::from_slice::<Envelope>(line) else {
-                continue;
-            };
-            if envelope.seq >= from {
-                events.push(envelope);
-            }
-        }
+    for row in rows {
+        events.push(parse_row(&row.map_err(io::Error::other)?)?);
     }
     Ok(events)
 }
 
-/// The newest `limit` rows across `indices`, newest first, in `limit` rows at most.
-///
-/// Segments are read from the newest index backwards, and each is walked from its last line to its
-/// first, so a reader that only needs the tail never parses the bulk of a retention window.
-fn scan_newest_from(dir: &Path, indices: &[u64], limit: usize) -> io::Result<Vec<Envelope>> {
-    let mut newest = Vec::new();
-    for &index in indices.iter().rev() {
-        let bytes = match fs::read(dir.join(segment_name(index))) {
-            Ok(bytes) => bytes,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-            Err(error) => return Err(error),
-        };
-        for line in bytes.split(|byte| *byte == b'\n').rev() {
-            if line.is_empty() {
-                continue;
-            }
-            let Ok(envelope) = serde_json::from_slice::<Envelope>(line) else {
-                continue;
-            };
-            newest.push(envelope);
-            if newest.len() == limit {
-                return Ok(newest);
-            }
+/// Delete the oldest rows while the stored bytes exceed `max_bytes`, always leaving the newest row.
+fn prune(transaction: &rusqlite::Transaction<'_>, max_bytes: u64) -> io::Result<()> {
+    loop {
+        let rows: i64 = transaction
+            .query_row("SELECT COUNT(*) FROM feed", [], |row| row.get(0))
+            .db()?;
+        if rows <= 1 {
+            return Ok(());
         }
+        let bytes: i64 = transaction
+            .query_row(
+                "SELECT COALESCE(SUM(LENGTH(json)), 0) FROM feed",
+                [],
+                |row| row.get(0),
+            )
+            .db()?;
+        if (bytes as u64) <= max_bytes {
+            return Ok(());
+        }
+        transaction
+            .execute(
+                "DELETE FROM feed WHERE seq = (SELECT MIN(seq) FROM feed)",
+                [],
+            )
+            .db()?;
     }
-    Ok(newest)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     fn temp_dir(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
@@ -702,22 +548,8 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ));
-        fs::create_dir_all(&dir).unwrap();
+        std::fs::create_dir_all(&dir).unwrap();
         dir
-    }
-
-    fn segments_in(dir: &Path) -> Vec<PathBuf> {
-        let mut paths: Vec<PathBuf> = fs::read_dir(dir)
-            .unwrap()
-            .map(|entry| entry.unwrap().path())
-            .filter(|path| path.extension().and_then(|extension| extension.to_str()) == Some("seg"))
-            .collect();
-        paths.sort();
-        paths
-    }
-
-    fn read_segment(dir: &Path, index: u64) -> String {
-        fs::read_to_string(dir.join(segment_name(index))).unwrap()
     }
 
     #[test]
@@ -727,12 +559,13 @@ mod tests {
         assert_eq!(bus.publish("a", Value::Null).unwrap().seq, 1);
         assert_eq!(bus.publish("b", Value::Null).unwrap().seq, 2);
         assert_eq!(bus.publish("c", Value::Null).unwrap().seq, 3);
-        let text = read_segment(&dir, 1);
-        assert_eq!(text.lines().count(), 3);
-        let first: Envelope = serde_json::from_str(text.lines().next().unwrap()).unwrap();
-        assert_eq!(first.v, SCHEMA_VERSION);
-        assert_eq!(first.seq, 1);
-        assert_eq!(first.kind, "a");
+        assert_eq!(bus.last_seq(), 3);
+        let newest = bus.scan_newest(3).unwrap();
+        assert_eq!(
+            newest.iter().map(|event| event.seq).collect::<Vec<_>>(),
+            [3, 2, 1]
+        );
+        assert_eq!(newest[0].kind, "c");
     }
 
     #[test]
@@ -753,484 +586,224 @@ mod tests {
         let dir = temp_dir("replay");
         let bus = Bus::open(&dir).unwrap();
         for index in 0..5 {
-            bus.publish("e", serde_json::json!({ "i": index })).unwrap();
+            bus.publish("e", json!({ "i": index })).unwrap();
         }
         let mut subscription = bus.subscribe(3).unwrap();
         assert_eq!(subscription.next().await.unwrap().seq, 3);
         assert_eq!(subscription.next().await.unwrap().seq, 4);
         assert_eq!(subscription.next().await.unwrap().seq, 5);
         bus.publish("live", Value::Null).unwrap();
-        let live = subscription.next().await.unwrap();
-        assert_eq!(live.seq, 6);
-        assert_eq!(live.kind, "live");
+        assert_eq!(subscription.next().await.unwrap().seq, 6);
     }
 
     #[test]
-    fn a_torn_tail_is_dropped_on_open() {
-        let dir = temp_dir("torn");
-        {
-            let bus = Bus::open(&dir).unwrap();
-            bus.publish("a", Value::Null).unwrap();
-            bus.publish("b", Value::Null).unwrap();
-        }
-        let path = dir.join(segment_name(1));
-        let mut file = OpenOptions::new().append(true).open(&path).unwrap();
-        file.write_all(b"{\"v\":1,\"plane\":\"control\"").unwrap();
-        drop(file);
-        let bus = Bus::open(&dir).unwrap();
-        assert_eq!(bus.publish("c", Value::Null).unwrap().seq, 3);
-        let text = read_segment(&dir, 1);
-        assert_eq!(text.lines().count(), 3);
-        assert!(text
-            .lines()
-            .all(|line| serde_json::from_str::<Envelope>(line).is_ok()));
-    }
-
-    #[test]
-    fn a_traced_publish_carries_the_call_on_the_wire_and_on_disk() {
-        let dir = temp_dir("trace");
+    fn a_traced_publish_carries_the_call() {
+        let dir = temp_dir("traced");
         let bus = Bus::open(&dir).unwrap();
         let envelope = bus
             .publish_traced(
                 Plane::Control,
-                "call.finished",
+                "call.started",
                 None,
                 Some("call-7"),
-                Value::Null,
+                json!({}),
             )
             .unwrap();
+        assert_eq!(envelope.trace, Some(json!({ "call": "call-7" })));
         assert_eq!(
-            envelope.trace,
-            Some(serde_json::json!({ "call": "call-7" }))
+            bus.scan_newest(1).unwrap()[0].trace,
+            Some(json!({ "call": "call-7" }))
         );
-        let written: Envelope =
-            serde_json::from_str(read_segment(&dir, 1).lines().next().unwrap()).unwrap();
-        assert_eq!(written.trace, Some(serde_json::json!({ "call": "call-7" })));
-        // A plain publish is unchanged: no trace written when the caller names none.
-        assert_eq!(bus.publish("a", Value::Null).unwrap().trace, None);
     }
 
     #[tokio::test]
     async fn subscribing_past_the_end_is_live_only() {
-        let dir = temp_dir("past");
+        let dir = temp_dir("past-end");
         let bus = Bus::open(&dir).unwrap();
         bus.publish("a", Value::Null).unwrap();
-        let mut subscription = bus.subscribe(99).unwrap();
+        let mut subscription = bus.subscribe(100).unwrap();
+        assert!(subscription.try_next().is_none());
         bus.publish("b", Value::Null).unwrap();
-        let event = subscription.next().await.unwrap();
-        assert_eq!(event.seq, 2);
+        assert_eq!(subscription.next().await.unwrap().seq, 2);
     }
 
     #[test]
-    fn rotation_creates_the_next_segment() {
-        let dir = temp_dir("rotation");
-        let bus = Bus::open_with(&dir, 200, 1 << 20).unwrap();
-        for index in 0..5 {
-            bus.publish("e", serde_json::json!({ "i": index })).unwrap();
-        }
-        let segments = segments_in(&dir);
-        assert!(
-            segments.len() >= 2,
-            "expected a rotation, found {segments:?}"
-        );
-        assert!(dir.join(segment_name(1)).is_file());
-        assert!(dir.join(segment_name(2)).is_file());
-    }
-
-    #[tokio::test]
-    async fn replay_spans_two_segments() {
-        let dir = temp_dir("span");
-        let bus = Bus::open_with(&dir, 200, 1 << 20).unwrap();
-        for index in 0..6 {
-            bus.publish("e", serde_json::json!({ "i": index })).unwrap();
-        }
-        assert!(
-            segments_in(&dir).len() >= 2,
-            "expected at least two segments"
-        );
-        let mut subscription = bus.subscribe(1).unwrap();
-        for seq in 1..=6 {
-            assert_eq!(subscription.next().await.unwrap().seq, seq);
-        }
-    }
-
-    #[test]
-    fn retention_deletes_the_oldest_segment() {
+    fn retention_deletes_the_oldest_rows() {
         let dir = temp_dir("retention");
-        let bus = Bus::open_with(&dir, 200, 300).unwrap();
+        let bus = Bus::open_with(&dir, 0, 400).unwrap();
         for index in 0..10 {
-            bus.publish("e", serde_json::json!({ "i": index })).unwrap();
+            bus.publish("e", json!({ "i": index, "pad": "x".repeat(40) }))
+                .unwrap();
         }
+        assert_eq!(bus.last_seq(), 10);
         assert!(
-            !dir.join(segment_name(1)).exists(),
-            "retention should have deleted the oldest segment"
+            bus.oldest_seq() > 1,
+            "retention kept the budget: {}",
+            bus.oldest_seq()
         );
-        let segments = segments_in(&dir);
-        assert!(!segments.is_empty(), "retention keeps at least one segment");
-        // Retention runs after a rotation, so the sealed segments are bounded by `max_bytes` and the
-        // active one may then grow by up to one segment before the next rotation.
-        let total: u64 = segments
-            .iter()
-            .map(|path| fs::metadata(path).unwrap().len())
-            .sum();
-        assert!(
-            total <= 300 + 200,
-            "retention should bound the journal, found {total} bytes across {segments:?}"
-        );
-    }
-
-    #[test]
-    fn reopening_after_rotation_continues_the_sequence() {
-        let dir = temp_dir("reopen-rotated");
-        {
-            let bus = Bus::open_with(&dir, 200, 1 << 20).unwrap();
-            for index in 0..5 {
-                bus.publish("e", serde_json::json!({ "i": index })).unwrap();
-            }
-            assert!(segments_in(&dir).len() >= 2, "expected a rotation");
-        }
-        let bus = Bus::open_with(&dir, 200, 1 << 20).unwrap();
-        assert_eq!(bus.last_seq(), 5);
-        assert_eq!(bus.publish("c", Value::Null).unwrap().seq, 6);
-        let segments = segments_in(&dir);
-        let mut seqs: Vec<u64> = Vec::new();
-        for path in &segments {
-            for line in fs::read_to_string(path).unwrap().lines() {
-                seqs.push(serde_json::from_str::<Envelope>(line).unwrap().seq);
-            }
-        }
-        seqs.sort_unstable();
-        assert_eq!(seqs, (1..=6).collect::<Vec<_>>(), "no seq is reused");
+        assert!(bus.oldest_seq() < 10, "retention left the newest rows");
     }
 
     #[test]
     fn reset_names_the_lost_range() {
         let dir = temp_dir("reset");
-        let bus = Bus::open_with(&dir, 200, 300).unwrap();
-        for index in 0..10 {
-            bus.publish("e", serde_json::json!({ "i": index })).unwrap();
+        let bus = Bus::open_with(&dir, 0, 300).unwrap();
+        for index in 0..20 {
+            bus.publish("e", json!({ "i": index, "pad": "x".repeat(40) }))
+                .unwrap();
         }
-        assert!(
-            !dir.join(segment_name(1)).exists(),
-            "retention should have dropped the first segment"
-        );
-
         let oldest = bus.oldest_seq();
-        assert!(
-            oldest > 1,
-            "expected lost rows, oldest retained is {oldest}"
-        );
-        let reset = bus.reset(1).expect("reset(1) names the lost range");
+        assert!(oldest > 1);
+        let reset = bus.reset(1).expect("the cursor is below the window");
         assert_eq!(reset.lost_from, 1);
-        assert_eq!(reset.lost_to, reset.snapshot_seq);
-        assert!(reset.snapshot_seq > 0);
-        assert_eq!(reset.snapshot_seq, oldest - 1);
-
-        assert!(
-            bus.reset(oldest).is_none(),
-            "a cursor inside the retained window is not lost"
-        );
-        assert!(bus.reset(oldest + 1).is_none());
-    }
-
-    #[test]
-    fn a_snapshot_is_written_every_n_events() {
-        let dir = temp_dir("snapshot");
-        let bus = Bus::open_with_snapshot(&dir, 1 << 20, 1 << 20, 3).unwrap();
-        for _ in 0..3 {
-            bus.publish("e", Value::Null).unwrap();
-        }
-        let path = dir.join("snapshot-3.json");
-        assert!(path.is_file(), "expected snapshot-3.json in {dir:?}");
-        let first = fs::read(&path).unwrap();
-        let value: Value = serde_json::from_slice(&first).unwrap();
-        assert_eq!(value["v"], 1);
-        assert_eq!(value["seq"], 3);
-        assert!(
-            value["ts"].as_str().unwrap().contains('T'),
-            "expected an rfc3339 timestamp, found {}",
-            value["ts"]
-        );
-        assert!(
-            !dir.join("snapshot-3.json.tmp").exists(),
-            "the temporary file should have been renamed away"
-        );
-
-        for _ in 0..2 {
-            bus.publish("e", Value::Null).unwrap();
-        }
-        assert!(!dir.join("snapshot-4.json").exists());
-        assert!(!dir.join("snapshot-5.json").exists());
-        assert_eq!(
-            fs::read(&path).unwrap(),
-            first,
-            "the first snapshot must not be rewritten"
-        );
-    }
-
-    #[test]
-    fn scan_newest_answers_the_newest_rows_newest_first() {
-        let dir = temp_dir("scan-newest");
-        let bus = Bus::open(&dir).unwrap();
-        for index in 0..5 {
-            bus.publish("e", serde_json::json!({ "i": index })).unwrap();
-        }
-        let seqs: Vec<u64> = bus
-            .scan_newest(3)
-            .unwrap()
-            .iter()
-            .map(|envelope| envelope.seq)
-            .collect();
-        assert_eq!(seqs, vec![5, 4, 3], "newest first, and only three");
+        assert_eq!(reset.lost_to, oldest - 1);
+        assert!(bus.reset(oldest).is_none());
     }
 
     #[test]
     fn scan_newest_beyond_the_end_answers_every_row() {
         let dir = temp_dir("scan-all");
         let bus = Bus::open(&dir).unwrap();
-        for index in 0..3 {
-            bus.publish("e", serde_json::json!({ "i": index })).unwrap();
-        }
-        let seqs: Vec<u64> = bus
-            .scan_newest(10)
-            .unwrap()
-            .iter()
-            .map(|envelope| envelope.seq)
-            .collect();
-        assert_eq!(seqs, vec![3, 2, 1], "three rows, newest first");
-    }
-
-    #[test]
-    fn scan_newest_of_zero_reads_nothing() {
-        let dir = temp_dir("scan-zero");
-        let bus = Bus::open(&dir).unwrap();
-        for index in 0..3 {
-            bus.publish("e", serde_json::json!({ "i": index })).unwrap();
-        }
-        assert!(
-            bus.scan_newest(0).unwrap().is_empty(),
-            "a zero cap asks for no rows"
-        );
+        bus.publish("a", Value::Null).unwrap();
+        bus.publish("b", Value::Null).unwrap();
+        assert_eq!(bus.scan_newest(10).unwrap().len(), 2);
+        assert!(bus.scan_newest(0).unwrap().is_empty());
     }
 
     #[test]
     fn read_window_stops_at_the_limit_and_says_there_is_more() {
-        let dir = temp_dir("read-window-limit");
-        // A small segment size makes the six rows span three segments, so the window is proved to
-        // cross a rotation rather than to stay inside one file.
-        let bus = Bus::open_with(&dir, 200, 1 << 20).unwrap();
-        for index in 0..6 {
-            bus.publish("e", serde_json::json!({ "i": index })).unwrap();
-        }
-        assert!(
-            segments_in(&dir).len() >= 2,
-            "expected the window to span segments"
-        );
-
-        let (rows, more) = bus.read_window(None, 3).unwrap();
-
-        let seqs: Vec<u64> = rows.iter().map(|row| row.seq).collect();
-        assert_eq!(seqs, vec![6, 5, 4], "the newest three rows, newest first");
-        assert!(
-            more,
-            "rows 3..=1 are retained below the last row returned, so a page is not at the end"
-        );
-    }
-
-    #[test]
-    fn read_window_to_the_end_says_there_is_no_more() {
-        let dir = temp_dir("read-window-end");
+        let dir = temp_dir("window");
         let bus = Bus::open(&dir).unwrap();
-        for index in 0..3 {
-            bus.publish("e", serde_json::json!({ "i": index })).unwrap();
+        for index in 0..5 {
+            bus.publish("e", json!({ "i": index })).unwrap();
         }
-
-        let (rows, more) = bus.read_window(None, 10).unwrap();
-
-        let seqs: Vec<u64> = rows.iter().map(|row| row.seq).collect();
-        assert_eq!(seqs, vec![3, 2, 1], "every retained row, newest first");
-        assert!(!more, "nothing is retained below the oldest row returned");
+        let (page, more) = bus.read_window(None, 2).unwrap();
+        assert_eq!(
+            page.iter().map(|event| event.seq).collect::<Vec<_>>(),
+            [5, 4]
+        );
+        assert!(more);
+        let (page, more) = bus.read_window(Some(4), 2).unwrap();
+        assert_eq!(
+            page.iter().map(|event| event.seq).collect::<Vec<_>>(),
+            [3, 2]
+        );
+        assert!(more);
+        let (page, more) = bus.read_window(Some(2), 2).unwrap();
+        assert_eq!(page.iter().map(|event| event.seq).collect::<Vec<_>>(), [1]);
+        assert!(!more);
+        assert!(bus.read_window(None, 0).unwrap().0.is_empty());
     }
 
     #[test]
     fn read_window_before_a_seq_excludes_it_and_everything_newer() {
-        let dir = temp_dir("read-window-before");
+        let dir = temp_dir("window-before");
         let bus = Bus::open(&dir).unwrap();
-        for index in 0..5 {
-            bus.publish("e", serde_json::json!({ "i": index })).unwrap();
+        for index in 0..4 {
+            bus.publish("e", json!({ "i": index })).unwrap();
         }
-
-        let (rows, more) = bus.read_window(Some(4), 10).unwrap();
-        let seqs: Vec<u64> = rows.iter().map(|row| row.seq).collect();
-        assert_eq!(seqs, vec![3, 2, 1], "`before_seq` is exclusive: {seqs:?}");
-        assert!(!more, "the journal has nothing below seq 1");
-
-        let (rows, more) = bus.read_window(Some(4), 2).unwrap();
-        let seqs: Vec<u64> = rows.iter().map(|row| row.seq).collect();
-        assert_eq!(seqs, vec![3, 2], "{seqs:?}");
-        assert!(more, "seq 1 is retained below the page");
-
-        let (rows, more) = bus.read_window(Some(1), 10).unwrap();
-        assert!(
-            rows.is_empty() && !more,
-            "nothing is older than the oldest row: {rows:?} {more}"
+        let (page, _) = bus.read_window(Some(3), 10).unwrap();
+        assert_eq!(
+            page.iter().map(|event| event.seq).collect::<Vec<_>>(),
+            [2, 1]
         );
     }
 
-    /// Seed one segment with chosen moments (Unix ms), so a time range can be proved at its edges.
-    fn seed_moments(dir: &Path, moments: &[i64]) {
-        let mut text = String::new();
-        for (index, moment) in moments.iter().enumerate() {
+    impl Bus {
+        fn publish_at(&self, ts: &str, kind: &str, payload: Value) -> io::Result<Envelope> {
             let envelope = Envelope {
                 v: SCHEMA_VERSION,
                 plane: Plane::Control,
-                seq: index as u64 + 1,
-                ts: chrono::DateTime::from_timestamp_millis(*moment)
-                    .unwrap()
-                    .to_rfc3339(),
-                kind: "e".to_owned(),
+                seq: 0,
+                ts: ts.to_owned(),
+                kind: kind.to_owned(),
                 subject: None,
                 trace: None,
-                payload: serde_json::json!({ "i": index }),
+                payload,
             };
-            text.push_str(&serde_json::to_string(&envelope).unwrap());
-            text.push('\n');
+            self.append(envelope)
         }
-        fs::write(dir.join(segment_name(1)), text).unwrap();
+    }
+
+    fn moment(ts: &str) -> u64 {
+        DateTime::parse_from_rfc3339(ts).unwrap().timestamp_millis() as u64
     }
 
     #[test]
     fn read_between_includes_the_start_and_excludes_the_end() {
-        let dir = temp_dir("read-between-edges");
-        seed_moments(&dir, &[1_000, 2_000, 3_000]);
+        let dir = temp_dir("between");
         let bus = Bus::open(&dir).unwrap();
-
-        let (rows, more) = bus.read_between(1_000, 3_000, 10).unwrap();
-        let seqs: Vec<u64> = rows.iter().map(|row| row.seq).collect();
+        bus.publish_at("2026-11-13T10:00:00Z", "a", Value::Null)
+            .unwrap();
+        bus.publish_at("2026-11-13T10:00:01Z", "b", Value::Null)
+            .unwrap();
+        bus.publish_at("2026-11-13T10:00:02Z", "c", Value::Null)
+            .unwrap();
+        let (rows, more) = bus
+            .read_between(
+                moment("2026-11-13T10:00:00Z"),
+                moment("2026-11-13T10:00:02Z"),
+                10,
+            )
+            .unwrap();
         assert_eq!(
-            seqs,
-            vec![2, 1],
-            "the start is inside, the end is not: {seqs:?}"
+            rows.iter()
+                .map(|event| event.kind.as_str())
+                .collect::<Vec<_>>(),
+            ["b", "a"]
         );
-        assert!(!more, "the range is fully answered");
-
-        let (rows, _) = bus.read_between(3_000, 4_000, 10).unwrap();
-        let seqs: Vec<u64> = rows.iter().map(|row| row.seq).collect();
-        assert_eq!(seqs, vec![3], "a row exactly at the start is in its day");
+        assert!(!more);
     }
 
     #[test]
     fn read_between_stops_at_the_limit_and_says_more_lie_older() {
-        let dir = temp_dir("read-between-limit");
-        seed_moments(&dir, &[1_000, 2_000, 3_000, 4_000]);
+        let dir = temp_dir("between-limit");
         let bus = Bus::open(&dir).unwrap();
-
-        let (rows, more) = bus.read_between(0, 5_000, 2).unwrap();
-        let seqs: Vec<u64> = rows.iter().map(|row| row.seq).collect();
-        assert_eq!(
-            seqs,
-            vec![4, 3],
-            "the newest rows of the range, newest first"
-        );
-        assert!(more, "rows 2 and 1 are still inside the range");
-
-        let (rows, more) = bus.read_between(0, 5_000, 10).unwrap();
-        assert_eq!(rows.len(), 4);
-        assert!(!more, "the whole range fits");
+        for minute in 0..5 {
+            bus.publish_at(&format!("2026-11-13T10:00:0{minute}Z"), "e", Value::Null)
+                .unwrap();
+        }
+        let (rows, more) = bus
+            .read_between(
+                moment("2026-11-13T10:00:00Z"),
+                moment("2026-11-13T10:01:00Z"),
+                2,
+            )
+            .unwrap();
+        assert_eq!(rows.len(), 2);
+        assert!(more);
     }
 
     #[test]
     fn read_between_of_an_empty_or_reversed_range_answers_nothing() {
-        let dir = temp_dir("read-between-empty");
-        seed_moments(&dir, &[1_000, 2_000]);
+        let dir = temp_dir("between-empty");
         let bus = Bus::open(&dir).unwrap();
-        assert!(bus.read_between(1_000, 1_000, 10).unwrap().0.is_empty());
-        assert!(bus.read_between(2_000, 1_000, 10).unwrap().0.is_empty());
-        assert!(bus.read_between(0, 5_000, 0).unwrap().0.is_empty());
-        // A range that ends before the journal starts is complete, not "more".
-        let (rows, more) = bus.read_between(0, 500, 10).unwrap();
-        assert!(rows.is_empty() && !more, "{rows:?} {more}");
-        // And one that starts after the journal ends is complete too.
-        let (rows, more) = bus.read_between(5_000, 6_000, 10).unwrap();
-        assert!(rows.is_empty() && !more, "{rows:?} {more}");
+        bus.publish_at("2026-11-13T10:00:00Z", "a", Value::Null)
+            .unwrap();
+        let start = moment("2026-11-13T10:00:00Z");
+        assert!(bus.read_between(start, start, 10).unwrap().0.is_empty());
+        assert!(bus.read_between(start + 1, start, 10).unwrap().0.is_empty());
+        assert!(bus.read_between(start, start + 1, 0).unwrap().0.is_empty());
     }
 
     #[test]
-    fn read_between_skips_a_row_whose_moment_cannot_be_read() {
-        let dir = temp_dir("read-between-bad-ts");
-        let mut text = String::new();
-        let good = Envelope {
-            v: SCHEMA_VERSION,
-            plane: Plane::Control,
-            seq: 1,
-            ts: chrono::DateTime::from_timestamp_millis(2_000)
-                .unwrap()
-                .to_rfc3339(),
-            kind: "e".to_owned(),
-            subject: None,
-            trace: None,
-            payload: serde_json::json!({}),
-        };
-        let mut bad = good.clone();
-        bad.seq = 2;
-        bad.ts = "not a moment".to_owned();
-        // A moment before the epoch is not a day this reader can count; it is skipped, never read
-        // as zero (which would end the scan at the newest row and hide everything older).
-        text.push_str(&serde_json::to_string(&good).unwrap());
-        text.push('\n');
-        text.push_str(&serde_json::to_string(&bad).unwrap());
-        text.push('\n');
-        let mut before_epoch = good.clone();
-        before_epoch.seq = 3;
-        before_epoch.ts = "1969-12-31T23:59:59Z".to_owned();
-        text.push_str(&serde_json::to_string(&before_epoch).unwrap());
-        text.push('\n');
-        fs::write(dir.join(segment_name(1)), text).unwrap();
+    fn a_backup_is_a_readable_record() {
+        let dir = temp_dir("backup");
         let bus = Bus::open(&dir).unwrap();
-        let (rows, _) = bus.read_between(0, 3_000, 10).unwrap();
-        assert_eq!(
-            rows.iter().map(|row| row.seq).collect::<Vec<_>>(),
-            vec![1],
-            "the malformed and pre-epoch rows are skipped, and the scan still reaches row 1"
-        );
+        bus.publish("a", json!({ "ok": true })).unwrap();
+        bus.publish("b", Value::Null).unwrap();
+        let backup = temp_dir("backup-copy");
+        bus.backup_to(backup.join(RECORD_FILE)).unwrap();
+        let copy = Bus::open(&backup).unwrap();
+        assert_eq!(copy.last_seq(), 2);
+        assert_eq!(copy.scan_newest(2).unwrap()[0].kind, "b");
     }
 
     #[test]
-    fn read_window_of_zero_answers_nothing() {
-        let dir = temp_dir("read-window-zero");
+    fn check_answers_ok() {
+        let dir = temp_dir("check");
         let bus = Bus::open(&dir).unwrap();
-        for index in 0..3 {
-            bus.publish("e", serde_json::json!({ "i": index })).unwrap();
-        }
-
-        let (rows, more) = bus.read_window(None, 0).unwrap();
-
-        assert!(rows.is_empty(), "a zero cap asks for no rows");
-        assert!(!more, "a page that returns no row claims no row below it");
-    }
-
-    #[tokio::test]
-    async fn replay_from_within_the_window_still_works() {
-        let dir = temp_dir("replay-window");
-        let bus = Bus::open_with(&dir, 200, 300).unwrap();
-        for index in 0..10 {
-            bus.publish("e", serde_json::json!({ "i": index })).unwrap();
-        }
-        assert!(
-            !dir.join(segment_name(1)).exists(),
-            "retention should have dropped the first segment"
-        );
-        let oldest = bus.oldest_seq();
-        assert!(
-            oldest > 1,
-            "expected lost rows, oldest retained is {oldest}"
-        );
-
-        let mut subscription = bus.subscribe(oldest).unwrap();
-        for seq in oldest..=10 {
-            assert_eq!(subscription.next().await.unwrap().seq, seq);
-        }
-        bus.publish("live", Value::Null).unwrap();
-        assert_eq!(subscription.next().await.unwrap().seq, 11);
+        bus.publish("a", Value::Null).unwrap();
+        bus.check().expect("a fresh record is intact");
     }
 }

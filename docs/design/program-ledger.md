@@ -456,6 +456,19 @@ tests total with the golden set, gate 15 / 25 / 0. Next: the record (SQLite) —
 feed table as the bus, migration from the segmented journal, retention and backup — starting with
 the store crate and its crash/replay tests.
 
+**Round 29 — the record is SQLite, and the bus is its feed.** `summrise-bus` no longer writes
+segments: `record.db` (WAL, `synchronous=FULL`) holds `feed(seq, ts_ms, json)`; a publish is one
+transaction that inserts the envelope, prunes under the byte budget, and only then fans out to
+subscribers. Reads are queries: `scan_newest`, `read_window` (one row past the page for `more`),
+`read_between` (by the row's own moment), `oldest_seq`/`last_seq`, and `reset` from the oldest
+retained row. `backup_to` is `VACUUM INTO`; `check` is `PRAGMA integrity_check`; `publish_traced_at`
+exists so an import can keep a row's original moment. The segment/snapshot tests are replaced by 15
+record tests (reopen, replay-then-live, retention, reset, windows, ranges, backup, check). Evidence:
+15 bus tests, 669 device tests, 175 console lib tests, 283 console integration tests, gate 15 / 25 /
+0. Gap named for next round: an existing `journal/` with `.seg` files is not imported yet — the
+device starts an empty record beside it. Next: that import (once, marked in `meta`), then the
+console's operator record.
+
 
 ## Next (in order)
 

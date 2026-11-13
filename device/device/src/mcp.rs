@@ -5518,25 +5518,27 @@ mod tests {
     #[tokio::test]
     async fn journal_day_reads_a_door_from_below_the_range() {
         let (server, config, _dir) = console_server("mcp-journal-day-below");
-        let journal = config.data.join("journal");
-        fs::create_dir_all(&journal).expect("the journal directory is creatable");
-        let rows = [
-            json!({
-                "v": 1, "plane": "control", "seq": 1,
-                "ts": "1970-01-01T00:00:10Z", "type": "call.started",
-                "trace": { "call": "t-cross" },
-                "payload": { "tool": "runs.exec", "door": "mesh" },
-            }),
-            json!({
-                "v": 1, "plane": "control", "seq": 2,
-                "ts": "1970-01-01T00:00:20Z", "type": "call.finished",
-                "trace": { "call": "t-cross" },
-                "payload": { "tool": "runs.exec", "ok": true },
-            }),
-        ];
-        let text: String = rows.iter().map(|row| format!("{row}\n")).collect();
-        fs::write(journal.join("000001.seg"), text).expect("the seeded journal is written");
-        let bus = Arc::new(summrise_bus::Bus::open(&journal).expect("the seeded journal opens"));
+        let bus = Arc::new(
+            summrise_bus::Bus::open(config.data.join("journal")).expect("the journal opens"),
+        );
+        bus.publish_traced_at(
+            summrise_bus::Plane::Control,
+            "call.started",
+            None,
+            Some("t-cross"),
+            "1970-01-01T00:00:10Z",
+            json!({ "tool": "runs.exec", "door": "mesh" }),
+        )
+        .expect("the started half is recorded");
+        bus.publish_traced_at(
+            summrise_bus::Plane::Control,
+            "call.finished",
+            None,
+            Some("t-cross"),
+            "1970-01-01T00:00:20Z",
+            json!({ "tool": "runs.exec", "ok": true }),
+        )
+        .expect("the outcome half is recorded");
         let server = server.with_bus(Some(Arc::clone(&bus)));
 
         let document = day_of(&server, 20_000, 30_000).await;
