@@ -3375,9 +3375,9 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
   color: var(--ink); font-variant-numeric: tabular-nums; text-wrap: pretty;
 }
 
-/* **THE DAY'S COUNT HAS A FOOTNOTE, AND IT IS A FACT OF ITS OWN (round 11).** The direct client
-   calls the console's audit cannot count sit beside the count, one size down: they are not a second
-   count of the day, they are what the day's number leaves out. */
+/* **A DAY THE MACHINE COULD NOT COUNT IS SAID, NOT COUNTED (round 12).** The header keeps the
+   console's number and this line says the machine's direct calls were not counted, with the reason:
+   one size down and muted, a warning about the number rather than a second number. */
 .activity-direct {
   margin: var(--sp-1) 0 0; max-width: 80ch;
   color: var(--ink-muted); font-size: var(--fs-sm); line-height: var(--lh-body); text-wrap: pretty;
