@@ -56,7 +56,6 @@ use crate::store::{Store, EVENT_TAIL};
 /// The base64 engine the file tools use: the standard alphabet, padded, as every client library emits.
 pub(crate) const BASE64: base64::engine::general_purpose::GeneralPurpose =
     base64::engine::general_purpose::STANDARD;
-use base64::Engine as _;
 
 /// The largest payload one `files.read` or `files.write` call moves.
 ///
@@ -72,15 +71,10 @@ pub(crate) const MAX_FILE_BYTES: usize = 1024 * 1024;
 pub(crate) const MAX_BODY_BYTES: usize = 8 * 1024 * 1024;
 
 /// How many trailing lines `terminal.screen` returns when the caller names no count.
-const DEFAULT_SCREEN_LINES: usize = 60;
-
 /// How long `system.net_test` waits when the caller names no timeout.
 const DEFAULT_NET_TIMEOUT_MS: u64 = 5_000;
 
 /// The terminal size `terminal.create` uses when the caller names none.
-const DEFAULT_ROWS: u16 = 24;
-const DEFAULT_COLS: u16 = 80;
-
 /// The largest the audit file may become before it is rotated to `events.1.jsonl`.
 const AUDIT_MAX_BYTES: u64 = 64 * 1024 * 1024;
 
@@ -1015,245 +1009,15 @@ impl DeviceServer {
                 files_root: &self.files_root,
                 files_shared_root: self.files_shared_root.as_deref(),
                 memory: self.memory.as_ref(),
+                terminal: self.terminal.as_ref(),
             };
-            return crate::capabilities::call(name, arguments, &ctx);
+            return crate::capabilities::call(name, arguments, &ctx).await;
         }
         let Some(handler) = handler(name) else {
             return self.dispatch_plugin(name, arguments).await;
         };
 
         match handler {
-            Handler::TerminalCreate => {
-                let arguments: PtyCreateArgs = parse(arguments, name)?;
-                // The kind is the capability's to validate, and its refusal is typed: a client
-                // asking for a kind this build does not run learns which kinds it does. The shape
-                // of the rest of the arguments depends on the kind, so a pty with an SSH host (or
-                // an ssh without one) is an arguments error, not a silently ignored field.
-                let kind =
-                    terminal::Kind::parse(&arguments.kind).map_err(|error| refused(name, error))?;
-                // A serial target borrows its path, and the target outlives this match's arms, so
-                // the owned path must live in the outer scope. Only the serial arm initializes it.
-                let serial_port: String;
-                let target = match kind {
-                    terminal::Kind::Pty => {
-                        reject_serial_framing(&arguments, name)?;
-                        if arguments.host.is_some()
-                            || arguments.port.is_some()
-                            || arguments.user.is_some()
-                            || arguments.auth.is_some()
-                            || arguments.host_key.is_some()
-                        {
-                            return Err(ToolError::Arguments(format!(
-                                "{name}: kind pty takes shell, rows and cols; host, port, user, auth and host_key are for kind ssh"
-                            )));
-                        }
-                        terminal::CreateTarget::Pty {
-                            shell: arguments.shell.as_deref(),
-                        }
-                    }
-                    terminal::Kind::Ssh => {
-                        reject_serial_framing(&arguments, name)?;
-                        if arguments.shell.is_some() {
-                            return Err(ToolError::Arguments(format!(
-                                "{name}: kind ssh takes host, port, user, auth and optional host_key; shell is for kind pty"
-                            )));
-                        }
-                        let required = |field: &str| {
-                            ToolError::Arguments(format!(
-                                "{name}: {field} is required when kind is ssh"
-                            ))
-                        };
-                        let host = arguments.host.as_deref().ok_or_else(|| required("host"))?;
-                        let port = match arguments.port.as_ref() {
-                            Some(PortArg::Ssh(port)) => *port,
-                            Some(PortArg::Serial(_)) => {
-                                return Err(ToolError::Arguments(format!(
-                                    "{name}: kind ssh names its TCP port as a number, not a port path"
-                                )));
-                            }
-                            None => return Err(required("port")),
-                        };
-                        let user = arguments.user.as_deref().ok_or_else(|| required("user"))?;
-                        let auth = arguments.auth.as_ref().ok_or_else(|| required("auth"))?;
-                        terminal::CreateTarget::Ssh(terminal::SshTarget {
-                            host,
-                            port,
-                            user,
-                            auth,
-                            host_key: arguments.host_key.as_deref(),
-                        })
-                    }
-                    terminal::Kind::Serial => {
-                        if arguments.shell.is_some()
-                            || arguments.host.is_some()
-                            || arguments.user.is_some()
-                            || arguments.auth.is_some()
-                            || arguments.host_key.is_some()
-                        {
-                            return Err(ToolError::Arguments(format!(
-                                "{name}: kind serial takes port and optional baud, parity, data_bits and stop_bits; shell, host, user, auth and host_key are for kind pty or ssh"
-                            )));
-                        }
-                        let port = match arguments.port.as_ref() {
-                            Some(PortArg::Serial(port)) if !port.is_empty() => port.clone(),
-                            Some(PortArg::Serial(_)) => {
-                                return Err(ToolError::Arguments(format!(
-                                    "{name}: kind serial needs a non-empty port path"
-                                )));
-                            }
-                            Some(PortArg::Ssh(_)) => {
-                                return Err(ToolError::Arguments(format!(
-                                    "{name}: kind serial names an OS port path as a string, not a TCP port number"
-                                )));
-                            }
-                            None => {
-                                return Err(ToolError::Arguments(format!(
-                                    "{name}: port is required when kind is serial; it names the OS port, e.g. COM3 or /dev/ttyUSB0"
-                                )));
-                            }
-                        };
-                        let parity =
-                            terminal::Parity::parse(arguments.parity.as_deref().unwrap_or("none"))
-                                .map_err(|error| refused(name, error))?;
-                        serial_port = port;
-                        terminal::CreateTarget::Serial(terminal::SerialTarget {
-                            baud: arguments.baud.unwrap_or(terminal::DEFAULT_BAUD),
-                            parity,
-                            data_bits: arguments.data_bits.unwrap_or(terminal::DEFAULT_DATA_BITS),
-                            stop_bits: arguments.stop_bits.unwrap_or(terminal::DEFAULT_STOP_BITS),
-                            ..terminal::SerialTarget::new(&serial_port)
-                        })
-                    }
-                };
-                let label = target.label();
-                let id = self
-                    .terminal
-                    .create(
-                        target,
-                        arguments.rows.unwrap_or(DEFAULT_ROWS),
-                        arguments.cols.unwrap_or(DEFAULT_COLS),
-                    )
-                    .await
-                    .map_err(|error| refused(name, error))?;
-                Ok(json!({
-                    "id": id.as_str(),
-                    "kind": kind.as_str(),
-                    "shell": label,
-                })
-                .to_string())
-            }
-            Handler::TerminalWrite => {
-                let arguments: PtyWriteArgs = parse(arguments, name)?;
-                let id = session_id(name, &arguments.id)?;
-                let written = self
-                    .terminal
-                    .write(&id, arguments.data.as_bytes())
-                    .await
-                    .map_err(|error| refused(name, error))?;
-                Ok(json!({ "written": written }).to_string())
-            }
-            Handler::TerminalRead => {
-                let arguments: PtyReadArgs = parse(arguments, name)?;
-                let id = session_id(name, &arguments.id)?;
-                let wait = Duration::from_millis(arguments.wait_ms.unwrap_or(0).min(30_000));
-                // A limit is a page size, not a wait. Zero would answer nothing at the same cursor,
-                // so a client paging on it would never advance; it is refused as an argument error
-                // rather than returning a page that cannot be consumed.
-                let limit = match arguments.limit {
-                    Some(0) => {
-                        return Err(ToolError::Arguments(format!(
-                            "{name}: limit is a byte count and must be at least 1"
-                        )));
-                    }
-                    Some(limit) => Some(usize::try_from(limit).unwrap_or(usize::MAX)),
-                    None => None,
-                };
-                let answer = self
-                    .terminal
-                    .read_wait_with_limit(&id, arguments.cursor.unwrap_or(0), wait, limit)
-                    .await
-                    .map_err(|error| refused(name, error))?;
-                // The wire is JSON, so the bytes are rendered as UTF-8. This is lossy on purpose: a
-                // read can split a multi-byte sequence at the cursor, and the client's cursor is
-                // already past it, so the replacement character is the honest answer rather than a
-                // retry the capability cannot prove is safe. A byte-stream client (the panel's
-                // terminal) reads the same ring through its own transport later.
-                //
-                // `alive`, `exit_code` and `signal` are the session's end facts: an older client
-                // ignores them, and a client of an older device sees only `{data, cursor}` and must
-                // treat that as alive.
-                // `data` is the lossy text an older client reads, and `data_base64` is the bytes a
-                // terminal replays: a multi-byte character split by the cursor is two U+FFFD in the
-                // text and intact in the base64. Both are always present, so a client chooses.
-                Ok(json!({
-                    "data": String::from_utf8_lossy(&answer.data),
-                    "data_base64": BASE64.encode(&answer.data),
-                    "cursor": answer.cursor,
-                    "alive": answer.alive,
-                    "exit_code": answer.end.exit_code,
-                    "signal": answer.end.signal,
-                })
-                .to_string())
-            }
-            Handler::TerminalResize => {
-                let arguments: PtyResizeArgs = parse(arguments, name)?;
-                let id = session_id(name, &arguments.id)?;
-                self.terminal
-                    .resize(&id, arguments.rows, arguments.cols)
-                    .await
-                    .map_err(|error| refused(name, error))?;
-                Ok(json!({
-                    "resized": true,
-                    "rows": arguments.rows,
-                    "cols": arguments.cols,
-                })
-                .to_string())
-            }
-            Handler::TerminalClose => {
-                let arguments: PtyIdArgs = parse(arguments, name)?;
-                let id = session_id(name, &arguments.id)?;
-                self.terminal
-                    .close(&id)
-                    .await
-                    .map_err(|error| refused(name, error))?;
-                Ok(json!({ "closed": true }).to_string())
-            }
-            Handler::TerminalList => {
-                let sessions: Vec<Value> = self
-                    .terminal
-                    .list()
-                    .iter()
-                    .map(|session| {
-                        // Discovery only: the kind and when it started. Size, cursor, pid and
-                        // liveness belong to one session's own calls, and a client that needs them
-                        // reads the session, not the list.
-                        json!({
-                            "id": session.id.as_str(),
-                            "kind": session.kind.as_str(),
-                            "started_at_ms": session.started_at_ms,
-                        })
-                    })
-                    .collect();
-                Ok(Value::Array(sessions).to_string())
-            }
-            Handler::TerminalScreen => {
-                let arguments: ScreenArgs = parse(arguments, name)?;
-                let id = session_id(name, &arguments.id)?;
-                let lines = arguments
-                    .lines
-                    .unwrap_or(DEFAULT_SCREEN_LINES)
-                    .min(terminal::MAX_SCREEN_LINES);
-                let text = self
-                    .terminal
-                    .screen(&id, lines)
-                    .map_err(|error| refused(name, error))?;
-                Ok(json!({
-                    "id": arguments.id,
-                    "text": text,
-                    "lines": text.lines().count(),
-                })
-                .to_string())
-            }
             Handler::BrowserList => {
                 let targets = self
                     .browser
@@ -1781,13 +1545,6 @@ fn jsonrpc_error(id: Value, code: i32, message: &str) -> Value {
 /// One implementation of one registry tool.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Handler {
-    TerminalCreate,
-    TerminalWrite,
-    TerminalRead,
-    TerminalResize,
-    TerminalClose,
-    TerminalList,
-    TerminalScreen,
     BrowserList,
     BrowserOpen,
     BrowserNavigate,
@@ -1828,13 +1585,6 @@ enum Handler {
 /// registry entry fails `every_implementation_is_registered`. `tools/list` cannot advertise a tool
 /// the surface cannot run without that test going red.
 const HANDLERS: &[(&str, Handler)] = &[
-    ("terminal.create", Handler::TerminalCreate),
-    ("terminal.write", Handler::TerminalWrite),
-    ("terminal.read", Handler::TerminalRead),
-    ("terminal.resize", Handler::TerminalResize),
-    ("terminal.close", Handler::TerminalClose),
-    ("terminal.list", Handler::TerminalList),
-    ("terminal.screen", Handler::TerminalScreen),
     ("browser.list", Handler::BrowserList),
     ("browser.open", Handler::BrowserOpen),
     ("browser.navigate", Handler::BrowserNavigate),
@@ -2042,200 +1792,6 @@ fn input_schema(definition: &ToolDef) -> Value {
         return schema();
     }
     match definition.name {
-        "terminal.create" => json!({
-            "type": "object",
-            "properties": {
-                "kind": {
-                    "type": "string",
-                    "enum": ["pty", "ssh", "serial"],
-                    "description": "The kind of session to start. pty runs a local shell on a new pseudo-terminal; ssh opens a remote shell whose host key is pinned on first use; serial opens the OS port path the caller names at 115200 8N1 unless framing is given."
-                },
-                "shell": {
-                    "type": "string",
-                    "description": "For kind pty: the program to run. The default is bash on Linux/macOS and pwsh on Windows. This is one program path, not a command line with arguments."
-                },
-                "host": {
-                    "type": "string",
-                    "description": "For kind ssh: the server's DNS name or IP address."
-                },
-                "port": {
-                    "oneOf": [
-                        {
-                            "type": "integer",
-                            "minimum": 1,
-                            "maximum": 65535,
-                            "description": "For kind ssh: the server's TCP port."
-                        },
-                        {
-                            "type": "string",
-                            "minLength": 1,
-                            "description": "For kind serial: the OS port path, e.g. COM3 on Windows or /dev/ttyUSB0 on Unix. The capability never enumerates or guesses a port."
-                        }
-                    ]
-                },
-                "user": {
-                    "type": "string",
-                    "description": "For kind ssh: the remote user whose shell runs."
-                },
-                "auth": {
-                    "type": "object",
-                    "properties": {
-                        "kind": {
-                            "type": "string",
-                            "enum": ["password", "key"],
-                            "description": "password sends a password; key presents an OpenSSH private key."
-                        },
-                        "password": {
-                            "type": "string",
-                            "description": "For kind password: the password. Never logged."
-                        },
-                        "path": {
-                            "type": "string",
-                            "description": "For kind key: an absolute path to an OpenSSH private key. Never logged; an unreadable or relative path is refused."
-                        }
-                    },
-                    "required": ["kind"],
-                    "additionalProperties": false
-                },
-                "host_key": {
-                    "type": "string",
-                    "description": "For kind ssh: the SHA-256 fingerprint the server's key must match, e.g. SHA256:... . When given, no trust-on-first-use is performed, and a mismatch is refused before authentication."
-                },
-                "baud": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": u32::MAX,
-                    "description": format!("For kind serial: bits per second (default {}). A rate the port rejects is an error, not a fallback.", terminal::DEFAULT_BAUD)
-                },
-                "parity": {
-                    "type": "string",
-                    "enum": ["none", "odd", "even"],
-                    "description": "For kind serial: the parity mode (default none)."
-                },
-                "data_bits": {
-                    "type": "integer",
-                    "enum": [5, 6, 7, 8],
-                    "description": format!("For kind serial: data bits per character (default {}).", terminal::DEFAULT_DATA_BITS)
-                },
-                "stop_bits": {
-                    "type": "integer",
-                    "enum": [1, 2],
-                    "description": format!("For kind serial: stop bits per character (default {}).", terminal::DEFAULT_STOP_BITS)
-                },
-                "rows": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": terminal::MAX_DIMENSION,
-                    "description": format!("Terminal rows (default {DEFAULT_ROWS}).")
-                },
-                "cols": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": terminal::MAX_DIMENSION,
-                    "description": format!("Terminal columns (default {DEFAULT_COLS}).")
-                }
-            },
-            "required": ["kind"],
-            "additionalProperties": false
-        }),
-        "terminal.write" => json!({
-            "type": "object",
-            "properties": {
-                "id": {
-                    "type": "string",
-                    "description": "The id terminal.create returned."
-                },
-                "data": {
-                    "type": "string",
-                    "description": "UTF-8 text for the session's input; write \"\\n\" to run a command. At most 1 MiB per call, and a write that cannot finish in 5 seconds is refused."
-                }
-            },
-            "required": ["id", "data"],
-            "additionalProperties": false
-        }),
-        "terminal.read" => json!({
-            "type": "object",
-            "properties": {
-                "id": {
-                    "type": "string",
-                    "description": "The id terminal.create returned."
-                },
-                "cursor": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "description": "Read output after this cursor. 0 (the default) reads all retained output; the returned cursor is the next call's value."
-                },
-                "wait_ms": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 30000,
-                    "description": "Wait up to this long for new output when the cursor is already at the end; absent/0 answers immediately. The device caps the wait at 30 s."
-                },
-                "limit": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "description": "Return at most this many bytes from the cursor, oldest first; the returned cursor advances by what the page carried, so the next call continues. Absent returns the whole retained tail."
-                }
-            },
-            "required": ["id"],
-            "additionalProperties": false
-        }),
-        "terminal.resize" => json!({
-            "type": "object",
-            "properties": {
-                "id": {
-                    "type": "string",
-                    "description": "The id terminal.create returned."
-                },
-                "rows": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": terminal::MAX_DIMENSION,
-                    "description": "The new row count."
-                },
-                "cols": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": terminal::MAX_DIMENSION,
-                    "description": "The new column count."
-                }
-            },
-            "required": ["id", "rows", "cols"],
-            "additionalProperties": false
-        }),
-        "terminal.close" => json!({
-            "type": "object",
-            "properties": {
-                "id": {
-                    "type": "string",
-                    "description": "The id terminal.create returned. Its shell is killed and the id is not reused."
-                }
-            },
-            "required": ["id"],
-            "additionalProperties": false
-        }),
-        "terminal.list" => json!({
-            "type": "object",
-            "properties": {},
-            "additionalProperties": false
-        }),
-        "terminal.screen" => json!({
-            "type": "object",
-            "properties": {
-                "id": {
-                    "type": "string",
-                    "description": "A session id from terminal.create or terminal.list."
-                },
-                "lines": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": terminal::MAX_SCREEN_LINES,
-                    "description": format!("How many trailing lines to return (default {DEFAULT_SCREEN_LINES}).")
-                }
-            },
-            "required": ["id"],
-            "additionalProperties": false
-        }),
         "browser.list" => json!({
             "type": "object",
             "properties": {},
@@ -2836,19 +2392,6 @@ fn named_field(error: &serde_json::Error) -> Option<String> {
 /// Ignoring them would make `{"kind":"pty","baud":9600}` look like a successful create while the
 /// caller believes it configured something; every kind-specific field is checked rather than
 /// silently dropped.
-fn reject_serial_framing(arguments: &PtyCreateArgs, name: &str) -> Result<(), ToolError> {
-    if arguments.baud.is_some()
-        || arguments.parity.is_some()
-        || arguments.data_bits.is_some()
-        || arguments.stop_bits.is_some()
-    {
-        return Err(ToolError::Arguments(format!(
-            "{name}: baud, parity, data_bits and stop_bits are for kind serial"
-        )));
-    }
-    Ok(())
-}
-
 /// A capability error as the tool-level refusal the client sees.
 fn refused(tool: &str, error: impl std::fmt::Display) -> ToolError {
     ToolError::Refused(format!("{tool}: {error}"))
@@ -3349,14 +2892,6 @@ fn run_failure_sentence(run: &runs::ExecResult) -> String {
 #[serde(deny_unknown_fields)]
 struct EmptyArgs {}
 
-/// The arguments `terminal.screen` takes.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ScreenArgs {
-    id: String,
-    lines: Option<usize>,
-}
-
 /// The arguments `system.process_list` takes.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -3379,79 +2914,6 @@ struct NetTestArgs {
     host: String,
     port: u16,
     timeout_ms: Option<u64>,
-}
-
-/// The arguments `terminal.create` takes; only the kind is required, because every other field has
-/// a platform default.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct PtyCreateArgs {
-    kind: String,
-    /// The local program for `kind: "pty"`.
-    shell: Option<String>,
-    /// The remote target for `kind: "ssh"`.
-    host: Option<String>,
-    /// The remote TCP port for `kind: "ssh"`, or the OS port path for `kind: "serial"`. The two
-    /// kinds name different things with one field, so a JSON number and a JSON string are both
-    /// accepted here and each kind refuses the other's form by name.
-    port: Option<PortArg>,
-    user: Option<String>,
-    auth: Option<ssh::Auth>,
-    host_key: Option<String>,
-    /// The serial framing; all optional, default 115200 8N1.
-    baud: Option<u32>,
-    parity: Option<String>,
-    data_bits: Option<u8>,
-    stop_bits: Option<u8>,
-    rows: Option<u16>,
-    cols: Option<u16>,
-}
-
-/// The `port` a create names: a TCP port for SSH, a path for serial.
-#[derive(Clone, Debug, Deserialize)]
-#[serde(untagged)]
-enum PortArg {
-    /// `kind: "ssh"` names a TCP port by number.
-    Ssh(u16),
-    /// `kind: "serial"` names an OS port path, e.g. `COM3` or `/dev/ttyUSB0`.
-    Serial(String),
-}
-
-/// The arguments `terminal.write` takes.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct PtyWriteArgs {
-    id: String,
-    data: String,
-}
-
-/// The arguments `terminal.read` takes.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct PtyReadArgs {
-    id: String,
-    cursor: Option<u64>,
-    /// How long to park when the cursor is already at the end. Absent means answer now; the device
-    /// caps the wait so a client cannot hold a connection for arbitrary time.
-    wait_ms: Option<u64>,
-    /// The most bytes this page may carry. Absent means the whole retained tail; zero is refused.
-    limit: Option<u64>,
-}
-
-/// The arguments `terminal.resize` takes.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct PtyResizeArgs {
-    id: String,
-    rows: u16,
-    cols: u16,
-}
-
-/// The arguments `terminal.close` takes.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct PtyIdArgs {
-    id: String,
 }
 
 /// The arguments `browser.open` takes.
@@ -3559,14 +3021,6 @@ struct RunsIdArgs {
 ///
 /// The id is not echoed in the refusal for the same reason no other argument value is: a client can
 /// put anything in the field, and the response must not become a reflection.
-fn session_id(tool: &str, text: &str) -> Result<terminal::SessionId, ToolError> {
-    terminal::SessionId::parse(text).ok_or_else(|| {
-        ToolError::Refused(format!(
-            "{tool}: the id is not a session id; use one terminal.list returned"
-        ))
-    })
-}
-
 /// One `begin` line: the authorization decision was made and the capability is about to run.
 #[derive(Serialize)]
 struct AuditBegin<'a> {

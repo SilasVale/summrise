@@ -41,67 +41,7 @@ pub struct Capability {
 pub const CAPABILITIES: &[Capability] = &[
     crate::capabilities::files::CAPABILITY,
     crate::capabilities::memory::CAPABILITY,
-    Capability {
-        name: "terminal",
-        tools: &[
-            // Creating a PTY starts a process, creating a serial session opens a device handle,
-            // and writing to either feeds the far end; all are destructive in the registry's sense
-            // (a later read cannot undo them). Reading, resizing and listing only observe or
-            // reshape a session that already exists. Closing creates no new effect either: it ends
-            // one, and it is the action a client needs to be able to take when a session is stuck,
-            // so it does not pass through the destructive question.
-            ToolDef {
-                name: "terminal.create",
-                destructive: true,
-                description:
-                    "Start a session of the requested kind; kind pty runs a local shell on a new pseudo-terminal, kind ssh opens a remote shell whose host key is pinned on first use and refused if it changes, and kind serial opens the OS port path named by port (for example COM3 or /dev/ttyUSB0) at 115200 8N1 unless baud, parity, data_bits and stop_bits say otherwise. A serial port is never enumerated or guessed. At most 16 sessions may be live, each retains 1 MiB of output, and a session idle for 30 minutes is closed.",
-                schema: None,
-            },
-            ToolDef {
-                name: "terminal.write",
-                destructive: true,
-                description:
-                    "Write UTF-8 text to a live session's input: a pty or ssh shell runs it as a command, and a serial session sends the bytes on the port. At most 1 MiB per call, and a write that cannot finish in 5 seconds is refused.",
-                schema: None,
-            },
-            ToolDef {
-                name: "terminal.read",
-                destructive: false,
-                description:
-                    "Read a session's output since a cursor and return the new cursor; only the newest 1 MiB is retained, so an older cursor is refused. Optional wait_ms (0-30000) parks until output arrives or the deadline passes; a terminal client should use it instead of polling. Optional limit pages the retained tail: at most that many bytes, oldest first, and the returned cursor advances by what the page carried.",
-                schema: None,
-            },
-            ToolDef {
-                name: "terminal.resize",
-                destructive: false,
-                description:
-                    "Resize a live session; a local shell receives SIGWINCH and a remote shell a window-change request. A serial session has no window, so resizing it is a successful no-op. Rows and columns are 1..=1000.",
-                schema: None,
-            },
-            ToolDef {
-                name: "terminal.close",
-                destructive: false,
-                description:
-                    "Close a session and end its shell, SSH connection or serial handle; the id is never reused.",
-                schema: None,
-            },
-            ToolDef {
-                name: "terminal.list",
-                destructive: false,
-                description:
-                    "List the live sessions with their kind and start time.",
-                schema: None,
-            },
-            ToolDef {
-                name: "terminal.screen",
-                destructive: false,
-                description:
-                    "Read the tail of a session's output as a person would see it — escape sequences removed, the last N lines — without moving the read cursor.",
-                schema: None,
-            },
-        ],
-        guide: "",
-    },
+    crate::capabilities::terminal::CAPABILITY,
     Capability {
         name: "browser",
         tools: &[

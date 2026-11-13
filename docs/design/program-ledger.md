@@ -355,6 +355,17 @@ declared beside the tool, legacy dispatch row gone, one guide heading, router co
 Evidence: 669 device tests, 104 core tests, `clippy`/`fmt` clean, gate 14 packages / 22 edges / 0
 upward. Next: `terminal` (seven tools, the largest), then the rest.
 
+**Round 17 — `terminal`, the largest capability, moves.** Seven tools (create, write, read, resize,
+close, list, screen) declared in `core/src/capabilities/terminal.rs`; its caps (1000 rows/cols, 1000
+screen lines, 60 default lines, 24×80 default size, 115200 8N1) are the declaration's constants and
+the implementation re-exports them, so the schema, the guide and the validation cannot disagree. The
+device implementation is async (create/write/read/resize/close await) and takes the `PtyRegistry`
+through `Ctx`, which now carries files roots, memory and terminal — exactly what a capability reads,
+nothing else. Evidence: 669 device tests, 104 core tests, `clippy`/`fmt` clean, gate 14 / 22 / 0.
+Next: `browser` (four tools, lazy registry), then `runs`, `system`, `forward`, `monitor`, `host`,
+`journal`, `plugins`, `guide` — one per round until `HANDLERS` and `input_schema` are only the
+fallback for what has not moved.
+
 ## Next (in order)
 
 1. Windows handoff, the interactive half — dispatch or run `summrise-shell.exe --check-window` in an

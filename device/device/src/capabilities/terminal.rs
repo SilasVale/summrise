@@ -92,17 +92,11 @@ pub const WRITE_TIMEOUT_MS: u64 = 5_000;
 /// accept more than a terminal's queue can hold at once.
 const WRITE_CHUNK_BYTES: usize = 1024;
 
-/// The largest row or column count a PTY may be given.
-pub const MAX_DIMENSION: u16 = 1000;
-
-/// The baud rate a serial create uses when the caller names none: the conventional console rate.
-pub const DEFAULT_BAUD: u32 = 115_200;
-
-/// The data bits a serial create uses when the caller names none.
-pub const DEFAULT_DATA_BITS: u8 = 8;
-
-/// The stop bits a serial create uses when the caller names none.
-pub const DEFAULT_STOP_BITS: u8 = 1;
+/// The declaration's caps: the schema, the guide and this implementation read the same numbers.
+pub use summrise_core::capabilities::terminal::{
+    DEFAULT_BAUD, DEFAULT_COLS, DEFAULT_DATA_BITS, DEFAULT_ROWS, DEFAULT_SCREEN_LINES,
+    DEFAULT_STOP_BITS, MAX_DIMENSION, MAX_SCREEN_LINES,
+};
 
 /// How long one serial read may wait for bytes.
 ///
@@ -735,9 +729,6 @@ impl Ring {
         Ok((data, cursor + take as u64))
     }
 }
-
-/// The most lines one `terminal.screen` may ask for.
-pub const MAX_SCREEN_LINES: usize = 1000;
 
 /// Render a byte stream as the last `lines` lines of plain text.
 ///
@@ -4669,4 +4660,354 @@ mod serial_refusals {
         );
         assert!(refusal.to_string().contains("browser.close"));
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The declaration's implementation: the device side of `summrise_core::capabilities::terminal`.
+// ---------------------------------------------------------------------------------------------
+
+use base64::Engine as _;
+use serde_json::{json, Map, Value};
+
+use crate::mcp::{parse, ToolError, BASE64};
+
+/// Whether `tool` is one this capability declares.
+pub fn owns(tool: &str) -> bool {
+    summrise_core::capabilities::terminal::CAPABILITY
+        .tools
+        .iter()
+        .any(|declared| declared.name == tool)
+}
+
+/// Every tool this capability declares, for the registry-alignment test.
+#[cfg(test)]
+pub fn names() -> impl Iterator<Item = &'static str> {
+    summrise_core::capabilities::terminal::CAPABILITY
+        .tools
+        .iter()
+        .map(|tool| tool.name)
+}
+
+/// Run one of this capability's tools against the session registry.
+pub async fn call(
+    terminal: &PtyRegistry,
+    tool: &str,
+    arguments: Map<String, Value>,
+) -> Result<String, ToolError> {
+    match tool {
+        "terminal.create" => {
+            let arguments: PtyCreateArgs = parse(arguments, tool)?;
+            let kind = Kind::parse(&arguments.kind).map_err(|error| refused(tool, error))?;
+            let serial_port: String;
+            let target = match kind {
+                Kind::Pty => {
+                    reject_serial_framing(&arguments, tool)?;
+                    if arguments.host.is_some()
+                        || arguments.port.is_some()
+                        || arguments.user.is_some()
+                        || arguments.auth.is_some()
+                        || arguments.host_key.is_some()
+                    {
+                        return Err(ToolError::Arguments(format!(
+                            "{tool}: kind pty takes shell, rows and cols; host, port, user, auth and host_key are for kind ssh"
+                        )));
+                    }
+                    CreateTarget::Pty {
+                        shell: arguments.shell.as_deref(),
+                    }
+                }
+                Kind::Ssh => {
+                    reject_serial_framing(&arguments, tool)?;
+                    if arguments.shell.is_some() {
+                        return Err(ToolError::Arguments(format!(
+                            "{tool}: kind ssh takes host, port, user, auth and optional host_key; shell is for kind pty"
+                        )));
+                    }
+                    let required = |field: &str| {
+                        ToolError::Arguments(format!(
+                            "{tool}: {field} is required when kind is ssh"
+                        ))
+                    };
+                    let host = arguments.host.as_deref().ok_or_else(|| required("host"))?;
+                    let port = match arguments.port.as_ref() {
+                        Some(PortArg::Ssh(port)) => *port,
+                        Some(PortArg::Serial(_)) => {
+                            return Err(ToolError::Arguments(format!(
+                                "{tool}: kind ssh names its TCP port as a number, not a port path"
+                            )));
+                        }
+                        None => return Err(required("port")),
+                    };
+                    let user = arguments.user.as_deref().ok_or_else(|| required("user"))?;
+                    let auth = arguments.auth.as_ref().ok_or_else(|| required("auth"))?;
+                    CreateTarget::Ssh(SshTarget {
+                        host,
+                        port,
+                        user,
+                        auth,
+                        host_key: arguments.host_key.as_deref(),
+                    })
+                }
+                Kind::Serial => {
+                    if arguments.shell.is_some()
+                        || arguments.host.is_some()
+                        || arguments.user.is_some()
+                        || arguments.auth.is_some()
+                        || arguments.host_key.is_some()
+                    {
+                        return Err(ToolError::Arguments(format!(
+                            "{tool}: kind serial takes port and optional baud, parity, data_bits and stop_bits; shell, host, user, auth and host_key are for kind pty or ssh"
+                        )));
+                    }
+                    let port = match arguments.port.as_ref() {
+                        Some(PortArg::Serial(port)) if !port.is_empty() => port.clone(),
+                        Some(PortArg::Serial(_)) => {
+                            return Err(ToolError::Arguments(format!(
+                                "{tool}: kind serial needs a non-empty port path"
+                            )));
+                        }
+                        Some(PortArg::Ssh(_)) => {
+                            return Err(ToolError::Arguments(format!(
+                                "{tool}: kind serial names an OS port path as a string, not a TCP port number"
+                            )));
+                        }
+                        None => {
+                            return Err(ToolError::Arguments(format!(
+                                "{tool}: port is required when kind is serial; it names the OS port, e.g. COM3 or /dev/ttyUSB0"
+                            )));
+                        }
+                    };
+                    let parity = Parity::parse(arguments.parity.as_deref().unwrap_or("none"))
+                        .map_err(|error| refused(tool, error))?;
+                    serial_port = port;
+                    CreateTarget::Serial(SerialTarget {
+                        baud: arguments.baud.unwrap_or(DEFAULT_BAUD),
+                        parity,
+                        data_bits: arguments.data_bits.unwrap_or(DEFAULT_DATA_BITS),
+                        stop_bits: arguments.stop_bits.unwrap_or(DEFAULT_STOP_BITS),
+                        ..SerialTarget::new(&serial_port)
+                    })
+                }
+            };
+            let label = target.label();
+            let id = terminal
+                .create(
+                    target,
+                    arguments.rows.unwrap_or(DEFAULT_ROWS),
+                    arguments.cols.unwrap_or(DEFAULT_COLS),
+                )
+                .await
+                .map_err(|error| refused(tool, error))?;
+            Ok(json!({
+                "id": id.as_str(),
+                "kind": kind.as_str(),
+                "shell": label,
+            })
+            .to_string())
+        }
+        "terminal.write" => {
+            let arguments: PtyWriteArgs = parse(arguments, tool)?;
+            let id = session_id(tool, &arguments.id)?;
+            let written = terminal
+                .write(&id, arguments.data.as_bytes())
+                .await
+                .map_err(|error| refused(tool, error))?;
+            Ok(json!({ "written": written }).to_string())
+        }
+        "terminal.read" => {
+            let arguments: PtyReadArgs = parse(arguments, tool)?;
+            let id = session_id(tool, &arguments.id)?;
+            let wait = Duration::from_millis(arguments.wait_ms.unwrap_or(0).min(30_000));
+            let limit = match arguments.limit {
+                Some(0) => {
+                    return Err(ToolError::Arguments(format!(
+                        "{tool}: limit is a byte count and must be at least 1"
+                    )));
+                }
+                Some(limit) => Some(usize::try_from(limit).unwrap_or(usize::MAX)),
+                None => None,
+            };
+            let answer = terminal
+                .read_wait_with_limit(&id, arguments.cursor.unwrap_or(0), wait, limit)
+                .await
+                .map_err(|error| refused(tool, error))?;
+            Ok(json!({
+                "data": String::from_utf8_lossy(&answer.data),
+                "data_base64": BASE64.encode(&answer.data),
+                "cursor": answer.cursor,
+                "alive": answer.alive,
+                "exit_code": answer.end.exit_code,
+                "signal": answer.end.signal,
+            })
+            .to_string())
+        }
+        "terminal.resize" => {
+            let arguments: PtyResizeArgs = parse(arguments, tool)?;
+            let id = session_id(tool, &arguments.id)?;
+            terminal
+                .resize(&id, arguments.rows, arguments.cols)
+                .await
+                .map_err(|error| refused(tool, error))?;
+            Ok(json!({
+                "resized": true,
+                "rows": arguments.rows,
+                "cols": arguments.cols,
+            })
+            .to_string())
+        }
+        "terminal.close" => {
+            let arguments: PtyIdArgs = parse(arguments, tool)?;
+            let id = session_id(tool, &arguments.id)?;
+            terminal
+                .close(&id)
+                .await
+                .map_err(|error| refused(tool, error))?;
+            Ok(json!({ "closed": true }).to_string())
+        }
+        "terminal.list" => {
+            let sessions: Vec<Value> = terminal
+                .list()
+                .iter()
+                .map(|session| {
+                    json!({
+                        "id": session.id.as_str(),
+                        "kind": session.kind.as_str(),
+                        "started_at_ms": session.started_at_ms,
+                    })
+                })
+                .collect();
+            Ok(Value::Array(sessions).to_string())
+        }
+        "terminal.screen" => {
+            let arguments: ScreenArgs = parse(arguments, tool)?;
+            let id = session_id(tool, &arguments.id)?;
+            let lines = arguments
+                .lines
+                .unwrap_or(DEFAULT_SCREEN_LINES)
+                .min(MAX_SCREEN_LINES);
+            let text = terminal
+                .screen(&id, lines)
+                .map_err(|error| refused(tool, error))?;
+            Ok(json!({
+                "id": arguments.id,
+                "text": text,
+                "lines": text.lines().count(),
+            })
+            .to_string())
+        }
+        other => Err(ToolError::Internal(format!(
+            "{other}: the terminal capability does not declare this tool"
+        ))),
+    }
+}
+
+fn refused(tool: &str, error: impl std::fmt::Display) -> ToolError {
+    ToolError::Refused(format!("{tool}: {error}"))
+}
+
+fn reject_serial_framing(arguments: &PtyCreateArgs, name: &str) -> Result<(), ToolError> {
+    if arguments.baud.is_some()
+        || arguments.parity.is_some()
+        || arguments.data_bits.is_some()
+        || arguments.stop_bits.is_some()
+    {
+        return Err(ToolError::Arguments(format!(
+            "{name}: baud, parity, data_bits and stop_bits are for kind serial"
+        )));
+    }
+    Ok(())
+}
+
+fn session_id(tool: &str, text: &str) -> Result<SessionId, ToolError> {
+    SessionId::parse(text).ok_or_else(|| {
+        ToolError::Refused(format!(
+            "{tool}: the id is not a session id; use one terminal.list returned"
+        ))
+    })
+}
+
+/// The arguments `terminal.create` takes; only the kind is required, because every other field has
+/// a platform default.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PtyCreateArgs {
+    kind: String,
+    /// The local program for `kind: "pty"`.
+    shell: Option<String>,
+    /// The remote target for `kind: "ssh"`.
+    host: Option<String>,
+    /// The remote TCP port for `kind: "ssh"`, or the OS port path for `kind: "serial"`.
+    port: Option<PortArg>,
+    user: Option<String>,
+    auth: Option<ssh::Auth>,
+    host_key: Option<String>,
+    /// The serial framing; all optional, default 115200 8N1.
+    baud: Option<u32>,
+    parity: Option<String>,
+    data_bits: Option<u8>,
+    stop_bits: Option<u8>,
+    rows: Option<u16>,
+    cols: Option<u16>,
+}
+
+/// The `port` a create names: a TCP port for SSH, a path for serial.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(untagged)]
+enum PortArg {
+    /// `kind: "ssh"` names a TCP port by number.
+    Ssh(u16),
+    /// `kind: "serial"` names an OS port path, e.g. `COM3` or `/dev/ttyUSB0`.
+    Serial(String),
+}
+
+/// The arguments `terminal.write` takes.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PtyWriteArgs {
+    id: String,
+    data: String,
+}
+
+/// The arguments `terminal.read` takes.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PtyReadArgs {
+    id: String,
+    cursor: Option<u64>,
+    /// How long to park when the cursor is already at the end. Absent means answer now; the device
+    /// caps the wait so a client cannot hold a connection for arbitrary time.
+    wait_ms: Option<u64>,
+    /// The most bytes this page may carry. Absent means the whole retained tail; zero is refused.
+    limit: Option<u64>,
+}
+
+/// The arguments `terminal.resize` takes.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PtyResizeArgs {
+    id: String,
+    rows: u16,
+    cols: u16,
+}
+
+/// The arguments `terminal.close` takes.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PtyIdArgs {
+    id: String,
+}
+
+/// The arguments `terminal.screen` takes.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ScreenArgs {
+    id: String,
+    lines: Option<usize>,
 }

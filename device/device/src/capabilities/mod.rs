@@ -32,21 +32,25 @@ pub struct Ctx<'a> {
     pub files_shared_root: Option<&'a std::path::Path>,
     /// This machine's memory store.
     pub memory: &'a memory::Memory,
+    /// The live sessions, one registry per device.
+    pub terminal: &'a terminal::PtyRegistry,
 }
 
 /// Whether a migrated capability declares `tool`.
 pub fn owns(tool: &str) -> bool {
-    files::owns(tool) || memory::owns(tool)
+    files::owns(tool) || memory::owns(tool) || terminal::owns(tool)
 }
 
 /// Every tool a migrated capability declares, for the registry-alignment test.
 #[cfg(test)]
 pub fn names() -> impl Iterator<Item = &'static str> {
-    files::names().chain(memory::names())
+    files::names()
+        .chain(memory::names())
+        .chain(terminal::names())
 }
 
 /// Run a migrated capability's tool.
-pub fn call(
+pub async fn call(
     tool: &str,
     arguments: serde_json::Map<String, serde_json::Value>,
     ctx: &Ctx<'_>,
@@ -56,6 +60,9 @@ pub fn call(
     }
     if memory::owns(tool) {
         return memory::call(ctx.memory, tool, arguments);
+    }
+    if terminal::owns(tool) {
+        return terminal::call(ctx.terminal, tool, arguments).await;
     }
     Err(crate::mcp::ToolError::Internal(format!(
         "{tool}: no migrated capability declares it"
