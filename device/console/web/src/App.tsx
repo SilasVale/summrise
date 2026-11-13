@@ -604,7 +604,10 @@ export function App() {
    * machine is in it; a paused page keeps describing the window it froze, and the fan-out waits for
    * a day answer so the block it asks is the block the labels count.
    */
-  const fleetWindow = shownWindowDevice === null && shownDay !== null;
+  // **THE FAN-OUT COSTS SOMETHING, SO IT RUNS WHERE THE RECORD IS DRAWN (round 13's review).** The
+  // fleet's records are Activity's rows; Home's fleet table and the Device picker never draw them,
+  // and a page that asked from there would write journal events for a record nobody is looking at.
+  const fleetWindow = page === "activity" && shownWindowDevice === null && shownDay !== null;
   const fleet = useFleetRecord(
     fleetWindow ? devices : [],
     fleetWindow ? machineDayRange.from : null,

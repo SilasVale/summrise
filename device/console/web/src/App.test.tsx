@@ -1646,6 +1646,9 @@ describe("App", () => {
     }));
 
     await bootAndSignIn();
+    // Home's fleet table never draws the fleet's record, so the fan-out has not asked yet: the reads
+    // are Activity's, not the console's at large.
+    expect(mocks.journalRead).not.toHaveBeenCalled();
     // No machine chosen: Activity is the fleet's window, and the page fans out to both machines.
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
     await screen.findByRole("heading", { name: "Activity", level: 1 });
@@ -1771,7 +1774,7 @@ describe("App", () => {
     );
     await waitFor(() =>
       expect(document.querySelector(".activity-direct")).toHaveTextContent(
-        "The direct calls of 1 machine were not counted."
+        "The direct calls of 1 machine were not counted: attic (did not answer)."
       )
     );
     await waitFor(() =>
@@ -3471,9 +3474,10 @@ describe("App", () => {
     expect(joined?.querySelector(".chip-warn")).toBeNull();
   });
 
-  it("asks no machine about a fleet window", async () => {
-    // A fleet window spans machines, so no single journal can answer for it: the page asks nobody,
-    // and no row is marked as rotated out of a journal it never read.
+  it("asks no machine's join about a fleet window", async () => {
+    // A fleet window spans machines, so no single journal can answer the join for it: the page asks
+    // no machine's `journal.get`, and no row is marked as rotated out of one journal. (The fleet's
+    // own fan-out does ask each machine for its window and its day — round 13 — but not for a join.)
     mocks.audit.mockResolvedValue([
       {
         ts_ms: Date.now(),

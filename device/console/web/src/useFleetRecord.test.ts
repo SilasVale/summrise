@@ -12,7 +12,12 @@ vi.mock("./api", async (importOriginal) => {
   };
 });
 
-import { FLEET_CACHE_MS, resetFleetRecord, useFleetRecord } from "./useFleetRecord";
+import {
+  FLEET_CACHE_MS,
+  fleetCacheSize,
+  resetFleetRecord,
+  useFleetRecord
+} from "./useFleetRecord";
 
 const FROM = 1_000;
 const TO = 2_000;
@@ -128,6 +133,26 @@ describe("useFleetRecord", () => {
     expect(result.current.reading).toBe(false);
   });
 
+  it("keeps the window it read when a refresh fails, and does not call it unread", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(1_000_000);
+    mocks.journalRead
+      .mockResolvedValueOnce(page("A"))
+      .mockRejectedValueOnce(new HttpError(503, "device_offline"));
+    mocks.journalDay
+      .mockResolvedValueOnce(day("A"))
+      .mockRejectedValueOnce(new HttpError(503, "device_offline"));
+    const { result } = renderHook(() => useFleetRecord([device("A")], FROM, TO));
+    await waitFor(() => expect(result.current.reads[0]?.page.state).toBe("read"));
+    vi.advanceTimersByTime(FLEET_CACHE_MS + 10);
+    await waitFor(() => expect(mocks.journalRead).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.reads[0]?.page.state).toBe("read"));
+    // A failed refresh is not a machine whose record was never read: the page in hand stays.
+    expect(result.current.reads[0]?.page.answer).not.toBeNull();
+    expect(result.current.reads[0]?.page.error).toBeNull();
+    expect(result.current.reads[0]?.day.answer).not.toBeNull();
+  });
+
   it("asks again once the window has aged", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(1_000_000);
@@ -159,6 +184,19 @@ describe("useFleetRecord", () => {
     rerender({ to: TO + 86_400_000 });
     await waitFor(() => expect(mocks.journalDay).toHaveBeenCalledTimes(2));
     expect(mocks.journalDay.mock.calls[1]).toEqual(["A", FROM, TO + 86_400_000]);
+  });
+
+  it("forgets a window the page left long ago, so a long-lived tab does not grow forever", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(1_000_000);
+    const first = renderHook(() => useFleetRecord([device("A")], FROM, TO));
+    await waitFor(() => expect(mocks.journalRead).toHaveBeenCalledTimes(1));
+    first.unmount();
+    vi.advanceTimersByTime(11 * FLEET_CACHE_MS);
+    renderHook(() => useFleetRecord([device("A")], FROM + 86_400_000, TO + 86_400_000));
+    await waitFor(() => expect(mocks.journalRead).toHaveBeenCalledTimes(2));
+    // The previous day block's page is gone, and the current one is the only window kept.
+    expect(fleetCacheSize()).toBe(1);
   });
 
   it("starts clean after the test seam resets the cache", async () => {

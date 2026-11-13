@@ -162,6 +162,15 @@ describe("fleetMachineRows", () => {
     expect(rows).toEqual([]);
   });
 
+  it("draws a page that is being refreshed from the answer it kept", () => {
+    const reads = [
+      read(device("A"), {
+        page: { state: "reading", answer: page("A", { rows: [machineRow(3)] }) }
+      })
+    ];
+    expect(fleetMachineRows(reads).map((row) => row.machine_seq)).toEqual([3]);
+  });
+
   it("reports the fleet's journal only when a machine answered for one", () => {
     expect(fleetJournal([read(device("A"))])).toBe(true);
     expect(fleetJournal([read(device("A"), { page: { answer: page("A", { journal: false }) } })])).toBe(
@@ -195,6 +204,23 @@ describe("fleetDay", () => {
     expect(day).toEqual({ calls: 1, failed: 0, more: true, unread: 2 });
   });
 
+  it("takes a journal-less machine from either answer, not only the day", () => {
+    const plan = fleetPlan([device("A"), device("B")]);
+    const day = fleetDay(
+      [
+        read(device("A"), { day: { answer: dayAnswer("A") } }),
+        read(device("B"), {
+          page: { answer: page("B", { journal: false }) },
+          day: { state: "failed", answer: null, error: "boom" }
+        })
+      ],
+      plan
+    );
+    // The page said this machine keeps no journal; a failed day read of a machine with no journal
+    // is complete in the console's audit, not a machine whose direct calls are missing.
+    expect(day).toEqual({ calls: 0, failed: 0, more: false, unread: 0 });
+  });
+
   it("does not count a journal-less machine as unread: its day is the console's own record", () => {
     const plan = fleetPlan([device("A"), device("B")]);
     const day = fleetDay(
@@ -207,6 +233,22 @@ describe("fleetDay", () => {
     expect(day).toEqual({ calls: 2, failed: 0, more: false, unread: 0 });
   });
 
+  it("counts a refreshing machine's kept answer, and treats no answer yet as a floor", () => {
+    const plan = fleetPlan([device("A"), device("B"), device("C", { online: false })]);
+    const day = fleetDay(
+      [
+        read(device("A"), {
+          day: { state: "reading", answer: dayAnswer("A", { calls: 2, failed: 0 }) }
+        }),
+        read(device("B"), { day: { state: "reading", answer: null } })
+      ],
+      plan
+    );
+    // A is being refreshed and its kept answer still counts; B has no answer yet and C is offline,
+    // so the number is a floor of the two that are missing.
+    expect(day).toEqual({ calls: 2, failed: 0, more: false, unread: 2 });
+  });
+
   it("has no number when no machine answered", () => {
     const plan = fleetPlan([device("A"), device("B", { online: false })]);
     expect(
@@ -216,17 +258,40 @@ describe("fleetDay", () => {
 });
 
 describe("fleetDayNote", () => {
-  it("says how many machines' direct calls are missing", () => {
-    const plan = fleetPlan([device("A"), device("B"), device("C", { online: false })]);
+  it("names the machines whose direct calls are missing, and why", () => {
+    const plan = fleetPlan([
+      device("A", { name: "DESKTOP-A" }),
+      device("B", { name: "DESKTOP-B" }),
+      device("C", { name: "DESKTOP-C", online: false })
+    ]);
     expect(
       fleetDayNote(
         [
-          read(device("A"), { day: { answer: dayAnswer("A") } }),
-          read(device("B"), { day: { state: "failed", answer: null, error: "boom" } })
+          read(device("A", { name: "DESKTOP-A" }), { day: { answer: dayAnswer("A") } }),
+          read(device("B", { name: "DESKTOP-B" }), {
+            day: { state: "failed", answer: null, error: "boom" }
+          })
         ],
         plan
       )
-    ).toBe("The direct calls of 2 machines were not counted.");
+    ).toBe(
+      "The direct calls of 2 machines were not counted: DESKTOP-B (did not answer), " +
+        "DESKTOP-C (offline)."
+    );
+  });
+
+  it("names a machine whose rows were read but whose day could not be", () => {
+    const plan = fleetPlan([device("A", { name: "DESKTOP-A" })]);
+    expect(
+      fleetDayNote(
+        [
+          read(device("A", { name: "DESKTOP-A" }), {
+            day: { answer: dayAnswer("A", { calls: 0, failed: 0 }, { unknown: true }) }
+          })
+        ],
+        plan
+      )
+    ).toBe("The direct calls of 1 machine were not counted: DESKTOP-A (does not offer its journal).");
   });
 
   it("says nothing when every machine answered", () => {

@@ -485,6 +485,18 @@ function Evidence(props: {
   );
 }
 
+/**
+ * **A ROW'S KEY NAMES EVERYTHING THAT MAKES IT ONE ROW (round 13).** A fleet window draws several
+ * journals, and two machines can write the same instant, tool and outcome — a key without the
+ * machine made React reuse one row for the other and duplicate nodes when the list changed. Two
+ * calls on the *same* machine can collide the same way (a retry loop), so the journal's own position
+ * is part of the key when the row has one, and the console's trace otherwise.
+ */
+export function timelineRowKey(line: AuditLine): string {
+  const differs = line.machine_seq ?? line.trace ?? "";
+  return `${line.device_id ?? ""}-${differs}-${line.ts_ms}-${line.tool ?? line.kind}-${line.status}`;
+}
+
 /** One stretch of work: a run of rows on one machine, none more than a minute apart. */
 type Stretch = { start: number; count: number; spanMs: number };
 
@@ -1353,13 +1365,7 @@ export function ActivityTimeline(props: {
                 </div>
                 <ol className="timeline-rows">
                   {shown.map((line, index) => {
-                    // **A ROW'S KEY NAMES ITS MACHINE (round 13).** A fleet window draws several
-                    // journals, and two machines can write the same instant, tool and outcome; a key
-                    // without the machine makes React reuse one row for the other, which duplicated
-                    // nodes when the list changed. One row per journal row, keyed by all of it.
-                    const key = `${line.device_id ?? ""}-${line.ts_ms}-${line.tool ?? line.kind}-${
-                      line.status
-                    }`;
+                    const key = timelineRowKey(line);
                     const order = orderAt.get(index);
                     const current = order === undefined ? null : stretches[order];
                     const previous = order !== undefined && order > 0 ? stretches[order - 1] : null;

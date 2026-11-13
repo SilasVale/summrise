@@ -91,24 +91,50 @@ function label(device: Device): string {
   return device.name ?? shortId(device.id);
 }
 
-/** Whether this machine answered for its journal window with something the page can draw. */
+/**
+ * Whether this machine answered for its journal window with something the page can draw.
+ *
+ * **AN ANSWER IN HAND IS AN ANSWER WHILE IT IS REFRESHED (round 13).** The hook keeps the last page
+ * in hand while a new read is out — and keeps it when that read fails — so a 30 s refresh must not
+ * blink the machine's rows away. The state matters only when there is no answer: a failed first
+ * read and a read still in flight both draw nothing, and the footer says which.
+ */
 function pageAnswered(read: FleetMachineRead): boolean {
   const answer = read.page.answer;
-  return read.page.state === "read" && answer !== null && !answer.unknown && answer.journal;
+  return answer !== null && !answer.unknown && answer.journal;
 }
 
 /** Whether this machine answered for its day with counts the page can add. */
 function dayAnswered(read: FleetMachineRead): boolean {
   const answer = read.day.answer;
-  return read.day.state === "read" && answer !== null && !answer.unknown && answer.journal;
+  return answer !== null && !answer.unknown && answer.journal;
 }
 
-/** Whether this machine says it keeps no journal at all: a fact, and a complete day. */
+/**
+ * Whether this machine says it keeps no journal at all: a fact, and a complete day.
+ *
+ * **EITHER ANSWER CAN SAY IT.** A machine without a journal answers `journal: false` to both
+ * tools; a day read that failed while the page answered `journal: false` is still a machine whose
+ * calls are all in the console's audit, not one whose direct calls are missing.
+ */
 function journalLess(read: FleetMachineRead): boolean {
-  const answer = read.day.answer;
-  return (
-    read.day.state === "read" && answer !== null && !answer.unknown && !answer.journal
-  );
+  const saysNo = (answer: MachineReadAnswer | MachineDayAnswer | null) =>
+    answer !== null && !answer.unknown && !answer.journal;
+  return saysNo(read.page.answer) || saysNo(read.day.answer);
+}
+
+/**
+ * Why a machine's direct calls are missing from the fleet's day, or `null` when they are counted.
+ *
+ * The two outcomes a *finished* read can have are named differently: a failed read is the console's
+ * reason, an answer that is not a count (`unknown`) is the machine not offering the tool. A machine
+ * whose read is still out is not described here — the note is silent while counting.
+ */
+function dayMissing(read: FleetMachineRead): string | null {
+  if (dayAnswered(read) || journalLess(read)) return null;
+  if (read.day.state === "failed") return "did not answer";
+  if (read.day.state === "read") return "does not offer its journal";
+  return null;
 }
 
 /**
@@ -163,8 +189,9 @@ function notCounted(reads: readonly FleetMachineRead[], plan: FleetPlan): number
   const missing = plan.asked.filter((device) => {
     const read = reads.find((entry) => entry.device.id === device.id);
     if (read === undefined) return true;
-    if (read.day.state === "reading" || read.day.state === "idle") return false;
     if (dayAnswered(read) || journalLess(read)) return false;
+    // A day still being read has no answer yet, so the number in hand is a floor; the note is silent
+    // about it while the read is out (see `fleetDayNote`), but the sentence still says "at least".
     return true;
   });
   return missing.length + plan.beyond.length + plan.offline.length;
@@ -173,10 +200,12 @@ function notCounted(reads: readonly FleetMachineRead[], plan: FleetPlan): number
 /**
  * The header's note when the fleet's day is not the whole day.
  *
- * A count, not a list: the footer names the machines and their reasons once, and a sentence beside
- * the day that repeated every name would make the header unreadable. The note is silent while a read
- * the page started is still out, because "not counted" describes a read that ended badly — not one
- * that is still running.
+ * **IT NAMES THE MACHINES THE FOOTER DOES NOT (round 13's review).** The footer's subject is the
+ * rows a machine's journal gave, and the header's is the day it counted: a machine whose rows were
+ * read but whose day failed is missing from the number and absent from the footer, so a bare count
+ * here would leave the operator unable to find it. Up to three names, then a count — the footer's
+ * own grammar. The note is silent while a read the page started is still out, because "not counted"
+ * describes a read that ended — not one that is still running.
  */
 export function fleetDayNote(
   reads: readonly FleetMachineRead[],
@@ -185,13 +214,20 @@ export function fleetDayNote(
   if (reads.some((read) => read.day.state === "reading" || read.page.state === "reading")) {
     return null;
   }
-  const missing = notCounted(reads, plan);
-  if (missing === 0) return null;
+  const missing: string[] = [];
+  for (const device of plan.asked) {
+    const read = reads.find((entry) => entry.device.id === device.id);
+    const why = read === undefined ? "did not answer" : dayMissing(read);
+    if (why !== null) missing.push(`${label(device)} (${why})`);
+  }
+  for (const device of plan.offline) missing.push(`${label(device)} (offline)`);
+  for (const device of plan.beyond) missing.push(`${label(device)} (not asked)`);
+  if (missing.length === 0) return null;
   if (plan.asked.length === 0 && plan.offline.length > 0) {
     return "The direct calls were not counted: no machine in this fleet is online.";
   }
-  const machines = missing === 1 ? "1 machine" : `${missing} machines`;
-  return `The direct calls of ${machines} were not counted.`;
+  const machines = missing.length === 1 ? "1 machine" : `${missing.length} machines`;
+  return `The direct calls of ${machines} were not counted: ${listNames(missing)}.`;
 }
 
 /** Whether any asked machine answered for a journal at all: the empty state's grammar. */

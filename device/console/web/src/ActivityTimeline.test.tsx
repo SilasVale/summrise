@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuditLine, AuditSource, Device, TokenMeta } from "./api";
-import { ActivityTimeline } from "./ActivityTimeline";
+import { ActivityTimeline, timelineRowKey } from "./ActivityTimeline";
 import { machineCallRows, machineCounts } from "./machineRows";
 import { exactMoment } from "./format";
 import { restoreGlobal } from "./test/dom";
@@ -1957,6 +1957,30 @@ describe("ActivityTimeline's Clients only over machine rows (round 13)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Clients only" }));
     expect(screen.getByText("host.facts ran on Alpha")).toBeInTheDocument();
     expect(screen.queryByText("screen.capture ran on Alpha")).toBeNull();
+  });
+});
+
+describe("ActivityTimeline's row key (round 13)", () => {
+  it("tells two machines' identical rows apart, and two calls on one machine apart", () => {
+    const base = {
+      ts_ms: Date.UTC(2026, 10, 5, 9, 0, 0),
+      kind: "mcp" as const,
+      status: 200,
+      tool: "files.read"
+    };
+    expect(timelineRowKey({ ...base, device_id: alpha, machine_seq: 1 })).not.toBe(
+      timelineRowKey({ ...base, device_id: beta, machine_seq: 1 })
+    );
+    expect(timelineRowKey({ ...base, device_id: alpha, machine_seq: 1 })).not.toBe(
+      timelineRowKey({ ...base, device_id: alpha, machine_seq: 2 })
+    );
+    expect(timelineRowKey({ ...base, device_id: alpha, trace: "t-1" })).not.toBe(
+      timelineRowKey({ ...base, device_id: alpha, trace: "t-2" })
+    );
+    // The same row answers the same key: React must be able to reconcile it with itself.
+    expect(timelineRowKey({ ...base, device_id: alpha, machine_seq: 3 })).toBe(
+      timelineRowKey({ ...base, device_id: alpha, machine_seq: 3 })
+    );
   });
 });
 

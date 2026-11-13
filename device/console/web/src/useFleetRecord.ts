@@ -66,6 +66,11 @@ export function resetFleetRecord() {
   generation += 1;
 }
 
+/** Test seam: how many windows the fan-out still remembers. */
+export function fleetCacheSize(): number {
+  return cache.size;
+}
+
 function keyOf(deviceId: string, from: number, to: number): string {
   return `${deviceId}\u0000${from}\u0000${to}`;
 }
@@ -103,20 +108,31 @@ function startReads(
     api.journalRead(deviceId, { limit: MACHINE_ROWS }).then(
       (answer) =>
         update((entry) => ({ ...entry, page: { state: "read", answer, error: null } })),
+      // **A FAILED REFRESH KEEPS THE WINDOW IT READ (round 10's rule, round 13's fan-out).** Only a
+      // machine that never answered is "not read"; a page in hand stays drawn and its failure is
+      // not a second, contradictory sentence under rows that are still true.
       (cause: unknown) =>
-        update((entry) => ({
-          ...entry,
-          page: { state: "failed", answer: null, error: readFailureSentence(cause) }
-        }))
+        update((entry) =>
+          entry.page.answer !== null
+            ? { ...entry, page: { state: "read", answer: entry.page.answer, error: null } }
+            : {
+                ...entry,
+                page: { state: "failed", answer: null, error: readFailureSentence(cause) }
+              }
+        )
     ),
     api.journalDay(deviceId, from, to).then(
       (answer) =>
         update((entry) => ({ ...entry, day: { state: "read", answer, error: null } })),
       (cause: unknown) =>
-        update((entry) => ({
-          ...entry,
-          day: { state: "failed", answer: null, error: readFailureSentence(cause) }
-        }))
+        update((entry) =>
+          entry.day.answer !== null
+            ? { ...entry, day: { state: "read", answer: entry.day.answer, error: null } }
+            : {
+                ...entry,
+                day: { state: "failed", answer: null, error: readFailureSentence(cause) }
+              }
+        )
     )
   ]).then(() => undefined);
   pending.set(key, read);
@@ -163,6 +179,16 @@ export function useFleetRecord(
     const asked = planRef.current.asked;
     if (asked.length === 0) return;
     const now = Date.now();
+    // **A WINDOW THE PAGE LEFT IS FORGOTTEN (round 13's review).** Entries are keyed by day block,
+    // so a long-lived tab would otherwise keep every earlier block's page (up to 200 rows each) for
+    // as long as it is open. Anything outside this fan-out and older than a few cache windows is
+    // dropped; the current block and a read still in flight are never dropped.
+    const keep = new Set(asked.map((device) => keyOf(device.id, from, to)));
+    for (const [key, entry] of cache) {
+      if (keep.has(key)) continue;
+      if (entry.page.state === "reading" || entry.day.state === "reading") continue;
+      if (now - entry.startedAt > 10 * FLEET_CACHE_MS) cache.delete(key);
+    }
     let soonest = Number.POSITIVE_INFINITY;
     let started = false;
     for (const device of asked) {
