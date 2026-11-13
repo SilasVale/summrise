@@ -76,59 +76,7 @@ pub const CAPABILITIES: &[Capability] = &[
         guide: "",
     },
     crate::capabilities::journal::CAPABILITY,
-    Capability {
-        name: "plugins",
-        tools: &[
-            // A plugin is an MCP server installed by path. Adding, removing and restarting it are
-            // destructive in the registry's sense (they start or stop code, and a later read cannot
-            // undo that); listing, inspecting and reading a log only observe. The tools are ordinary
-            // registry tools, so the token scope, the audit record and the console need no special
-            // case: they are the operator's surface for the plugin host itself.
-            ToolDef {
-                name: "plugins.list",
-                destructive: false,
-                description:
-                    "List the installed plugins with their state and tool count; a plugin's tools are advertised only while it is running.",
-                schema: None,
-            },
-            ToolDef {
-                name: "plugins.inspect",
-                destructive: false,
-                description:
-                    "Read a plugin directory's plugin.json without starting it or recording it, so a path can be checked before plugins.add.",
-                schema: None,
-            },
-            ToolDef {
-                name: "plugins.add",
-                destructive: true,
-                description:
-                    "Install the MCP server in a directory: validate plugin.json, start it, and advertise its tools as <namespace>.<tool>; installing registers the path and runs its code with this machine's permissions.",
-                schema: None,
-            },
-            ToolDef {
-                name: "plugins.remove",
-                destructive: true,
-                description:
-                    "Remove a plugin by namespace: forget its record and stop its process, never deleting its source directory.",
-                schema: None,
-            },
-            ToolDef {
-                name: "plugins.restart",
-                destructive: true,
-                description:
-                    "Stop and start a plugin now, resetting its restart budget after a failure.",
-                schema: None,
-            },
-            ToolDef {
-                name: "plugins.logs",
-                destructive: false,
-                description:
-                    "Read the last lines of a plugin's log (default 200, at most 2000).",
-                schema: None,
-            },
-        ],
-        guide: "",
-    },
+    crate::capabilities::plugins::CAPABILITY,
 ];
 
 /// The manual: every migrated capability's entry, then each of its tools with its sentence.

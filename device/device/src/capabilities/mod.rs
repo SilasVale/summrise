@@ -51,6 +51,8 @@ pub struct Ctx<'a> {
     pub restart: &'a crate::restart::Hook,
     /// This process's live record, when it has one.
     pub bus: Option<&'a summrise_bus::Bus>,
+    /// The plugin host.
+    pub plugins: &'a std::sync::Arc<crate::plugins::host::PluginHost>,
 }
 
 /// Whether a migrated capability declares `tool`.
@@ -65,6 +67,7 @@ pub fn owns(tool: &str) -> bool {
         || forward::owns(tool)
         || host::owns(tool)
         || journal::owns(tool)
+        || plugins::owns(tool)
 }
 
 /// Every tool a migrated capability declares, for the registry-alignment test.
@@ -80,6 +83,7 @@ pub fn names() -> impl Iterator<Item = &'static str> {
         .chain(forward::names())
         .chain(host::names())
         .chain(journal::names())
+        .chain(plugins::names())
 }
 
 /// Run a migrated capability's tool.
@@ -117,6 +121,9 @@ pub async fn call(
     }
     if journal::owns(tool) {
         return journal::call(tool, arguments, ctx.bus);
+    }
+    if plugins::owns(tool) {
+        return plugins::call(ctx.plugins, tool, arguments).await;
     }
     Err(crate::mcp::ToolError::Internal(format!(
         "{tool}: no migrated capability declares it"

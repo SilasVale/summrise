@@ -418,6 +418,14 @@ answers `journal: false` rather than failing. The declaration keeps the registry
 tests, `clippy`/`fmt` clean, gate 14 / 22 / 0. Next: `plugins` (five), then `guide`; after that the
 legacy `HANDLERS` and the schema match are only the fallback for `plugins`/`state`/`screen`.
 
+**Round 25 — `plugins` moves.** Six tools (list, inspect, add, remove, restart, logs) declared in
+`core/src/capabilities/plugins.rs`; the implementation delegates to the plugin host's own
+`dispatch` and maps its two error kinds, so the host crate keeps its protocol and the surface keeps
+one error vocabulary. The `Ctx` carries the `Arc<PluginHost>`. Guide: eleven capabilities, 50 tool
+headings. Evidence: 669 device tests, 104 core tests, `clippy`/`fmt` clean, gate 14 / 22 / 0.
+Next: `screen` and `state` (one tool each) finish the seam; after that `HANDLERS` and the schema
+match can be deleted rather than kept as a fallback.
+
 
 ## Next (in order)
 

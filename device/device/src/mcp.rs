@@ -43,9 +43,7 @@ use summrise_core::{
 };
 use tokio::io::AsyncWriteExt;
 
-use crate::capabilities::{
-    browser, forward, memory, monitor, plugins as plugins_capability, runs, terminal,
-};
+use crate::capabilities::{browser, forward, memory, monitor, runs, terminal};
 use crate::config::{Config, Release};
 use crate::plugins::host::PluginHost;
 use crate::restart;
@@ -845,6 +843,7 @@ impl DeviceServer {
                 supervised: self.supervised,
                 restart: &self.restart,
                 bus: bus.as_deref(),
+                plugins: &self.plugins,
             };
             return crate::capabilities::call(name, arguments, &ctx).await;
         }
@@ -878,17 +877,6 @@ impl DeviceServer {
                     "height": capture.height,
                 })
                 .to_string())
-            }
-            Handler::Plugins => {
-                match plugins_capability::dispatch(&self.plugins, name, arguments).await {
-                    Ok(text) => Ok(text),
-                    Err(plugins_capability::PluginsError::Arguments(message)) => {
-                        Err(ToolError::Arguments(message))
-                    }
-                    Err(plugins_capability::PluginsError::Plugin(error)) => {
-                        Err(ToolError::Refused(error.to_text()))
-                    }
-                }
             }
             Handler::StateGet => {
                 // The console's device page: the document an operator would read from
@@ -1022,7 +1010,6 @@ fn jsonrpc_error(id: Value, code: i32, message: &str) -> Value {
 enum Handler {
     ScreenCapture,
     StateGet,
-    Plugins,
 }
 
 /// The names this surface implements, and their handlers.
@@ -1034,12 +1021,6 @@ enum Handler {
 const HANDLERS: &[(&str, Handler)] = &[
     ("screen.capture", Handler::ScreenCapture),
     ("state.get", Handler::StateGet),
-    ("plugins.list", Handler::Plugins),
-    ("plugins.inspect", Handler::Plugins),
-    ("plugins.add", Handler::Plugins),
-    ("plugins.remove", Handler::Plugins),
-    ("plugins.restart", Handler::Plugins),
-    ("plugins.logs", Handler::Plugins),
 ];
 
 /// **ONE PLACE BUILDS `forward.list`'s ROW, AND IT TAKES EVERY FIELD THE STATE HAS.**
@@ -1206,72 +1187,6 @@ fn input_schema(definition: &ToolDef) -> Value {
         "state.get" => json!({
             "type": "object",
             "properties": {},
-            "additionalProperties": false
-        }),
-        "plugins.list" => json!({
-            "type": "object",
-            "properties": {},
-            "additionalProperties": false
-        }),
-        "plugins.inspect" => json!({
-            "type": "object",
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "The plugin directory to read; it must contain plugin.json. No process is started and no record is written."
-                }
-            },
-            "required": ["path"],
-            "additionalProperties": false
-        }),
-        "plugins.add" => json!({
-            "type": "object",
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "The plugin directory to install; it must contain plugin.json. Installing registers the path and runs its code with this machine's permissions."
-                }
-            },
-            "required": ["path"],
-            "additionalProperties": false
-        }),
-        "plugins.remove" => json!({
-            "type": "object",
-            "properties": {
-                "namespace": {
-                    "type": "string",
-                    "description": "The namespace plugins.list reports; its source directory is never deleted."
-                }
-            },
-            "required": ["namespace"],
-            "additionalProperties": false
-        }),
-        "plugins.restart" => json!({
-            "type": "object",
-            "properties": {
-                "namespace": {
-                    "type": "string",
-                    "description": "The namespace plugins.list reports; a manual restart resets the start budget."
-                }
-            },
-            "required": ["namespace"],
-            "additionalProperties": false
-        }),
-        "plugins.logs" => json!({
-            "type": "object",
-            "properties": {
-                "namespace": {
-                    "type": "string",
-                    "description": "The namespace plugins.list reports."
-                },
-                "lines": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": crate::plugins::logs::MAX_LOG_LINES,
-                    "description": format!("How many trailing lines to return (default {}).", crate::plugins::logs::DEFAULT_LOG_LINES)
-                }
-            },
-            "required": ["namespace"],
             "additionalProperties": false
         }),
         _ => json!({ "type": "object" }),

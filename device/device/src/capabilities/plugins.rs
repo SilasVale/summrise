@@ -140,6 +140,40 @@ fn parse<T: DeserializeOwned>(
     })
 }
 
+// ---------------------------------------------------------------------------------------------
+// The declaration's implementation: the device side of `summrise_core::capabilities::plugins`.
+// ---------------------------------------------------------------------------------------------
+
+use crate::mcp::ToolError;
+use summrise_core::capabilities::plugins::CAPABILITY;
+
+/// Whether `tool` is one this capability declares.
+pub fn owns(tool: &str) -> bool {
+    CAPABILITY
+        .tools
+        .iter()
+        .any(|declared| declared.name == tool)
+}
+
+/// Every tool this capability declares, for the registry-alignment test.
+#[cfg(test)]
+pub fn names() -> impl Iterator<Item = &'static str> {
+    CAPABILITY.tools.iter().map(|tool| tool.name)
+}
+
+/// Run one `plugins.*` tool, mapping the host's errors onto the surface's.
+pub async fn call(
+    host: &crate::plugins::host::PluginHost,
+    tool: &str,
+    arguments: Map<String, Value>,
+) -> Result<String, ToolError> {
+    match dispatch(host, tool, arguments).await {
+        Ok(text) => Ok(text),
+        Err(PluginsError::Arguments(message)) => Err(ToolError::Arguments(message)),
+        Err(PluginsError::Plugin(error)) => Err(ToolError::Refused(error.to_text())),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
