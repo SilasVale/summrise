@@ -168,6 +168,34 @@ is one `id`; a reconnect replays from it; a pruned cursor answers the oldest ret
 subscription registry in the store, no epoch, and no replay buffer beyond the retained rows: the
 record is the buffer.
 
+### 4.4 The transaction contract
+
+The rule "a fact and its feed row commit together" is only real if the transaction mechanism is pinned.
+This is the pin:
+
+- **Engine settings.** `journal_mode=WAL`, `synchronous=FULL` (the record's promise outranks write
+  speed; writes are human-scale), `foreign_keys=ON`, `busy_timeout=5000`.
+- **One writer, many readers.** A single write connection issues `BEGIN IMMEDIATE` (no lock upgrade
+  surprises); read-only connections with `query_only=ON` serve pages and tools. SQLite's single-writer
+  rule is per database, and each process owns one database, so there is no cross-process contention.
+- **Short transactions.** One unit of work is one write transaction. **No capability call runs inside a
+  transaction.** `record(start)` and `record(end)` are separate transactions: a crash between them
+  leaves a *started* row, which is a fact — the call was in flight — not a lost one. Boot marks
+  interrupted calls as such, with a row and a feed entry.
+- **The feed row is self-contained.** It carries the kind, the ids and the one-line summary a
+  subscriber draws, so a subscriber never needs a second query to render an event. The full fact lives
+  in its table.
+- **No distributed transaction.** The device records; the console records its own perspective after the
+  answer. If the console dies before writing, the device's row and its trace still answer the question.
+  If the device dies, the console's row says the call was attempted — the trace joins them when the
+  device returns.
+- **Pruning and migration are their own transactions.** Rows are pruned in bounded batches (1 000) with
+  the feed; a migration runs in one transaction after `VACUUM INTO` backup and a `user_version` check;
+  a build refuses a newer schema rather than guessing.
+- **Tests.** Kill at each commit boundary; a writer held for the duration of a slow call; a reader
+  against a write in flight; a busy retry; a migration interrupted mid-way; a restore from backup; an
+  interrupted call detected at boot.
+
 ## 5. Failure modes
 
 | Failure | What happens | Guarantee |
@@ -181,6 +209,9 @@ record is the buffer.
 | upgrade | migrate in a transaction after `VACUUM INTO` | older build refuses newer schema; rollback restores backup |
 | duplicate delivery | the same fact is written once by its writer | the console dedupes a device row by `(device, feed id)` |
 | plugin crash loop | supervisor marks it failed and records it | one row, one feed entry |
+| crash between `start` and `end` | boot marks the call interrupted (row + feed) | the in-flight fact is recorded, not lost |
+| writer busy / lock | bounded retry with backoff, then the call fails loudly | no silent partial write |
+| read during a write | WAL snapshot; readers never block | a page never sees a half-written call |
 
 ## 6. Why this is the best for this product
 
