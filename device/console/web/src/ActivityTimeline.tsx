@@ -1256,9 +1256,18 @@ export function ActivityTimeline(props: {
         ) : (
           <p className="hint timeline-empty">
             {props.empty ??
-              "No activity yet. Calls routed through this console are written here; a call made " +
-                "straight to a machine's own endpoint is not. Connect a client sets up the " +
-                "credential that routes one here."}
+              // **A DIRECT CALL IS NOW READ, NOT MISSING (round 8).** The old sentence ended "is
+              // not" — true of this console's audit and false of a machine window, which now reads
+              // that machine's own journal. A fleet window still has no one journal to read, so it
+              // keeps the old sentence; a machine window whose read failed says so in the footer,
+              // and claiming to have read it here would be a second, contradictory voice.
+              (props.machine?.state === "read"
+                ? "No activity yet. Calls routed through this console are written here; a call " +
+                  "made straight to a machine's own endpoint is read from that machine's journal. " +
+                  "Connect a client sets up the credential that routes one here."
+                : "No activity yet. Calls routed through this console are written here; a call " +
+                  "made straight to a machine's own endpoint is not. Connect a client sets up the " +
+                  "credential that routes one here.")}
           </p>
         )
       ) : (

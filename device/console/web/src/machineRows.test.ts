@@ -151,6 +151,16 @@ describe("mergeMachineRows", () => {
     expect(mergeMachineRows([proxied], [copy])).toEqual([proxied]);
   });
 
+  it("falls back to the composite key when only the machine's row carries a trace", () => {
+    // An audit line from before the trace existed has no trace; the machine's copy does. Matching on
+    // the trace alone would draw the same call twice.
+    const consoleRow = line({ trace: undefined });
+    const machineCopy = {
+      ...line({ trace: "machine-8", machine_seq: 8, door: "console" })
+    };
+    expect(mergeMachineRows([consoleRow], [machineCopy])).toEqual([consoleRow]);
+  });
+
   it("falls back to the merge's composite key for a row written before traces", () => {
     const untraced = line({ trace: undefined });
     const copy = { ...untraced, machine_seq: 12, door: "console" };

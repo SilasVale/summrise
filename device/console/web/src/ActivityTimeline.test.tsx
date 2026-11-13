@@ -1729,6 +1729,17 @@ describe("ActivityTimeline's machine rows", () => {
     expect(document.querySelector(".timeline-machine-read")).toBeNull();
   });
 
+  it("says a machine window reads the calls made straight to that machine", () => {
+    render(
+      <ActivityTimeline
+        lines={[]}
+        devices={devices}
+        machine={{ contributed: 0, state: "read", unknown: false, error: null }}
+      />
+    );
+    expect(document.body.textContent).toContain("is read from that machine's journal");
+  });
+
   it("keeps the days in order when a machine row is older than the console's", () => {
     const yesterday = line({
       ts_ms: Date.UTC(2026, 10, 4, 22, 0, 0),

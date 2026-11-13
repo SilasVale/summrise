@@ -1715,10 +1715,18 @@ impl DeviceServer {
                 let Some(bus) = self.bus() else {
                     return Ok(no_journal_window_document().to_string());
                 };
-                let (rows, more) = bus.read_window(before_seq, limit).map_err(|error| {
-                    refused(name, format!("the journal could not be read: {error}"))
-                })?;
-                Ok(journal_rows_document(&bus, &rows, more).to_string())
+                // **ONE ROW PAST THE PAGE KEEPS THE DOOR AT THE BOUNDARY.** A call's arrival is on
+                // its `call.started` half, which is the row below an outcome that sits last on the
+                // page; reading one extra row lets that door travel with the outcome without
+                // returning the extra row. The flag is then true when the bus had more below the
+                // extra row, or when the extra row itself exists.
+                let (window, bus_more) =
+                    bus.read_window(before_seq, limit + 1).map_err(|error| {
+                        refused(name, format!("the journal could not be read: {error}"))
+                    })?;
+                let shown = window.len().min(limit);
+                let more = bus_more || window.len() > limit;
+                Ok(journal_rows_document(&bus, &window, shown, more).to_string())
             }
         }
     }
@@ -3125,13 +3133,18 @@ fn parse_read_window(
     tool: &str,
 ) -> Result<(Option<u64>, usize), ToolError> {
     let invalid = |rule: String| ToolError::Arguments(format!("{tool}: {rule}"));
-    if let Some(unknown) = arguments
+    if arguments
         .keys()
-        .find(|key| !matches!(key.as_str(), "before_seq" | "limit"))
+        .any(|key| !matches!(key.as_str(), "before_seq" | "limit"))
     {
-        return Err(invalid(format!(
-            "the argument `{unknown}` is not what this tool takes; it takes `limit` and `before_seq`"
-        )));
+        // **THE RULE, NOT THE VALUE.** An unknown key is a caller's own bytes; naming it back would
+        // echo whatever was sent, which is the rule this tool's refusals keep (a client that put a
+        // secret in the wrong field must not read it out of the refusal). The two keys it does take
+        // are the rule, so they are the sentence.
+        return Err(invalid(
+            "the arguments are not what this tool takes; it takes `limit` and `before_seq`"
+                .to_owned(),
+        ));
     }
     let Some(value) = arguments.get("limit") else {
         return Err(invalid(
@@ -3144,8 +3157,10 @@ fn parse_read_window(
         ));
     };
     if count == 0 || count > MAX_READ_ROWS as u64 {
+        // The number asked for is the caller's, never the machine's: the refusal states the bound,
+        // not the value that crossed it.
         return Err(invalid(format!(
-            "`limit` is between 1 and {MAX_READ_ROWS} rows, and this call asked for {count}"
+            "`limit` is between 1 and {MAX_READ_ROWS} rows"
         )));
     }
     let before_seq =
@@ -3219,17 +3234,23 @@ fn machine_row(envelope: &summrise_bus::Envelope) -> Value {
 
 /// One `journal.read` answer: the window's bounds, the rows the bus returned, and whether more lie
 /// below them.
+///
+/// `window` is what was read — the page plus the one row past it — and `shown` is how many of those
+/// rows the answer returns. The extra row is used for one fact only (the door of a call whose outcome
+/// is the page's last row) and never leaks into `rows`.
 fn journal_rows_document(
     bus: &summrise_bus::Bus,
-    rows: &[summrise_bus::Envelope],
+    window: &[summrise_bus::Envelope],
+    shown: usize,
     more: bool,
 ) -> Value {
     // **THE DOOR IS WRITTEN ON THE HALF THAT HAS IT.** A call's arrival is on `call.started`; its
     // outcome half carries only the tool and whether it worked. A page drawing outcomes would have to
     // read both halves to say who called, so the window carries the door across, by the `trace.call`
-    // the two halves already share. A started half outside this window leaves the door unknown, which
-    // is what the page draws — nothing — rather than a guess.
-    let doors: std::collections::HashMap<&str, &str> = rows
+    // the two halves already share. Reading one row past the page is what keeps a door from
+    // disappearing just because its outcome sat on the boundary; a started half truly outside the
+    // window still leaves the door unknown, rather than a guess.
+    let doors: std::collections::HashMap<&str, &str> = window
         .iter()
         .filter(|row| row.kind == "call.started")
         .filter_map(|row| {
@@ -3237,8 +3258,9 @@ fn journal_rows_document(
             Some((call, row.payload.get("door")?.as_str()?))
         })
         .collect();
-    let summarised: Vec<Value> = rows
+    let summarised: Vec<Value> = window
         .iter()
+        .take(shown)
         .map(|row| {
             let mut summarised = machine_row(row);
             if summarised.get("door").is_none() {
@@ -4895,6 +4917,65 @@ mod tests {
         assert_eq!(
             document["more"], true,
             "the window was cut, and the answer must say so: {document}"
+        );
+    }
+
+    #[tokio::test]
+    async fn journal_read_carries_a_door_whose_started_half_is_one_row_past_the_page() {
+        let (server, _config, _bus, _dir) = journaled_server("mcp-journal-read-door-boundary");
+        let reply = tools_call(&server, "host.facts", json!({})).await;
+        assert_eq!(reply["result"]["isError"], false, "{reply}");
+
+        // The newest rows are this read's own `call.started` and then the outcome under test; the
+        // outcome's arrival is the row below the page of two. Reading one row past the page is what
+        // keeps the door on the outcome.
+        let document =
+            read_window_of(&tools_call(&server, "journal.read", json!({ "limit": 2 })).await);
+        let rows = document["rows"].as_array().expect("rows are an array");
+        assert_eq!(rows.len(), 2, "the page is its limit: {document}");
+        let outcome = rows
+            .iter()
+            .find(|row| row["type"] == "call.finished" && row["tool"] == "host.facts")
+            .unwrap_or_else(|| panic!("the page holds the call's outcome: {document}"));
+        assert_eq!(
+            outcome["door"], "loopback",
+            "the door crossed the page boundary from the started half: {document}"
+        );
+        assert_eq!(
+            document["more"], true,
+            "the row below the page still exists: {document}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_journal_read_refusal_names_the_rule_and_never_the_value() {
+        let (server, _config, _bus, _dir) = journaled_server("mcp-journal-read-refusal");
+        // The bound is the rule; the number that crossed it is the caller's.
+        let reply = tools_call(&server, "journal.read", json!({ "limit": 201 })).await;
+        let message = reply["error"]["message"].as_str().unwrap_or_default();
+        assert!(
+            message.contains("between 1 and 200"),
+            "the refusal states the bound: {message}"
+        );
+        assert!(
+            !message.contains("201"),
+            "the refusal never echoes the value: {message}"
+        );
+        // An unknown argument is the caller's bytes too; the rule is the two keys this tool takes.
+        let reply = tools_call(
+            &server,
+            "journal.read",
+            json!({ "limit": 5, "secret_argument": "SENTINELVALUE" }),
+        )
+        .await;
+        let message = reply["error"]["message"].as_str().unwrap_or_default();
+        assert!(
+            message.contains("`limit`") && message.contains("`before_seq`"),
+            "the refusal names the rule: {message}"
+        );
+        assert!(
+            !message.contains("secret_argument") && !message.contains("SENTINELVALUE"),
+            "no argument name or value reaches the sentence: {message}"
         );
     }
 

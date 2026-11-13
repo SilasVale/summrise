@@ -226,8 +226,8 @@ below ladders to that; one round completes one major item end to end.
   console already holds the same call, matched by `trace.call`. It shows the journal's own `door` where
   a console row shows `console`, and says in the footer that the journal was not read when the answer
   is `unknown` or the read failed. **`unknown` is never drawn as an empty journal**, and a machine with no journal
-  answers `journal: false` with no rows — a fact, not an error. Evidence: bus 20, device 657, console
-  174 + 279 + 15, page 1 283 and `tsc` clean; `smoke-enroll` reads the machine's own window through the
+  answers `journal: false` with no rows — a fact, not an error. Evidence: bus 20, device 659, console
+  174 + 279 + 15, page 1 285 and `tsc` clean; `smoke-enroll` reads the machine's own window through the
   console and finds the call's row with its `seq`, tool, outcome, door and trace.
 
 ## Next (in order)

@@ -168,7 +168,10 @@ export function mergeMachineRows(
   const contributed = machineRows.filter((row) => {
     // **THE TRACE IS THE JOIN, NOT THE CLOCK.** Both records write one `trace.call` for a proxied
     // call; comparing the machine's `ts` with the console's would be comparing two clocks.
-    if (typeof row.trace === "string" && row.trace !== "") return !traces.has(row.trace);
+    if (typeof row.trace === "string" && row.trace !== "" && traces.has(row.trace)) return false;
+    // **THE FALLBACK RUNS WHICHEVER HALF LACKS A TRACE.** An audit line written before the trace
+    // existed has none, so the machine's row — which does — could never match it on the trace; the
+    // composite key is the only thing left to try, and it must be tried even when this row has one.
     return !keys.has(fallbackKey(row));
   });
   if (contributed.length === 0) return consoleLines;
