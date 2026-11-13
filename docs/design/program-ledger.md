@@ -246,6 +246,20 @@ below ladders to that; one round completes one major item end to end.
   `tsc` clean, `smoke-enroll` reads the audit line's `machine_seq` back as the journal's own outcome
   row across two processes.
 
+- 2026-11-13 — **The machine's window pages: the page says how deep its record was read, and reads
+  deeper.** `journal.read` has taken `before_seq` and answered `more` since round 8, but Activity used
+  neither: on a busy machine the newest 200 rows are minutes, so a device-only call older than that
+  page existed in the journal and nowhere the page could reach. The machine window is now a fetch
+  session: the newest page when the scope opens, `before = oldest fetched` for each older page, and
+  the footer offers "Read older rows from the machine" while the machine answers `more`. A 30 s
+  refresh re-reads only the newest page and merges it in front of the pages already asked for by
+  `seq`; pages are deduplicated by sequence, and a failed older page keeps the drawn rows and becomes
+  a retry with the console's reason. The drawn list — not the console's 1 000-line cut — is the
+  window paging deepens, because those older machine rows were already drawn as older days. Once the
+  operator has paged, a last page's `more: false` is stated as "The machine's journal has no rows
+  older than this." Evidence: page 1 335 and `tsc` clean; the App test pages from the footer and
+  draws the older call (second read `before = 200, limit = 200`); no Rust change was needed.
+
 ## Next (in order)
 
 1. Windows handoff, the interactive half — dispatch or run `summrise-shell.exe --check-window` in an
@@ -253,12 +267,13 @@ below ladders to that; one round completes one major item end to end.
    verify Authenticode when a certificate is configured. The runner half is green (run 43344130298).
 2. Push `origin`: `main` now contains `origin/main` and `hub/v1` (`0 1242`), so `git push origin main`
    is a fast-forward. This is a publish, and it is the operator's call.
-3. The machine's window pages: Activity asks the machine for its newest 200 rows once, so a busy
-   machine's older device-only calls are unreachable and the timeline never says the machine's record
-   is cut. `journal.read` already takes `before_seq` and answers `more`; the page should offer the
-   next page at the timeline's end (bounded by the window it draws), say when the machine's record is
-   only partly read, and keep the console's row winning duplicates across pages. (The payload/export
-   verb stays a separate item: a summary is not an archive.)
+3. The day's client-call count includes the machine's direct calls: the Timeline draws calls the
+   console never proxied, and a direct loopback client's call (the machine's door `loopback`) is drawn
+   on the day it happened while `Today: N client calls` counts only the console's audit. The count,
+   the failed count and the day sentence should agree with the rows drawn — a `loopback` machine row
+   is a client call, a panel or mesh row is not — with the basis stated once and the pages' window
+   respected. (A payload/export verb stays a separate stage: the journal records what happened, not
+   the arguments or results, so replay needs a retention decision first.)
 4. Keep improving from what the operator hits (one major item a round, green merges into `hub/v1`).
 
 ## Rules

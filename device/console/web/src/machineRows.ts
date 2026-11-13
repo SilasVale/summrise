@@ -58,6 +58,14 @@ export type MachineCounts = {
   state: MachineReadState;
   /** True when the machine answered that it does not offer `journal.read` (or the answer was unusable). */
   unknown: boolean;
+  /** A retained row older than the oldest fetched exists. */
+  more: boolean;
+  /** An older page was asked for: the session is deeper than the newest page. */
+  paged: boolean;
+  /** One older page is on the wire. */
+  readingOlder: boolean;
+  /** The console's sentence for a failed older page, or null. */
+  olderError: string | null;
   /**
    * True when the machine keeps a journal and answered for it.
    *
@@ -75,7 +83,11 @@ export const EMPTY_MACHINE: MachineCounts = {
   state: "idle",
   unknown: false,
   journal: false,
-  error: null
+  error: null,
+  more: false,
+  paged: false,
+  readingOlder: false,
+  olderError: null
 };
 
 /**
@@ -133,13 +145,27 @@ export function machineCallRows(
   deviceName: string
 ): AuditLine[] {
   if (answer === null || answer.unknown || !answer.journal) return [];
-  const rows: AuditLine[] = [];
-  for (const row of answer.rows) {
+  return machineRowLines(answer.rows, deviceId, deviceName);
+}
+
+/**
+ * The drawable rows of a list of summaries, in the order given.
+ *
+ * The hook keeps the summaries (one per sequence) and builds those into lines at render, so a page
+ * can add older summaries without rebuilding the newest page's lines twice.
+ */
+export function machineRowLines(
+  rows: readonly MachineRow[],
+  deviceId: string,
+  deviceName: string
+): AuditLine[] {
+  const lines: AuditLine[] = [];
+  for (const row of rows) {
     // A window arrives newest first; mapping in order keeps it that way.
     const line = callRow(row, deviceId, deviceName);
-    if (line !== null) rows.push(line);
+    if (line !== null) lines.push(line);
   }
-  return rows;
+  return lines;
 }
 
 /**
@@ -196,7 +222,16 @@ export function mergeMachineRows(
 
 /** The footer's counts, from the read and how many of its rows the merge kept. */
 export function machineCounts(
-  read: { state: MachineReadState; error: string | null; answer: MachineReadAnswer | null },
+  read: {
+    state: MachineReadState;
+    error: string | null;
+    answer: MachineReadAnswer | null;
+    /** The paging facts; absent when the caller predates them (the first page's tests). */
+    more?: boolean;
+    paged?: boolean;
+    readingOlder?: boolean;
+    olderError?: string | null;
+  },
   contributed: number
 ): MachineCounts {
   const answer = read.answer;
@@ -205,7 +240,11 @@ export function machineCounts(
     state: read.state,
     unknown: answer?.unknown === true,
     journal: read.state === "read" && answer !== null && answer.journal && !answer.unknown,
-    error: read.error
+    error: read.error,
+    more: read.more === true,
+    paged: read.paged === true,
+    readingOlder: read.readingOlder === true,
+    olderError: read.olderError ?? null
   };
 }
 
