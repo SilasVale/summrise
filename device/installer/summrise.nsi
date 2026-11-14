@@ -635,6 +635,12 @@ Section "Summrise runtime" SecRuntime
   !ifdef DESKTOP_SOURCE
     SetOutPath "$INSTDIR\desktop"
     File /r "${DESKTOP_SOURCE}\*"
+    ; The tray starts in the logged-in user's session, so a payload only Administrators can execute
+    ; starts nothing at login. Every replacement of this directory re-applies the ACE, not only a
+    ; first install: a copy that inherits an Administrators-only ACL is the failure that once left a
+    ; machine with the service running and no icon.
+    nsExec::Exec 'icacls.exe "$INSTDIR\desktop" /grant *S-1-5-32-545:(OI)(CI)(RX) /T'
+    Pop $0
     SetOutPath "$INSTDIR"
   !endif
   File /oname=summrise-device.sidecar.json "${SOURCE}\summrise-device.sidecar.json"

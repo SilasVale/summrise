@@ -1080,3 +1080,15 @@ old process, verifies the pair and rolls back on failed health (its end-to-end `
 `a_sha_mismatch_leaves_the_current_pointer_alone` proves a mismatched pair is refused with the pointer
 intact. The architecture gate is green. The remaining live drill and the installer's removal of the
 legacy autostart wait on the machine.
+
+**Round 80 — the product loop starts with the install, and the installer now carries the ACE.**
+`docs/design/product-backlog.md` records the five items of this release scope with their acceptance.
+Item 1 is done: after extracting `desktop\`, the NSIS script runs
+`icacls "$INSTDIR\desktop" /grant *S-1-5-32-545:(OI)(CI)(RX) /T`, inside the `DESKTOP_SOURCE` block, so
+every replacement re-applies the ACE instead of only the first install; the old tray is killed before
+the image is replaced. NSIS cannot run on the test host, so
+`the_installer_grants_users_execute_on_every_desktop_replacement` holds the script text to it (ACE
+inside the block, after extraction). The launcher's installer suite is 10/10, the gate is green.
+On 9VH: `SummriseDesktop.exe` carries `BUILTIN\Users:(I)(RX)`, the `SummriseShell` Run value points at
+`C:\SummriseInstall\desktop\SummriseDesktop.exe` (not the Rust shell), `shell=0`, `desktop=4`.
+Next: the bad-sidecar drill on 9VH with the hardened script and its log.

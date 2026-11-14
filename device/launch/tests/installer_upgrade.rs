@@ -751,3 +751,37 @@ fn the_repair_task_is_registered_before_the_steps_that_can_end_the_setup() {
         "the repair script is written once, and not again after the copy"
     );
 }
+
+/// The tray starts in the logged-in user's session, and a `desktop\` payload whose EXE carries only
+/// Administrators/SYSTEM executes for nobody: the service stays healthy and the icon simply never
+/// appears. The installer must re-apply the Users ACE on every replacement of that directory, and
+/// because NSIS cannot run on this host, the script text itself is what the test holds.
+#[test]
+fn the_installer_grants_users_execute_on_every_desktop_replacement() {
+    let ace = "icacls.exe \"$INSTDIR\\desktop\" /grant *S-1-5-32-545:(OI)(CI)(RX) /T";
+    let ace_at = NSI
+        .find(ace)
+        .expect("the installer grants Users RX on the desktop payload");
+
+    let block_at = NSI
+        .find("!ifdef DESKTOP_SOURCE")
+        .expect("the installer has a desktop block");
+    let extraction_at = NSI[block_at..]
+        .find("File /r \"${DESKTOP_SOURCE}\\*\"")
+        .map(|offset| block_at + offset)
+        .expect("the desktop block extracts the payload");
+    let block_end = NSI[block_at..]
+        .find("!endif")
+        .map(|offset| block_at + offset)
+        .expect("the desktop block ends");
+
+    assert!(
+        extraction_at < ace_at && ace_at < block_end,
+        "the ACE must be applied inside the desktop block, after the extraction: \
+         block {block_at}..{block_end}, extraction {extraction_at}, ACE {ace_at}"
+    );
+    assert!(
+        NSI.contains("taskkill /F /IM SummriseDesktop.exe"),
+        "the old tray must be closed before its image is replaced"
+    );
+}
