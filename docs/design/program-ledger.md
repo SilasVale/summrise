@@ -583,6 +583,17 @@ connect until re-enrolment — an operator decision, not done here. `next` canno
 unreachable from this host (curl and `git ls-remote` time out, no proxy configured), so the push and
 the `main` fast-forward remain blocked on network access, not on the tree.
 
+**Round 38 — the push landed, `main` is fast-forwarded, and the reachable fleet is on 2.0.0.**
+GitHub became reachable again (curl 200, TCP 443 open, no proxy needed). `next` was pushed
+(`origin/next` = `62ec7837`), `origin/main` was fast-forwarded from `abf796e1` to `62ec7837` (the
+tip was an ancestor: 0 behind, 1302 ahead), and the local `main` now tracks it. Both channels verify:
+`verify-release.sh 2.0.0 --channel canary` and `--channel stable` are ok, each reading its
+channel-qualified sidecar. DESKTOP-84T3LIN's record is verified by the deployed binary itself:
+`--check-record C:\ProgramData\Summrise` answered `ok: true`, schema 1, 4 rows. DESKTOP-14RJCR8
+remains offline (nine days) — a concrete blocker, not retried further; its removal is an operator
+decision. The rollback installer `SummriseSetup-0.3.292.exe` stays on the mirror. Full workspace
+tests ran green (50 test binaries, exit 0) and the gate says 16 packages / 27 edges / 0 upward.
+
 
 ## Next (in order)
 
