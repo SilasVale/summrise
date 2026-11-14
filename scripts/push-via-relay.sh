@@ -40,8 +40,8 @@ ssh -i "$key" -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/nul
 tunnel=$!
 
 ready=""
-for _ in $(seq 1 60); do
-    if curl --socks5-hostname "127.0.0.1:$socks" -sS -m 10 -o /dev/null https://github.com; then
+for _ in $(seq 1 20); do
+    if curl --socks5-hostname "127.0.0.1:$socks" -sS -m 30 -o /dev/null https://github.com; then
         ready=1
         break
     fi
