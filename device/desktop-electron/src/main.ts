@@ -1344,13 +1344,39 @@ if (gotTheLock) {
       // header's `+ New` menu item for item (pty/ssh/serial/browser), one click
       // cheaper than the tray path, which had to restore and focus the window
       // first anyway. "Open" is the tray's job; creating sessions is the app's.
-      tray!.setContextMenu(Menu.buildFromTemplate([
-        { label: "Open", click: () => { focusMain(); } },
-        { type: "separator" },
-        { label: health, enabled: false },
-        { type: "separator" },
-        { label: "Quit", click: () => { (app as any).isQuitting = true; app.quit(); } },
-      ]));
+      // THE MENU'S ROWS ARE DATA (`tray-menu.js`), so the version row and the actions are tested
+      // without Electron. This file owns only what each action DOES.
+      const rows = require("./tray-menu").trayMenuRows({ version: trayFacts.version, health }) as Array<{
+        label?: string; action?: string; type?: string; enabled?: boolean;
+      }>;
+      const openPage = (page: string): void => {
+        focusMain();
+        if (win && !win.isDestroyed() && legacyBase !== "") void win.loadURL(`${legacyBase}${page}`);
+      };
+      tray!.setContextMenu(Menu.buildFromTemplate(rows.map((row) => {
+        if (row.type === "separator") return { type: "separator" as const };
+        switch (row.action) {
+          case "open": return { label: row.label, click: () => { focusMain(); } };
+          case "transcript": return { label: row.label, click: () => openPage("/activity") };
+          case "terminal": return { label: row.label, click: () => openPage("/desktop/?view=terminal") };
+          case "update": return {
+            label: row.label,
+            click: () => {
+              void win?.focus();
+              dialog.showMessageBox(win ?? undefined as unknown as BrowserWindow, {
+                type: "info",
+                title: "Summrise",
+                message: trayFacts.version ? `Version ${trayFacts.version}` : "Version not reported",
+                detail: "Updates are installed by the Summrise setup, not downloaded by the app. "
+                  + "Running the setup again upgrades this install and keeps it serving.",
+                buttons: ["OK"],
+              });
+            },
+          };
+          case "quit": return { label: row.label, click: () => { (app as any).isQuitting = true; app.quit(); } };
+          default: return { label: row.label, enabled: false };
+        }
+      })));
     };
     refreshTray();
     setInterval(() => { refreshTray(); }, TRAY_POLL_MS);

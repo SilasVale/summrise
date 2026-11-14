@@ -1102,3 +1102,13 @@ log ends `attempt 1: healthy`. The service is back on 2.0.0 sha `98d4e5d4` (new 
 `"$attempt: …"` in three log strings; PowerShell parsed that as a scoped variable and died before doing
 anything, with no log. The strings are `${attempt}:` now, and the parser check is part of staging a
 script, not an afterthought.
+
+**Round 82 — the tray is an entry point, and the build has a face.** The menu's rows moved into
+`src/tray-menu.js` as data: Open, Open transcript (`/activity`), Open terminal (`/desktop/?view=terminal`),
+a disabled `Version <x>` row that the poll fills in, Check for updates (a dialog that says the setup
+owns updates rather than pretending the app downloads payloads), the health line, Quit. `main.ts` maps
+each action to one effect; the three tests cover the labels, the `Version (not reported)` fallback and
+the exact action list, and separators collapse so an empty health line cannot draw two rules. The
+built asar on 9VH contains `trayMenuRows`, the re-deployed app runs (4 processes) under the Users ACE.
+Electron suite 90/90, gate green. A native menu cannot be photographed on 9VH (no display surface), so
+the evidence is the test plus the shipped module, not a picture.
