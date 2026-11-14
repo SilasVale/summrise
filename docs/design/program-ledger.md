@@ -990,3 +990,13 @@ rolls back on boot. Everything the panel bridge has shown on those machines was 
 legacy device — which still has `/api/panel` and `/api/terminal`, hence the working panel. Live
 verification of the 2.0.0 audit fields needs a complete 2.0.0 payload (device + console + sidecar) and a
 pointer switch, not another binary copy.
+
+**Round 71 — live: the transcript shows the command, the redaction and the exit code.** DESKTOP-CPH4KB2
+now runs the 2.0.0 device for real (`versions\2.0.0`, sha `85266f…`, sidecar re-signed with the release
+key; `current.txt` flipped by a SYSTEM task so the stop cannot kill the command that performs it). The
+window shows `✓ runs.exec · run a command · allow · 93ms · command=cmd /c echo *** → exit 0` — that is
+the command line, the redaction of the `srm_…` token, and the exit code, all in one line, read from the
+device's own `/api/panel` journal. Evidence `docs/design/evidence/round71-activity-args.png`. The
+earlier failure was two separate things: the launcher was rolling back because the sidecar still
+described the old binary (signature + sha), and the window was an old single-instance holding the
+desktop directory open, so the replacement never landed.
