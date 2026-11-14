@@ -593,6 +593,13 @@ channel-qualified sidecar. DESKTOP-84T3LIN's record is verified by the deployed 
 remains offline (nine days) — a concrete blocker, not retried further; its removal is an operator
 decision. The rollback installer `SummriseSetup-0.3.292.exe` stays on the mirror. Full workspace
 tests ran green (50 test binaries, exit 0) and the gate says 16 packages / 27 edges / 0 upward.
+One deployed machine needed a correction: DESKTOP-CPH4KB2 had auto-updated to a 2.0.0 binary whose
+actual bytes were `3a80a057…`, not the published `d9d0ea9d…`, and it answered `unknown argument
+'--check-record'` — the launcher had recorded the document's digest while the file on disk was a
+different build. Reinstalling the published installer (sha `8fc8a802…`) put `d9d0ea9d…` in
+`baseline/current`, and `--check-record C:\ProgramData\Summrise` then answered `ok: true`,
+schema 1, 43 rows. All three reachable machines now run the published device binary and verify their
+record with the deployed binary itself.
 
 
 ## Next (in order)
