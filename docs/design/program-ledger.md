@@ -753,3 +753,17 @@ helper is registered (`pid 27492`, session 1), and `screen.capture` works; the s
 the time is a full-screen game, which is why the tray was not visible in it. The port ACL fix is
 applied on all three machines; the device-side durable fix (publish the port beside the helper
 token) ships with the next build.
+
+**Round 50 — the legacy Electron shell is in the product.** The operator prefers the legacy
+Electron local app over the Rust/WebView2 `summrise-shell`, so `agent/summrise-desktop-electron` is
+vendored as `device/desktop-electron`: its `src/` (main/preload, the two wasm policy pairs, embedded
+slots, browser sessions), its `test/` suite (76 tests) and the icons, with the test fixture at
+`device/tests/fixtures/embedded-bridge.json`. Two adaptations make it belong to this product: a
+`src/device-port.js` module resolves the device's real port from
+`%ProgramData%\SummriseHelper\device.port` then `<data>\device.port` (with the legacy env/config
+fallback after that), and its liveness probe asks the device's `/api/health`; the window loads
+`/panel` instead of the legacy agent's `/desktop/`. `npm test` is 80 green (76 vendored + 4 port
+tests), `tsc --noEmit` clean. The **legacy panel UI is not wired yet**: `panel-react` calls a large
+legacy `/api/*` surface the device does not serve, so the window still shows the device's own
+`/panel`; mapping or shimming that surface is the next slice. `npm install` is still fetching the
+Electron binary on this host, so a Windows package has not been produced in this round.

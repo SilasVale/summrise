@@ -1,0 +1,38 @@
+{
+  "name": "summrise-desktop",
+  "version": "0.2.0",
+  "description": "Summrise Desktop \u2014 the legacy Electron local surface (tray, window, menu, browser sessions), vendored into the product and pointed at the 2.0.0 device.",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder",
+    "test": "node --test test/*.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "electron": "^33.4.11",
+    "electron-builder": "^25.0.0",
+    "typescript": "^5.6.0",
+    "@types/node": "^20.0.0"
+  },
+  "allowScripts": {
+    "electron@33.4.11": true
+  },
+  "build": {
+    "appId": "dev.summrise.desktop",
+    "productName": "SummriseDesktop",
+    "files": [
+      "src/**/*",
+      "icon.ico",
+      "icon.png",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "icon": "icon.ico"
+    }
+  }
+}
