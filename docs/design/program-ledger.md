@@ -868,3 +868,12 @@ reports `http://127.0.0.1:60168/legacy` with the legacy title while `/api/shell/
 the tray icon from that install path. The NSIS installer still ships the Rust shell and the old launch
 entry; wiring this launcher into the installer and promoting the tray icon of the new install path
 remain.
+
+**Round 59 — the installer can carry the desktop app.** NSIS gained an optional `DESKTOP_SOURCE`
+payload: when defined it copies the tree to `$INSTDIR\desktop`, points the login Run entry at
+`desktop\SummriseDesktop.exe` instead of `summrise-shell.exe`, kills the desktop app before images are
+replaced, and removes `desktop` on uninstall. `publish-canary.bash` passes `SUMMRISE_DESKTOP_SOURCE`
+through as `-DDESKTOP_SOURCE`. The script compiles with `makensis` against a dummy payload (173 KB
+setup, no error), so the File/ifdef paths are exercised; the architecture gate is still 16/27/0. What
+is not yet done: a real installer build with the 188 MB Electron payload and an install on CPH4KB2;
+the tray promotion of the installed path is still the open question from round 58.

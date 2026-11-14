@@ -277,6 +277,8 @@ Function StopRuntime
   ; login Run entry (plus the start-shell task at the end of the section) starts the new one.
   nsExec::Exec 'taskkill /F /IM summrise-shell.exe'
   Pop $0
+  nsExec::Exec 'taskkill /F /IM SummriseDesktop.exe'
+  Pop $0
 FunctionEnd
 
 ; **THE SERVICE IS THE INSTALL'S VERDICT, NOT ITS SIDE EFFECT.** A setup that ends with
@@ -628,6 +630,13 @@ Section "Summrise runtime" SecRuntime
   File /oname=summrise-device.exe "${SOURCE}\summrise-device.exe"
   File /oname=summrise-console.exe "${SOURCE}\summrise-console.exe"
   File /oname=summrise-shell.exe "${SOURCE}\summrise-shell.exe"
+  ; The local surface is the Electron app when the release carries it; `--start-shell` prefers
+  ; `desktop\SummriseDesktop.exe` over the Rust shell, so shipping both is safe.
+  !ifdef DESKTOP_SOURCE
+    SetOutPath "$INSTDIR\desktop"
+    File /r "${DESKTOP_SOURCE}\*"
+    SetOutPath "$INSTDIR"
+  !endif
   File /oname=summrise-device.sidecar.json "${SOURCE}\summrise-device.sidecar.json"
   ; The browser is a product asset, not a machine prerequisite: a clean Windows machine with only
   ; Edge must still get the headless Chromium the browser capability drives. `current` is stable
@@ -641,7 +650,11 @@ Section "Summrise runtime" SecRuntime
 
   ; The runtime is a headless service; the tray is the visible half. HKLM Run starts it in the
   ; logged-in user's session at every login, with no elevation and no second credential.
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "SummriseShell" '"$INSTDIR\summrise-shell.exe"' 
+  !ifdef DESKTOP_SOURCE
+    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "SummriseShell" '"$INSTDIR\desktop\SummriseDesktop.exe"'
+  !else
+    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "SummriseShell" '"$INSTDIR\summrise-shell.exe"'
+  !endif
 
   WriteRegStr HKLM "${UNINST_KEY}" "DisplayName" "${PRODUCT}"
   WriteRegStr HKLM "${UNINST_KEY}" "DisplayVersion" "${VERSION}"
@@ -951,6 +964,7 @@ Section "Uninstall"
   ; baseline. The device's own data directory is NOT here — it is kept above, on purpose.
   RMDir /r "$INSTDIR\baseline"
   RMDir /r "$INSTDIR\browser"
+  RMDir /r "$INSTDIR\desktop"
   Delete "$INSTDIR\repair.log"
   Delete "$INSTDIR\swap.request.json"
   Delete "$INSTDIR\swap.result.json"

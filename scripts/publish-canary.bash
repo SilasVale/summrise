@@ -213,6 +213,10 @@ if [ -n "$makensis" ]; then
     if [ -n "${SUMMRISE_BROWSER_SOURCE:-}" ]; then
         browser_args=(-DBROWSER_SOURCE="$SUMMRISE_BROWSER_SOURCE")
     fi
+    desktop_args=()
+    if [ -n "${SUMMRISE_DESKTOP_SOURCE:-}" ]; then
+        desktop_args=(-DDESKTOP_SOURCE="$SUMMRISE_DESKTOP_SOURCE")
+    fi
     (cd installer && "$makensis" -DVERSION="$version" -DPORT="$port" \
         -DCHANNEL="$channel" -DSOURCE="$source_dir" "${browser_args[@]}" summrise.nsi)
     sign_file "installer/SummriseSetup-$version-$channel.exe"
