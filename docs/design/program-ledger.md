@@ -567,6 +567,22 @@ line. Rollback stays proven on the named machine for both streams (device 0.3.29
 DESKTOP-14RJCR8 has been offline for nine days. Nothing further is required of this line: the
 default release is v2.0.0, parity is green, rollback is proven.
 
+**Round 37 — stable is 2.0.0, DESKTOP-84T3LIN is updated, and the sidecar is channel-qualified.**
+The stable channel now publishes 2.0.0 too: `publish-canary.bash --channel stable --port 18090`
+wrote `release-stable.json` and the mirror serves it; `verify-release.sh 2.0.0 --channel stable`
+is ok, and the canary pointer still names 2.0.0. Publishing both channels from one version exposed a
+real bug: the sidecar at `summrise-device-$version.sidecar.json` names one channel, so the second
+publish made the first channel's verification fail (`sidecar disagrees: channel is 'stable'`). The
+publish now writes `summrise-device-$version-$channel.sidecar.json` and `verify-release.sh` reads
+that channel-qualified file (falling back to the generic name); both channels verified ok after the
+re-publish. DESKTOP-84T3LIN (0.3.291, no update check) was updated by hand from the published
+installer (sha `17a82ae7…eff9`): health is 2.0.0, `record.db` at `C:\ProgramData\Summrise` schema 1,
+and its baseline sha `d9d0ea9d…` matches the published device artifact. DESKTOP-14RJCR8 stays
+offline (nine days); its registration can be deleted, which revokes its tokens and refuses its next
+connect until re-enrolment — an operator decision, not done here. `next` cannot be pushed: GitHub is
+unreachable from this host (curl and `git ls-remote` time out, no proxy configured), so the push and
+the `main` fast-forward remain blocked on network access, not on the tree.
+
 
 ## Next (in order)
 

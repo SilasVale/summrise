@@ -91,7 +91,12 @@ if [[ -n "$mirror" ]]; then
         # writes it beside the exe; a device-only publish may omit it, so absence is a warning, not
         # a failure. When it is served it must name the same release and digest as the document.
         printf '%s' "$pointer" >"$tmpdir/release-document.json"
-        sidecar_url="$mirror/summrise-device-$version.sidecar.json"
+        # The sidecar's channel is part of its signed facts, so the channel-qualified file is the
+        # one a verifier must read; the generic name is the last publish's and only a fallback.
+        sidecar_url="$mirror/summrise-device-$version-$channel.sidecar.json"
+        if [ "$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' "$sidecar_url" || true)" = "404" ]; then
+            sidecar_url="$mirror/summrise-device-$version.sidecar.json"
+        fi
         sidecar_status="$(curl -sS --max-time 20 -o "$tmpdir/sidecar.json" -w '%{http_code}' "$sidecar_url" || true)"
         case "$sidecar_status" in
             2*)

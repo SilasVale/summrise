@@ -189,6 +189,9 @@ echo "== signing the first-generation sidecar with the launcher key"
 # The mirror carries the sidecar beside the artifact, named the way the operator's 0.3.271 publish
 # had it: a mirror that serves an exe without its sidecar is a release that half-exists.
 cp "$bin/summrise-device.sidecar.json" "$out/summrise-device-$version.sidecar.json"
+# The sidecar names its channel, so one shared file cannot serve both channels of one version: the
+# generic name is the last publish's, and the channel-qualified copy is what a verifier reads.
+cp "$bin/summrise-device.sidecar.json" "$out/summrise-device-$version-$channel.sidecar.json"
 
 echo "== building the installer on this host (NSIS)"
 # NSIS is not a build dependency of the runtime, so it is looked for where it actually lands: PATH,
