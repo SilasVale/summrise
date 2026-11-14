@@ -1020,3 +1020,13 @@ machine. DESKTOP-CPH4KB2 itself has been 503 since round 71's swap stopped its s
 command (`sc start SummriseLaunch`, or roll the pointer back to 0.3.292) is a local action. The goal
 stays open until a machine is back and the rollback-capable swap (`scripts/swap-device-payload.ps1`)
 can be used.
+
+**Round 74 — CPH4KB2 is on 2.0.0, and the tray icon came back for the real reason.** The device runs
+`versions\2.0.0` with sha `98d4e5d4`, `current.txt` says 2.0.0, and zero `summrise-shell` processes. The
+operations transcript shows both halves live: `runs.exec · command=cmd /c echo transcript-proof →
+exit 0` and `terminal.read · session=session-1` (`round74-transcript-terminal.png`), plus the same
+runs.exec line from the user-session window (`round74-transcript-user.png`). The tray icon was missing
+because the re-deployed `desktop` directory's EXE had lost `BUILTIN\Users:(RX)` — only Administrators
+and SYSTEM could execute it, so a launch in session 1 died before any Electron log. `icacls` on the
+directory restored it and the icon is visible again (`round74-tray.png`). The deploy step must therefore
+always re-apply the Users ACE after replacing the desktop directory, not only after the first install.
