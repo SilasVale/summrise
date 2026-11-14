@@ -781,3 +781,15 @@ explorer was running), and an explorer restart re-added the icon without promoti
 The legacy panel itself is still not shown; the window loads the device page, which is the remaining
 work (build `panel-react`, add the adapter between its `/api/*` calls and the device, and decide the
 tray-promotion path that actually works on Windows 11).
+
+**Round 52 — the "legacy panel" is not in the 0.3.277 binary.** The 0.3.277 agent still exists under
+`C:\SummriseInstall\versions\0.3.277` and starts with `--install <dir> --data <dir> --port 18080`
+(it wants a token file; protected routes 401 until one exists). It serves **the same new-style page**
+at `/` ("Summrise — this machine", inline CSS and `/panel/xterm.css`); `/desktop/`, `/api/status` and
+`/api/sessions` are 404. The legacy `panel-react` source does build (`npm run build` → 677 kB
+`panel.js`), but that output is the `panel/` bundle the old agent served at `/`, not the React app at
+`/desktop/`, and its `/api/*` backend is not in this workspace: `panel-react` calls sessions, settings,
+workspaces, tools, boots, monitors, plugins and an SSE events stream, none of which the 2.0 device
+serves. The Electron shell is therefore still pointed at the device's `/panel`; the legacy UI needs its
+backend (or a compatibility layer) before it can be shown. The spare legacy agent started for this
+test was stopped; the 2.0 device on 18090 was left alone.
