@@ -52,3 +52,69 @@ test("anything else is a 404", async () => {
     await panel.close();
   }
 });
+
+test("the status endpoint answers the legacy panel's shape from the device's own facts", async () => {
+  const device = await deviceServer(
+    JSON.stringify({ version: "2.0.0", data_dir: "C:\\ProgramData\\Summrise", events: [] }),
+  );
+  const panel = await startLegacyPanel({
+    deviceBase: `http://127.0.0.1:${device.address().port}`,
+    html: "<head></head>",
+    activityHtml: "<head></head>",
+    token: "t",
+  });
+  try {
+    const response = await fetch(`${panel.base}/api/status`, { headers: { Authorization: "Bearer t" } });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.version, "2.0.0");
+    assert.equal(body.release, "2.0.0");
+    assert.equal(body.host, "127.0.0.1");
+    assert.match(body.config_path, /etc\\config\.yaml$/);
+  } finally {
+    await panel.close();
+    device.close();
+  }
+});
+
+test("the event stream carries the device's tool calls as SSE frames", async () => {
+  const device = await deviceServer(
+    JSON.stringify({
+      version: "2.0.0",
+      events: [
+        { event: "begin", id: 7, tool: "runs.exec", decision: "allow", ts_ms: 1000 },
+        { event: "end", id: 7, ok: true, ts_ms: 1500 },
+      ],
+    }),
+  );
+  const panel = await startLegacyPanel({
+    deviceBase: `http://127.0.0.1:${device.address().port}`,
+    html: "<head></head>",
+    activityHtml: "<head></head>",
+    token: "t",
+  });
+  try {
+    const frames = await new Promise((resolve, reject) => {
+      const req = http.get(`${panel.base}/api/events`, { headers: { Authorization: "Bearer t" } }, (res) => {
+        let body = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk) => {
+          body += chunk;
+          if ((body.match(/^data: /gm) || []).length >= 2) {
+            req.destroy();
+            resolve(body.split("\n\n").filter((f) => f.startsWith("data: ")));
+          }
+        });
+      });
+      req.on("error", () => {});
+      setTimeout(() => reject(new Error("no SSE frames")), 5000);
+    });
+    const events = frames.map((f) => JSON.parse(f.replace(/^data: /, "")));
+    assert.deepEqual(events[0], { event: "begin", id: 7, tool: "runs.exec", decision: "allow", ts_ms: 1000 });
+    assert.deepEqual(events[1], { event: "end", id: 7, ok: true, ts_ms: 1500 });
+  } finally {
+    await panel.close();
+    device.close();
+  }
+});

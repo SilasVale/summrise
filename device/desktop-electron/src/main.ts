@@ -159,6 +159,7 @@ function authHeaders(): Record<string, string> {
 // else the canonical 18080. Resolved once at boot before any probe/window;
 // the Rust policy's predicates follow via setAgentPort (which ignores an
 // invalid port rather than resetting to the default).
+import { randomBytes } from "crypto";
 import { readDevicePort } from "./device-port";
 // TRAY-FIRST: a local app that is already running should not put a window on someone's desktop at
 // login. It starts in the notification area; clicking the icon (or a second launch) opens the panel.
@@ -871,7 +872,16 @@ if (gotTheLock) {
     // The legacy panel is a single page that calls /api/panel; it is served from a loopback origin of
     // its own and that one path is proxied to the device (see src/legacy-panel.ts).
     const legacyHtml = fs.readFileSync(path.join(__dirname, "..", "panel", "legacy.html"), "utf8");
-    const legacyPanel = await startLegacyPanel({ deviceBase: agentBase(), html: legacyHtml });
+    const activityHtml = fs.readFileSync(path.join(__dirname, "..", "panel", "activity.html"), "utf8");
+    const panelToken = randomBytes(16).toString("hex");
+    const legacyPanel = await startLegacyPanel({
+      deviceBase: agentBase(),
+      html: legacyHtml,
+      desktopDir: path.join(__dirname, "..", "panel", "desktop"),
+      token: panelToken,
+      activityHtml,
+      capture: async () => (win ? (await win.webContents.capturePage()).toPNG().toString("base64") : ""),
+    });
     legacyBase = legacyPanel.base;
     setDshPort(bootDshPort());
     // Every host's forward is a door, admitted from the agent's table rather than from configuration here.
@@ -959,7 +969,7 @@ if (gotTheLock) {
       if (tripwireAllows(url, isDesktopSpaUrl(url)) || legacyUrl(url)) return;
       console.log(tripwireLog(url));
       snappingBack = true;
-      win?.loadURL(`${legacyBase}/legacy`).catch(() => { /* retry below */ }).finally(() => {
+      win?.loadURL(`${legacyBase}/activity`).catch(() => { /* retry below */ }).finally(() => {
         setTimeout(() => { snappingBack = false; }, TRIPWIRE_BACKOFF_MS);
       });
     });
@@ -1139,7 +1149,7 @@ if (gotTheLock) {
       if (await agentReady()) {
         agentMissCount = 0;
         resetRetry();
-        win?.loadURL(`${legacyBase}/legacy`).catch(() => { /* did-fail-load retries below */ });
+        win?.loadURL(`${legacyBase}/activity`).catch(() => { /* did-fail-load retries below */ });
       } else {
         // THE MISS IS COUNTED BEFORE THE PAGE IS HANDED THE NUMBER, because this
         // failed probe IS one: the count the operator reads is the number of

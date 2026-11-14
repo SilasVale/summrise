@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Summrise — operations</title>
+<style>
+  :root{
+    --bg:#0b0c0e; --ink:#e6e7ea; --muted:#8b8e96; --faint:#5a5d66;
+    --line:rgba(255,255,255,.07); --card:#13151a;
+    --accent:#d4551f; --ok:#3fb950; --fail:#f85149; --run:#d29922;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    color-scheme:dark;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.5 var(--mono);display:flex;flex-direction:column}
+  header{display:flex;align-items:center;gap:14px;padding:10px 18px;border-bottom:1px solid var(--line);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;font-size:12px;color:var(--muted)}
+  .brand{color:var(--ink);font-weight:600;letter-spacing:.01em}
+  .brand b{color:var(--accent)}
+  .pill{display:inline-flex;align-items:center;gap:6px;padding:2px 8px;border:1px solid var(--line);border-radius:999px;font-size:11px}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--faint)}
+  .dot.live{background:var(--ok);box-shadow:0 0 0 3px rgba(63,185,80,.12);animation:pulse 2.4s ease-in-out infinite}
+  @keyframes pulse{50%{opacity:.4}}
+  .grow{flex:1}
+  a{color:var(--faint);text-decoration:none}
+  a:hover{color:var(--ink)}
+  main{flex:1;overflow:auto;padding:18px 0 40px;scroll-behavior:smooth}
+  .feed{max-width:860px;margin:0 auto;padding:0 22px}
+  .turn{display:flex;align-items:center;gap:10px;color:var(--faint);font-size:11px;margin:18px 0 8px}
+  .turn::after{content:"";flex:1;height:1px;background:var(--line)}
+  .row{display:flex;align-items:flex-start;gap:10px;padding:4px 6px;border-radius:6px;cursor:default;user-select:text}
+  .row:hover{background:rgba(255,255,255,.03)}
+  .row.selected{background:rgba(255,255,255,.05)}
+  .glyph{width:14px;flex:none;text-align:center;line-height:22px}
+  .glyph.ok{color:var(--ok)} .glyph.fail{color:var(--fail)} .glyph.run{color:var(--run)}
+  .spinner{display:inline-block;width:10px;height:10px;border:2px solid rgba(210,153,34,.25);border-top-color:var(--run);border-radius:50%;animation:spin .9s linear infinite;vertical-align:-1px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .body{min-width:0;flex:1}
+  .line{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+  .tool{color:var(--ink)}
+  .verb{color:var(--muted)}
+  .badge{font-size:10px;padding:0 6px;border-radius:4px;border:1px solid var(--line);color:var(--muted);line-height:16px}
+  .badge.allow{color:#79c0ff;border-color:rgba(121,192,255,.25)}
+  .badge.deny{color:var(--fail);border-color:rgba(248,81,73,.35)}
+  .dur{color:var(--faint);font-size:11px}
+  .time{margin-left:auto;color:var(--faint);font-size:11px;flex:none}
+  .detail{margin:2px 0 8px 30px;padding:8px 12px;border-left:2px solid var(--line);color:var(--muted);font-size:11.5px;white-space:pre-wrap;display:none}
+  .detail.open{display:block}
+  .kv{display:grid;grid-template-columns:110px 1fr;gap:2px 12px}
+  .kv .k{color:var(--faint)} .kv .v{color:var(--ink);word-break:break-all}
+  .empty{max-width:860px;margin:60px auto;padding:0 22px;color:var(--faint);font-size:12.5px}
+  .empty b{color:var(--muted);font-weight:500}
+  footer{display:flex;align-items:center;gap:16px;padding:8px 18px;border-top:1px solid var(--line);color:var(--faint);font-size:11px;font-family:system-ui,sans-serif}
+  kbd{border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 4px;font:10px var(--mono);color:var(--muted)}
+  .count strong{color:var(--ink);font-weight:600}
+</style>
+</head>
+<body>
+<header>
+  <span class="brand">Summrise<b>·</b> operations</span>
+  <span class="pill"><i id="dot" class="dot"></i><span id="where">connecting</span></span>
+  <span class="pill" id="version">—</span>
+  <div class="grow"></div>
+  <span class="count" id="counts"><strong>0</strong> calls · <strong>0</strong> failed</span>
+  <a href="/desktop" target="_self">legacy panel →</a>
+</header>
+<main id="main">
+  <div class="feed" id="feed"></div>
+  <div class="empty" id="empty"><b>Waiting for the AI to act…</b><br>The console's tool calls appear here as they happen.</div>
+</main>
+<footer>
+  <span id="conn">stream: connecting…</span>
+  <span id="last">no events yet</span>
+  <span class="grow"></span>
+  <span><kbd>f</kbd> follow</span>
+  <span><kbd>click</kbd> details</span>
+</footer>
+<script>
+(function(){
+  const feed = document.getElementById("feed");
+  const empty = document.getElementById("empty");
+  const dot = document.getElementById("dot");
+  const where = document.getElementById("where");
+  const version = document.getElementById("version");
+  const counts = document.getElementById("counts");
+  const conn = document.getElementById("conn");
+  const last = document.getElementById("last");
+
+  const VERBS = {
+    "runs.exec": "run a command", "runs.get": "read a run", "runs.list": "list runs",
+    "terminal.open": "open a terminal", "terminal.write": "type into a terminal", "terminal.close": "close a terminal",
+    "files.read": "read a file", "files.write": "write a file", "files.list": "list files",
+    "screen.capture": "look at the screen", "state.get": "read device state",
+    "browser.open": "open a browser", "browser.navigate": "navigate a browser",
+  };
+
+  const calls = new Map();     // id -> call
+  const order = [];
+  let selected = null;
+  let follow = true;
+  let lastRendered = 0;
+
+  function fmtDur(ms){ return ms < 1000 ? Math.round(ms) + "ms" : (ms/1000).toFixed(1) + "s"; }
+  function fmtClock(ms){ const d = new Date(ms); return d.toLocaleTimeString([], { hour12:false }); }
+  function toolVerb(tool){ return VERBS[tool] || ""; }
+
+  function add(ev){
+    if (!ev || typeof ev.id !== "number") return;
+    let c = calls.get(ev.id);
+    if (ev.event === "begin") {
+      c = { id: ev.id, tool: ev.tool || "unknown", decision: ev.decision || "", start: ev.ts_ms || Date.now(), end: null, ok: null };
+      calls.set(ev.id, c); order.push(ev.id);
+    } else if (ev.event === "end") {
+      if (!c) { c = { id: ev.id, tool: "unknown", decision: "", start: ev.ts_ms || Date.now(), end: null, ok: null }; calls.set(ev.id, c); order.push(ev.id); }
+      c.end = ev.ts_ms || Date.now(); c.ok = ev.ok === true;
+    }
+    schedule();
+  }
+
+  let raf = 0;
+  function schedule(){ if (raf) return; raf = requestAnimationFrame(() => { raf = 0; render(); }); }
+
+  function render(){
+    const now = Date.now();
+    if (!order.length) { empty.style.display = ""; feed.innerHTML = ""; return; }
+    empty.style.display = "none";
+
+    let html = "";
+    let turnStart = null;
+    order.forEach((id) => {
+      const c = calls.get(id);
+      if (!c) return;
+      if (turnStart == null || c.start - turnStart > 8000) { turnStart = c.start; html += `<div class="turn">${fmtClock(c.start)}</div>`; }
+      const dur = (c.end == null ? now : c.end) - c.start;
+      const cls = c.end == null ? "run" : (c.ok ? "ok" : "fail");
+      const glyph = c.end == null ? '<span class="spinner"></span>' : (c.ok ? "✓" : "✗");
+      const badge = c.decision ? `<span class="badge ${c.decision === "allow" ? "allow" : "deny"}">${c.decision}</span>` : "";
+      const verb = toolVerb(c.tool);
+      const sel = selected === c.id ? " selected" : "";
+      html += `<div class="row${sel}" data-id="${c.id}">
+        <div class="glyph ${cls}">${glyph}</div>
+        <div class="body">
+          <div class="line"><span class="tool">${c.tool}</span>${verb ? `<span class="verb">${verb}</span>` : ""}${badge}<span class="dur">${fmtDur(dur)}</span><span class="time">${fmtClock(c.end == null ? c.start : c.end)}</span></div>
+          <div class="detail" id="d-${c.id}"><div class="kv">
+            <span class="k">call</span><span class="v">#${c.id}</span>
+            <span class="k">tool</span><span class="v">${c.tool}</span>
+            <span class="k">decision</span><span class="v">${c.decision || "—"}</span>
+            <span class="k">started</span><span class="v">${fmtClock(c.start)}</span>
+            <span class="k">duration</span><span class="v">${fmtDur(dur)}</span>
+            <span class="k">outcome</span><span class="v">${c.end == null ? "running" : (c.ok ? "ok" : "failed")}</span>
+          </div></div>
+        </div>
+      </div>`;
+    });
+    feed.innerHTML = html;
+    document.querySelectorAll(".row").forEach((row) => {
+      row.onclick = () => { selected = Number(row.dataset.id); schedule(); };
+    });
+    if (selected != null) { const d = document.getElementById("d-" + selected); if (d) d.classList.add("open"); }
+
+    const all = order.map((id) => calls.get(id)).filter(Boolean);
+    const failed = all.filter((c) => c.end != null && c.ok === false).length;
+    counts.innerHTML = `<strong>${all.length}</strong> calls · <strong>${failed}</strong> failed`;
+    const running = all.filter((c) => c.end == null).length;
+    dot.className = "dot live";
+    last.textContent = all.length + " events · " + (running ? running + " running" : "idle");
+    if (follow) document.getElementById("main").scrollTop = document.getElementById("main").scrollHeight;
+  }
+
+  async function loadStatus(){
+    try {
+      let tk = ""; try { tk = localStorage.getItem("summriseToken") || ""; } catch {}
+      const r = await fetch("/api/status", { headers: tk ? { Authorization: "Bearer " + tk } : {} });
+      const j = await r.json();
+      version.textContent = "v" + (j.version || "—");
+      where.textContent = (j.host || "device") + (j.port ? ":" + j.port : "");
+    } catch { where.textContent = "device"; }
+  }
+
+  async function stream(){
+    let token = "";
+    try { token = localStorage.getItem("summriseToken") || ""; } catch {}
+    try {
+      const r = await fetch("/api/events", { headers: token ? { Authorization: "Bearer " + token } : {} });
+      if (!r.ok || !r.body) throw new Error("stream " + r.status);
+      conn.textContent = "stream: live";
+      const reader = r.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      for (;;) {
+        const step = await reader.read();
+        if (step.done) break;
+        buf += dec.decode(step.value, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf("\n\n")) >= 0) {
+          const frame = buf.slice(0, idx); buf = buf.slice(idx + 2);
+          const data = frame.split("\n").filter((l) => l.startsWith("data:")).map((l) => l.slice(5).trim()).join("");
+          if (!data) continue;
+          try { add(JSON.parse(data)); } catch {}
+        }
+      }
+    } catch { conn.textContent = "stream: retrying"; }
+    setTimeout(stream, 2000);
+  }
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "f") { follow = !follow; }
+    if (e.key === "Escape") { selected = null; schedule(); }
+  });
+
+  loadStatus(); stream(); render();
+  setInterval(() => { if (document.querySelectorAll(".spinner").length) schedule(); }, 1000);
+})();
+</script>
+</body>
+</html>

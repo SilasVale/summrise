@@ -901,3 +901,18 @@ launcher started it in session 2), where CDP reports `http://127.0.0.1:57442/leg
 title and `/api/shell/icon-status` resolves the tray icon; its `NotifyIconSettings` entry was promoted
 and Explorer was restarted in that session. Session 2 is disconnected, so the tray cannot be captured
 there until someone signs into that session; a new RDP session would need its own start.
+
+**Round 63 — the local app shows the AI's operations, in the shape agent clients use.** The window now
+opens a transcript, not a dashboard: each tool call is one line (`✓ runs.exec · run a command · allow ·
+1.4s`), in-flight calls carry a spinner and elapsed time, turns are separated by clock headers, and a
+click expands the raw fields. It is fed by `/api/events`, an SSE endpoint on the panel's loopback
+server that polls the device's own `/api/panel` tail and forwards `begin`/`end` frames unchanged —
+no legacy backend is copied, only the current interface is re-shaped. The footer reports stream state
+and event counts; the header reads `/api/status` (mapped from the device's `/api/panel` + data dir).
+The React panel's bundle is served at `/desktop` behind the same server (with its host/token
+localStorage bootstrap injected), and `/screenshot.png` captures the window through
+`webContents.capturePage()` — which is how the view was verified on DESKTOP-9VH92BJ in a session whose
+desktop has no capture surface. Evidence:
+`docs/design/evidence/round63-ai-operations.png` (7 calls, 0 failed, stream live, v2.0.0 · 18090).
+The transcript cannot show arguments or output yet: the device journals the tool name, decision and
+outcome, not the call's arguments, so that is the next backend boundary to open.

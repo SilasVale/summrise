@@ -141,13 +141,14 @@ function authHeaders() {
 // else the canonical 18080. Resolved once at boot before any probe/window;
 // the Rust policy's predicates follow via setAgentPort (which ignores an
 // invalid port rather than resetting to the default).
-const { readDevicePort } = require("./device-port");
+const crypto_1 = require("crypto");
+const device_port_1 = require("./device-port");
 // TRAY-FIRST: a local app that is already running should not put a window on someone's desktop at
 // login. It starts in the notification area; clicking the icon (or a second launch) opens the panel.
 const START_VISIBLE = process.argv.includes("--show") || process.env.SUMMRISE_START_VISIBLE === "1";
 const legacy_panel_1 = require("./legacy-panel");
 function bootAgentPort() {
-    const fromDevice = readDevicePort();
+    const fromDevice = (0, device_port_1.readDevicePort)();
     if (fromDevice)
         return fromDevice;
     // The ORDER (env, then the device's own config, then the canonical port) is the policy crate's; the
@@ -354,12 +355,20 @@ function focusMain() {
  *  second half of it (the SPA handles the same chords from its own keydown map in a plain browser). A
  *  renamed id or a dropped row breaks the desktop app and nothing else. `Menu.buildFromTemplate` and the
  *  Electron `role` strings are this file's. */
+/** Tell a first run how Windows 11 hides new tray icons, and offer the one settings page that fixes it.
+ *
+ *  The icon is created with a valid HICON and the app is running; what keeps it out of sight is the
+ *  shell's own first-run policy (Settings → Personalization → Taskbar → Other system tray icons). The
+ *  hint is written to `userData`, so it is shown once per profile, not once per launch.
+ */
 let trayHintPending = false;
 function offerTraySettingsOnce() {
     try {
         const marker = path.join(electron_1.app.getPath("userData"), "tray-settings-shown");
         if (fs.existsSync(marker))
             return;
+        // NOT A MODAL OVER SOMEONE ELSE'S FULL-SCREEN APP: the dialog waits for the Summrise window
+        // itself to be focused. The marker is written only when the hint is actually shown.
         trayHintPending = true;
     }
     catch { /* the hint is a courtesy; a machine that refuses it still has a working tray */ }
@@ -387,7 +396,6 @@ function showTrayHintIfPending() {
     }
     catch { /* the hint is a courtesy; a machine that refuses it still has a working tray */ }
 }
-
 function buildMenu() {
     const template = JSON.parse((0, summrise_shell_policy_1.appMenuJson)(process.platform, electron_1.app.name)).map((section) => ({
         label: section.label,
@@ -859,10 +867,19 @@ if (gotTheLock) {
         (0, summrise_url_policy_1.setAgentPort)(bootAgentPort());
         // The DSH view's door, pinned the same way and for the same reason: a predicate that ran
         // before this line would check a port nothing is listening on.
-        // The legacy panel is a single page that calls /api/panel; it is served from a loopback origin
-        // of its own and that one path is proxied to the device (see src/legacy-panel.js).
+        // The legacy panel is a single page that calls /api/panel; it is served from a loopback origin of
+        // its own and that one path is proxied to the device (see src/legacy-panel.ts).
         const legacyHtml = fs.readFileSync(path.join(__dirname, "..", "panel", "legacy.html"), "utf8");
-        const legacyPanel = await (0, legacy_panel_1.startLegacyPanel)({ deviceBase: (0, summrise_url_policy_1.agentBase)(), html: legacyHtml });
+        const activityHtml = fs.readFileSync(path.join(__dirname, "..", "panel", "activity.html"), "utf8");
+        const panelToken = (0, crypto_1.randomBytes)(16).toString("hex");
+        const legacyPanel = await (0, legacy_panel_1.startLegacyPanel)({
+            deviceBase: (0, summrise_url_policy_1.agentBase)(),
+            html: legacyHtml,
+            desktopDir: path.join(__dirname, "..", "panel", "desktop"),
+            token: panelToken,
+            activityHtml,
+            capture: async () => (win ? (await win.webContents.capturePage()).toPNG().toString("base64") : ""),
+        });
         legacyBase = legacyPanel.base;
         (0, summrise_url_policy_1.setDshPort)(bootDshPort());
         // Every host's forward is a door, admitted from the agent's table rather than from configuration here.
@@ -916,8 +933,9 @@ if (gotTheLock) {
         // first document to paint (the SPA when the agent answers, the wait page when it does
         // not), and the handler is registered in the same tick as the constructor, before any
         // loadURL can happen, so there is no window in which the event is missed.
-        win.once("ready-to-show", () => { if (START_VISIBLE) win?.show(); });
-    win.on("focus", () => { showTrayHintIfPending(); });
+        win.once("ready-to-show", () => { if (START_VISIBLE)
+            win?.show(); });
+        win.on("focus", () => { showTrayHintIfPending(); });
         // review #6 (MED) TOP RISK: the main window carries the summriseDesktop/
         // summriseBrowser preload bridge (setAutoLaunch → schtasks /create …
         // -File <ps1>, browser-session:open). Without a navigation veto a
@@ -929,7 +947,7 @@ if (gotTheLock) {
             // audit #1: PARSED-origin veto. The data: carve-out was unnecessary
             // (programmatic loadURL — including the wait page — never fires
             // will-navigate) and only widened the hole.
-            if (!(0, summrise_url_policy_1.isBaseOrigin)(url))
+            if (!(0, summrise_url_policy_1.isBaseOrigin)(url) && !legacyUrl(url))
                 e.preventDefault();
         });
         // round-258 (device-caught): CDP-driven navigation (an attached
@@ -952,7 +970,7 @@ if (gotTheLock) {
                 return;
             console.log((0, summrise_shell_policy_1.tripwireLog)(url));
             snappingBack = true;
-            win?.loadURL(`${legacyBase}/legacy`).catch(() => { }).finally(() => {
+            win?.loadURL(`${legacyBase}/activity`).catch(() => { }).finally(() => {
                 setTimeout(() => { snappingBack = false; }, TRIPWIRE_BACKOFF_MS);
             });
         });
@@ -1043,6 +1061,7 @@ if (gotTheLock) {
       </div>
       <script>
         var BASE = ${JSON.stringify((0, summrise_shell_policy_1.agentHostLabel)((0, summrise_url_policy_1.agentBase)()))};
+        var LEGACY = ${JSON.stringify(legacyBase + "/legacy")};
         var CTRL = "http://127.0.0.1:9444";
         var btn = document.getElementById("start");
         var st = document.getElementById("status");
@@ -1132,7 +1151,7 @@ if (gotTheLock) {
             if (await agentReady()) {
                 agentMissCount = 0;
                 resetRetry();
-                win?.loadURL(`${legacyBase}/legacy`).catch(() => { });
+                win?.loadURL(`${legacyBase}/activity`).catch(() => { });
             }
             else {
                 // THE MISS IS COUNTED BEFORE THE PAGE IS HANDED THE NUMBER, because this
@@ -1243,7 +1262,9 @@ if (gotTheLock) {
         // Windows requires .ico for tray; macOS/Linux accept .png.
         const iconPath = appIcon();
         tray = new electron_1.Tray(iconPath ? iconPath : electron_1.nativeImage.createEmpty());
+        tray.setToolTip("Summrise");
         console.log(`[summrise] icons ${JSON.stringify(iconReport)}`);
+        offerTraySettingsOnce();
         // review #f: single/double-click on the tray icon did nothing (only the
         // context-menu "Open" worked).
         tray.on("click", () => focusMain());
