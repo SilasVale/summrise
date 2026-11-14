@@ -533,6 +533,23 @@ release-built device booted on a temp data directory, wrote `record.db`, and `--
 tests, clippy/fmt clean, gate 16 / 27 / 0. Remaining half of the milestone: deploy that published
 build to the machine the operator names, and prove rollback there — both need the name.
 
+**Round 35 — v2.0.0 is running on the machine the operator named, and rollback is proven there.**
+Operator named DESKTOP-9VH92BJ (the console host). The 2.0.0 installer was rebuilt with the host's
+port (18090) so the update cannot move the service off its port, staged on the canary mirror
+(`SummriseSetup-2.0.0.exe`, sha256 `b8137828…70b2`, not made the channel pointer) and installed
+silently; the supervised setup relayed through Task Scheduler as designed (exit 3), and
+`/api/health` answered `2.0.0` (pid 27404). Verification on the machine: `summrise-device
+--check-record C:\ProgramData\Summrise` answered `ok: true`, `schema_version: 1`,
+`path: C:\ProgramData\Summrise\record.db`; the device's own `state.get` names the record and
+reports 49 rows. **Rollback:** reinstalling `SummriseSetup-0.3.292.exe` put the service back on
+0.3.292 (health confirmed), then 2.0.0 was reinstalled and the record continued (rows 1→49 across the
+cycle). The **console** stream was deployed too: `summrise-console-2.0.0.exe` (sha256 `e9225e8b…04e6`)
+swapped by the staged `deploy-console-2.0.0.cmd`, `/health` answered `2.0.0` with page 200; the
+previous binary was restored (`0.3.274-ux255`, health confirmed) and 2.0.0 redeployed, so the
+console's rollback is proven by the same backup/restore path. What is **not** done: 2.0.0 is not yet
+the fleet's default release (the canary pointer still names 0.3.292) — that is a channel decision
+for the operator, not a deploy. Next: v1 parity checks and the channel decision; then the pointer.
+
 
 ## Next (in order)
 
