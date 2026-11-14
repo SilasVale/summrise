@@ -743,3 +743,13 @@ is not visible at that moment. Durable fix: the device also publishes its port t
 `%ProgramData%\SummriseHelper\device.port` (user-readable, beside the helper token) and the shell
 reads that copy when the data file is unreadable; a shell test covers the file read. Device 673 +
 shell 25 green, clippy/fmt clean.
+
+**Round 49 — the relay's first handshake is slow, not dead.** After the port fix, the relay script's
+readiness check kept timing out at 10 s while the same tunnel answered GitHub in 19.6 s on the first
+TLS handshake; the VPS itself reached GitHub in 0.55 s. The check now allows 30 s per attempt, and
+the last two commits landed through it: `origin/main` and `origin/next` are **`fca95cfe`**. The
+operator-facing facts for CPH4KB2: `summrise-shell.exe` is running, its log says `tray built`, the
+helper is registered (`pid 27492`, session 1), and `screen.capture` works; the screenshot taken at
+the time is a full-screen game, which is why the tray was not visible in it. The port ACL fix is
+applied on all three machines; the device-side durable fix (publish the port beside the helper
+token) ships with the next build.
