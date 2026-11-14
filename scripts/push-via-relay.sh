@@ -40,12 +40,12 @@ ssh -i "$key" -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/nul
 tunnel=$!
 
 ready=""
-for _ in $(seq 1 20); do
+for _ in $(seq 1 30); do
     if curl --socks5-hostname "127.0.0.1:$socks" -sS -m 30 -o /dev/null https://github.com; then
         ready=1
         break
     fi
-    sleep 0.2
+    sleep 1
 done
 [ -n "$ready" ] || { echo "push-via-relay: the tunnel did not reach GitHub" >&2; exit 1; }
 
