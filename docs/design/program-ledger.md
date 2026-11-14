@@ -1059,3 +1059,11 @@ service answers 1056 without starting anything. The script now: waits for the se
 logs each attempt to `%TEMP%\summrise-swap.log`, and says "a reboot is required" rather than pretending
 the restore worked. DESKTOP-CPH4KB2 stays offline until a local `sc start` or reboot; DESKTOP-9VH92BJ is
 unaffected and still serving 2.0.0.
+
+**Round 78 — 9VH's legacy Rust shell is gone, and the tray question is answered as far as that machine allows.**
+The shell that survived the 2.0.0 switch came from the legacy install's `HKLM\…\Run\SummriseShell`
+entry pointing at `C:\Program Files\Summrise\summrise-shell.exe`. Removing that value and stopping pid
+40696 left `shell=0`, the Electron app's four processes still running, and the `SummriseTray` task in
+`Ready`. A tray screenshot on 9VH is not possible: session 2 has no display surface (the capture is a
+blank strip), so the evidence there is process and autostart state, not pixels. DESKTOP-CPH4KB2 is still
+503 and needs a local `Restart-Service SummriseLaunch` or a reboot.
