@@ -657,6 +657,17 @@ now asserts the machine that wrote the row is asked and agreement draws no mark.
 green, typecheck clean. Next: a launcher-level regression for the mixed baseline pair (the CPH4KB2
 shape: 2.0.0 sidecar beside a 0.3.277 binary) so the pair is refused rather than booted.
 
+**Round 44 — the join effect's dependency is a dependency, not a comment.** The page carries no
+eslint at all (no dependency, no config, no script), so the `// eslint-disable-next-line
+react-hooks/exhaustive-deps` lines across `useJoinMarks`, `useFleetRecord`, `useMachineRows` and
+others suppress a rule that never ran — comments pretending to be enforcement. The one in the
+rewritten join hook is gone: `groupsForWindow` is memoised and the effect depends on `[groups,
+answers]`, so the constraint is expressed by the code rather than disabled. (The rest of the inert
+disables remain; a real checker or their removal is a separate decision.) Page suite 1,397 green,
+typecheck clean, gate 16 / 27 / 0. Push is the one open item: GitHub's TLS endpoint keeps dropping
+(`GnuTLS recv error -110`), so `origin/next` is still `dec53ebb` while the local branch is
+`87b6bca1`; three commits are waiting for the network.
+
 
 ## Next (in order)
 
