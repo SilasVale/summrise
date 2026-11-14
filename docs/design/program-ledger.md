@@ -807,3 +807,13 @@ stays at 80 green. The new package was built (unsigned, `--win dir`) and install
 confirm the window because the operator was in a full-screen game at the time. While restarting the
 device service to clear a helper-token 401 the console channel dropped for ~90 s; the SCM brought the
 service back and `host.facts` answered again, and a fresh shell registered helper pid 31556.
+
+**Round 54 — the legacy panel is verified through the app's own CDP.** The Electron window on
+CPH4KB2 reports `http://127.0.0.1:63670/legacy`, title "Summrise — this machine"; that origin serves
+the 13,441-byte legacy page, proxies `/api/panel` to the device (200, 2,549 bytes of device facts) and
+answers 404 elsewhere. The page/server/proxy moved out of `main.js` into `src/legacy-panel.js` with
+three tests of its own: the page is served, the proxy forwards the device's JSON, an unreachable device
+is a 502 `device_unreachable` rather than a dead page, and anything else is 404. `tsc --noEmit` clean,
+the Electron suite is 83 green (80 + 3). The screenshot still cannot show the window while the operator
+is in a full-screen game; CDP is the evidence this round. The tray still shows the Rust shell's promoted
+icon while the Electron icon stays in the overflow — the double-tray and promotion work is next.
