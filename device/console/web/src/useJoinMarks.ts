@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api, type AuditLine } from "./api";
 import {
   JOIN_TRACES,
@@ -144,13 +144,10 @@ function groupsForWindow(
  * for the others' traces nor silences them.
  */
 export function useJoinMarks(deviceId: string | null, lines: readonly AuditLine[]): JoinState {
-  const groups = groupsForWindow(deviceId, lines);
+  const groups = useMemo(() => groupsForWindow(deviceId, lines), [deviceId, lines]);
   // Re-render when an answer lands: the maps above are module state, so nothing else would tell
   // React that the marks changed.
   const [answers, setAnswers] = useState(0);
-  const key = [...groups]
-    .map(([device, traces]) => `${device}:${traces.join("\u0000")}`)
-    .join("\u0001");
 
   useEffect(() => {
     if (groups.size === 0) return;
@@ -201,9 +198,7 @@ export function useJoinMarks(deviceId: string | null, lines: readonly AuditLine[
       live = false;
       window.clearTimeout(timer);
     };
-    // `key` is the window's own content and `answers` is how a landed answer reaches this render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deviceId, key, answers]);
+  }, [groups, answers]);
 
   const kinds = new Map<string, JoinKind>();
   const traces: string[] = [];
