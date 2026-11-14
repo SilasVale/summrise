@@ -601,6 +601,17 @@ different build. Reinstalling the published installer (sha `8fc8a802…`) put `d
 schema 1, 43 rows. All three reachable machines now run the published device binary and verify their
 record with the deployed binary itself.
 
+**Round 39 — final sweep.** `origin/next` and `origin/main` are both `21a4f5c3`; the tree is clean.
+`verify-release.sh 2.0.0` is ok on canary and stable (each reads its channel-qualified sidecar; the
+installer served is `8fc8a802…`). All three reachable machines answer `/api/health` with 2.0.0 and
+run baseline sha `d9d0ea9d…`: DESKTOP-9VH92BJ (record 55 rows), DESKTOP-84T3LIN (6), DESKTOP-CPH4KB2
+(45, after the reinstall corrected the stale binary); each record is schema 1 at
+`C:\ProgramData\Summrise\record.db` and verified with `--check-record`. `SummriseSetup-0.3.292.exe`
+stays on the mirror and rollback remains proven on DESKTOP-9VH92BJ for device and console.
+DESKTOP-14RJCR8 is still not connected (9d 1h) — the one concrete blocker; it is conditional in
+the objective and its deletion or reconnection is the operator's call. Gate: 16 packages / 27 edges
+/ 0 upward; workspace tests were green in round 38. Nothing in the rollout remains unowned.
+
 
 ## Next (in order)
 
