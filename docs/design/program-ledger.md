@@ -1112,3 +1112,13 @@ the exact action list, and separators collapse so an empty health line cannot dr
 built asar on 9VH contains `trayMenuRows`, the re-deployed app runs (4 processes) under the Users ACE.
 Electron suite 90/90, gate green. A native menu cannot be photographed on 9VH (no display surface), so
 the evidence is the test plus the shipped module, not a picture.
+
+**Round 83 — the transcript can open a call.** The device's end line now carries `run_id` (an id, not a
+value, so the audit's privacy rule still holds), a new loopback + panel-token route `GET /api/runs/:id`
+answers a run's record, and the shim proxies it. Live on 9VH: `run-1794700297862-1` came back as
+`cmd /c echo expand-me`, `exit_code:0`, `stdout_bytes:12`. The transcript's expand fetches that record
+and prints the full command line (more than the journal's 200-char cap), cwd, exit and duration, plus
+the output SIZES — the run history deliberately keeps no output bodies, so no page can invent them. A
+terminal row names its session and links `/desktop/?view=terminal`, and the header's filter narrows by
+runs/terminal/files/other without changing the counts. Served page on 9VH: filter, run route and
+session link all present. Device 678 tests, Electron 93, gate green.

@@ -158,6 +158,10 @@ fn router_with(
         // writes a request file the scheduler consumes; it does not contact the mirror itself.
         .route("/api/panel/update", post(panel_update))
         .route("/api/panel", get(panel_snapshot))
+        // One run's facts for the transcript's expand. The journal keeps a capped summary and the
+        // runs history keeps no output bodies; this route answers the full command line and the
+        // exit facts, and says the byte counts rather than inventing output it does not have.
+        .route("/api/runs/:id", get(panel_run))
         // The panel's read-only view of the live terminal sessions. Loopback-only like the page: it
         // names the shell/serial ports a person standing at this machine can already reach.
         .route("/api/terminal", get(panel_terminal))
@@ -660,6 +664,32 @@ fn mint_panel_token() -> String {
     text
 }
 
+/// `GET /api/runs/:id`: one run's record, for the transcript's click-to-expand.
+///
+/// Loopback and this boot's panel token: the record carries the full command line, which is more
+/// than the journal's capped summary, so it must not be readable by a page that lacks the token.
+async fn panel_run(
+    State(app): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Response {
+    if !peer.ip().is_loopback() {
+        return error_response(StatusCode::FORBIDDEN, "loopback_only", None);
+    }
+    if !app.panel_authorized(&headers) {
+        return error_response(StatusCode::FORBIDDEN, "unauthorized", None);
+    }
+    let runs = crate::capabilities::runs::Runs::new(&app.data, &app.data.join("workspace"));
+    match runs.get(&id) {
+        Ok(record) => Json(serde_json::json!({ "ok": true, "run": record })).into_response(),
+        Err(crate::capabilities::runs::RunsError::UnknownRun) => {
+            error_response(StatusCode::NOT_FOUND, "unknown_run", None)
+        }
+        Err(_) => error_response(StatusCode::INTERNAL_SERVER_ERROR, "run_unreadable", None),
+    }
+}
+
 /// `GET /api/panel`: what this machine is doing, for a caller standing on it.
 ///
 /// Loopback-only by peer address. The shape is deliberately small and read-only: identity, build,
@@ -815,6 +845,7 @@ async fn panel_call_end(app: &AppState, call: &PanelCall, error_kind: Option<&'s
             error_kind.is_none(),
             error_kind,
             crate::mcp::Arrival::Panel,
+            None,
             None,
             None,
             None,
@@ -2677,6 +2708,60 @@ mod tests {
         assert!(
             !body.contains(&token),
             "the token the HTML carries is not in the snapshot: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_runs_route_answers_the_full_command_for_the_transcript() {
+        let fixture = fixture("panel-run", None);
+        let record = serde_json::json!({
+            "id": "run-1",
+            "command": "cmd /c echo srm_deadbeef0123456789",
+            "args": [],
+            "cwd": "C:\\ProgramData\\Summrise\\workspace",
+            "exit_code": 0,
+            "timed_out": false,
+            "duration_ms": 42,
+            "started_at_ms": 1,
+            "stdout_bytes": 26,
+            "stderr_bytes": 0
+        });
+        std::fs::write(
+            fixture.config.data.join("runs.jsonl"),
+            format!("{record}\n"),
+        )
+        .expect("the run history is written");
+
+        let client = client();
+        let server = PanelServer::start(fixture.app()).await;
+        let token = served_token(&client, &server).await;
+
+        let anonymous = client
+            .get(format!("{}/api/runs/run-1", server.base_url))
+            .send()
+            .await
+            .expect("the anonymous request runs");
+        assert_eq!(
+            anonymous.status(),
+            StatusCode::FORBIDDEN,
+            "a page without this boot's token must not read a command line"
+        );
+
+        let answer = client
+            .get(format!("{}/api/runs/run-1", server.base_url))
+            .header("x-summrise-panel", &token)
+            .send()
+            .await
+            .expect("the authorized request runs");
+        assert_eq!(answer.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_str(&answer.text().await.expect("the answer is text"))
+                .expect("the answer is JSON");
+        assert_eq!(body["run"]["command"], "cmd /c echo srm_deadbeef0123456789");
+        assert_eq!(body["run"]["exit_code"], 0);
+        assert_eq!(
+            body["run"]["stdout_bytes"], 26,
+            "the history says the size, not the body"
         );
     }
 

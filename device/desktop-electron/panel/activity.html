@@ -51,6 +51,11 @@
   .detail.open{display:block}
   .kv{display:grid;grid-template-columns:110px 1fr;gap:2px 12px}
   .kv .k{color:var(--faint)} .kv .v{color:var(--ink);word-break:break-all}
+  .runblock{margin-top:8px;padding-top:8px;border-top:1px dashed var(--line)}
+  .runblock pre{margin:4px 0 0;white-space:pre-wrap;word-break:break-word;color:var(--ink);font-size:11.5px}
+  .runblock .note{color:var(--faint);margin-top:6px}
+  .openlink{color:#79c0ff;font-size:11.5px}
+  select.filter{background:transparent;color:var(--muted);border:1px solid var(--line);border-radius:999px;font:11px var(--mono);padding:2px 6px}
   .empty{max-width:860px;margin:60px auto;padding:0 22px;color:var(--faint);font-size:12.5px}
   .empty b{color:var(--muted);font-weight:500}
   footer{display:flex;align-items:center;gap:16px;padding:8px 18px;border-top:1px solid var(--line);color:var(--faint);font-size:11px;font-family:system-ui,sans-serif}
@@ -63,6 +68,13 @@
   <span class="brand">Summrise<b>·</b> operations</span>
   <span class="pill"><i id="dot" class="dot"></i><span id="where">connecting</span></span>
   <span class="pill" id="version">—</span>
+  <span class="pill"><select class="filter" id="filter">
+    <option value="all">all tools</option>
+    <option value="runs">runs</option>
+    <option value="terminal">terminal</option>
+    <option value="files">files</option>
+    <option value="other">other</option>
+  </select></span>
   <div class="grow"></div>
   <span class="count" id="counts"><strong>0</strong> calls · <strong>0</strong> failed</span>
   <a href="/desktop" target="_self">legacy panel →</a>
@@ -120,8 +132,18 @@
       if (!c) { c = { id: ev.id, tool: "unknown", decision: "", start: ev.ts_ms || Date.now(), end: null, ok: null }; calls.set(ev.id, c); order.push(ev.id); }
       c.end = ev.ts_ms || Date.now(); c.ok = ev.ok === true;
       if (ev.outcome) c.outcome = ev.outcome;
+      if (ev.run_id) c.runId = ev.run_id;
     }
     schedule();
+  }
+
+  let filter = "all";
+  document.getElementById("filter").onchange = (e) => { filter = e.target.value; schedule(); };
+  function groupOf(tool){
+    if (tool.indexOf("runs.") === 0) return "runs";
+    if (tool.indexOf("terminal.") === 0) return "terminal";
+    if (tool.indexOf("files.") === 0) return "files";
+    return "other";
   }
 
   let raf = 0;
@@ -134,9 +156,8 @@
 
     let html = "";
     let turnStart = null;
-    order.forEach((id) => {
-      const c = calls.get(id);
-      if (!c) return;
+    const shown = order.map((id) => calls.get(id)).filter((c) => c && (filter === "all" || groupOf(c.tool) === filter));
+    shown.forEach((c) => {
       if (turnStart == null || c.start - turnStart > 8000) { turnStart = c.start; html += `<div class="turn">${fmtClock(c.start)}</div>`; }
       const dur = (c.end == null ? now : c.end) - c.start;
       const cls = c.end == null ? "run" : (c.ok ? "ok" : "fail");
@@ -156,7 +177,8 @@
             <span class="k">duration</span><span class="v">${fmtDur(dur)}</span>
             <span class="k">outcome</span><span class="v">${c.end == null ? "running" : (c.ok ? "ok" : "failed")}${c.outcome ? " · " + escapeHtml(c.outcome) : ""}</span>
             ${c.args ? `<span class="k">args</span><span class="v">${escapeHtml(c.args)}</span>` : ""}
-          </div></div>
+            ${c.tool.indexOf("terminal.") === 0 && c.args ? `<span class="k">session</span><span class="v">${escapeHtml(c.args.replace(/^session=/, ""))}</span><span class="k"></span><span class="v"><a class="openlink" href="/desktop/?view=terminal" target="_self">open terminal →</a></span>` : ""}
+          </div>${c.runId ? `<div class="runblock" data-run="${escapeHtml(c.runId)}">loading run ${escapeHtml(c.runId)}…</div>` : ""}</div>
         </div>
       </div>`;
     });
@@ -164,7 +186,14 @@
     document.querySelectorAll(".row").forEach((row) => {
       row.onclick = () => { selected = Number(row.dataset.id); schedule(); };
     });
-    if (selected != null) { const d = document.getElementById("d-" + selected); if (d) d.classList.add("open"); }
+    if (selected != null) {
+      const d = document.getElementById("d-" + selected);
+      if (d) {
+        d.classList.add("open");
+        const block = d.querySelector("[data-run]");
+        if (block && !block.dataset.loaded) void loadRun(block);
+      }
+    }
 
     const all = order.map((id) => calls.get(id)).filter(Boolean);
     const failed = all.filter((c) => c.end != null && c.ok === false).length;
@@ -173,6 +202,28 @@
     dot.className = "dot live";
     last.textContent = all.length + " events · " + (running ? running + " running" : "idle");
     if (follow) document.getElementById("main").scrollTop = document.getElementById("main").scrollHeight;
+  }
+
+  async function loadRun(block){
+    block.dataset.loaded = "1";
+    let tk = "";
+    try { tk = localStorage.getItem("summriseToken") || ""; } catch {}
+    try {
+      const r = await fetch("/api/runs/" + encodeURIComponent(block.dataset.run), { headers: tk ? { Authorization: "Bearer " + tk } : {} });
+      if (!r.ok) throw new Error("status " + r.status);
+      const body = await r.json();
+      const run = body.run || {};
+      const argv = Array.isArray(run.args) && run.args.length ? " " + run.args.join(" ") : "";
+      const code = run.exit_code === null || run.exit_code === undefined ? (run.timed_out ? "timed out" : "no exit code") : "exit " + run.exit_code;
+      block.innerHTML = `<div class="kv">
+        <span class="k">command</span><span class="v">${escapeHtml((run.command || "") + argv)}</span>
+        <span class="k">cwd</span><span class="v">${escapeHtml(run.cwd || "—")}</span>
+        <span class="k">result</span><span class="v">${escapeHtml(code)} · ${fmtDur(run.duration_ms || 0)}</span>
+        <span class="k">output</span><span class="v">stdout ${run.stdout_bytes ?? "?"} B · stderr ${run.stderr_bytes ?? "?"} B</span>
+      </div><div class="note">The run history keeps sizes, not output bodies; the command and exit facts above are the whole record.</div>`;
+    } catch (e) {
+      block.textContent = "run " + block.dataset.run + " unavailable (" + e.message + ")";
+    }
   }
 
   async function loadStatus(){

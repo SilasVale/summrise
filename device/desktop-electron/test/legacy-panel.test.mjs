@@ -213,3 +213,50 @@ test("the logs route reads the device's own log directory", async () => {
     device.close();
   }
 });
+
+test("a run's record reaches the transcript's expand through the panel's own token", async () => {
+  const record = {
+    id: "run-1",
+    command: "cmd /c echo srm_deadbeef",
+    args: [],
+    cwd: "C:\\ProgramData\\Summrise\\workspace",
+    exit_code: 0,
+    timed_out: false,
+    duration_ms: 12,
+    started_at_ms: 1,
+    stdout_bytes: 18,
+    stderr_bytes: 0,
+  };
+  let presented = "";
+  const device = await fakeDevice({
+    "/panel": (_req, res) => {
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end('<meta name="summrise-panel" content="' + "b".repeat(64) + '">');
+    },
+    "/api/runs/run-1": (req, res) => {
+      presented = String(req.headers["x-summrise-panel"] || "");
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: true, run: record }));
+    },
+  });
+  const panel = await startLegacyPanel({
+    deviceBase: `http://127.0.0.1:${device.address().port}`,
+    html: "<head></head>",
+    activityHtml: "<head></head>",
+    token: "t",
+  });
+  try {
+    const anonymous = await fetch(`${panel.base}/api/runs/run-1`);
+    assert.equal(anonymous.status, 401, "the shim's own token is still required");
+
+    const response = await fetch(`${panel.base}/api/runs/run-1`, { headers: { Authorization: "Bearer t" } });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.run.command, "cmd /c echo srm_deadbeef");
+    assert.equal(body.run.stdout_bytes, 18);
+    assert.equal(presented, "b".repeat(64), "the device sees this boot's panel token, not the shim's");
+  } finally {
+    panel.close();
+    device.close();
+  }
+});

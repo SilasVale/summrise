@@ -470,6 +470,7 @@ impl DeviceServer {
         peer: Option<&str>,
         token_id: Option<&str>,
         outcome: Option<&str>,
+        run_id: Option<&str>,
     ) {
         self.audit
             .end(
@@ -481,6 +482,7 @@ impl DeviceServer {
                 peer,
                 token_id,
                 outcome,
+                run_id,
             )
             .await;
     }
@@ -500,7 +502,7 @@ impl DeviceServer {
         let now_ms = crate::http::now_ms();
         self.audit_begin(id, now_ms, tool, "deny", arrival, peer, None, None)
             .await;
-        self.audit_end(id, false, Some(error_kind), arrival, peer, None, None)
+        self.audit_end(id, false, Some(error_kind), arrival, peer, None, None, None)
             .await;
     }
 
@@ -680,7 +682,7 @@ impl DeviceServer {
                         args_summary,
                     )
                     .await;
-                    self.audit_end(id, false, Some("unknown_tool"), arrival, peer, token_id, None)
+                    self.audit_end(id, false, Some("unknown_tool"), arrival, peer, token_id, None, None)
                         .await;
                     let seq = self.publish_call_event(
                         "call.denied",
@@ -765,7 +767,7 @@ impl DeviceServer {
                     args_summary,
                 )
                 .await;
-                self.audit_end(id, false, Some("denied"), arrival, peer, token_id, None)
+                self.audit_end(id, false, Some("denied"), arrival, peer, token_id, None, None)
                     .await;
                 let seq = self.publish_call_event(
                     "call.denied",
@@ -794,6 +796,7 @@ impl DeviceServer {
                     arrival,
                     peer,
                     token_id,
+                    None,
                     None,
                 )
                 .await;
@@ -855,8 +858,18 @@ impl DeviceServer {
         match self.invoke(name, arguments).await {
             Ok(text) => {
                 let outcome = summarize_outcome(name, &text);
-                self.audit_end(id, true, None, arrival, peer, token_id, outcome.as_deref())
-                    .await;
+                let run_id = run_id_of(name, &text);
+                self.audit_end(
+                    id,
+                    true,
+                    None,
+                    arrival,
+                    peer,
+                    token_id,
+                    outcome.as_deref(),
+                    run_id.as_deref(),
+                )
+                .await;
                 let seq = self.publish_call_event(
                     "call.finished",
                     &trace,
@@ -869,7 +882,7 @@ impl DeviceServer {
                 )
             }
             Err(ToolError::Arguments(message)) => {
-                self.audit_end(id, false, Some("arguments"), arrival, peer, token_id, None)
+                self.audit_end(id, false, Some("arguments"), arrival, peer, token_id, None, None)
                     .await;
                 let seq = self.publish_call_event(
                     "call.denied",
@@ -880,7 +893,7 @@ impl DeviceServer {
                 (Err(CallFailure::Arguments(message)), seq)
             }
             Err(ToolError::Refused(message)) => {
-                self.audit_end(id, false, Some("refused"), arrival, peer, token_id, None)
+                self.audit_end(id, false, Some("refused"), arrival, peer, token_id, None, None)
                     .await;
                 let seq = self.publish_call_event(
                     "call.denied",
@@ -891,7 +904,7 @@ impl DeviceServer {
                 (Err(CallFailure::Refused(message)), seq)
             }
             Err(ToolError::Internal(message)) => {
-                self.audit_end(id, false, Some("internal"), arrival, peer, token_id, None)
+                self.audit_end(id, false, Some("internal"), arrival, peer, token_id, None, None)
                     .await;
                 let seq = self.publish_call_event(
                     "call.denied",
@@ -1316,6 +1329,11 @@ struct AuditEnd<'a> {
     /// `summarize_outcome`, so a chatty tool cannot turn the audit into its own log.
     #[serde(skip_serializing_if = "Option::is_none")]
     outcome: Option<&'a str>,
+    /// The run `runs.exec` produced. An id is not a value: it lets the transcript's expand read the
+    /// full command line and the exit facts from the runs history while the audit still holds no
+    /// argument values.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    run_id: Option<&'a str>,
 }
 
 /// The append-only event log at `<data>/events.jsonl`.
@@ -1406,6 +1424,7 @@ impl Audit {
         peer: Option<&str>,
         token_id: Option<&str>,
         outcome: Option<&str>,
+        run_id: Option<&str>,
     ) {
         let _written = self
             .append_line(&AuditEnd {
@@ -1414,6 +1433,7 @@ impl Audit {
                 event: "end",
                 ok,
                 error_kind,
+                run_id,
                 transport: arrival.as_str(),
                 peer,
                 token_id,
@@ -1585,6 +1605,16 @@ fn looks_secret_value(value: &str) -> bool {
 
 /// One line of what the call returned: the exit code when the answer carries one, the state when it
 /// says that instead, and otherwise the first words of the text.
+/// The run id a `runs.exec` answer names, for the end line's `run_id`.
+fn run_id_of(tool: &str, text: &str) -> Option<String> {
+    if tool != "runs.exec" {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_str(text).ok()?;
+    let id = value.get("id")?.as_str()?;
+    Some(cap_chars(id, 64))
+}
+
 fn summarize_outcome(tool: &str, text: &str) -> Option<String> {
     // THE END LINE IS AS SENSITIVE AS THE BEGIN LINE. Only `runs.exec` reports an outcome here: its
     // answer is a run record (exit code, state). Every other tool's answer can be payload — a file's
@@ -4753,6 +4783,7 @@ mod tests {
                     true,
                     None,
                     super::Arrival::Loopback,
+                    None,
                     None,
                     None,
                     None,

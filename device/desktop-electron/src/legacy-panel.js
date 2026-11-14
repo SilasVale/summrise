@@ -219,6 +219,18 @@ function makeHandler({ deviceBase, html, desktopDir, token, activityHtml, captur
         }
         return;
       }
+      if (pathOnly.startsWith("/api/runs/")) {
+        try {
+          const panelToken = await devicePanelToken(deviceBase, cache);
+          const upstream = await deviceRequest(deviceBase, pathOnly, { token: panelToken });
+          res.writeHead(upstream.status, { "content-type": "application/json", "cache-control": "no-store" });
+          res.end(upstream.body);
+        } catch {
+          res.writeHead(502, { "content-type": "application/json" });
+          res.end('{"ok":false,"error":"device_unreachable"}');
+        }
+        return;
+      }
       if (pathOnly === "/api/status") {
         try {
           const snapshot = JSON.parse((await readBody(`${deviceBase}/api/panel`)).body);
