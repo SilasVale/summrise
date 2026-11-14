@@ -366,10 +366,23 @@ function focusMain(): void {
  *  shell's own first-run policy (Settings → Personalization → Taskbar → Other system tray icons). The
  *  hint is written to `userData`, so it is shown once per profile, not once per launch.
  */
+let trayHintPending = false;
+
 function offerTraySettingsOnce(): void {
   try {
     const marker = path.join(app.getPath("userData"), "tray-settings-shown");
     if (fs.existsSync(marker)) return;
+    // NOT A MODAL OVER SOMEONE ELSE'S FULL-SCREEN APP: the dialog waits for the Summrise window
+    // itself to be focused. The marker is written only when the hint is actually shown.
+    trayHintPending = true;
+  } catch { /* the hint is a courtesy; a machine that refuses it still has a working tray */ }
+}
+
+function showTrayHintIfPending(): void {
+  if (!trayHintPending) return;
+  trayHintPending = false;
+  try {
+    const marker = path.join(app.getPath("userData"), "tray-settings-shown");
     fs.mkdirSync(path.dirname(marker), { recursive: true });
     fs.writeFileSync(marker, new Date().toISOString());
     void dialog.showMessageBox({
@@ -911,6 +924,7 @@ if (gotTheLock) {
     // not), and the handler is registered in the same tick as the constructor, before any
     // loadURL can happen, so there is no window in which the event is missed.
     win.once("ready-to-show", () => { win?.show(); });
+    win.on("focus", () => { showTrayHintIfPending(); });
     // review #6 (MED) TOP RISK: the main window carries the summriseDesktop/
     // summriseBrowser preload bridge (setAutoLaunch → schtasks /create …
     // -File <ps1>, browser-session:open). Without a navigation veto a
