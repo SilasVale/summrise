@@ -142,6 +142,9 @@ function authHeaders() {
 // the Rust policy's predicates follow via setAgentPort (which ignores an
 // invalid port rather than resetting to the default).
 const { readDevicePort } = require("./device-port");
+// TRAY-FIRST: a local app that is already running should not put a window on someone's desktop at
+// login. It starts in the notification area; clicking the icon (or a second launch) opens the panel.
+const START_VISIBLE = process.argv.includes("--show") || process.env.SUMMRISE_START_VISIBLE === "1";
 const legacy_panel_1 = require("./legacy-panel");
 function bootAgentPort() {
     const fromDevice = readDevicePort();
@@ -913,7 +916,7 @@ if (gotTheLock) {
         // first document to paint (the SPA when the agent answers, the wait page when it does
         // not), and the handler is registered in the same tick as the constructor, before any
         // loadURL can happen, so there is no window in which the event is missed.
-        win.once("ready-to-show", () => { win?.show(); });
+        win.once("ready-to-show", () => { if (START_VISIBLE) win?.show(); });
     win.on("focus", () => { showTrayHintIfPending(); });
         // review #6 (MED) TOP RISK: the main window carries the summriseDesktop/
         // summriseBrowser preload bridge (setAutoLaunch → schtasks /create …

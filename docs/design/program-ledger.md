@@ -889,3 +889,15 @@ icon on its first run without the user's Settings action or a shell restart, whi
 offers the Settings page once on first focused run. The remaining open question is the panel itself:
 the surface shown is the pre-rewrite single-page panel (the one that calls `/api/panel`); the
 `panel-react` SPA needs its own `/api/*` backend, which 2.0 does not serve.
+
+**Round 61 — tray-first by default, and tested on the other machine.** The local app no longer puts a
+window on the desktop at login: `ready-to-show` shows it only with `--show` (or
+`SUMMRISE_START_VISIBLE=1`); the tray icon is the entry point, a second launch calls `focusMain()` and
+opening from the tray shows the panel. On CPH4KB2 the rebuilt package replaced
+`C:\SummriseInstall\desktop`, was started through `summrise-launch-next.exe --start-shell`, and the
+taskbar showed no window button while the promoted Summrise icon stayed in the notification area. The
+same package was then deployed to `DESKTOP-9VH92BJ` (`C:\SummriseInstall\desktop`, ACL granted, C#
+launcher started it in session 2), where CDP reports `http://127.0.0.1:57442/legacy` with the legacy
+title and `/api/shell/icon-status` resolves the tray icon; its `NotifyIconSettings` entry was promoted
+and Explorer was restarted in that session. Session 2 is disconnected, so the tray cannot be captured
+there until someone signs into that session; a new RDP session would need its own start.
