@@ -252,6 +252,10 @@ function ipcHandle(channel, fn) {
 // CLI probes it, and the design sweep's attached mode depends on it.
 let win = null;
 let tray = null;
+/** The loopback origin the legacy panel is served from; empty until the server listens. */
+let legacyBase = "";
+/** Whether a URL is the loopback page that serves the legacy panel. */
+function legacyUrl(url) { return legacyBase !== "" && url.startsWith(legacyBase + "/"); }
 /** Whether the hide-to-tray notification has been shown (once per launch). */
 let hideNotified = false;
 // stage-m: SINGLE-INSTANCE LOCK — a second Summrise window exits immediately.
@@ -817,7 +821,29 @@ if (gotTheLock) {
         (0, summrise_url_policy_1.setAgentPort)(bootAgentPort());
         // The DSH view's door, pinned the same way and for the same reason: a predicate that ran
         // before this line would check a port nothing is listening on.
-        (0, summrise_url_policy_1.setDshPort)(bootDshPort());
+            // The legacy panel is a single page that calls /api/panel; it is served from a loopback origin of
+    // its own (the device's origin is taken by the device), and that one path is proxied to the device.
+    const legacyHtml = fs.readFileSync(path.join(__dirname, "..", "panel", "legacy.html"), "utf8");
+    const legacyServer = http.createServer((req, res) => {
+        if (req.url === "/legacy" || req.url === "/") {
+            res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+            res.end(legacyHtml);
+            return;
+        }
+        if (req.url.startsWith("/api/panel")) {
+            const upstream = http.get(`${(0, summrise_url_policy_1.agentBase)()}${req.url}`, (r) => {
+                res.writeHead(r.statusCode || 502, { "content-type": r.headers["content-type"] || "application/json", "cache-control": "no-store" });
+                r.pipe(res);
+            });
+            upstream.on("error", () => { res.writeHead(502, { "content-type": "application/json" }); res.end('{"error":"device_unreachable"}'); });
+            return;
+        }
+        res.writeHead(404, { "content-type": "application/json" });
+        res.end('{"error":"not_found"}');
+    });
+    await new Promise((resolve) => legacyServer.listen(0, "127.0.0.1", resolve));
+    legacyBase = `http://127.0.0.1:${legacyServer.address().port}`;
+(0, summrise_url_policy_1.setDshPort)(bootDshPort());
         // Every host's forward is a door, admitted from the agent's table rather than from configuration here.
         loadHarnessDoors();
         // review #7: with no handler Electron AUTO-GRANTS every permission
@@ -900,11 +926,11 @@ if (gotTheLock) {
             // composes it with the two literal carve-outs — the data: wait page and about:blank.
             //
             // The port deleted a dead `if (url === "about:blank") return;` here — the line above already returns for it.
-            if ((0, summrise_shell_policy_1.tripwireAllows)(url, (0, summrise_url_policy_1.isDesktopSpaUrl)(url)))
+            if ((0, summrise_shell_policy_1.tripwireAllows)(url, (0, summrise_url_policy_1.isDesktopSpaUrl)(url)) || legacyUrl(url))
                 return;
             console.log((0, summrise_shell_policy_1.tripwireLog)(url));
             snappingBack = true;
-            win?.loadURL(`${(0, summrise_url_policy_1.agentBase)()}/panel`).catch(() => { }).finally(() => {
+            win?.loadURL(`${legacyBase}/legacy`).catch(() => { }).finally(() => {
                 setTimeout(() => { snappingBack = false; }, TRIPWIRE_BACKOFF_MS);
             });
         });
@@ -1016,7 +1042,7 @@ if (gotTheLock) {
         function poll() {
           fetch(CTRL + "/api/shell/agent-status").then(function (r) { return r.json(); }).then(function (j) {
             checks += 1; lastCheckAt = Date.now(); paint();
-            if (j && j.running) { location.replace("http://" + BASE + "/panel"); return; }
+            if (j && j.running) { location.replace(LEGACY); return; }
             setTimeout(poll, 2000);
           }).catch(function () {
             checks += 1; lastCheckAt = Date.now(); paint();
@@ -1084,7 +1110,7 @@ if (gotTheLock) {
             if (await agentReady()) {
                 agentMissCount = 0;
                 resetRetry();
-                win?.loadURL(`${(0, summrise_url_policy_1.agentBase)()}/panel`).catch(() => { });
+                win?.loadURL(`${legacyBase}/legacy`).catch(() => { });
             }
             else {
                 // THE MISS IS COUNTED BEFORE THE PAGE IS HANDED THE NUMBER, because this
@@ -1264,7 +1290,7 @@ if (gotTheLock) {
             // the window is live so the original's short-circuit survives (a destroyed window never reaches a
             // `getURL()`).
             const liveWindow = win && !win.isDestroyed() ? win : null;
-            if ((0, summrise_shell_policy_1.trayShouldWatch)(running, agentWatchActive, liveWindow !== null, liveWindow ? (0, summrise_url_policy_1.isBaseOrigin)(liveWindow.webContents.getURL()) : false)) {
+            if ((0, summrise_shell_policy_1.trayShouldWatch)(running, agentWatchActive, liveWindow !== null, liveWindow ? ((0, summrise_url_policy_1.isBaseOrigin)(liveWindow.webContents.getURL()) || legacyUrl(liveWindow.webContents.getURL())) : false)) {
                 agentWatchActive = true;
                 void loadDesktop();
             }

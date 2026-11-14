@@ -793,3 +793,17 @@ workspaces, tools, boots, monitors, plugins and an SSE events stream, none of wh
 serves. The Electron shell is therefore still pointed at the device's `/panel`; the legacy UI needs its
 backend (or a compatibility layer) before it can be shown. The spare legacy agent started for this
 test was stopped; the 2.0 device on 18090 was left alone.
+
+**Round 53 — the legacy panel is in the Electron window.** The pre-rewrite repository kept the old
+single-page panel (`device/device/src/panel.html` in
+`/home/zss/backups/summrise-prewrite-20261024.git`), and it calls exactly one endpoint the 2.0 device
+still serves: `GET /api/panel`. It is now `device/desktop-electron/panel/legacy.html`; the Electron
+main process serves it from its own loopback origin (`/legacy`) and proxies `/api/panel` to the device,
+because the device's own origin cannot host a second page. The window loads `${legacyBase}/legacy`
+instead of the device's `/panel`; the navigation veto, the CDP tripwire and the tray watchdog accept
+that one extra origin, and the `/panel` page is untouched. `tsc --noEmit` clean; the vendored suite
+stays at 80 green. The new package was built (unsigned, `--win dir`) and installed on CPH4KB2 as
+`C:\Windows\Temp\SummriseDesktop2`; the app runs (pid 19208). A screenshot of the session could not
+confirm the window because the operator was in a full-screen game at the time. While restarting the
+device service to clear a helper-token 401 the console channel dropped for ~90 s; the SCM brought the
+service back and `host.facts` answered again, and a fresh shell registered helper pid 31556.

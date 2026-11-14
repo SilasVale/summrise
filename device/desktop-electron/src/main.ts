@@ -266,6 +266,10 @@ function ipcHandle<A extends unknown[], R>(channel: string, fn: (...args: A) => 
 // CLI probes it, and the design sweep's attached mode depends on it.
 let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
+/** The loopback origin the legacy panel is served from; empty until the server listens. */
+let legacyBase = "";
+/** Whether a URL is the loopback page that serves the legacy panel. */
+function legacyUrl(url: string): boolean { return legacyBase !== "" && url.startsWith(legacyBase + "/"); }
 /** Whether the hide-to-tray notification has been shown (once per launch). */
 let hideNotified = false;
 
@@ -821,7 +825,35 @@ if (gotTheLock) {
     setAgentPort(bootAgentPort());
     // The DSH view's door, pinned the same way and for the same reason: a predicate that ran
     // before this line would check a port nothing is listening on.
-    setDshPort(bootDshPort());
+        // The legacy panel is a single page that calls /api/panel; it is served from a loopback origin of
+    // its own (the device's origin is taken by the device), and that one path is proxied to the device.
+    const legacyHtml = fs.readFileSync(path.join(__dirname, "..", "panel", "legacy.html"), "utf8");
+    const legacyServer = http.createServer((req, res) => {
+      if (req.url === "/legacy" || req.url === "/") {
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+        res.end(legacyHtml);
+        return;
+      }
+      if (req.url?.startsWith("/api/panel")) {
+        const upstream = http.get(`${agentBase()}${req.url}`, (r) => {
+          res.writeHead(r.statusCode || 502, {
+            "content-type": r.headers["content-type"] || "application/json",
+            "cache-control": "no-store",
+          });
+          r.pipe(res);
+        });
+        upstream.on("error", () => {
+          res.writeHead(502, { "content-type": "application/json" });
+          res.end('{"error":"device_unreachable"}');
+        });
+        return;
+      }
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end('{"error":"not_found"}');
+    });
+    await new Promise<void>((resolve) => legacyServer.listen(0, "127.0.0.1", resolve));
+    legacyBase = `http://127.0.0.1:${(legacyServer.address() as import("net").AddressInfo).port}`;
+setDshPort(bootDshPort());
     // Every host's forward is a door, admitted from the agent's table rather than from configuration here.
     loadHarnessDoors();
     // review #7: with no handler Electron AUTO-GRANTS every permission
@@ -886,7 +918,7 @@ if (gotTheLock) {
       // audit #1: PARSED-origin veto. The data: carve-out was unnecessary
       // (programmatic loadURL — including the wait page — never fires
       // will-navigate) and only widened the hole.
-      if (!isBaseOrigin(url)) e.preventDefault();
+      if (!isBaseOrigin(url) && !legacyUrl(url)) e.preventDefault();
     });
     // round-258 (device-caught): CDP-driven navigation (an attached
     // playwright/AI) BYPASSES will-navigate — a browser_navigate call
@@ -903,10 +935,10 @@ if (gotTheLock) {
       // composes it with the two literal carve-outs — the data: wait page and about:blank.
       //
       // The port deleted a dead `if (url === "about:blank") return;` here — the line above already returns for it.
-      if (tripwireAllows(url, isDesktopSpaUrl(url))) return;
+      if (tripwireAllows(url, isDesktopSpaUrl(url)) || legacyUrl(url)) return;
       console.log(tripwireLog(url));
       snappingBack = true;
-      win?.loadURL(`${agentBase()}/panel`).catch(() => { /* retry below */ }).finally(() => {
+      win?.loadURL(`${legacyBase}/legacy`).catch(() => { /* retry below */ }).finally(() => {
         setTimeout(() => { snappingBack = false; }, TRIPWIRE_BACKOFF_MS);
       });
     });
@@ -997,6 +1029,7 @@ if (gotTheLock) {
       </div>
       <script>
         var BASE = ${JSON.stringify(agentHostLabel(agentBase()))};
+        var LEGACY = ${JSON.stringify(legacyBase + "/legacy")};
         var CTRL = "http://127.0.0.1:9444";
         var btn = document.getElementById("start");
         var st = document.getElementById("status");
@@ -1018,7 +1051,7 @@ if (gotTheLock) {
         function poll() {
           fetch(CTRL + "/api/shell/agent-status").then(function (r) { return r.json(); }).then(function (j) {
             checks += 1; lastCheckAt = Date.now(); paint();
-            if (j && j.running) { location.replace("http://" + BASE + "/panel"); return; }
+            if (j && j.running) { location.replace(LEGACY); return; }
             setTimeout(poll, 2000);
           }).catch(function () {
             checks += 1; lastCheckAt = Date.now(); paint();
@@ -1085,7 +1118,7 @@ if (gotTheLock) {
       if (await agentReady()) {
         agentMissCount = 0;
         resetRetry();
-        win?.loadURL(`${agentBase()}/panel`).catch(() => { /* did-fail-load retries below */ });
+        win?.loadURL(`${legacyBase}/legacy`).catch(() => { /* did-fail-load retries below */ });
       } else {
         // THE MISS IS COUNTED BEFORE THE PAGE IS HANDED THE NUMBER, because this
         // failed probe IS one: the count the operator reads is the number of
@@ -1261,7 +1294,7 @@ if (gotTheLock) {
       // `getURL()`).
       const liveWindow = win && !win.isDestroyed() ? win : null;
       if (trayShouldWatch(running, agentWatchActive, liveWindow !== null,
-          liveWindow ? isBaseOrigin(liveWindow.webContents.getURL()) : false)) {
+          liveWindow ? (isBaseOrigin(liveWindow.webContents.getURL()) || legacyUrl(liveWindow.webContents.getURL())) : false)) {
         agentWatchActive = true;
         void loadDesktop();
       }
