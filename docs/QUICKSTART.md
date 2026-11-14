@@ -20,6 +20,11 @@ canary builds so far use **18090**), so `http://127.0.0.1:7737` is expected to r
 installs. The service is up when `curl http://127.0.0.1:18090/api/health` answers; from another
 machine neither port is reachable, and the console is the remote surface.
 
+The tray finds the port without a constant: the device writes `<data>\device.port` (SYSTEM-only)
+**and** `%ProgramData%\SummriseHelper\device.port`, which inherits ProgramData's user-read ACL; the
+shell reads the data file, then the user-readable copy, then the default. A shell that can read
+neither dials 7737 — the symptom that looks like "the tray is dead and 7737 does not open".
+
 ## 2. Enrol the machine
 
 In the console, **Home → Add a machine**. It mints a one-time code (15 minutes) and prints the
@@ -190,7 +195,7 @@ Authorization: Bearer <contents of C:\ProgramData\Summrise\token>
 | `503` with `retry_after_ms` | The device has no open channel or its queue is full — offline, between reconnects, or busy. Retry after that many milliseconds; the machine's row in Home says whether it is back. |
 | The machine says **offline** right after enrolment | The console link is built at boot: restart `SummriseLaunch` (the commands in step 2). |
 | The machine stays **offline** after the restart | The device cannot reach the console over outbound HTTPS, or enrolment did not complete. **Last seen** is the last contact, and the retry sentence is one attempt behind, because a device cannot report the connection that failed. |
-| `http://<machine>:7737` does not open | The device binds `127.0.0.1` only, and the installer passes the publish's port (`18090` for these builds), not the compiled default 7737. Open the console; the panel is only for someone on the box. |
+| `http://<machine>:7737` does not open | The device binds `127.0.0.1` only, and the installer passes the publish's port (`18090` for these builds), not the compiled default 7737. Open the console; the panel is only for someone on the box. If the **tray** also points at 7737, the shell could not read its port file: check that `%ProgramData%\SummriseHelper\device.port` exists and is readable by the user. |
 | No tray icon after an upgrade | The installer kills the old `summrise-shell.exe` and starts the new one in every **signed-in** session (console, connected RDP, and disconnected RDP whose user is still signed in). If nobody is signed in, the login Run entry starts it at the next sign-in; in a session where it is still missing, run `summrise-launch.exe --start-shell --install <install>`. |
 | `PLUGIN_TIMEOUT` from a plugin tool | The plugin did not answer inside 120 s. The call may still be running; read the plugin's log in **Tools → Plugins → Logs**, then retry. |
 | Plugins says the machine needs a newer Summrise | The device build has no plugin host. The endpoint and the built-ins still work; update the device to add plugins. |

@@ -20,6 +20,35 @@ use std::sync::Mutex;
 #[cfg_attr(not(windows), allow(dead_code))]
 pub const TOKEN_FILE: &str = r"C:\ProgramData\SummriseHelper\helper.token";
 
+/// Where the bound port is left for the logged-in user, beside the token.
+///
+/// The data directory's ACL is SYSTEM and Administrators, so `summrise-shell` running as the
+/// logged-in user could not read `<data>/device.port`; it fell back to the compiled default (7737)
+/// while the device served 18090, and its health check and helper registration were refused. The
+/// helper directory inherits ProgramData's user-read ACL, which is exactly what this pointer needs.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub const PORT_FILE: &str = r"C:\ProgramData\SummriseHelper\device.port";
+
+/// Leave this boot's port where the shell can read it, whatever the data directory's ACL says.
+///
+/// Best effort at the call site: a machine that refuses the write keeps the old behaviour (the shell
+/// falls back to `<data>/device.port` and then the default), it does not lose its device.
+pub fn publish_port(port: u16) -> io::Result<()> {
+    #[cfg(windows)]
+    {
+        let path = std::path::Path::new(PORT_FILE);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(path, port.to_string())?;
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = port;
+    }
+    Ok(())
+}
+
 /// The process's helper identity, set once at startup. The browser capability is deep inside the MCP
 /// service, which has no reason to know about a user-session helper; a per-boot singleton is the
 /// smallest thing that reaches it without threading a parameter through five layers.

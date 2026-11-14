@@ -1138,6 +1138,9 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
             port_file.display()
         );
     }
+    if let Err(error) = helper::publish_port(config.port) {
+        eprintln!("summrise-device: could not publish the port for the tray: {error}");
+    }
     // One plugin host for the process: created before the router (the router's MCP service takes it),
     // started before the listener accepts a call, and stopped after `serve` returns so the graceful
     // Ctrl+C path kills the children rather than leaving them behind a dead device.

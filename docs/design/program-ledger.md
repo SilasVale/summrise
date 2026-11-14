@@ -727,3 +727,19 @@ disconnected user as well; a shell started there is waiting when the user reconn
 the current 2.0.0 install still needs the documented manual start (`summrise-launch --start-shell`
 in an interactive session) or a sign-in, and verifying it on CPH4KB2 remains blocked on fleet access
 (expired `/mcp/all` token; no SSH to the Windows hosts).
+
+**Round 48 — 7737 was the symptom: the shell could not read its port.** With a fresh fleet token
+(minted through the console's trusted-proxy door, `x-forwarded-user` from 100.85.163.159) `host.facts`
+and `runs.exec` reached CPH4KB2. `summrise-shell.exe` was running and its log said `tray built`, but
+every start also logged `the device did not accept the helper registration … os error 10061`, and
+`helper.registered` stayed false. The cause: the device writes `<data>/device.port` with the data
+directory's ACL (SYSTEM and Administrators only), so the user's shell cannot read it and falls back
+to the compiled default **7737**, where nothing listens — the same reason `http://<machine>:7737`
+"does not open". The tray was built; its health check, helper registration and panel all dialled a
+dead port. Immediate fix on the three machines: `icacls …\device.port /grant Users:(R)`; after
+restarting the shell on CPH4KB2 the helper registered (`pid 27492, session 1`) and `screen.capture`
+started working — the screenshot shows the desktop in a full-screen game, which is also why the tray
+is not visible at that moment. Durable fix: the device also publishes its port to
+`%ProgramData%\SummriseHelper\device.port` (user-readable, beside the helper token) and the shell
+reads that copy when the data file is unreadable; a shell test covers the file read. Device 673 +
+shell 25 green, clippy/fmt clean.
