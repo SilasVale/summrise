@@ -34,11 +34,19 @@ function Wait-DeviceGone {
   Start-Sleep -Seconds 2
 }
 
+function Restart-Launcher {
+  # A running launcher with a dead device answers `sc start` with 1056 and starts nothing — the
+  # failure mode this script exists for. Stop first, wait for the process, then start.
+  sc.exe stop SummriseLaunch | Out-Null
+  Wait-DeviceGone
+  sc.exe start SummriseLaunch | Out-Null
+}
+
 function Restore-Old {
   if ($hadDevice) { Copy-Item "$devicePath.rollback" $devicePath -Force }
   if ($hadSidecar) { Copy-Item "$sidecarPath.rollback" $sidecarPath -Force }
   if ($oldVersion) { Set-Content $currentPath -Value $oldVersion -NoNewline }
-  sc.exe start SummriseLaunch | Out-Null
+  Restart-Launcher
 }
 
 sc.exe stop SummriseLaunch | Out-Null
@@ -48,7 +56,7 @@ Copy-Item $Sidecar $sidecarPath -Force
 if ((Get-FileHash $Artifact).Hash -ne (Get-FileHash $devicePath).Hash) { Restore-Old; throw "the copied binary does not match its source" }
 if ((Get-FileHash $Sidecar).Hash -ne (Get-FileHash $sidecarPath).Hash) { Restore-Old; throw "the copied sidecar does not match its source" }
 
-sc.exe start SummriseLaunch | Out-Null
+Restart-Launcher
 $healthy = $false
 for ($i = 0; $i -lt 90; $i++) {
   Start-Sleep -Seconds 2
