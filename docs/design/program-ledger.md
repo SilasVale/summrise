@@ -817,3 +817,17 @@ is a 502 `device_unreachable` rather than a dead page, and anything else is 404.
 the Electron suite is 83 green (80 + 3). The screenshot still cannot show the window while the operator
 is in a full-screen game; CDP is the evidence this round. The tray still shows the Rust shell's promoted
 icon while the Electron icon stays in the overflow — the double-tray and promotion work is next.
+
+**Round 55 — one tray app, and it runs from the promoted path.** Windows 11 keeps one
+`NotifyIconSettings` entry per icon, and the machine has several for the same executable: the old
+`C:\Windows\Temp\SummriseDesktop\SummriseDesktop.exe` entry is `IsPromoted=1`, the newer
+`SummriseDesktop2` entry started empty, and `summrise-shell.exe` itself has two entries (one promoted,
+one not). Setting the `SummriseDesktop2` entry to 1 and restarting the app did not move the icon out of
+the overflow, so the next measurement changes the process path instead: the new build was copied over
+`C:\Windows\Temp\SummriseDesktop` (an ACL grant was needed after recreating the directory) and the
+app now runs from `C:\Windows\Temp\SummriseDesktop\SummriseDesktop.exe` (pid 28812), the path whose
+entry is already promoted. The Rust shell was stopped, so the desktop has one local tray app instead of
+two. Visibility could not be confirmed: the operator is in a full-screen game and UI Automation reports
+no tray element while the taskbar is covered. The legacy panel window reported earlier is on this
+install; if the icon is still in the overflow once the game is closed, the remaining step is a first-run
+"enable the icon in Settings" action rather than more registry edits.
