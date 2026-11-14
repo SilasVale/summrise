@@ -142,7 +142,7 @@ function authHeaders() {
 // the Rust policy's predicates follow via setAgentPort (which ignores an
 // invalid port rather than resetting to the default).
 const { readDevicePort } = require("./device-port");
-const { startLegacyPanel } = require("./legacy-panel");
+const legacy_panel_1 = require("./legacy-panel");
 function bootAgentPort() {
     const fromDevice = readDevicePort();
     if (fromDevice)
@@ -351,11 +351,22 @@ function focusMain() {
  *  second half of it (the SPA handles the same chords from its own keydown map in a plain browser). A
  *  renamed id or a dropped row breaks the desktop app and nothing else. `Menu.buildFromTemplate` and the
  *  Electron `role` strings are this file's. */
+let trayHintPending = false;
 function offerTraySettingsOnce() {
     try {
         const marker = path.join(electron_1.app.getPath("userData"), "tray-settings-shown");
         if (fs.existsSync(marker))
             return;
+        trayHintPending = true;
+    }
+    catch { /* the hint is a courtesy; a machine that refuses it still has a working tray */ }
+}
+function showTrayHintIfPending() {
+    if (!trayHintPending)
+        return;
+    trayHintPending = false;
+    try {
+        const marker = path.join(electron_1.app.getPath("userData"), "tray-settings-shown");
         fs.mkdirSync(path.dirname(marker), { recursive: true });
         fs.writeFileSync(marker, new Date().toISOString());
         void electron_1.dialog.showMessageBox({
@@ -903,6 +914,7 @@ if (gotTheLock) {
         // not), and the handler is registered in the same tick as the constructor, before any
         // loadURL can happen, so there is no window in which the event is missed.
         win.once("ready-to-show", () => { win?.show(); });
+    win.on("focus", () => { showTrayHintIfPending(); });
         // review #6 (MED) TOP RISK: the main window carries the summriseDesktop/
         // summriseBrowser preload bridge (setAutoLaunch → schtasks /create …
         // -File <ps1>, browser-session:open). Without a navigation veto a

@@ -842,3 +842,15 @@ exists to inspect. The icon object is still valid (`/api/shell/icon-status`: 256
 app runs from the path whose `NotifyIconSettings` entry is promoted. The next measurement is a tray
 capture or a UIA read once the operator leaves the full-screen app; until then this round records the
 hint rather than claiming a visible icon.
+
+**Round 57 — the packaged build hung on a missing module binding, and now it does not.** The first
+deployment of the refactored shell started three Electron processes with no window, no CDP and no
+control server: `main.js` had been given a destructured require (`const { startLegacyPanel } = ...`)
+while the TypeScript output refers to `legacy_panel_1`, so `whenReady` rejected with
+`ReferenceError: legacy_panel_1 is not defined` before the window existed. Running the same tree under
+`xvfb-run` surfaced the error in one line; the require is now `const legacy_panel_1 = require("./legacy-panel")`.
+The rebuilt package was deployed to the promoted path and verified: CDP reports
+`http://127.0.0.1:8584/legacy` with title "Summrise — this machine", and `/api/shell/icon-status`
+answers with the tray icon resolved. Also in this round: the first-run tray hint now waits for the
+Summrise window itself to be focused (and writes its once-per-profile marker only when shown), so it
+cannot open a modal over someone else's full-screen game. `tsc --noEmit` clean; 83 tests green.
