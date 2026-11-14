@@ -1067,3 +1067,16 @@ entry pointing at `C:\Program Files\Summrise\summrise-shell.exe`. Removing that 
 `Ready`. A tray screenshot on 9VH is not possible: session 2 has no display surface (the capture is a
 blank strip), so the evidence there is process and autostart state, not pixels. DESKTOP-CPH4KB2 is still
 503 and needs a local `Restart-Service SummriseLaunch` or a reboot.
+
+**Round 79 — the objective is blocked on DESKTOP-CPH4KB2, and the blocker is a local action.** For the
+third round in a row that machine answers 503 on every tool: its launcher service runs but no device
+child serves, because the rollback drill spent the launcher's three-restart budget and the old script's
+`sc start` could not revive a running service (1056). The hardened script (wait for `STOPPED`, restart,
+require `/api/health`, three attempts, a log) is committed but has not been exercised; it needs the
+machine back first. Everything else on the list is done or proven: both machines ran 2.0.0 sha
+`98d4e5d4` with a transcript showing `command=… → exit 0` and `session=…` (round 74/75 screenshots),
+9VH's legacy Rust shell and its `SummriseShell` autostart are gone, the launcher already waits for the
+old process, verifies the pair and rolls back on failed health (its end-to-end `rolled_back` test), and
+`a_sha_mismatch_leaves_the_current_pointer_alone` proves a mismatched pair is refused with the pointer
+intact. The architecture gate is green. The remaining live drill and the installer's removal of the
+legacy autostart wait on the machine.
