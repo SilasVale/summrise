@@ -3474,10 +3474,10 @@ describe("App", () => {
     expect(joined?.querySelector(".chip-warn")).toBeNull();
   });
 
-  it("asks no machine's join about a fleet window", async () => {
-    // A fleet window spans machines, so no single journal can answer the join for it: the page asks
-    // no machine's `journal.get`, and no row is marked as rotated out of one journal. (The fleet's
-    // own fan-out does ask each machine for its window and its day — round 13 — but not for a join.)
+  it("asks each machine's join about the fleet window's calls", async () => {
+    // A fleet window spans machines, so each row's trace is asked of the machine that wrote it —
+    // one route per drawn machine, the same cache and debounce a single machine's window uses.
+    const trace = "console-6c1d2b3a-1";
     mocks.audit.mockResolvedValue([
       {
         ts_ms: Date.now(),
@@ -3487,18 +3487,17 @@ describe("App", () => {
         tool: "files.read",
         detail: null,
         status: 200,
-        trace: "console-6c1d2b3a-1",
+        trace,
         sentence: "Read notes.txt"
       }
     ]);
     await bootAndSignIn();
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
     expect(await screen.findByText("Read notes.txt")).toBeInTheDocument();
-    // Past the debounce the page would have asked, had there been a machine to ask.
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 900));
-    });
-    expect(mocks.auditJoin).not.toHaveBeenCalled();
+    await waitFor(() => expect(mocks.auditJoin).toHaveBeenCalled());
+    expect(mocks.auditJoin.mock.calls[0][0]).toBe(workshop.id);
+    expect(mocks.auditJoin.mock.calls[0][1]).toContain(trace);
+    // The machine answered that it still holds the call: agreement draws no mark.
     expect(document.body.textContent).not.toContain("only here");
   });
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type AuditLine, type JoinAnswer } from "./api";
+import { api, type AuditLine } from "./api";
 import {
   JOIN_TRACES,
   joinCounts,
@@ -106,66 +106,120 @@ export type JoinState = {
  * spans machines, so no single journal answers for it and nothing is asked: the rows stay `unknown`,
  * which is the truth (the console did not check them).
  */
+/** The traces each machine in the window is asked about, keyed by the machine's id. */
+function groupsForWindow(
+  deviceId: string | null,
+  lines: readonly AuditLine[]
+): Map<string, string[]> {
+  if (deviceId !== null) {
+    const traces = joinTraces(lines);
+    return traces.length === 0 ? new Map() : new Map([[deviceId, traces]]);
+  }
+  // **A FLEET WINDOW HAS NO ONE JOURNAL (round 43).** It spans machines, so each trace is asked of
+  // the machine that wrote the row it belongs to; a row written before device ids existed is left
+  // unasked (unknown) rather than guessed at.
+  const rowsByDevice = new Map<string, AuditLine[]>();
+  for (const line of lines) {
+    if (line.kind !== "mcp") continue;
+    const device = typeof line.device_id === "string" ? line.device_id : "";
+    if (device === "") continue;
+    const rows = rowsByDevice.get(device);
+    if (rows) rows.push(line);
+    else rowsByDevice.set(device, [line]);
+  }
+  const groups = new Map<string, string[]>();
+  for (const [device, rows] of rowsByDevice) {
+    const traces = joinTraces(rows);
+    if (traces.length > 0) groups.set(device, traces);
+  }
+  return groups;
+}
+
+/**
+ * Ask each machine in the window about the traces its own rows carry.
+ *
+ * `deviceId` is the machine the window is read from, or null for the fleet's window — then the
+ * window is split by the `device_id` each row carries and every drawn machine is asked for its own
+ * calls. The cache, the debounce and the age are per machine, so one offline machine neither asks
+ * for the others' traces nor silences them.
+ */
 export function useJoinMarks(deviceId: string | null, lines: readonly AuditLine[]): JoinState {
-  const traces = deviceId === null ? [] : joinTraces(lines);
-  // Re-render when an answer lands: the map above is module state, so nothing else would tell React
-  // that the marks changed.
+  const groups = groupsForWindow(deviceId, lines);
+  // Re-render when an answer lands: the maps above are module state, so nothing else would tell
+  // React that the marks changed.
   const [answers, setAnswers] = useState(0);
-  const key = traces.join("\u0000");
+  const key = [...groups]
+    .map(([device, traces]) => `${device}:${traces.join("\u0000")}`)
+    .join("\u0001");
 
   useEffect(() => {
-    if (deviceId === null || traces.length === 0) return;
-    const state = stateFor(deviceId);
-    const aged = Date.now() - state.at >= JOIN_CACHE_MS;
-    const stale = traces.filter((trace) => aged || !state.kinds.has(trace));
-    if (stale.length === 0) {
-      // **A PAGE LEFT OPEN IS NOT A PAGE THAT STOPPED ASKING.** The answer in hand is good until it
-      // ages; nothing else would wake this effect, because the window has not changed. This is the
-      // wake-up, so a call that rotates out of the machine's journal while the operator is reading
-      // gains its mark without a reload.
-      const remaining = Math.max(0, state.at + JOIN_CACHE_MS - Date.now()) + JOIN_DEBOUNCE_MS;
+    if (groups.size === 0) return;
+    const now = Date.now();
+    const asks: { device: string; traces: string[] }[] = [];
+    let wakeAt = Number.POSITIVE_INFINITY;
+    for (const [device, traces] of groups) {
+      const state = stateFor(device);
+      const aged = now - state.at >= JOIN_CACHE_MS;
+      const stale = traces.filter((trace) => aged || !state.kinds.has(trace));
+      if (stale.length === 0) {
+        wakeAt = Math.min(wakeAt, state.at + JOIN_CACHE_MS + JOIN_DEBOUNCE_MS);
+      } else {
+        asks.push({ device, traces: stale.slice(0, JOIN_TRACES) });
+      }
+    }
+    if (asks.length === 0) {
+      // A page left open is not a page that stopped asking: the answers age, and this is the wake-up
+      // that lets a trace rotate out of a machine's journal and gain its mark without a reload.
+      const remaining = Math.max(0, wakeAt - Date.now());
       const timer = window.setTimeout(() => setAnswers((value) => value + 1), remaining);
       return () => window.clearTimeout(timer);
     }
-    const ask = stale.slice(0, JOIN_TRACES);
     let live = true;
     const timer = window.setTimeout(() => {
-      api
-        .auditJoin(deviceId, ask)
-        .then((answer: JoinAnswer) => {
-          const target = stateFor(deviceId);
-          for (const trace of ask) remember(deviceId, trace, joinKind(answer, trace));
-          target.at = Date.now();
-          target.error = null;
-          if (live) setAnswers((value) => value + 1);
+      void Promise.all(
+        asks.map(async ({ device, traces }) => {
+          try {
+            const answer = await api.auditJoin(device, traces);
+            const target = stateFor(device);
+            for (const trace of traces) remember(device, trace, joinKind(answer, trace));
+            target.at = Date.now();
+            target.error = null;
+          } catch (cause: unknown) {
+            const target = stateFor(device);
+            // A failed read is remembered as `unknown` for the same window as an answer, so an
+            // offline machine is not asked again on every render, and no row is accused.
+            for (const trace of traces) remember(device, trace, "unknown");
+            target.at = Date.now();
+            target.error = readFailureSentence(cause);
+          }
         })
-        .catch((cause: unknown) => {
-          const target = stateFor(deviceId);
-          // A failed read is remembered as `unknown` for the same window as an answer, so an offline
-          // machine is not asked again on every render. `unknown` draws no mark, which is the point:
-          // the console did not learn anything about these calls.
-          for (const trace of ask) remember(deviceId, trace, "unknown");
-          target.at = Date.now();
-          target.error = readFailureSentence(cause);
-          if (live) setAnswers((value) => value + 1);
-        });
+      ).then(() => {
+        if (live) setAnswers((value) => value + 1);
+      });
     }, JOIN_DEBOUNCE_MS);
     return () => {
       live = false;
       window.clearTimeout(timer);
     };
-    // `key` is the trace set's own content, and `answers` is how a landed answer reaches this render.
-    // `traces` is rebuilt every render; depending on it would re-ask on every keystroke elsewhere.
+    // `key` is the window's own content and `answers` is how a landed answer reaches this render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deviceId, key, answers]);
 
-  const state = deviceId === null ? null : learned.get(deviceId) ?? null;
   const kinds = new Map<string, JoinKind>();
-  for (const trace of traces) kinds.set(trace, state?.kinds.get(trace) ?? "unknown");
+  const traces: string[] = [];
+  let error: string | null = null;
+  for (const [device, group] of groups) {
+    const state = learned.get(device);
+    for (const trace of group) {
+      traces.push(trace);
+      kinds.set(trace, state?.kinds.get(trace) ?? "unknown");
+    }
+    if (error === null && state?.error) error = state.error;
+  }
   return {
     kinds,
     counts: joinCounts(traces, kinds),
     traces,
-    error: state?.error ?? null
+    error
   };
 }

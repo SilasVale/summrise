@@ -71,14 +71,37 @@ describe("useJoinMarks", () => {
     expect(mocks.auditJoin).toHaveBeenCalledWith(DEVICE, ["a", "b"]);
   });
 
-  it("asks nothing for the fleet's window", () => {
-    // A fleet window spans machines, so there is no one journal to ask. The rows stay unknown, which
-    // is the truth: the console did not check them.
-    const state = renderHook(() => useJoinMarks(null, [line("a")])).result.current;
+  it("asks each machine in the fleet's window about its own traces", async () => {
+    // A fleet window spans machines: each trace is asked of the machine whose row carries it, with
+    // the same route and the same cache as a single machine's window.
+    const OTHER = "e".repeat(64);
+    mocks.auditJoin.mockImplementation((device: string, traces: string[]) =>
+      Promise.resolve(answer({ device, asked: traces.length, joined: traces }))
+    );
+    const hook = renderHook(() =>
+      useJoinMarks(null, [line("a"), line("b", { device_id: OTHER })])
+    );
     settle();
-    expect(mocks.auditJoin).not.toHaveBeenCalled();
-    expect(state.traces).toEqual([]);
-    expect(state.counts).toEqual({ one: 0, console: 0, unknown: 0, asked: 0 });
+    await waitFor(() => expect(hook.result.current.kinds.get("a")).toBe("one"));
+    expect(mocks.auditJoin).toHaveBeenCalledWith(DEVICE, ["a"]);
+    expect(mocks.auditJoin).toHaveBeenCalledWith(OTHER, ["b"]);
+    expect(hook.result.current.kinds.get("b")).toBe("one");
+    expect(hook.result.current.counts).toEqual({ one: 2, console: 0, unknown: 0, asked: 2 });
+  });
+
+  it("still answers the other machines when one of them does not", async () => {
+    const OTHER = "e".repeat(64);
+    mocks.auditJoin.mockImplementation((device: string, traces: string[]) => {
+      if (device === OTHER) return Promise.reject(new HttpError(503, "offline"));
+      return Promise.resolve(answer({ device, asked: traces.length, joined: traces }));
+    });
+    const hook = renderHook(() =>
+      useJoinMarks(null, [line("a"), line("b", { device_id: OTHER })])
+    );
+    settle();
+    await waitFor(() => expect(hook.result.current.error).not.toBeNull());
+    expect(hook.result.current.kinds.get("a")).toBe("one");
+    expect(hook.result.current.kinds.get("b")).toBe("unknown");
   });
 
   it("asks nothing when the window holds no call with a trace", () => {

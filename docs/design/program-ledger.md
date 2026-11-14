@@ -646,6 +646,17 @@ means the seam. New test `the_dispatch_seam_is_one_path_for_every_door` calls `d
 `state.get` answers with a journal row, and an unknown tool is refused (still journaled) before any
 capability runs. Device suite 673 green, clippy/fmt clean, gate 16 / 27 / 0. Next: the fleet join.
 
+**Round 43 — the fleet window joins every machine it draws.** `useJoinMarks` no longer refuses the
+fleet's window: when `deviceId` is null it splits the rows by the `device_id` each carries and asks
+`/audit/join` (the device's `journal.get`) once per machine for that machine's own traces, keeping the
+per-machine cache, debounce and 30 s age. A row without a device id stays `unknown`, one offline
+machine records `unknown` for its own traces and does not silence the others, and the aggregate
+counts are the window's own. Tests: the hook's fleet case (two machines, two calls, both `one`), an
+offline machine beside a healthy one, and the App test that used to assert "no machine is asked"
+now asserts the machine that wrote the row is asked and agreement draws no mark. Page suite 1,397
+green, typecheck clean. Next: a launcher-level regression for the mixed baseline pair (the CPH4KB2
+shape: 2.0.0 sidecar beside a 0.3.277 binary) so the pair is refused rather than booted.
+
 
 ## Next (in order)
 
