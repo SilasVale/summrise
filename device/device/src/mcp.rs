@@ -99,6 +99,23 @@ pub(crate) struct DeviceServer {
     bus: Option<Arc<summrise_bus::Bus>>,
 }
 
+/// One tool call, after a door has parsed whatever carried it.
+///
+/// The MCP door turns `tools/call` into this, the console channel turns its frame into this, and
+/// the mesh turns its admitted request into this. Everything after is one path: policy, the
+/// journal pair, the capability or plugin, and the answer.
+pub(crate) struct Call<'a> {
+    pub tool: &'a str,
+    pub arguments: Map<String, Value>,
+    pub caller: Caller<'a>,
+}
+
+/// What the dispatch path answered, and the journal row the answer belongs to.
+pub(crate) struct Answer {
+    pub outcome: Result<CallToolResult, CallFailure>,
+    pub journal_seq: Option<u64>,
+}
+
 #[derive(Clone, Copy)]
 pub(crate) enum Caller<'a> {
     Owner,
@@ -484,6 +501,21 @@ impl DeviceServer {
             .await;
     }
 
+    /// One tool call, after the door has parsed whatever carried it.
+    ///
+    /// The MCP door turns `tools/call` into this, the console channel turns its frame into this,
+    /// and the mesh turns its admitted request into this. Everything after is the same: policy,
+    /// the journal pair, the capability or plugin, and the answer.
+    pub(crate) async fn dispatch(&self, call: Call<'_>) -> Answer {
+        let (outcome, journal_seq) = self
+            .execute_call(call.tool, call.arguments, call.caller)
+            .await;
+        Answer {
+            outcome,
+            journal_seq,
+        }
+    }
+
     pub(crate) async fn handle(&self, request: &Value, caller: Caller<'_>) -> Value {
         self.handle_acknowledged(request, caller).await.0
     }
@@ -544,7 +576,16 @@ impl DeviceServer {
                     .cloned()
                     .unwrap_or_default();
 
-                let (outcome, journal_seq) = self.execute_call(name, arguments, caller).await;
+                let Answer {
+                    outcome,
+                    journal_seq,
+                } = self
+                    .dispatch(Call {
+                        tool: name,
+                        arguments,
+                        caller,
+                    })
+                    .await;
                 let response = match outcome {
                     Ok(result) => match serde_json::to_value(&result) {
                         Ok(result) => jsonrpc_result(id, result),
@@ -769,7 +810,7 @@ impl DeviceServer {
             );
         }
 
-        match self.dispatch(name, arguments).await {
+        match self.invoke(name, arguments).await {
             Ok(text) => {
                 self.audit_end(id, true, None, arrival, peer, token_id)
                     .await;
@@ -820,11 +861,7 @@ impl DeviceServer {
         }
     }
 
-    async fn dispatch(
-        &self,
-        name: &str,
-        arguments: Map<String, Value>,
-    ) -> Result<String, ToolError> {
+    async fn invoke(&self, name: &str, arguments: Map<String, Value>) -> Result<String, ToolError> {
         // **A CAPABILITY THAT DECLARES ITSELF IS ROUTED BY ITS MODULE (round 15).** The
         // declaration in `summrise_core::capabilities` is the one list; a capability that migrated
         // is dispatched here, before the legacy table, so its tools leave that table as they move.
@@ -879,7 +916,7 @@ impl DeviceServer {
 /// `Arguments` and `Internal` are protocol errors on both surfaces; `Denied` and `Approval` are the
 /// two authorization answers, with the codes the console path shares with an operator's client;
 /// `Refused` is a capability's answer and stays a tool-level `isError` result where MCP is spoken.
-enum CallFailure {
+pub(crate) enum CallFailure {
     Arguments(String),
     Refused(String),
     Internal(String),
@@ -1427,6 +1464,7 @@ fn forward_list_keys() -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    use super::{Call, CallFailure, Caller};
     use std::fs;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -2225,6 +2263,36 @@ mod tests {
         );
         assert_eq!(events[0]["event"], "begin", "{document}");
         assert_eq!(events[0]["tool"], "state.get", "{document}");
+    }
+
+    #[tokio::test]
+    async fn the_dispatch_seam_is_one_path_for_every_door() {
+        let (server, _config, _bus, _dir) = journaled_server("mcp-dispatch-seam");
+        let answer = server
+            .dispatch(Call {
+                tool: "state.get",
+                arguments: serde_json::Map::new(),
+                caller: Caller::Owner,
+            })
+            .await;
+        assert!(answer.outcome.is_ok(), "the seam runs the capability");
+        assert!(
+            answer.journal_seq.is_some(),
+            "the call is a journal row, whichever door parsed it"
+        );
+
+        let refused = server
+            .dispatch(Call {
+                tool: "no.such.tool",
+                arguments: serde_json::Map::new(),
+                caller: Caller::Owner,
+            })
+            .await;
+        assert!(
+            matches!(refused.outcome, Err(CallFailure::Arguments(_))),
+            "policy runs at the seam, before any capability"
+        );
+        assert!(refused.journal_seq.is_some(), "the refusal is still a row");
     }
 
     #[tokio::test]

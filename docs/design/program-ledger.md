@@ -636,6 +636,16 @@ were re-published: canary `f8a67840…` and stable `6bca2a9f…` are served unde
 `verify-release.sh 2.0.0` is ok on both (3 devices registered). Console lib tests 176 and integration
 283 green; docs/RELEASE.md has the naming rule. Next: the entry/dispatch seam (S4).
 
+**Round 42 — one dispatch seam for every door (S4).** `mcp.rs` now names the call the doors were
+already sharing: `Call { tool, arguments, caller }` and `Answer { outcome, journal_seq }`, with
+`DeviceServer::dispatch(Call) -> Answer` as the single seam. `handle_acknowledged` — the path the MCP
+door, the console channel and the mesh all reach — builds a `Call` and calls it; policy, the journal
+pair and capability/plugin routing stay on that one path, so a new door cannot skip authorization by
+parsing differently. The old internal capability table dispatcher was renamed `invoke` so the name
+means the seam. New test `the_dispatch_seam_is_one_path_for_every_door` calls `dispatch` directly:
+`state.get` answers with a journal row, and an unknown tool is refused (still journaled) before any
+capability runs. Device suite 673 green, clippy/fmt clean, gate 16 / 27 / 0. Next: the fleet join.
+
 
 ## Next (in order)
 
