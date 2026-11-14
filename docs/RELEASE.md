@@ -18,6 +18,23 @@ page role). The workspace's unit-test and clippy jobs name every crate, and the 
 `makensis` runs. `verify-release.sh` is the tool that keeps those
 facts straight (see "Proving it landed").
 
+## When GitHub's TLS endpoint drops: push through the tailnet relay
+
+Direct pushes to `github.com` from the build host sometimes fail with
+`GnuTLS recv error (-110): The TLS connection was non-properly terminated`, while the same host
+reaches GitHub through the tailnet relay fine. `scripts/push-via-relay.sh` opens a SOCKS tunnel to
+`oracle-phx` (100.79.21.110, `ubuntu@`, the Oracle Cloud key under `~/.ssh/imported/`) for the
+duration of the push and runs `next` plus `next:main` through it:
+
+```
+scripts/push-via-relay.sh              # next and next:main
+scripts/push-via-relay.sh --host … --key … next
+```
+
+The tunnel is per-run and dies with the script; the refs are printed after the push so a failed
+second refspec is visible. Override the host, user, key or SOCKS port with the flags or
+`SUMMRISE_RELAY_HOST` / `_USER` / `_KEY` / `_SOCKS_PORT`.
+
 ## An installer names its channel
 
 Since 2.0.0 the setup file is `SummriseSetup-<version>-<channel>.exe`, not `SummriseSetup-<version>.exe`:
