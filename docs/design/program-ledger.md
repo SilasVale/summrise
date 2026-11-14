@@ -966,3 +966,15 @@ honest empty list. Final state on DESKTOP-9VH92BJ after the rebuild: tab `sessio
 footer `127.0.0.1:51657 · 1 session · v2.0.0` (`docs/design/evidence/round68-panel-final.png`). The
 compatibility surface is now exactly the subset the panel uses: status, events, sessions, terminal,
 logs and the empty saved-connection lists — no legacy backend, no device `/panel` change, no MCP change.
+
+**Round 69 — the audit gains the command, and nothing else.** The first attempt put every call's
+arguments into `begin`, and the existing test `the_audit_never_records_an_argument_value` caught it in
+one run: the audit deliberately stores the error kind, not argument values, because arguments are
+payload (memory text, file bodies) and a log is not a place for them. The feature was narrowed to the
+one case where a value IS the operation: `runs.exec`'s command line. `summarize_args` now returns
+`Some("command=…")` only for `runs.exec`, scrubs credential shapes inside the command (`srm_`/`sk-`/
+`ghp-`/`AKIA` prefixes, `Bearer <x>`, `name=value` for token/secret/password names), and caps at 200
+chars; every other tool still writes no arguments. `end` gains `outcome` (`exit 0`, a state, or the
+first words of an error). The Electron transcript renders both on the one-line entry and keeps the full
+value behind the existing click. 675 device tests and 87 Electron tests pass; the privacy test is
+untouched and still green. Next: deploy this device binary and watch a live `runs.exec` line appear.

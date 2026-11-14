@@ -792,6 +792,7 @@ async fn panel_call_begin(app: &AppState, tool: &'static str) -> Option<PanelCal
             crate::mcp::Arrival::Panel,
             None,
             None,
+            None,
         )
         .await
         .then(|| {
@@ -814,6 +815,7 @@ async fn panel_call_end(app: &AppState, call: &PanelCall, error_kind: Option<&'s
             error_kind.is_none(),
             error_kind,
             crate::mcp::Arrival::Panel,
+            None,
             None,
             None,
         )

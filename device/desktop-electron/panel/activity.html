@@ -45,6 +45,8 @@
   .badge.deny{color:var(--fail);border-color:rgba(248,81,73,.35)}
   .dur{color:var(--faint);font-size:11px}
   .time{margin-left:auto;color:var(--faint);font-size:11px;flex:none}
+  .args{color:var(--muted);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:420px}
+  .outcome{color:var(--faint);font-size:11.5px}
   .detail{margin:2px 0 8px 30px;padding:8px 12px;border-left:2px solid var(--line);color:var(--muted);font-size:11.5px;white-space:pre-wrap;display:none}
   .detail.open{display:block}
   .kv{display:grid;grid-template-columns:110px 1fr;gap:2px 12px}
@@ -101,6 +103,9 @@
   let follow = true;
   let lastRendered = 0;
 
+  function escapeHtml(text){
+    return String(text).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
   function fmtDur(ms){ return ms < 1000 ? Math.round(ms) + "ms" : (ms/1000).toFixed(1) + "s"; }
   function fmtClock(ms){ const d = new Date(ms); return d.toLocaleTimeString([], { hour12:false }); }
   function toolVerb(tool){ return VERBS[tool] || ""; }
@@ -109,11 +114,12 @@
     if (!ev || typeof ev.id !== "number") return;
     let c = calls.get(ev.id);
     if (ev.event === "begin") {
-      c = { id: ev.id, tool: ev.tool || "unknown", decision: ev.decision || "", start: ev.ts_ms || Date.now(), end: null, ok: null };
+      c = { id: ev.id, tool: ev.tool || "unknown", decision: ev.decision || "", args: ev.args || "", start: ev.ts_ms || Date.now(), end: null, ok: null };
       calls.set(ev.id, c); order.push(ev.id);
     } else if (ev.event === "end") {
       if (!c) { c = { id: ev.id, tool: "unknown", decision: "", start: ev.ts_ms || Date.now(), end: null, ok: null }; calls.set(ev.id, c); order.push(ev.id); }
       c.end = ev.ts_ms || Date.now(); c.ok = ev.ok === true;
+      if (ev.outcome) c.outcome = ev.outcome;
     }
     schedule();
   }
@@ -141,14 +147,15 @@
       html += `<div class="row${sel}" data-id="${c.id}">
         <div class="glyph ${cls}">${glyph}</div>
         <div class="body">
-          <div class="line"><span class="tool">${c.tool}</span>${verb ? `<span class="verb">${verb}</span>` : ""}${badge}<span class="dur">${fmtDur(dur)}</span><span class="time">${fmtClock(c.end == null ? c.start : c.end)}</span></div>
+          <div class="line"><span class="tool">${c.tool}</span>${verb ? `<span class="verb">${verb}</span>` : ""}${badge}<span class="dur">${fmtDur(dur)}</span>${c.args ? `<span class="args">${escapeHtml(c.args)}</span>` : ""}${c.outcome ? `<span class="outcome">→ ${escapeHtml(c.outcome)}</span>` : ""}<span class="time">${fmtClock(c.end == null ? c.start : c.end)}</span></div>
           <div class="detail" id="d-${c.id}"><div class="kv">
             <span class="k">call</span><span class="v">#${c.id}</span>
             <span class="k">tool</span><span class="v">${c.tool}</span>
             <span class="k">decision</span><span class="v">${c.decision || "—"}</span>
             <span class="k">started</span><span class="v">${fmtClock(c.start)}</span>
             <span class="k">duration</span><span class="v">${fmtDur(dur)}</span>
-            <span class="k">outcome</span><span class="v">${c.end == null ? "running" : (c.ok ? "ok" : "failed")}</span>
+            <span class="k">outcome</span><span class="v">${c.end == null ? "running" : (c.ok ? "ok" : "failed")}${c.outcome ? " · " + escapeHtml(c.outcome) : ""}</span>
+            ${c.args ? `<span class="k">args</span><span class="v">${escapeHtml(c.args)}</span>` : ""}
           </div></div>
         </div>
       </div>`;

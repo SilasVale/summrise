@@ -425,9 +425,10 @@ impl DeviceServer {
         arrival: Arrival,
         peer: Option<&str>,
         token_id: Option<&str>,
+        args: Option<&str>,
     ) -> bool {
         self.audit
-            .begin(id, ts_ms, tool, decision, arrival, peer, token_id)
+            .begin(id, ts_ms, tool, decision, arrival, peer, token_id, args)
             .await
     }
 
@@ -468,6 +469,7 @@ impl DeviceServer {
         arrival: Arrival,
         peer: Option<&str>,
         token_id: Option<&str>,
+        outcome: Option<&str>,
     ) {
         self.audit
             .end(
@@ -478,6 +480,7 @@ impl DeviceServer {
                 arrival,
                 peer,
                 token_id,
+                outcome,
             )
             .await;
     }
@@ -495,9 +498,9 @@ impl DeviceServer {
     ) {
         let id = self.next_call_id();
         let now_ms = crate::http::now_ms();
-        self.audit_begin(id, now_ms, tool, "deny", arrival, peer, None)
+        self.audit_begin(id, now_ms, tool, "deny", arrival, peer, None, None)
             .await;
-        self.audit_end(id, false, Some(error_kind), arrival, peer, None)
+        self.audit_end(id, false, Some(error_kind), arrival, peer, None, None)
             .await;
     }
 
@@ -635,6 +638,8 @@ impl DeviceServer {
         // device journal and the console's audit line join on it — otherwise this device's, unique
         // per call and per process. It is minted before the first event, so a lost second half
         // still leaves a started event a reader can name.
+        let args_summary = summarize_args(name, &arguments);
+        let args_summary = args_summary.as_deref();
         let trace = match caller.trace() {
             Some(trace) if !trace.is_empty() => trace.to_owned(),
             _ => format!("call-{id}"),
@@ -664,9 +669,18 @@ impl DeviceServer {
             None => match self.plugins.destructive(name) {
                 Some(destructive) => destructive,
                 None => {
-                    self.audit_begin(id, now_ms, name, "deny", arrival, peer, token_id)
-                        .await;
-                    self.audit_end(id, false, Some("unknown_tool"), arrival, peer, token_id)
+                    self.audit_begin(
+                        id,
+                        now_ms,
+                        name,
+                        "deny",
+                        arrival,
+                        peer,
+                        token_id,
+                        args_summary,
+                    )
+                    .await;
+                    self.audit_end(id, false, Some("unknown_tool"), arrival, peer, token_id, None)
                         .await;
                     let seq = self.publish_call_event(
                         "call.denied",
@@ -740,9 +754,18 @@ impl DeviceServer {
             Decision::Allow => {}
             Decision::Deny { reason } => {
                 let detail = reason.to_string();
-                self.audit_begin(id, now_ms, name, "deny", arrival, peer, token_id)
-                    .await;
-                self.audit_end(id, false, Some("denied"), arrival, peer, token_id)
+                self.audit_begin(
+                    id,
+                    now_ms,
+                    name,
+                    "deny",
+                    arrival,
+                    peer,
+                    token_id,
+                    args_summary,
+                )
+                .await;
+                self.audit_end(id, false, Some("denied"), arrival, peer, token_id, None)
                     .await;
                 let seq = self.publish_call_event(
                     "call.denied",
@@ -753,8 +776,17 @@ impl DeviceServer {
                 return (Err(CallFailure::Denied(detail)), seq);
             }
             Decision::Ask { prompt } => {
-                self.audit_begin(id, now_ms, name, "ask", arrival, peer, token_id)
-                    .await;
+                self.audit_begin(
+                    id,
+                    now_ms,
+                    name,
+                    "ask",
+                    arrival,
+                    peer,
+                    token_id,
+                    args_summary,
+                )
+                .await;
                 self.audit_end(
                     id,
                     false,
@@ -762,6 +794,7 @@ impl DeviceServer {
                     arrival,
                     peer,
                     token_id,
+                    None,
                 )
                 .await;
                 let seq = self.publish_call_event(
@@ -793,7 +826,16 @@ impl DeviceServer {
         // what the audit keeps; it says the call was allowed, not that it failed. An unwritable log
         // refuses the call before dispatch: no side effect runs without its authorization line.
         if !self
-            .audit_begin(id, now_ms, name, "allow", arrival, peer, token_id)
+            .audit_begin(
+                id,
+                now_ms,
+                name,
+                "allow",
+                arrival,
+                peer,
+                token_id,
+                args_summary,
+            )
             .await
         {
             let seq = self.publish_call_event(
@@ -812,7 +854,8 @@ impl DeviceServer {
 
         match self.invoke(name, arguments).await {
             Ok(text) => {
-                self.audit_end(id, true, None, arrival, peer, token_id)
+                let outcome = summarize_outcome(name, &text);
+                self.audit_end(id, true, None, arrival, peer, token_id, Some(outcome.as_str()))
                     .await;
                 let seq = self.publish_call_event(
                     "call.finished",
@@ -826,7 +869,7 @@ impl DeviceServer {
                 )
             }
             Err(ToolError::Arguments(message)) => {
-                self.audit_end(id, false, Some("arguments"), arrival, peer, token_id)
+                self.audit_end(id, false, Some("arguments"), arrival, peer, token_id, None)
                     .await;
                 let seq = self.publish_call_event(
                     "call.denied",
@@ -837,7 +880,7 @@ impl DeviceServer {
                 (Err(CallFailure::Arguments(message)), seq)
             }
             Err(ToolError::Refused(message)) => {
-                self.audit_end(id, false, Some("refused"), arrival, peer, token_id)
+                self.audit_end(id, false, Some("refused"), arrival, peer, token_id, None)
                     .await;
                 let seq = self.publish_call_event(
                     "call.denied",
@@ -848,7 +891,7 @@ impl DeviceServer {
                 (Err(CallFailure::Refused(message)), seq)
             }
             Err(ToolError::Internal(message)) => {
-                self.audit_end(id, false, Some("internal"), arrival, peer, token_id)
+                self.audit_end(id, false, Some("internal"), arrival, peer, token_id, None)
                     .await;
                 let seq = self.publish_call_event(
                     "call.denied",
@@ -1247,6 +1290,11 @@ struct AuditBegin<'a> {
     peer: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     token_id: Option<&'a str>,
+    /// A redacted, length-capped summary of what the call asked for (the command for `runs.exec`).
+    /// Never a credential: `summarize_args` scrubs by key name and by value shape before this field
+    /// is built, and the journal is a file an operator reads, not a place to keep secrets.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    args: Option<&'a str>,
 }
 
 /// One `end` line: the call returned. `error_kind` is a closed set of names, never a message and
@@ -1264,6 +1312,10 @@ struct AuditEnd<'a> {
     peer: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     token_id: Option<&'a str>,
+    /// The outcome in one line: an exit code, a state, or the first words of the answer. Capped by
+    /// `summarize_outcome`, so a chatty tool cannot turn the audit into its own log.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    outcome: Option<&'a str>,
 }
 
 /// The append-only event log at `<data>/events.jsonl`.
@@ -1327,6 +1379,7 @@ impl Audit {
         arrival: Arrival,
         peer: Option<&str>,
         token_id: Option<&str>,
+        args: Option<&str>,
     ) -> bool {
         self.append_line(&AuditBegin {
             id,
@@ -1337,6 +1390,7 @@ impl Audit {
             transport: arrival.as_str(),
             peer,
             token_id,
+            args,
         })
         .await
     }
@@ -1351,6 +1405,7 @@ impl Audit {
         arrival: Arrival,
         peer: Option<&str>,
         token_id: Option<&str>,
+        outcome: Option<&str>,
     ) {
         let _written = self
             .append_line(&AuditEnd {
@@ -1362,6 +1417,7 @@ impl Audit {
                 transport: arrival.as_str(),
                 peer,
                 token_id,
+                outcome,
             })
             .await;
     }
@@ -1438,6 +1494,119 @@ impl Audit {
 ///
 /// The registry's names are short; only an unknown name can be long. Truncating it keeps one audit
 /// line bounded, which is what makes the file cap meaningful.
+
+/// How much of a call's arguments the audit keeps. The line is read by an operator scanning a
+/// timeline; a megabyte of JSON there is noise, and the full arguments are not the audit's job.
+const ARGS_SUMMARY_MAX: usize = 200;
+/// How much of an answer the `end` line keeps. Same reason, stricter: this is one glance.
+const OUTCOME_SUMMARY_MAX: usize = 160;
+
+/// One line of what a call asked for, with credentials removed.
+///
+/// Two scrubs, because either alone leaks: a key NAMED like a credential (`token`, `password`,
+/// `authorization`) has its value replaced whatever it looks like, and a VALUE shaped like one
+/// (`srm_…`, `sk-…`, `ghp_…`, a PEM header) is replaced whatever its key is called. The cap is on
+/// characters, not bytes, so a multi-byte command cannot be cut mid-character.
+fn summarize_args(tool: &str, args: &serde_json::Map<String, serde_json::Value>) -> Option<String> {
+    // THE AUDIT DOES NOT STORE ARGUMENT VALUES, and that rule is older than this field
+    // (`the_audit_never_records_an_argument_value`). One exception is worth its risk: the command
+    // line of `runs.exec`, because a transcript that says "ran a command" and not which command
+    // answers nothing. Every other tool keeps the old silence — their arguments are payload
+    // (memory text, file bodies), not an operation an operator can read at a glance.
+    if tool != "runs.exec" {
+        return None;
+    }
+    let command = args.get("command").and_then(|value| value.as_str())?;
+    Some(cap_chars(&format!("command={}", scrub_command(command)), ARGS_SUMMARY_MAX))
+}
+
+/// Remove the shapes a credential takes inside a command line. Key-name scrubbing does not reach
+/// here — the command is ONE string — so the shapes are matched where they sit: a token with a
+/// known prefix, an `Authorization: Bearer` pair, and `name=value` for credential-ish names.
+fn scrub_command(command: &str) -> String {
+    let mut out: Vec<String> = Vec::new();
+    let mut hide_next = false;
+    for word in command.split_whitespace() {
+        let lower = word.to_ascii_lowercase();
+        if hide_next {
+            out.push("***".to_owned());
+            hide_next = false;
+            continue;
+        }
+        if ["srm_", "sk-", "ghp_", "xoxb-", "akia"].iter().any(|prefix| lower.starts_with(prefix)) {
+            out.push("***".to_owned());
+            continue;
+        }
+        if lower == "bearer" {
+            out.push(word.to_owned());
+            hide_next = true;
+            continue;
+        }
+        if let Some((name, _value)) = word.split_once('=') {
+            let name = name.to_ascii_lowercase();
+            if ["token", "secret", "password", "passwd", "apikey", "api_key", "authorization"]
+                .iter()
+                .any(|needle| name.contains(needle))
+            {
+                out.push(format!("{name}=***"));
+                continue;
+            }
+        }
+        if lower.ends_with("token") || lower.ends_with("secret") || lower.ends_with("password") {
+            out.push(word.to_owned());
+            hide_next = true;
+            continue;
+        }
+        out.push(word.to_owned());
+    }
+    out.join(" ")
+}
+
+fn looks_secret_key(key: &str) -> bool {
+    let key = key.to_ascii_lowercase();
+    ["token", "secret", "password", "passwd", "credential", "authorization", "api_key", "apikey", "private_key"]
+        .iter()
+        .any(|needle| key.contains(needle))
+}
+
+fn looks_secret_value(value: &str) -> bool {
+    let trimmed = value.trim_start();
+    ["srm_", "sk-", "ghp_", "xoxb-", "AKIA", "-----BEGIN"]
+        .iter()
+        .any(|prefix| trimmed.starts_with(prefix))
+}
+
+/// One line of what the call returned: the exit code when the answer carries one, the state when it
+/// says that instead, and otherwise the first words of the text.
+fn summarize_outcome(_tool: &str, text: &str) -> String {
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(text) {
+        if let Some(code) = value.get("exit_code").and_then(|code| code.as_i64()) {
+            return format!("exit {code}");
+        }
+        if let Some(state) = value.get("state").and_then(|state| state.as_str()) {
+            return cap_chars(state, OUTCOME_SUMMARY_MAX);
+        }
+        if let Some(written) = value.get("written").and_then(|written| written.as_u64()) {
+            return format!("wrote {written} bytes");
+        }
+        if value.get("ok").and_then(|ok| ok.as_bool()) == Some(false) {
+            let message = value.get("error").and_then(|error| error.as_str()).unwrap_or("error");
+            return cap_chars(message, OUTCOME_SUMMARY_MAX);
+        }
+    }
+    let first = text.lines().next().unwrap_or("").trim();
+    cap_chars(first, OUTCOME_SUMMARY_MAX)
+}
+
+fn cap_chars(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        return text.to_owned();
+    }
+    let mut out: String = text.chars().take(max.saturating_sub(1)).collect();
+    out.push('…');
+    out
+}
+
 fn audit_tool(tool: &str) -> &str {
     if tool.len() <= MAX_AUDIT_TOOL_BYTES {
         return tool;
@@ -4468,6 +4637,42 @@ mod tests {
         assert_eq!(end["error_kind"], "arguments");
     }
 
+    #[test]
+    fn a_command_summary_replaces_credentials_and_keeps_the_command() {
+        let args = serde_json::json!({
+            "command": "curl -H 'Authorization: Bearer srm_abc123456789' https://example.invalid password=hunter2"
+        });
+        let summary = super::summarize_args("runs.exec", args.as_object().expect("object"))
+            .expect("a command is summarized");
+        assert!(summary.contains("command="), "{summary}");
+        assert!(summary.contains("***"), "credential shapes are replaced: {summary}");
+        assert!(!summary.contains("srm_abc123456789"), "the token is gone: {summary}");
+        assert!(!summary.contains("hunter2"), "the password is gone: {summary}");
+        assert!(super::summarize_args("memory.save", args.as_object().expect("object")).is_none(),
+            "only runs.exec gets its arguments into the audit");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_runs_command_is_audited_with_its_outcome() {
+        let device = start("mcp-audit-command").await;
+        let mut client = Client::authorized(&device);
+        client.initialize().await;
+
+        let message = client
+            .call("runs.exec", json!({ "command": "echo", "args": ["hello"] }))
+            .await;
+        assert!(message.get("result").is_some(), "{message}");
+
+        let lines = audit_lines(&device);
+        let begin = lines.iter().find(|line| line["event"] == "begin").expect("begin");
+        let args = begin["args"].as_str().expect("the command is summarized");
+        assert_eq!(args, "command=echo", "the command an operator can read: {args}");
+
+        let end = lines.iter().find(|line| line["event"] == "end").expect("end");
+        assert_eq!(end["outcome"], "exit 0", "the end names its outcome: {end}");
+    }
+
     #[tokio::test]
     async fn a_begin_line_survives_a_call_that_never_wrote_its_end() {
         let dir = TempDir::new("audit-begin-only");
@@ -4480,6 +4685,7 @@ mod tests {
                 "files.write",
                 "allow",
                 super::Arrival::Loopback,
+                None,
                 None,
                 None,
             )
@@ -4504,7 +4710,7 @@ mod tests {
 
         assert!(
             !audit
-            .begin(1, 1, "files.write", "allow", super::Arrival::Loopback, None, None)
+            .begin(1, 1, "files.write", "allow", super::Arrival::Loopback, None, None, None)
             .await,
             "the caller must be able to refuse the call when its authorization line cannot be written"
         );
@@ -4525,6 +4731,7 @@ mod tests {
                     super::Arrival::Loopback,
                     None,
                     None,
+                    None,
                 )
                 .await;
             audit
@@ -4534,6 +4741,7 @@ mod tests {
                     true,
                     None,
                     super::Arrival::Loopback,
+                    None,
                     None,
                     None,
                 )
