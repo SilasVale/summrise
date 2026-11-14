@@ -7432,6 +7432,23 @@ pub fn session_can_start_shell(state: u32) -> bool {
     matches!(state, 0 | 1 | 4)
 }
 
+/// Which local surface `--start-shell` runs: the installed desktop app when its payload is present,
+/// otherwise the Rust shell. One shell per session — the caller starts exactly this path, so the two
+/// surfaces can never both add a tray icon. The order is the product decision: the Electron app is
+/// the local surface the operator uses when it is installed; the Rust shell stays the fallback for
+/// installers that do not carry it.
+pub fn shell_executable(install: &Path) -> Option<PathBuf> {
+    let desktop = install.join("desktop").join("SummriseDesktop.exe");
+    if desktop.is_file() {
+        return Some(desktop);
+    }
+    let shell = install.join("summrise-shell.exe");
+    if shell.is_file() {
+        return Some(shell);
+    }
+    None
+}
+
 #[cfg(test)]
 mod session_tests {
     use super::session_can_start_shell;
@@ -7446,5 +7463,48 @@ mod session_tests {
         assert!(!session_can_start_shell(6));
         assert!(!session_can_start_shell(8));
         assert!(!session_can_start_shell(5));
+    }
+}
+
+#[cfg(test)]
+mod shell_executable_tests {
+    use super::shell_executable;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("summrise-launch-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn touch(path: &Path) {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, b"x").unwrap();
+    }
+
+    #[test]
+    fn the_installed_desktop_app_wins() {
+        let dir = scratch("desktop");
+        touch(&dir.join("desktop").join("SummriseDesktop.exe"));
+        touch(&dir.join("summrise-shell.exe"));
+        assert_eq!(shell_executable(&dir), Some(dir.join("desktop").join("SummriseDesktop.exe")));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_rust_shell_is_the_fallback() {
+        let dir = scratch("shell");
+        touch(&dir.join("summrise-shell.exe"));
+        assert_eq!(shell_executable(&dir), Some(dir.join("summrise-shell.exe")));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_empty_payload_is_no_shell() {
+        let dir = scratch("empty");
+        assert_eq!(shell_executable(&dir), None);
+        let _ = fs::remove_dir_all(&dir);
     }
 }

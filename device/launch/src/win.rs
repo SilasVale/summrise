@@ -427,9 +427,9 @@ fn parse_start_shell_args(args: &[String]) -> Result<PathBuf, String> {
                 .and_then(|exe| exe.parent().map(Path::to_path_buf))
         })
         .ok_or("--start-shell: cannot find the install directory")?;
-    if !install.join("summrise-shell.exe").is_file() {
+    if summrise_launch::shell_executable(&install).is_none() {
         return Err(format!(
-            "--start-shell: no summrise-shell.exe in {}",
+            "--start-shell: no desktop\\SummriseDesktop.exe or summrise-shell.exe in {}",
             install.display()
         ));
     }
@@ -527,7 +527,13 @@ unsafe fn start_shell_with_token(install: &Path, user_token: HANDLE) -> Result<(
         .encode_wide()
         .chain(Some(0))
         .collect();
-    let mut command: Vec<u16> = format!("\"{}\"", install.join("summrise-shell.exe").display())
+    let exe = summrise_launch::shell_executable(install).ok_or_else(|| {
+        format!(
+            "no desktop\\SummriseDesktop.exe or summrise-shell.exe in {}",
+            install.display()
+        )
+    })?;
+    let mut command: Vec<u16> = format!("\"{}\"", exe.display())
         .encode_utf16()
         .chain(Some(0))
         .collect();
@@ -567,7 +573,7 @@ unsafe fn start_shell_with_token(install: &Path, user_token: HANDLE) -> Result<(
 
     if started == 0 {
         return Err(format!(
-            "cannot start summrise-shell.exe in the user session: {error}"
+            "cannot start the local shell in the user session: {error}"
         ));
     }
     Ok(())

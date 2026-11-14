@@ -854,3 +854,17 @@ The rebuilt package was deployed to the promoted path and verified: CDP reports
 answers with the tray icon resolved. Also in this round: the first-run tray hint now waits for the
 Summrise window itself to be focused (and writes its once-per-profile marker only when shown), so it
 cannot open a modal over someone else's full-screen game. `tsc --noEmit` clean; 83 tests green.
+
+**Round 58 — `--start-shell` prefers the installed desktop app.** `summrise_launch::shell_executable`
+now resolves `<install>\desktop\SummriseDesktop.exe` first and falls back to `<install>\summrise-shell.exe`;
+both the argument check and the per-session start use that one answer, so a session can never get two
+tray icons. Three tests cover desktop-wins, shell-fallback and the empty payload; the launch crate's
+lib suite is 160 green. The launcher cross-compiles for Windows
+(`cargo build -p summrise-launch --release --target x86_64-pc-windows-gnu`, 2.7 MB). On CPH4KB2 the
+packaged app was copied to `C:\SummriseInstall\desktop` and `summrise-launch-next.exe --start-shell
+--install C:\SummriseInstall` started `C:\SummriseInstall\desktop\SummriseDesktop.exe` in the
+signed-in session (four process paths confirmed by CIM); the Rust shell is not running, and the window
+reports `http://127.0.0.1:60168/legacy` with the legacy title while `/api/shell/icon-status` resolves
+the tray icon from that install path. The NSIS installer still ships the Rust shell and the old launch
+entry; wiring this launcher into the installer and promoting the tray icon of the new install path
+remain.
