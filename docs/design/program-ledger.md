@@ -715,3 +715,15 @@ Verifying CPH4KB2's tray is blocked on remote access: the fleet token this host 
 has expired, and re-minting one needs the console's operator token (or a login link) on
 DESKTOP-9VH92BJ; the host has no SSH server reachable with the keys here. The relay work was pushed
 before this round (`origin/next` = `origin/main` = `7e749d26`).
+
+**Round 47 — the tray restart now covers disconnected sessions.** The reason CPH4KB2 can lose its
+icon after an upgrade is visible in the launcher: `--start-shell` enumerated sessions and skipped
+everything that was not `WTSActive`, so an RDP session whose user was still signed in but whose
+client was gone got no shell, and the installer's one-shot start found nobody to start it for. The
+predicate is now a tested part of the pure half (`session_can_start_shell`: `WTSActive`,
+`WTSConnected`, `WTSDisconnected`) and `win.rs` uses it, so the installer's start-shell task covers a
+disconnected user as well; a shell started there is waiting when the user reconnects. Launch tests
+157 + 9 green, clippy/fmt clean. This fix reaches a machine with the next build (2.0.1 or later);
+the current 2.0.0 install still needs the documented manual start (`summrise-launch --start-shell`
+in an interactive session) or a sign-in, and verifying it on CPH4KB2 remains blocked on fleet access
+(expired `/mcp/all` token; no SSH to the Windows hosts).

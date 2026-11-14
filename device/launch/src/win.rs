@@ -436,7 +436,8 @@ fn parse_start_shell_args(args: &[String]) -> Result<PathBuf, String> {
     Ok(install)
 }
 
-/// Start the tray in every active user session.
+/// Start the tray in every signed-in user session: the console desktop, a connected RDP session,
+/// and a disconnected RDP session whose user is still signed in.
 ///
 /// The installer runs elevated, not as SYSTEM; `WTSQueryUserToken` needs SeTcb, so the installer calls
 /// this through a one-shot SYSTEM task rather than relying on its own token. The shell is started
@@ -445,11 +446,11 @@ fn parse_start_shell_args(args: &[String]) -> Result<PathBuf, String> {
 fn start_shell(install: &Path) -> ExitCode {
     match start_shell_in_active_sessions(install) {
         Ok(0) => {
-            eprintln!("start-shell: no active user session; the login Run entry will start it");
+            eprintln!("start-shell: no signed-in user session; the login Run entry will start it");
             ExitCode::SUCCESS
         }
         Ok(count) => {
-            println!("start-shell: started the shell in {count} active session(s)");
+            println!("start-shell: started the shell in {count} signed-in session(s)");
             ExitCode::SUCCESS
         }
         Err(error) => fail(&error),
@@ -476,7 +477,7 @@ fn start_shell_in_active_sessions(install: &Path) -> Result<usize, String> {
         let mut started = 0usize;
         let mut last_error = None;
         for session in slice {
-            if session.State != WTSActive {
+            if !summrise_launch::session_can_start_shell(session.State as u32) {
                 continue;
             }
             let mut user_token: HANDLE = 0;

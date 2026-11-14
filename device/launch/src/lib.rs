@@ -7420,3 +7420,31 @@ mod tests {
         );
     }
 }
+
+/// Whether a Windows session can host the tray shell.
+///
+/// `WTSActive` (0) is the console session at the desktop, `WTSConnected` (1) is an RDP session with
+/// its user attached, and `WTSDisconnected` (4) is an RDP session whose user is still signed in but
+/// whose client is gone. The last is the one an upgrade used to miss: the installer's start-shell
+/// task ran while nobody was connected, found no *active* session, and the icon only came back at
+/// the next sign-in. A shell started in a disconnected session is waiting when the user reconnects.
+pub fn session_can_start_shell(state: u32) -> bool {
+    matches!(state, 0 | 1 | 4)
+}
+
+#[cfg(test)]
+mod session_tests {
+    use super::session_can_start_shell;
+
+    #[test]
+    fn a_disconnected_user_session_can_host_the_tray() {
+        // WTSActive, WTSConnected, WTSDisconnected: a signed-in user, with or without a client.
+        assert!(session_can_start_shell(0));
+        assert!(session_can_start_shell(1));
+        assert!(session_can_start_shell(4));
+        // WTSListen (6), WTSDown (8), WTSIdle (5): no user to show an icon to.
+        assert!(!session_can_start_shell(6));
+        assert!(!session_can_start_shell(8));
+        assert!(!session_can_start_shell(5));
+    }
+}
