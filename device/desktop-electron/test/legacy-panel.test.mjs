@@ -179,3 +179,37 @@ test("the terminal tools speak the legacy panel's shapes over the device's own e
     device.close();
   }
 });
+
+test("the logs route reads the device's own log directory", async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
+  const path = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  const root = mkdtempSync(path.join(tmpdir(), "summrise-logs-"));
+  mkdirSync(path.join(root, "logs"));
+  writeFileSync(path.join(root, "logs", "device.log"), "first line\nlast line\n");
+  const device = await fakeDevice({
+    "/api/panel": (_req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ version: "2.0.0", data_dir: root, events: [] }));
+    },
+  });
+  const panel = await startLegacyPanel({
+    deviceBase: `http://127.0.0.1:${device.address().port}`,
+    html: "<head></head>",
+    activityHtml: "<head></head>",
+    token: "t",
+  });
+  try {
+    const response = await fetch(`${panel.base}/api/logs`, { headers: { Authorization: "Bearer t" } });
+    const body = await response.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.dir, path.join(root, "logs"));
+    assert.equal(body.logs.length, 1);
+    assert.equal(body.logs[0].name, "device.log");
+    assert.equal(body.logs[0].present, true);
+    assert.match(body.logs[0].log, /last line/);
+  } finally {
+    await panel.close();
+    device.close();
+  }
+});

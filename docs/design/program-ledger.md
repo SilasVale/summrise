@@ -957,3 +957,12 @@ promoted entry for `C:\SummriseInstall\desktop\SummriseDesktop.exe`, still the o
 Evidence `docs/design/evidence/round67-tray-cph4kb2.png` (crop, 4x). With the installer path from round
 66 (`--start-shell` → Electron, zero `summrise-shell`), all four acceptance facts on DESKTOP-CPH4KB2 are
 now witnessed: live panel, a real terminal session, a visible tray icon, and no Rust shell.
+
+**Round 68 — the last two boundaries, and the goal closes.** `/api/logs` reads the device's own log
+directory (`<data_dir>\logs\*.log`, last 64 KiB of each) and answers the card's
+`{ok:true, logs:[{name,present,log}], dir}` shape; the panel's Workspaces page is saved terminal
+connections, not a file browser, so `terminal_saved_connections` and `terminal_list_ports` answer an
+honest empty list. Final state on DESKTOP-9VH92BJ after the rebuild: tab `session-1`, real PowerShell,
+footer `127.0.0.1:51657 · 1 session · v2.0.0` (`docs/design/evidence/round68-panel-final.png`). The
+compatibility surface is now exactly the subset the panel uses: status, events, sessions, terminal,
+logs and the empty saved-connection lists — no legacy backend, no device `/panel` change, no MCP change.

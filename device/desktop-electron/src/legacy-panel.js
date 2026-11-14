@@ -273,6 +273,11 @@ function makeHandler({ deviceBase, html, desktopDir, token, activityHtml, captur
         try {
           const panelToken = await devicePanelToken(deviceBase, cache);
           toolLog(`tool ${name} token=${panelToken ? "yes" : "no"}`);
+          if (name === "terminal_saved_connections" || name === "terminal_list_ports") {
+            res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+            res.end(JSON.stringify({ ok: true, result: [] }));
+            return;
+          }
           if (name === "terminal_list") {
             const r = await deviceRequest(deviceBase, "/api/terminal", { token: panelToken });
             const body = JSON.parse(r.body);
@@ -372,6 +377,32 @@ function makeHandler({ deviceBase, html, desktopDir, token, activityHtml, captur
         const ping = setInterval(() => { if (!closed) res.write(": ping\n\n"); }, 30000);
         req.on("close", () => { closed = true; clearInterval(ping); });
         void poll();
+        return;
+      }
+      if (pathOnly === "/api/logs") {
+        try {
+          const snapshot = JSON.parse((await readBody(`${deviceBase}/api/panel`)).body);
+          const dataDir = typeof snapshot?.data_dir === "string" ? snapshot.data_dir : "";
+          const dir = dataDir ? path.join(dataDir, "logs") : "";
+          const logs = [];
+          if (dir && fs.existsSync(dir)) {
+            for (const name of fs.readdirSync(dir).filter((n) => n.endsWith(".log"))) {
+              const file = path.join(dir, name);
+              const size = fs.statSync(file).size;
+              const read = Math.min(size, 64 * 1024);
+              const buf = Buffer.alloc(read);
+              const fd = fs.openSync(file, "r");
+              fs.readSync(fd, buf, 0, read, Math.max(0, size - read));
+              fs.closeSync(fd);
+              logs.push({ name, present: true, log: buf.toString("utf8") });
+            }
+          }
+          res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+          res.end(JSON.stringify({ ok: true, logs, dir }));
+        } catch {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end('{"ok":false,"error":"logs_unreadable"}');
+        }
         return;
       }
       if (pathOnly === "/api/sessions") {
