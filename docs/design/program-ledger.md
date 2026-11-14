@@ -612,6 +612,20 @@ DESKTOP-14RJCR8 is still not connected (9d 1h) — the one concrete blocker; it 
 the objective and its deletion or reconnection is the operator's call. Gate: 16 packages / 27 edges
 / 0 upward; workspace tests were green in round 38. Nothing in the rollout remains unowned.
 
+**Round 40 — 14R removed, and the baseline tells the truth about its bytes.** DESKTOP-14RJCR8's
+registration was deleted through the console (`DELETE /fleet/<id>`; id `8780d0ee…`), which revoked its
+tokens and refused its next connect; the console now lists 3 devices, all online. The CPH4KB2 anomaly
+was identified: when its `baseline/current/summrise-device.exe` was hashed it was **0.3.277**
+(`3a80a057…`, the mirror's old artifact), while the recorded sidecar said 2.0.0
+(`d9d0ea9d…`) — a mixed pair; the running app was 2.0.0, which is why health looked right and only
+`--check-record` exposed it. Reinstalling the published installer rewrote the pair. Hardening landed:
+`state.get` now hashes the baseline binary itself (chunked SHA-256) and answers
+`baseline: {path, recorded, file, matches}`, so a sidecar that disagrees with the bytes can no longer
+hide behind its own metadata (`baseline_facts` unit test flips the file and sees `matches: false`).
+Device suite 672 green, clippy/fmt clean, gate 16 / 27 / 0. Note: the fleet MCP token used by this
+host expired during the round (console says mint a new `/mcp/all` token), so further remote
+inspection needs a fresh token. Next: the entry/dispatch seam (S4), then the fleet join.
+
 
 ## Next (in order)
 

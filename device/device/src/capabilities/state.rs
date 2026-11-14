@@ -73,11 +73,96 @@ pub fn call(
                 "health": health,
                 "events": events,
                 "record": record,
+                // A recorded digest is not a measurement. This is the file the supervisor will boot
+                // next, hashed now, so a baseline whose sidecar and bytes disagree cannot hide
+                // behind its own metadata.
+                "baseline": baseline_facts(&state),
             })
             .to_string())
         }
         other => Err(ToolError::Internal(format!(
             "{other}: the state capability does not declare this tool"
         ))),
+    }
+}
+
+/// The `baseline/current` pair as the disk holds it: the path the state document names, the digest
+/// it records, and the digest of the file actually there.
+///
+/// `matches` is false when either side is missing — an unreadable file is not a match, and a
+/// document that names no baseline has nothing to compare (`null`).
+fn baseline_facts(state: &Value) -> Value {
+    let Some(baseline) = state.get("baseline") else {
+        return Value::Null;
+    };
+    let Some(path) = baseline.get("exe").and_then(Value::as_str) else {
+        return Value::Null;
+    };
+    let recorded = baseline.get("sha256").and_then(Value::as_str);
+    let file = sha256_of_file(std::path::Path::new(path)).ok();
+    let matches = match (&file, recorded) {
+        (Some(file), Some(recorded)) => file.eq_ignore_ascii_case(recorded),
+        _ => false,
+    };
+    json!({
+        "path": path,
+        "recorded": recorded,
+        "file": file,
+        "matches": matches,
+    })
+}
+
+/// The sha256 of a file, read in chunks so a large binary is not held in memory.
+fn sha256_of_file(path: &std::path::Path) -> std::io::Result<String> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn baseline_facts_compare_the_file_not_only_the_record() {
+        let dir = std::env::temp_dir().join(format!("state-baseline-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("the test dir");
+        let exe = dir.join("summrise-device.exe");
+        std::fs::write(&exe, b"the installed bytes").expect("the fixture writes");
+        let digest = sha256_of_file(&exe).expect("the fixture hashes");
+
+        let state = json!({
+            "baseline": { "exe": exe, "sha256": digest.clone() }
+        });
+        let facts = baseline_facts(&state);
+        assert_eq!(facts["matches"], true, "{facts}");
+        assert_eq!(facts["file"], digest);
+
+        std::fs::write(&exe, b"a different build").expect("the file changes");
+        let facts = baseline_facts(&state);
+        assert_eq!(facts["matches"], false, "{facts}");
+        assert_ne!(facts["file"], digest);
+
+        assert_eq!(
+            baseline_facts(&json!({})),
+            Value::Null,
+            "no baseline has nothing to compare"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
