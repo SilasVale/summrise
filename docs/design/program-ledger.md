@@ -1000,3 +1000,12 @@ device's own `/api/panel` journal. Evidence `docs/design/evidence/round71-activi
 earlier failure was two separate things: the launcher was rolling back because the sidecar still
 described the old binary (signature + sha), and the window was an old single-instance holding the
 desktop directory open, so the replacement never landed.
+
+**Round 72 — terminal calls carry their session, and the swap gets a rollback.** `summarize_args` now
+also answers for `terminal.*` with `session=<id>` (verified on the real binary: a `terminal.read` begin
+line reads `"args":"session=session-1"`), while every other tool still writes no argument value; the
+`end` summary is narrowed to `runs.exec` alone, because another tool's answer can be payload. The
+CPH4KB2 swap left the machine with no device and no tray icon: the copy raced the stopping process,
+the launcher refused the mismatched pair, and `sc start`'s exit code said nothing about it. The fix is
+`scripts/swap-device-payload.ps1` — it waits for the process to be gone, verifies the bytes it wrote,
+polls `/api/health`, and restores the old pair and pointer when the new one does not answer.

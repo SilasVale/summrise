@@ -855,7 +855,7 @@ impl DeviceServer {
         match self.invoke(name, arguments).await {
             Ok(text) => {
                 let outcome = summarize_outcome(name, &text);
-                self.audit_end(id, true, None, arrival, peer, token_id, Some(outcome.as_str()))
+                self.audit_end(id, true, None, arrival, peer, token_id, outcome.as_deref())
                     .await;
                 let seq = self.publish_call_event(
                     "call.finished",
@@ -1513,6 +1513,13 @@ fn summarize_args(tool: &str, args: &serde_json::Map<String, serde_json::Value>)
     // line of `runs.exec`, because a transcript that says "ran a command" and not which command
     // answers nothing. Every other tool keeps the old silence — their arguments are payload
     // (memory text, file bodies), not an operation an operator can read at a glance.
+    if tool.starts_with("terminal.") {
+        let session = args
+            .get("session_id")
+            .or_else(|| args.get("id"))
+            .and_then(|value| value.as_str())?;
+        return Some(cap_chars(&format!("session={session}"), ARGS_SUMMARY_MAX));
+    }
     if tool != "runs.exec" {
         return None;
     }
@@ -1578,24 +1585,24 @@ fn looks_secret_value(value: &str) -> bool {
 
 /// One line of what the call returned: the exit code when the answer carries one, the state when it
 /// says that instead, and otherwise the first words of the text.
-fn summarize_outcome(_tool: &str, text: &str) -> String {
+fn summarize_outcome(tool: &str, text: &str) -> Option<String> {
+    // THE END LINE IS AS SENSITIVE AS THE BEGIN LINE. Only `runs.exec` reports an outcome here: its
+    // answer is a run record (exit code, state). Every other tool's answer can be payload — a file's
+    // text, a memory entry — and copying its first line into the audit would put that payload back
+    // into the file the audit test forbids.
+    if tool != "runs.exec" {
+        return None;
+    }
     if let Ok(value) = serde_json::from_str::<serde_json::Value>(text) {
         if let Some(code) = value.get("exit_code").and_then(|code| code.as_i64()) {
-            return format!("exit {code}");
+            return Some(format!("exit {code}"));
         }
         if let Some(state) = value.get("state").and_then(|state| state.as_str()) {
-            return cap_chars(state, OUTCOME_SUMMARY_MAX);
-        }
-        if let Some(written) = value.get("written").and_then(|written| written.as_u64()) {
-            return format!("wrote {written} bytes");
-        }
-        if value.get("ok").and_then(|ok| ok.as_bool()) == Some(false) {
-            let message = value.get("error").and_then(|error| error.as_str()).unwrap_or("error");
-            return cap_chars(message, OUTCOME_SUMMARY_MAX);
+            return Some(cap_chars(state, OUTCOME_SUMMARY_MAX));
         }
     }
     let first = text.lines().next().unwrap_or("").trim();
-    cap_chars(first, OUTCOME_SUMMARY_MAX)
+    Some(cap_chars(first, OUTCOME_SUMMARY_MAX))
 }
 
 fn cap_chars(text: &str, max: usize) -> String {
@@ -4649,7 +4656,12 @@ mod tests {
         assert!(!summary.contains("srm_abc123456789"), "the token is gone: {summary}");
         assert!(!summary.contains("hunter2"), "the password is gone: {summary}");
         assert!(super::summarize_args("memory.save", args.as_object().expect("object")).is_none(),
-            "only runs.exec gets its arguments into the audit");
+            "only runs.exec and the terminal tools get their arguments into the audit");
+        let terminal = serde_json::json!({ "session_id": "session-3", "data": "echo hi\r" });
+        assert_eq!(
+            super::summarize_args("terminal.write", terminal.as_object().expect("object")),
+            Some("session=session-3".to_owned())
+        );
     }
 
     #[cfg(unix)]
