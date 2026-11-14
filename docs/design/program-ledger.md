@@ -950,3 +950,10 @@ DESKTOP-CPH4KB2, exit 0, `C:\SummriseInstall\summrise-launch.exe` replaced with 
 with a live terminal on this machine is `docs/design/evidence/round66-panel-cph4kb2.png`. Tray pixels
 could not be captured this round: the session is running a fullscreen game, so the notification area
 is not on screen; the icon entry for the same exe path is the promoted one from round 60.
+
+**Round 67 — the tray icon is visibly back in the notification area.** The fullscreen game ended, and the
+taskbar strip shows the orange sunrise icon standing between the overflow chevron and WeChat — the
+promoted entry for `C:\SummriseInstall\desktop\SummriseDesktop.exe`, still the one round 60 wrote.
+Evidence `docs/design/evidence/round67-tray-cph4kb2.png` (crop, 4x). With the installer path from round
+66 (`--start-shell` → Electron, zero `summrise-shell`), all four acceptance facts on DESKTOP-CPH4KB2 are
+now witnessed: live panel, a real terminal session, a visible tray icon, and no Rust shell.
