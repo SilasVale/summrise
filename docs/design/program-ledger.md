@@ -550,6 +550,23 @@ console's rollback is proven by the same backup/restore path. What is **not** do
 the fleet's default release (the canary pointer still names 0.3.292) — that is a channel decision
 for the operator, not a deploy. Next: v1 parity checks and the channel decision; then the pointer.
 
+**Round 36 — v2.0.0 is the canary default, and v1 is green at parity.** The publish that was only a
+rehearsal last round is now live: `publish-canary.bash --version 2.0.0 --channel canary --port 18090
+--mirror http://100.85.163.159:18100` signed and wrote the document, artifact, sidecar and installer
+into the canary mirror, and the pointer `release-canary.json` now names 2.0.0.
+`verify-release.sh 2.0.0 --mirror … --console http://100.74.250.98:19000 --console-version 2.0.0`
+answered ok: pointer 2.0.0, artifact digest matches, sidecar agrees, installer served (sha256
+`17a82ae7…eff9`, the host-port build), console runs 2.0.0 with 4 devices registered. On the named
+machine the device and console are both 2.0.0 (previous round's install and console swap), and its
+record is `C:\ProgramData\Summrise\record.db` schema 1. **v1 parity:** a clean worktree of
+`hub/v1` (`cd8dfed7 Merge the fleet's record`) ran `cargo test --manifest-path device/Cargo.toml
+--workspace` to exit 0 across 45 test binaries — v1 remains releasable and is untouched by the v2
+line. Rollback stays proven on the named machine for both streams (device 0.3.292 ↔ 2.0.0; console
+0.3.274-ux255 ↔ 2.0.0). The fleet picks the pointer up on its own schedule: DESKTOP-CPH4KB2 is on
+0.3.292 with a recent check and will update; DESKTOP-84T3LIN (0.3.291) reports no update check yet;
+DESKTOP-14RJCR8 has been offline for nine days. Nothing further is required of this line: the
+default release is v2.0.0, parity is green, rollback is proven.
+
 
 ## Next (in order)
 
