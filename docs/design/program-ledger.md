@@ -1030,3 +1030,11 @@ because the re-deployed `desktop` directory's EXE had lost `BUILTIN\Users:(RX)` 
 and SYSTEM could execute it, so a launch in session 1 died before any Electron log. `icacls` on the
 directory restored it and the icon is visible again (`round74-tray.png`). The deploy step must therefore
 always re-apply the Users ACE after replacing the desktop directory, not only after the first install.
+
+**Round 75 — 9VH is on 2.0.0 too, and its transcript shows all three shapes.** The rollback-capable
+script (`scripts/swap-device-payload.ps1`) swapped `C:\Program Files\Summrise` from 0.3.292 to the 2.0.0
+pair (sha `98d4e5d4`, task result 0, `current.txt=2.0.0`). The desktop payload was re-deployed with the
+Users ACE applied this time, and its window shows: `runs.exec · command=cmd /c echo *** → exit 0` (the
+secret-shaped token redacted) and `terminal.create` followed by `terminal.read · session=session-1`
+(`round75-transcript-9vh.png`), header v2.0.0. Both machines now satisfy the three live checks; what
+remains is putting the swap's guarantees into the product's own upgrade path.
