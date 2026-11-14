@@ -877,3 +877,15 @@ through as `-DDESKTOP_SOURCE`. The script compiles with `makensis` against a dum
 setup, no error), so the File/ifdef paths are exercised; the architecture gate is still 16/27/0. What
 is not yet done: a real installer build with the 188 MB Electron payload and an install on CPH4KB2;
 the tray promotion of the installed path is still the open question from round 58.
+
+**Round 60 — the tray icon is visible, and it is on the installed path.** With the desktop free, the
+notification area showed the Summrise icon only inside the overflow. The user's `NotifyIconSettings`
+entry for `C:\SummriseInstall\desktop\SummriseDesktop.exe` existed with `IsPromoted` empty; setting
+it to 1 and restarting Explorer (the shell re-adds every icon on `TaskbarCreated`) moved the icon into
+the visible area beside the chevron — evidence: `docs/design/evidence/round60-tray-visible.png`.
+The Electron app is the only local tray app (the Rust shell is stopped), and its window still reports
+`/legacy` over CDP. Promotion is a per-icon registry value: the app cannot make Windows 11 show a new
+icon on its first run without the user's Settings action or a shell restart, which is why the app also
+offers the Settings page once on first focused run. The remaining open question is the panel itself:
+the surface shown is the pre-rewrite single-page panel (the one that calls `/api/panel`); the
+`panel-react` SPA needs its own `/api/*` backend, which 2.0 does not serve.
