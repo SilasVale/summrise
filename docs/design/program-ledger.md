@@ -938,3 +938,15 @@ PowerShell banner and prompt, footer `127.0.0.1:49249 · 1 session · v2.0.0`; e
 `docs/design/evidence/round65-panel-terminal.png`. Rounds 64–65 together are the "necessary subset":
 status, sessions, terminal open/stream/close — no workspace/browser/logs bridge yet, and no legacy
 backend copied.
+
+**Round 66 — the real installer installs a keyed launcher, and login starts Electron, not the Rust
+shell.** The launcher builds now embed the real release keys (`summrise-release pubkey` over
+`canary-kit-archive/keys/{launcher,release}.seed`: `e6d4efe3…` / `84c2693e…`), so the sidecar the setup
+carries is accepted; `SummriseSetup-2.0.0-canary.exe` (93 MB, desktop payload included) ran silently on
+DESKTOP-CPH4KB2, exit 0, `C:\SummriseInstall\summrise-launch.exe` replaced with the keyed build
+(2,718,454 bytes), service running, health ok. The ShellStart task's `--start-shell` as SYSTEM reported
+"started the shell in 1 signed-in session(s)"; the page behind CDP 9333 is
+`http://127.0.0.1:49929/activity`, four `SummriseDesktop` processes, **zero `summrise-shell`**. The panel
+with a live terminal on this machine is `docs/design/evidence/round66-panel-cph4kb2.png`. Tray pixels
+could not be captured this round: the session is running a fullscreen game, so the notification area
+is not on screen; the icon entry for the same exe path is the promoted one from round 60.
