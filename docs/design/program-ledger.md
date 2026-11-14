@@ -703,3 +703,15 @@ waiting: dispatch seam, fleet join, the join-deps fix, and two ledger commits). 
 packages it: it opens the tunnel, waits for GitHub through it, pushes `next` and `next:main`, and
 prints the remote refs; the second run answered "Everything up-to-date" and the expected refs. The
 procedure is documented in `docs/RELEASE.md`. Next: DESKTOP-CPH4KB2's tray icon and the 7737 port.
+
+**Round 46 — the dead port and the missing icon are named.** The two symptoms have one shape: the
+device's own HTTP is loopback only and its port is the one the installer baked (`18090` on these
+machines) while the compiled default is `7737`, so `http://<machine>:7737` is expected to refuse and
+no remote host can reach either port. `docs/QUICKSTART.md` now says that beside the panel command and
+adds rows for the refused `7737` and for a tray that does not come back after an upgrade (the
+installer kills the old shell and starts the new one only in **active** sessions; a locked or
+disconnected session waits for the next sign-in or an interactive `summrise-launch --start-shell`).
+Verifying CPH4KB2's tray is blocked on remote access: the fleet token this host used for `/mcp/all`
+has expired, and re-minting one needs the console's operator token (or a login link) on
+DESKTOP-9VH92BJ; the host has no SSH server reachable with the keys here. The relay work was pushed
+before this round (`origin/next` = `origin/main` = `7e749d26`).
