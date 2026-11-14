@@ -164,6 +164,8 @@ import { readDevicePort } from "./device-port";
 // TRAY-FIRST: a local app that is already running should not put a window on someone's desktop at
 // login. It starts in the notification area; clicking the icon (or a second launch) opens the panel.
 const START_VISIBLE = process.argv.includes("--show") || process.env.SUMMRISE_START_VISIBLE === "1";
+/** `--panel` opens the React panel instead of the operations transcript. */
+const START_PANEL = process.argv.includes("--panel");
 import { startLegacyPanel } from "./legacy-panel";
 
 function bootAgentPort(): number {
@@ -969,7 +971,7 @@ if (gotTheLock) {
       if (tripwireAllows(url, isDesktopSpaUrl(url)) || legacyUrl(url)) return;
       console.log(tripwireLog(url));
       snappingBack = true;
-      win?.loadURL(`${legacyBase}/activity`).catch(() => { /* retry below */ }).finally(() => {
+      win?.loadURL(`${legacyBase}${START_PANEL ? "/desktop/" : "/activity"}`).catch(() => { /* retry below */ }).finally(() => {
         setTimeout(() => { snappingBack = false; }, TRIPWIRE_BACKOFF_MS);
       });
     });
@@ -1149,7 +1151,7 @@ if (gotTheLock) {
       if (await agentReady()) {
         agentMissCount = 0;
         resetRetry();
-        win?.loadURL(`${legacyBase}/activity`).catch(() => { /* did-fail-load retries below */ });
+        win?.loadURL(`${legacyBase}${START_PANEL ? "/desktop/" : "/activity"}`).catch(() => { /* did-fail-load retries below */ });
       } else {
         // THE MISS IS COUNTED BEFORE THE PAGE IS HANDED THE NUMBER, because this
         // failed probe IS one: the count the operator reads is the number of

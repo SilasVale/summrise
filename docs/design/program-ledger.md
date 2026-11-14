@@ -916,3 +916,13 @@ desktop has no capture surface. Evidence:
 `docs/design/evidence/round63-ai-operations.png` (7 calls, 0 failed, stream live, v2.0.0 · 18090).
 The transcript cannot show arguments or output yet: the device journals the tool name, decision and
 outcome, not the call's arguments, so that is the next backend boundary to open.
+
+**Round 64 — the React panel renders in the Electron window again.** The blank page had one cause:
+`/desktop` without the trailing slash made the page's relative `panel.js` resolve to `/panel.js`, which
+the panel server does not serve, so the bundle never loaded. Loading `/desktop/` fixed it, and the
+window now takes `--panel` (panel) or defaults to the operations transcript. On DESKTOP-9VH92BJ the
+window reports `http://127.0.0.1:64276/desktop` and paints the legacy shell: sidebar, "Terminal",
+"No sessions yet", "+ New" — evidence `docs/design/evidence/round64-react-panel.png`. What the picture
+also shows is the honest gap: the footer says "connecting…" because the panel's event stream is an
+EventSource (no Authorization header) while the shim requires a bearer token, and "No sessions yet" is
+the `/api/sessions` stub. Live device data and a terminal are the next two boundaries.

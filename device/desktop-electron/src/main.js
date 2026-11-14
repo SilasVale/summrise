@@ -146,6 +146,8 @@ const device_port_1 = require("./device-port");
 // TRAY-FIRST: a local app that is already running should not put a window on someone's desktop at
 // login. It starts in the notification area; clicking the icon (or a second launch) opens the panel.
 const START_VISIBLE = process.argv.includes("--show") || process.env.SUMMRISE_START_VISIBLE === "1";
+/** `--panel` opens the React panel instead of the operations transcript. */
+const START_PANEL = process.argv.includes("--panel");
 const legacy_panel_1 = require("./legacy-panel");
 function bootAgentPort() {
     const fromDevice = (0, device_port_1.readDevicePort)();
@@ -970,7 +972,7 @@ if (gotTheLock) {
                 return;
             console.log((0, summrise_shell_policy_1.tripwireLog)(url));
             snappingBack = true;
-            win?.loadURL(`${legacyBase}/activity`).catch(() => { }).finally(() => {
+            win?.loadURL(`${legacyBase}${START_PANEL ? "/desktop/" : "/activity"}`).catch(() => { }).finally(() => {
                 setTimeout(() => { snappingBack = false; }, TRIPWIRE_BACKOFF_MS);
             });
         });
@@ -1151,7 +1153,7 @@ if (gotTheLock) {
             if (await agentReady()) {
                 agentMissCount = 0;
                 resetRetry();
-                win?.loadURL(`${legacyBase}/activity`).catch(() => { });
+                win?.loadURL(`${legacyBase}${START_PANEL ? "/desktop/" : "/activity"}`).catch(() => { });
             }
             else {
                 // THE MISS IS COUNTED BEFORE THE PAGE IS HANDED THE NUMBER, because this
