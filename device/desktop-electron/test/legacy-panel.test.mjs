@@ -118,3 +118,64 @@ test("the event stream carries the device's tool calls as SSE frames", async () 
     device.close();
   }
 });
+
+function fakeDevice(handlers) {
+  return new Promise((resolve) => {
+    const server = http.createServer((req, res) => {
+      const handler = handlers[req.url.split("?")[0]] || handlers.default;
+      if (!handler) { res.writeHead(404); res.end(); return; }
+      handler(req, res);
+    });
+    server.listen(0, "127.0.0.1", () => resolve(server));
+  });
+}
+
+test("the terminal tools speak the legacy panel's shapes over the device's own endpoints", async () => {
+  const device = await fakeDevice({
+    "/panel": (_req, res) => {
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end('<meta name="summrise-panel" content="' + "a".repeat(64) + '">');
+    },
+    "/api/terminal": (_req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ sessions: [{ id: "s1", kind: "pty", alive: true }] }));
+    },
+    "/api/terminal/create": (_req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ id: "s2", kind: "pty" }));
+    },
+    "/api/terminal/s2/close": (_req, res) => { res.writeHead(200); res.end("{}"); },
+    "/api/terminal/s1/read": (_req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ text: "hello", data_base64: "", cursor: 5 }));
+    },
+  });
+  const panel = await startLegacyPanel({
+    deviceBase: `http://127.0.0.1:${device.address().port}`,
+    html: "<head></head>",
+    activityHtml: "<head></head>",
+    token: "t",
+  });
+  try {
+    const post = (name, body) => fetch(`${panel.base}/api/tools/${name}`, {
+      method: "POST",
+      headers: { Authorization: "Bearer t", "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }).then((r) => r.json());
+
+    const list = await post("terminal_list", {});
+    assert.deepEqual(list, { ok: true, result: [{ id: "s1", kind: "pty", title: "pty", closed: false, active: true, rows: 24, cols: 80 }] });
+
+    const opened = await post("terminal_open", { kind: "pty", target: "cmd", rows: 30, cols: 120 });
+    assert.deepEqual(opened, { ok: true, result: "s2" });
+
+    const read = await post("terminal_read", { session_id: "s1", offset: 0 });
+    assert.deepEqual(read, { ok: true, text: "hello", end: 5 });
+
+    const closed = await post("terminal_close", { session_id: "s2" });
+    assert.deepEqual(closed, { ok: true });
+  } finally {
+    await panel.close();
+    device.close();
+  }
+});

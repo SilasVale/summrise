@@ -926,3 +926,15 @@ window reports `http://127.0.0.1:64276/desktop` and paints the legacy shell: sid
 also shows is the honest gap: the footer says "connecting…" because the panel's event stream is an
 EventSource (no Authorization header) while the shim requires a bearer token, and "No sessions yet" is
 the `/api/sessions` stub. Live device data and a terminal are the next two boundaries.
+
+**Round 65 — the panel's terminal is live on the 2.0 device.** Two contract facts made the bridge
+small: every tool answer must carry `{ok:true, result:…}` (the panel's `deviceRefused` rejects a bare
+array), and a session row is `id/kind` while the panel maps it to `sid`. The panel server now answers
+`terminal_list`, `terminal_open`, `terminal_close`, `terminal_write` and `terminal_read` by calling the
+device's own `/api/terminal*` routes with the per-boot token it lifts from the panel page's
+`summrise-panel` meta tag, and `/api/events/term` turns those reads into the panel's
+`{session_id, data:[bytes]}` frames. On DESKTOP-9VH92BJ the window shows tab `session-1` with the real
+PowerShell banner and prompt, footer `127.0.0.1:49249 · 1 session · v2.0.0`; evidence
+`docs/design/evidence/round65-panel-terminal.png`. Rounds 64–65 together are the "necessary subset":
+status, sessions, terminal open/stream/close — no workspace/browser/logs bridge yet, and no legacy
+backend copied.

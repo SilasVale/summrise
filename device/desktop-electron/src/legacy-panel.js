@@ -9,6 +9,11 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+const os = require("os");
+
+function toolLog(line) {
+  try { fs.appendFileSync(path.join(os.tmpdir(), "summrise-panel.log"), line + "\n"); } catch { /* diagnostics are best effort */ }
+}
 
 const TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -77,7 +82,64 @@ function deviceEvents(deviceBase) {
   });
 }
 
+
+/** Read one JSON request body; the panel's tool calls are small. */
+function readRequestBody(req) {
+  return new Promise((resolve) => {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => resolve(body));
+  });
+}
+
+/** The device's per-boot panel token, served inside `/panel`'s meta tag. */
+async function devicePanelToken(deviceBase, cache) {
+  if (cache.token) return cache.token;
+  const page = await readBody(`${deviceBase}/panel`);
+  const match = /name="summrise-panel" content="([0-9a-f]{64})"/.exec(page.body);
+  if (!match) throw new Error("panel_token_missing");
+  cache.token = match[1];
+  return cache.token;
+}
+
+function deviceRequest(deviceBase, path, { method = "GET", body, token } = {}) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(path, deviceBase);
+    const req = http.request(url, {
+      method,
+      headers: {
+        "x-summrise-panel": token,
+        ...(body ? { "content-type": "application/json", "content-length": Buffer.byteLength(body) } : {}),
+      },
+    }, (res) => {
+      let data = "";
+      res.setEncoding("utf8");
+      res.on("data", (chunk) => { data += chunk; });
+      res.on("end", () => resolve({ status: res.statusCode || 502, body: data }));
+    });
+    req.setTimeout(8000, () => req.destroy(new Error("device_timeout")));
+    req.on("error", reject);
+    req.end(body);
+  });
+}
+
+/** Legacy session row from the device's own terminal list. */
+function sessionRow(session) {
+  const id = String(session.id ?? session.session_id ?? "");
+  const kind = String(session.kind ?? "pty");
+  return {
+    id,
+    kind,
+    title: String(session.title ?? kind),
+    closed: session.alive === false,
+    active: session.alive !== false,
+    rows: session.rows ?? 24,
+    cols: session.cols ?? 80,
+  };
+}
+
 function makeHandler({ deviceBase, html, desktopDir, token, activityHtml, capture }) {
+  const cache = { token: "" };
   return async (req, res) => {
     const url = req.url || "/";
     const pathOnly = url.split("?")[0];
@@ -199,6 +261,116 @@ function makeHandler({ deviceBase, html, desktopDir, token, activityHtml, captur
           closed = true;
           clearInterval(heartbeat);
         });
+        void poll();
+        return;
+      }
+      if (pathOnly.startsWith("/api/tools/")) {
+        const name = pathOnly.slice("/api/tools/".length);
+        const raw = await readRequestBody(req);
+        toolLog(`tool ${name} args=${raw.slice(0, 200)}`);
+        let args = {};
+        try { args = raw ? JSON.parse(raw) : {}; } catch { args = {}; }
+        try {
+          const panelToken = await devicePanelToken(deviceBase, cache);
+          toolLog(`tool ${name} token=${panelToken ? "yes" : "no"}`);
+          if (name === "terminal_list") {
+            const r = await deviceRequest(deviceBase, "/api/terminal", { token: panelToken });
+            const body = JSON.parse(r.body);
+            const rows = (body.sessions || []).map(sessionRow);
+            toolLog(`terminal_list rows=${JSON.stringify(rows)}`);
+            res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+            res.end(JSON.stringify({ ok: true, result: rows }));
+            return;
+          }
+          if (name === "terminal_open") {
+            const kind = String(args.kind || "pty");
+            const payload = { kind };
+            if (kind === "serial" && args.target) payload.port = String(args.target);
+            if (kind === "pty" && args.target) payload.shell = String(args.target);
+            const r = await deviceRequest(deviceBase, "/api/terminal/create", {
+              method: "POST", token: panelToken, body: JSON.stringify(payload),
+            });
+            const body = JSON.parse(r.body);
+            if (r.status >= 400 || !body.id) {
+              res.writeHead(200, { "content-type": "application/json" });
+              res.end(JSON.stringify({ ok: false, error: body.error || "terminal_open_failed" }));
+              return;
+            }
+            res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+            res.end(JSON.stringify({ ok: true, result: body.id }));
+            return;
+          }
+          if (name === "terminal_close") {
+            const sid = String(args.session_id || "");
+            const r = await deviceRequest(deviceBase, `/api/terminal/${encodeURIComponent(sid)}/close`, {
+              method: "POST", token: panelToken, body: "{}",
+            });
+            res.writeHead(200, { "content-type": "application/json" });
+            res.end(JSON.stringify({ ok: r.status < 400 }));
+            return;
+          }
+          if (name === "terminal_write") {
+            const sid = String(args.session_id || "");
+            const data = String(args.data ?? "");
+            const r = await deviceRequest(deviceBase, `/api/terminal/${encodeURIComponent(sid)}/write`, {
+              method: "POST", token: panelToken, body: JSON.stringify({ data }),
+            });
+            const body = JSON.parse(r.body || "{}");
+            res.writeHead(200, { "content-type": "application/json" });
+            res.end(JSON.stringify({ ok: r.status < 400, written: body.written ?? 0 }));
+            return;
+          }
+          if (name === "terminal_read") {
+            const sid = String(args.session_id || "");
+            const offset = Number(args.offset ?? 0) || 0;
+            const r = await deviceRequest(deviceBase, `/api/terminal/${encodeURIComponent(sid)}/read?cursor=${offset}`, { token: panelToken });
+            const body = JSON.parse(r.body || "{}");
+            res.writeHead(200, { "content-type": "application/json" });
+            res.end(JSON.stringify({ ok: r.status < 400, text: body.text || "", end: body.cursor ?? offset }));
+            return;
+          }
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: "tool_not_implemented", tool: name }));
+        } catch (error) {
+          toolLog(`tool ${name} error=${error && error.message || error}`);
+          cache.token = "";
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: String(error && error.message || error) }));
+        }
+        return;
+      }
+
+      if (pathOnly === "/api/events/term") {
+        res.writeHead(200, {
+          "content-type": "text/event-stream",
+          "cache-control": "no-store",
+          connection: "keep-alive",
+        });
+        let closed = false;
+        const cursors = new Map();
+        let known = "";
+        const send = (frame) => res.write(`data: ${JSON.stringify(frame)}\n\n`);
+        const poll = async () => {
+          if (closed) return;
+          try {
+            const panelToken = await devicePanelToken(deviceBase, cache);
+            const list = JSON.parse((await deviceRequest(deviceBase, "/api/terminal", { token: panelToken })).body);
+            const rows = (list.sessions || []).map(sessionRow).filter((row) => !row.closed);
+            const sig = rows.map((row) => row.id).sort().join(",");
+            if (sig !== known) { known = sig; send({ ev: "sessions-changed" }); }
+            for (const row of rows) {
+              const cursor = cursors.get(row.id) || 0;
+              const r = await deviceRequest(deviceBase, `/api/terminal/${encodeURIComponent(row.id)}/read?cursor=${cursor}&wait_ms=0`, { token: panelToken });
+              if (r.status >= 400) continue;
+              const body = JSON.parse(r.body || "{}");
+              if (typeof body.cursor === "number") cursors.set(row.id, body.cursor);
+              if (body.text) send({ session_id: row.id, data: Array.from(Buffer.from(body.text, "utf8")) });
+            }
+          } catch { /* device asleep: keep the stream open */ }
+          if (!closed) setTimeout(poll, 400);
+        };
+        const ping = setInterval(() => { if (!closed) res.write(": ping\n\n"); }, 30000);
+        req.on("close", () => { closed = true; clearInterval(ping); });
         void poll();
         return;
       }
