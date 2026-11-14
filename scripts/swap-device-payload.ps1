@@ -57,16 +57,16 @@ function Restart-Launcher {
   for ($attempt = 1; $attempt -le 3; $attempt++) {
     sc.exe stop SummriseLaunch | Out-Null
     if (-not (Wait-ServiceStopped)) {
-      Add-Content $logPath "attempt $attempt: the service did not reach STOPPED"
+      Add-Content $logPath "attempt ${attempt}: the service did not reach STOPPED"
       continue
     }
     Wait-DeviceGone
     sc.exe start SummriseLaunch | Out-Null
     for ($i = 0; $i -lt 60; $i++) {
       Start-Sleep -Seconds 1
-      if (Test-Health) { Add-Content $logPath "attempt $attempt: healthy"; return $true }
+      if (Test-Health) { Add-Content $logPath "attempt ${attempt}: healthy"; return $true }
     }
-    Add-Content $logPath "attempt $attempt: started but never healthy"
+    Add-Content $logPath "attempt ${attempt}: started but never healthy"
   }
   return $false
 }

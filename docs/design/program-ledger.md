@@ -1092,3 +1092,13 @@ inside the block, after extraction). The launcher's installer suite is 10/10, th
 On 9VH: `SummriseDesktop.exe` carries `BUILTIN\Users:(I)(RX)`, the `SummriseShell` Run value points at
 `C:\SummriseInstall\desktop\SummriseDesktop.exe` (not the Rust shell), `shell=0`, `desktop=4`.
 Next: the bad-sidecar drill on 9VH with the hardened script and its log.
+
+**Round 81 — the bad pair is refused live, and the restore is proven with its own log.** On 9VH the
+hardened script swapped in a sidecar signed for other bytes (`7df2fd50…` over a 98d4 binary). The
+launcher refused it, the script logged three failed starts, restored the old pair, restarted, and the
+log ends `attempt 1: healthy`. The service is back on 2.0.0 sha `98d4e5d4` (new pid), `current.txt` is
+2.0.0, and the task result is 1 — the drill's expected failure. Evidence:
+`docs/design/evidence/round81-swap-drill.log`. The first attempt never started because the script had
+`"$attempt: …"` in three log strings; PowerShell parsed that as a scoped variable and died before doing
+anything, with no log. The strings are `${attempt}:` now, and the parser check is part of staging a
+script, not an afterthought.

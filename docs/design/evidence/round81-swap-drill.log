@@ -1,0 +1,6 @@
+swapping 2.0.0 from C:\Windows\Temp\dev-98d4.exe
+attempt 1: started but never healthy
+attempt 2: started but never healthy
+attempt 3: started but never healthy
+the new payload never answered /api/health; restoring the old pair
+attempt 1: healthy
