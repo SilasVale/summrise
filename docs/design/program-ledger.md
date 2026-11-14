@@ -767,3 +767,17 @@ tests), `tsc --noEmit` clean. The **legacy panel UI is not wired yet**: `panel-r
 legacy `/api/*` surface the device does not serve, so the window still shows the device's own
 `/panel`; mapping or shimming that surface is the next slice. `npm install` is still fetching the
 Electron binary on this host, so a Windows package has not been produced in this round.
+
+**Round 51 — the Electron shell runs on CPH4KB2.** Installed from `dist/win-unpacked` (electron-builder
+`--win dir`, unsigned, icon regenerated at 256×256 from the 128 px source) into
+`C:\Windows\Temp\SummriseDesktop` and started in the user session: the process stays up, its control
+server answers `/api/shell/icon-status` with a resolved tray icon (`icon.ico`, 256×256, non-empty), and
+the window is visible showing the device's `/panel` page with the legacy File/Edit/View/Session menu.
+`/api/health` is what the shell probes and `device.port` is where it gets 18090, so the legacy 18080
+path is no longer used. The tray icon is created but Windows 11 still keeps it in the notification-area
+overflow: its `NotifyIconSettings` entry for `SummriseDesktop.exe` is `IsPromoted=1` (set while
+explorer was running), and an explorer restart re-added the icon without promoting it — the old
+`summrise-shell.exe` entry that is visible was promoted through the Settings UI, not by this edit.
+The legacy panel itself is still not shown; the window loads the device page, which is the remaining
+work (build `panel-react`, add the adapter between its `/api/*` calls and the device, and decide the
+tray-promotion path that actually works on Windows 11).
