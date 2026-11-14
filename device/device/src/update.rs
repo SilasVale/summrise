@@ -1156,6 +1156,30 @@ mod tests {
         assert_nothing_staged(&dir, &staged, &sidecar_path);
     }
 
+    /// A mismatch must not move the pointer the launcher boots from: the refusal happens before the
+    /// supervisor is asked, so `current.txt` still names the version that is serving.
+    #[test]
+    fn a_sha_mismatch_leaves_the_current_pointer_alone() {
+        let dir = TempDir::new("stage-bad-sha-pointer");
+        let (install, staged, sidecar_path) = paths(&dir);
+        fs::create_dir_all(install.join("versions").join("0.3.292"))
+            .expect("the versioned layout exists");
+        fs::write(install.join(CURRENT_POINTER), "0.3.292").expect("the old pointer is written");
+        let key = signing_key();
+        let manifest = manifest_for("2.0.3", "stable", b"expected bytes", &key, "2.0.0");
+
+        let result = stage(b"tampered bytes", &manifest, &key.verifying_key(), &install);
+
+        assert!(matches!(result, Err(StageError::Sha)), "{result:?}");
+        assert_eq!(
+            fs::read_to_string(install.join(CURRENT_POINTER)).expect("read the pointer"),
+            "0.3.292",
+            "a refused pair must leave the pointer naming the serving version"
+        );
+        assert!(!staged.exists(), "no artifact may be staged on a refusal");
+        assert!(!sidecar_path.exists(), "no sidecar may be written on a refusal");
+    }
+
     #[test]
     fn a_version_below_min_version_is_refused() {
         let dir = TempDir::new("stage-min-version");

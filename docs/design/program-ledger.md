@@ -1038,3 +1038,14 @@ Users ACE applied this time, and its window shows: `runs.exec · command=cmd /c 
 secret-shaped token redacted) and `terminal.create` followed by `terminal.read · session=session-1`
 (`round75-transcript-9vh.png`), header v2.0.0. Both machines now satisfy the three live checks; what
 remains is putting the swap's guarantees into the product's own upgrade path.
+
+**Round 76 — the product path already had the guarantees; the missing proof was the pointer.** The
+launcher's supervisor is the product path: it verifies the staged sidecar's signature and digest, waits
+for the old app to exit, probes `/api/health` twice before committing a generation, and answers
+`rolled_back` (with the old pair still serving) when the candidate never answers — the end-to-end
+`rolled_back` test covers that. What was not proven is the *first* refusal: a staged pair whose bytes do
+not hash to the signed sidecar. `a_sha_mismatch_leaves_the_current_pointer_alone` now stages tampered
+bytes against a signed manifest on a versioned install and asserts `Err(StageError::Sha)`, no staged
+artifact or sidecar, and `current.txt` still `0.3.292`. Device suite 676 passed, Electron 87, the
+architecture gate 16 packages / 27 edges / 0 upward. The swap script's own rollback has not yet been
+exercised live; that drill is the remaining item.
