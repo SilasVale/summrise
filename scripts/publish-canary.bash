@@ -215,8 +215,8 @@ if [ -n "$makensis" ]; then
     fi
     (cd installer && "$makensis" -DVERSION="$version" -DPORT="$port" \
         -DCHANNEL="$channel" -DSOURCE="$source_dir" "${browser_args[@]}" summrise.nsi)
-    sign_file "installer/SummriseSetup-$version.exe"
-    cp installer/SummriseSetup-"$version".exe "$out/"
+    sign_file "installer/SummriseSetup-$version-$channel.exe"
+    cp installer/SummriseSetup-"$version-$channel".exe "$out/"
 else
     echo "publish-canary: makensis was not found; the installer is not in this publish" >&2
 fi
@@ -224,7 +224,7 @@ fi
 # The mirror directory is what the public URL serves. Copying here instead of by hand is the difference
 # between a publish that is complete and one that is complete once someone remembers the cp.
 if [[ -n "$mirror_dir" ]]; then
-    cp "$out/SummriseSetup-$version.exe" "$out/summrise-device-$version.exe" \
+    cp "$out/SummriseSetup-$version-$channel.exe" "$out/summrise-device-$version.exe" \
        "$out/release-$version.json" "$out/release-$channel.json" "$mirror_dir/"
     echo "== mirrored to $mirror_dir"
 fi

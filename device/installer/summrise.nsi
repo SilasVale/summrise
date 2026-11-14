@@ -88,7 +88,7 @@ VIAddVersionKey "LegalCopyright" "Summrise"
 !macroend
 
 Name "${PRODUCT} ${VERSION}"
-OutFile "SummriseSetup-${VERSION}.exe"
+OutFile "SummriseSetup-${VERSION}-${CHANNEL}.exe"
 ; The compile-time default is named so `.onInit` can tell "the wizard's default" from "the operator
 ; chose /D=": the registry's existing root replaces the former, never the latter.
 !define DEFAULT_INSTDIR "$PROGRAMFILES64\Summrise"

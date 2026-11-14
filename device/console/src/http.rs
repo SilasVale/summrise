@@ -62,7 +62,7 @@ const MAX_LOG_LIMIT: usize = 1000;
 /// missing directory is a normal state — a release that carries no setup binary.
 const INSTALLER_DIR: &str = "installer";
 
-/// The name every installer candidate carries: `SummriseSetup-<version>.exe`.
+/// The name every installer candidate carries: `SummriseSetup-<version>[-<channel>].exe`.
 const INSTALLER_PREFIX: &str = "SummriseSetup-";
 const INSTALLER_SUFFIX: &str = ".exe";
 
@@ -1676,6 +1676,12 @@ fn installer_version(filename: &str) -> Option<&str> {
     let version = filename
         .strip_prefix(INSTALLER_PREFIX)?
         .strip_suffix(INSTALLER_SUFFIX)?;
+    // A publish since 2.0.0 names its channel after the version, so both channels of one version can
+    // sit in one directory. The channel is not part of the version a page displays.
+    let version = version
+        .strip_suffix("-canary")
+        .or_else(|| version.strip_suffix("-stable"))
+        .unwrap_or(version);
     // An empty middle is not a version, and a route must not report one.
     (!version.is_empty()).then_some(version)
 }
@@ -7635,6 +7641,15 @@ mod tests {
         assert_eq!(
             installer_version("SummriseSetup-0.3.273-ux43.exe"),
             Some("0.3.273-ux43")
+        );
+        assert_eq!(
+            installer_version("SummriseSetup-2.0.0-canary.exe"),
+            Some("2.0.0"),
+            "a channel-qualified publish names the release, not the channel"
+        );
+        assert_eq!(
+            installer_version("SummriseSetup-2.0.0-stable.exe"),
+            Some("2.0.0")
         );
         assert_eq!(installer_version("SummriseSetup-.exe"), None);
         assert_eq!(installer_version("summrisesetup-0.3.280.exe"), None);

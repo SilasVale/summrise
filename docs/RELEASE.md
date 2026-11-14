@@ -18,6 +18,15 @@ page role). The workspace's unit-test and clippy jobs name every crate, and the 
 `makensis` runs. `verify-release.sh` is the tool that keeps those
 facts straight (see "Proving it landed").
 
+## An installer names its channel
+
+Since 2.0.0 the setup file is `SummriseSetup-<version>-<channel>.exe`, not `SummriseSetup-<version>.exe`:
+one version can publish canary and stable, and the two artifacts must not overwrite each other on the
+mirror. `publish-canary.bash` builds and signs the qualified name, `verify-release.sh` checks the
+channel's own file (falling back to the unqualified name for older releases), and the console's
+`/installer` route accepts both spellings and reports the version in the middle. Any deploy or
+download link that hardcodes the old name needs the channel suffix.
+
 ## The browser is headless unless someone asks to watch
 
 `browser.*` used to launch Chrome in the operator's session first, headless only as a fallback: the visible

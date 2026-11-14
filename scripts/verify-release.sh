@@ -147,7 +147,12 @@ PY
         # The installer is the ONLY channel that carries `summrise-shell.exe`: the canary update
         # swaps the app and nothing else. A publish without it (no makensis on the host) can still
         # update the app, but a shell fix reaches a device only through this file.
-        installer="SummriseSetup-$version.exe"
+        # The installer names its channel since 2.0.0: one version can publish both channels and the
+        # files must not overwrite each other. An older publish has only the unqualified name.
+        installer="SummriseSetup-$version-$channel.exe"
+        if ! curl -fsS --max-time 20 -o /dev/null "$mirror/$installer"; then
+            installer="SummriseSetup-$version.exe"
+        fi
         if curl -fsS --max-time 20 -o /dev/null "$mirror/$installer"; then
             digest="$(curl -fsS --max-time 300 "$mirror/$installer" | sha256sum | cut -d' ' -f1)"
             pass "$installer is served (sha256 $digest) — the tray's only update channel"

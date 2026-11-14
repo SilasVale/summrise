@@ -134,8 +134,8 @@ elapsed=$(( $(date +%s) - start ))
 if [ "$rc" -eq 0 ]; then
     echo "PASS: $version published and verified from $mirror in ${elapsed}s"
     echo "  out: $out"
-    if [ -f "$out/SummriseSetup-$version.exe" ]; then
-        echo "  installer: built ($out/SummriseSetup-$version.exe)"
+    if [ -f "$out/SummriseSetup-$version-canary.exe" ]; then
+        echo "  installer: built ($out/SummriseSetup-$version-canary.exe)"
     else
         echo "  installer: NOT built (makensis was not found)"
     fi

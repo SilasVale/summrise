@@ -626,6 +626,16 @@ Device suite 672 green, clippy/fmt clean, gate 16 / 27 / 0. Note: the fleet MCP 
 host expired during the round (console says mint a new `/mcp/all` token), so further remote
 inspection needs a fresh token. Next: the entry/dispatch seam (S4), then the fleet join.
 
+**Round 41 — installers name their channel.** `SummriseSetup-<version>.exe` was one file per version,
+so publishing canary and stable of 2.0.0 meant the second publish overwrote the first channel's
+installer. The NSIS `OutFile`, `publish-canary.bash` (sign + copy + mirror), `verify-release.sh`
+(channel-qualified first, unqualified as the older-release fallback) and `rehearse-release.sh` now
+use `SummriseSetup-<version>-<channel>.exe`; the console's `/installer` parser accepts both spellings
+and still reports the version in the middle (unit test covers `-canary`/`-stable`). Both channels
+were re-published: canary `f8a67840…` and stable `6bca2a9f…` are served under their own names, and
+`verify-release.sh 2.0.0` is ok on both (3 devices registered). Console lib tests 176 and integration
+283 green; docs/RELEASE.md has the naming rule. Next: the entry/dispatch seam (S4).
+
 
 ## Next (in order)
 
