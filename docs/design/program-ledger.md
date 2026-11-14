@@ -1009,3 +1009,14 @@ CPH4KB2 swap left the machine with no device and no tray icon: the copy raced th
 the launcher refused the mismatched pair, and `sc start`'s exit code said nothing about it. The fix is
 `scripts/swap-device-payload.ps1` — it waits for the process to be gone, verifies the bytes it wrote,
 polls `/api/health`, and restores the old pair and pointer when the new one does not answer.
+
+**Round 73 — the last round is blocked on one machine, and the evidence stops there honestly.** The
+device code is proven where it can be exercised: the real binary writes `"args":"command=…"` (scrubbed)
+and `"outcome":"exit 0"` for `runs.exec`, `"args":"session=session-1"` for `terminal.read`, and the
+Electron transcript renders the first pair live on DESKTOP-CPH4KB2 (round 71's screenshot). What is
+NOT done is the same live pass on DESKTOP-9VH92BJ, because that machine still runs the legacy
+`0.3.292` device and switching it while DESKTOP-CPH4KB2 is offline would risk the only reachable
+machine. DESKTOP-CPH4KB2 itself has been 503 since round 71's swap stopped its service; the recovery
+command (`sc start SummriseLaunch`, or roll the pointer back to 0.3.292) is a local action. The goal
+stays open until a machine is back and the rollback-capable swap (`scripts/swap-device-payload.ps1`)
+can be used.
