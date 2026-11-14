@@ -351,6 +351,29 @@ function focusMain() {
  *  second half of it (the SPA handles the same chords from its own keydown map in a plain browser). A
  *  renamed id or a dropped row breaks the desktop app and nothing else. `Menu.buildFromTemplate` and the
  *  Electron `role` strings are this file's. */
+function offerTraySettingsOnce() {
+    try {
+        const marker = path.join(electron_1.app.getPath("userData"), "tray-settings-shown");
+        if (fs.existsSync(marker))
+            return;
+        fs.mkdirSync(path.dirname(marker), { recursive: true });
+        fs.writeFileSync(marker, new Date().toISOString());
+        void electron_1.dialog.showMessageBox({
+            type: "info",
+            title: "Summrise tray icon",
+            message: "If you do not see the Summrise icon in the notification area",
+            detail: "Windows 11 hides new tray icons by default. Open Settings → Personalization → Taskbar → Other system tray icons and turn on Summrise.",
+            buttons: ["Open settings", "Later"],
+            defaultId: 0,
+            cancelId: 1,
+        }).then((choice) => {
+            if (choice.response === 0)
+                void electron_1.shell.openExternal("ms-settings:taskbar");
+        });
+    }
+    catch { /* the hint is a courtesy; a machine that refuses it still has a working tray */ }
+}
+
 function buildMenu() {
     const template = JSON.parse((0, summrise_shell_policy_1.appMenuJson)(process.platform, electron_1.app.name)).map((section) => ({
         label: section.label,

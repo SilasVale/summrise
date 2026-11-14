@@ -831,3 +831,14 @@ two. Visibility could not be confirmed: the operator is in a full-screen game an
 no tray element while the taskbar is covered. The legacy panel window reported earlier is on this
 install; if the icon is still in the overflow once the game is closed, the remaining step is a first-run
 "enable the icon in Settings" action rather than more registry edits.
+
+**Round 56 — the first-run tray hint, and why visibility is still unmeasured.** The app now sets the
+tray tooltip and, once per profile, offers the one Settings page that decides whether a Windows 11
+tray icon is visible ("Other system tray icons"); the marker is `userData/tray-settings-shown`, so the
+dialog is not a per-launch annoyance. `tsc --noEmit` clean, 83 Electron tests green. Visibility itself
+could not be observed: the interactive desktop is covered by a full-screen app, the taskbar is absent
+from both the screen and the UI Automation tree (`Shell_TrayWnd` not found), and no tray icon element
+exists to inspect. The icon object is still valid (`/api/shell/icon-status`: 256×256, non-empty) and the
+app runs from the path whose `NotifyIconSettings` entry is promoted. The next measurement is a tray
+capture or a UIA read once the operator leaves the full-screen app; until then this round records the
+hint rather than claiming a visible icon.

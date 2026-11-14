@@ -11,7 +11,7 @@
 //   3. window / tray / native menu / CDP exposure / browser sessions
 // No spawn() of summrise-agent.exe from JS — that was the d1 Chrome-OOM root
 // cause (a bind-failed child wedged on "Press Enter to exit" forever).
-import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, MenuItemConstructorOptions, Notification, session } from "electron";
+import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, MenuItemConstructorOptions, Notification, session, dialog, shell } from "electron";
 // IPC audit #6: execSync/ChildProcess were vestigial imports from the
 // pre-async-spawn era (round-117 removed the call sites) — dropped so
 // eslint/tsc keep the surface honest. The last one to go was the empty
@@ -360,6 +360,32 @@ function focusMain(): void {
  *  second half of it (the SPA handles the same chords from its own keydown map in a plain browser). A
  *  renamed id or a dropped row breaks the desktop app and nothing else. `Menu.buildFromTemplate` and the
  *  Electron `role` strings are this file's. */
+/** Tell a first run how Windows 11 hides new tray icons, and offer the one settings page that fixes it.
+ *
+ *  The icon is created with a valid HICON and the app is running; what keeps it out of sight is the
+ *  shell's own first-run policy (Settings → Personalization → Taskbar → Other system tray icons). The
+ *  hint is written to `userData`, so it is shown once per profile, not once per launch.
+ */
+function offerTraySettingsOnce(): void {
+  try {
+    const marker = path.join(app.getPath("userData"), "tray-settings-shown");
+    if (fs.existsSync(marker)) return;
+    fs.mkdirSync(path.dirname(marker), { recursive: true });
+    fs.writeFileSync(marker, new Date().toISOString());
+    void dialog.showMessageBox({
+      type: "info",
+      title: "Summrise tray icon",
+      message: "If you do not see the Summrise icon in the notification area",
+      detail: "Windows 11 hides new tray icons by default. Open Settings → Personalization → Taskbar → Other system tray icons and turn on Summrise.",
+      buttons: ["Open settings", "Later"],
+      defaultId: 0,
+      cancelId: 1,
+    }).then((choice) => {
+      if (choice.response === 0) void shell.openExternal("ms-settings:taskbar");
+    });
+  } catch { /* the hint is a courtesy; a machine that refuses it still has a working tray */ }
+}
+
 function buildMenu(): Menu {
   interface MenuRow {
     label?: string | null;
@@ -1199,7 +1225,9 @@ if (gotTheLock) {
     // Windows requires .ico for tray; macOS/Linux accept .png.
     const iconPath = appIcon();
     tray = new Tray(iconPath ? iconPath : nativeImage.createEmpty());
+    tray.setToolTip("Summrise");
     console.log(`[summrise] icons ${JSON.stringify(iconReport)}`);
+    offerTraySettingsOnce();
     // review #f: single/double-click on the tray icon did nothing (only the
     // context-menu "Open" worked).
     tray.on("click", () => focusMain());
