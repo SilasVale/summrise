@@ -34,36 +34,66 @@ function Wait-DeviceGone {
   Start-Sleep -Seconds 2
 }
 
+function Wait-ServiceStopped {
+  for ($i = 0; $i -lt 90; $i++) {
+    $state = (sc.exe query SummriseLaunch | Out-String)
+    if ($state -match "STOPPED") { return $true }
+    Start-Sleep -Seconds 1
+  }
+  return $false
+}
+
+function Test-Health {
+  try {
+    $health = Invoke-RestMethod "http://127.0.0.1:$Port/api/health" -TimeoutSec 3
+    return ($health.status -eq "ok")
+  } catch { return $false }
+}
+
 function Restart-Launcher {
-  # A running launcher with a dead device answers `sc start` with 1056 and starts nothing — the
-  # failure mode this script exists for. Stop first, wait for the process, then start.
-  sc.exe stop SummriseLaunch | Out-Null
-  Wait-DeviceGone
-  sc.exe start SummriseLaunch | Out-Null
+  # A launcher that gave up after three consecutive child failures stays alive with no device, and
+  # `sc start` then answers 1056 without starting anything. The stop has to reach STOPPED, not just be
+  # requested, and the start has to be followed by a health answer; otherwise retry with a fresh stop.
+  for ($attempt = 1; $attempt -le 3; $attempt++) {
+    sc.exe stop SummriseLaunch | Out-Null
+    if (-not (Wait-ServiceStopped)) {
+      Add-Content $logPath "attempt $attempt: the service did not reach STOPPED"
+      continue
+    }
+    Wait-DeviceGone
+    sc.exe start SummriseLaunch | Out-Null
+    for ($i = 0; $i -lt 60; $i++) {
+      Start-Sleep -Seconds 1
+      if (Test-Health) { Add-Content $logPath "attempt $attempt: healthy"; return $true }
+    }
+    Add-Content $logPath "attempt $attempt: started but never healthy"
+  }
+  return $false
 }
 
 function Restore-Old {
   if ($hadDevice) { Copy-Item "$devicePath.rollback" $devicePath -Force }
   if ($hadSidecar) { Copy-Item "$sidecarPath.rollback" $sidecarPath -Force }
   if ($oldVersion) { Set-Content $currentPath -Value $oldVersion -NoNewline }
-  Restart-Launcher
+  if (-not (Restart-Launcher)) {
+    Add-Content $logPath "the old pair is back but the service will not serve it; a reboot is required"
+    throw "the old pair is back but the service will not serve it; a reboot is required"
+  }
 }
 
+$logPath = Join-Path $env:TEMP "summrise-swap.log"
+Add-Content $logPath "swapping $Version from $Artifact"
 sc.exe stop SummriseLaunch | Out-Null
+if (-not (Wait-ServiceStopped)) { Add-Content $logPath "the service did not reach STOPPED before the copy"; }
 Wait-DeviceGone
 Copy-Item $Artifact $devicePath -Force
 Copy-Item $Sidecar $sidecarPath -Force
 if ((Get-FileHash $Artifact).Hash -ne (Get-FileHash $devicePath).Hash) { Restore-Old; throw "the copied binary does not match its source" }
 if ((Get-FileHash $Sidecar).Hash -ne (Get-FileHash $sidecarPath).Hash) { Restore-Old; throw "the copied sidecar does not match its source" }
 
-Restart-Launcher
-$healthy = $false
-for ($i = 0; $i -lt 90; $i++) {
-  Start-Sleep -Seconds 2
-  try {
-    $health = Invoke-RestMethod "http://127.0.0.1:$Port/api/health" -TimeoutSec 3
-    if ($health.status -eq "ok") { $healthy = $true; break }
-  } catch { }
+if (-not (Restart-Launcher)) {
+  Add-Content $logPath "the new payload never answered /api/health; restoring the old pair"
+  Restore-Old
+  throw "the new payload never answered /api/health; the old pair and pointer are back"
 }
-if (-not $healthy) { Restore-Old; throw "the new payload never answered /api/health; the old pair and pointer are back" }
 "swapped $Version and healthy on port $Port"

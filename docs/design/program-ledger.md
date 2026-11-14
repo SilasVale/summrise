@@ -1049,3 +1049,13 @@ bytes against a signed manifest on a versioned install and asserts `Err(StageErr
 artifact or sidecar, and `current.txt` still `0.3.292`. Device suite 676 passed, Electron 87, the
 architecture gate 16 packages / 27 edges / 0 upward. The swap script's own rollback has not yet been
 exercised live; that drill is the remaining item.
+
+**Round 77 — the drill found a real hole in the script, and the machine is down until it is fixed.**
+The deliberately mismatched sidecar (`7df2fd50…` against the 98d4 binary) was refused by the launcher
+as expected, but the script's restore did not bring the device back: it called `sc start` on a service
+that was still alive with no child (the launcher had spent its three-restart budget), and a running
+service answers 1056 without starting anything. The script now: waits for the service to reach STOPPED
+(not just for the stop request), restarts and requires a real `/api/health` answer, retries three times,
+logs each attempt to `%TEMP%\summrise-swap.log`, and says "a reboot is required" rather than pretending
+the restore worked. DESKTOP-CPH4KB2 stays offline until a local `sc start` or reboot; DESKTOP-9VH92BJ is
+unaffected and still serving 2.0.0.
