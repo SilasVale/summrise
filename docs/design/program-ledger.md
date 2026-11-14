@@ -978,3 +978,15 @@ chars; every other tool still writes no arguments. `end` gains `outcome` (`exit 
 first words of an error). The Electron transcript renders both on the one-line entry and keeps the full
 value behind the existing click. 675 device tests and 87 Electron tests pass; the privacy test is
 untouched and still green. Next: deploy this device binary and watch a live `runs.exec` line appear.
+
+**Round 70 — the audit fields are proven, and the machines were running the legacy device.** The real
+build was exercised on loopback: `runs.exec echo hello` left
+`{"event":"begin","tool":"runs.exec","transport":"loopback","args":"command=echo"}` and
+`{"event":"end","ok":true,"outcome":"exit 0"}` — the new fields exist and the transcript renders them.
+Then the live check found the actual blocker: both test machines answer `/api/health` with `2.0.0`, but
+`Win32_Process` says the running binary is `versions\0.3.292\summrise-device.exe` (legacy), and
+`current.txt` is `0.3.292`. `versions\2.0.0` holds only `summrise-device.exe` + sidecar, so the launcher
+rolls back on boot. Everything the panel bridge has shown on those machines was therefore served by the
+legacy device — which still has `/api/panel` and `/api/terminal`, hence the working panel. Live
+verification of the 2.0.0 audit fields needs a complete 2.0.0 payload (device + console + sidecar) and a
+pointer switch, not another binary copy.
