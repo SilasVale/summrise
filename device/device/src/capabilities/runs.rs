@@ -27,7 +27,9 @@
 //!
 //! History is one JSON line per run in `<data>/runs.jsonl`, with the output bodies deliberately left
 //! out: a row is `{id, command, args, cwd, exit_code, timed_out, duration_ms, started_at_ms,
-//! stdout_bytes, stderr_bytes}`. The file holds at most [`HISTORY_LINES`] rows; the next run rotates
+//! stdout_bytes, stderr_bytes, stdout_preview, stderr_preview}`. The previews are the first
+//! [`PREVIEW_CHARS`] characters of each stream with common credential shapes replaced by `***`; the
+//! file holds at most [`HISTORY_LINES`] rows, and the next run rotates
 //! it to `<data>/runs.1.jsonl` first, so the newest rows are always in the current file. `list` and
 //! `get` read the current file and then the rotated one, newest first.
 //!
@@ -93,6 +95,10 @@ pub const HISTORY_FILE: &str = "runs.jsonl";
 
 /// The rotated history file under `<data>`.
 pub const ROTATED_HISTORY_FILE: &str = "runs.1.jsonl";
+
+/// How many characters of each stream the history keeps. Small on purpose: the history is a record
+/// of what ran, not a log store, and every row is read back by a page.
+pub const PREVIEW_CHARS: usize = 2_048;
 
 /// How often the parent checks whether the child has exited.
 const POLL_INTERVAL_MS: u64 = 10;
@@ -201,6 +207,52 @@ pub struct Record {
     pub stdout_bytes: u64,
     /// How many bytes standard error produced in total.
     pub stderr_bytes: u64,
+    /// The first [`PREVIEW_CHARS`] characters of standard output, with common credential shapes
+    /// replaced by `***`. Empty for rows written before the field existed.
+    #[serde(default)]
+    pub stdout_preview: String,
+    /// The same for standard error.
+    #[serde(default)]
+    pub stderr_preview: String,
+}
+
+/// The credential prefixes a preview must not echo. This is the same list the transcript's command
+/// scrubber uses, kept here because the history is written before any reader sees the text.
+const PREVIEW_SECRET_PREFIXES: &[&str] = &["srm_", "sk-", "ghp_", "xoxb-", "AKIA", "Bearer "];
+
+/// Replace each token that starts with a credential prefix, up to the next whitespace, with `***`.
+fn scrub_preview(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < chars.len() {
+        let mut matched = false;
+        for prefix in PREVIEW_SECRET_PREFIXES {
+            let plen = prefix.chars().count();
+            if i + plen <= chars.len() && chars[i..i + plen].iter().copied().eq(prefix.chars()) {
+                out.push_str(prefix);
+                out.push_str("***");
+                i += plen;
+                while i < chars.len() && !chars[i].is_whitespace() {
+                    i += 1;
+                }
+                matched = true;
+                break;
+            }
+        }
+        if !matched {
+            out.push(chars[i]);
+            i += 1;
+        }
+    }
+    out
+}
+
+/// A capped, scrubbed preview of one captured stream.
+fn preview_of(bytes: &[u8]) -> String {
+    let text = String::from_utf8_lossy(bytes);
+    let capped: String = text.chars().take(PREVIEW_CHARS).collect();
+    scrub_preview(&capped)
 }
 
 /// Why a run was refused or failed.
@@ -442,6 +494,8 @@ impl Runs {
             started_at_ms,
             stdout_bytes: stdout.total,
             stderr_bytes: stderr.total,
+            stdout_preview: preview_of(&stdout.bytes),
+            stderr_preview: preview_of(&stderr.bytes),
         };
         let history_recorded = match self.append(&record) {
             Ok(()) => true,
@@ -1156,6 +1210,33 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn the_history_preview_is_capped_and_never_echoes_a_credential() {
+        let (_dir, _data, _root, runs) = fixture("runs-preview");
+        let long = format!("srm_deadbeef0123456789 {}", "x".repeat(PREVIEW_CHARS * 2));
+
+        let result = runs
+            .exec(argv("printf", &["%s", &long]))
+            .expect("printf runs");
+        assert_eq!(result.stdout, long, "the answer is exact, not the preview");
+
+        let row = runs.get(&result.id).expect("the row reads back");
+        assert!(
+            row.stdout_preview.chars().count() <= PREVIEW_CHARS,
+            "the preview is capped at {PREVIEW_CHARS} characters"
+        );
+        assert!(
+            row.stdout_preview.contains("srm_***"),
+            "the credential shape is replaced: {}",
+            row.stdout_preview
+        );
+        assert!(
+            !row.stdout_preview.contains("srm_deadbeef"),
+            "the token itself is never written to the history"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn a_cwd_inside_the_files_root_is_where_the_command_starts() {
         let (_dir, _data, root, runs) = fixture("runs-cwd-inside");
         let inside = root.join("nested");
@@ -1179,7 +1260,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn a_run_is_recorded_without_its_output_body_and_read_back_by_id() {
+    fn a_run_is_recorded_with_its_result_and_read_back_by_id() {
         let (_dir, data, root, runs) = fixture("runs-history");
 
         let mut env = BTreeMap::new();
@@ -1193,6 +1274,12 @@ mod tests {
             })
             .expect("the writer runs");
         assert_eq!(with_body.stdout, "body-not-in-history\n");
+
+        assert_eq!(
+            runs.get(&with_body.id).expect("the row reads back").stdout_preview,
+            "body-not-in-history\n",
+            "a short body is in the history as its preview, and the full answer is on the result"
+        );
 
         let second = runs.exec(argv("echo", &["two"])).expect("echo runs");
 
@@ -1227,8 +1314,8 @@ mod tests {
 
         let raw = fs::read_to_string(data.join(HISTORY_FILE)).expect("the history is on disk");
         assert!(
-            !raw.contains("body-not-in-history"),
-            "the output body is not stored: {raw}"
+            raw.contains("\"stdout_preview\""),
+            "the history carries a capped preview, not a body-only row: {raw}"
         );
         assert_eq!(raw.lines().count(), 2);
     }

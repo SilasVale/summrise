@@ -9,6 +9,8 @@ test("the transcript's expand fetches the run and names the session it came from
   assert.match(html, /data-run="\$\{escapeHtml\(c\.runId\)\}"/, "a row carries its run id");
   assert.match(html, /command<\/span><span class="v">/, "the expand prints the full command");
   assert.match(html, /stdout \$\{run\.stdout_bytes/, "the expand reports the output sizes it has");
+  assert.match(html, /run\.stdout_preview/, "the expand renders the preview the history kept");
+  assert.match(html, /credential shapes replaced by \*\*\*/, "the preview says what it scrubbed");
   assert.match(html, /open terminal/, "a terminal row links the terminal");
 });
 

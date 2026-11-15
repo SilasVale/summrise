@@ -220,7 +220,10 @@
         <span class="k">cwd</span><span class="v">${escapeHtml(run.cwd || "—")}</span>
         <span class="k">result</span><span class="v">${escapeHtml(code)} · ${fmtDur(run.duration_ms || 0)}</span>
         <span class="k">output</span><span class="v">stdout ${run.stdout_bytes ?? "?"} B · stderr ${run.stderr_bytes ?? "?"} B</span>
-      </div><div class="note">The run history keeps sizes, not output bodies; the command and exit facts above are the whole record.</div>`;
+      </div>
+      ${run.stdout_preview ? `<div class="kv"><span class="k">stdout</span><span class="v"><pre>${escapeHtml(run.stdout_preview)}</pre></span></div>` : ""}
+      ${run.stderr_preview ? `<div class="kv"><span class="k">stderr</span><span class="v"><pre>${escapeHtml(run.stderr_preview)}</pre></span></div>` : ""}
+      <div class="note">${run.stdout_preview || run.stderr_preview ? "Preview: the first bytes the history kept, with credential shapes replaced by ***." : "This row predates previews; the history has only the sizes."}</div>`;
     } catch (e) {
       block.textContent = "run " + block.dataset.run + " unavailable (" + e.message + ")";
     }

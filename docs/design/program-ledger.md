@@ -1132,3 +1132,13 @@ because the installer applied it — no manual icacls — and the `SummriseShell
 `C:\Program Files\Summrise\desktop\SummriseDesktop.exe`. Panel serves the filter and the runs route, a
 pty was created and read, and `GET /api/runs/run-1794700942150-2` answered
 `cmd /c echo rc-install-ok`, exit 0, 16 bytes. Evidence: `docs/design/evidence/round84-rc-install.txt`.
+
+**Round 85 — the history keeps a preview, scrubbed, and the installer carries it.** `Record` gained
+`stdout_preview`/`stderr_preview`: the first 2,048 characters of each stream with tokens beginning
+`srm_`, `sk-`, `ghp_`, `xoxb-`, `AKIA` or `Bearer ` replaced by `***` (unit test: a 4 KB output is capped
+and a token never appears in the row). The transcript's expand renders both previews under the command
+and exit facts, and says what it scrubbed. Deployed live on 9VH: `cmd /c echo srm_cafebabe9999` recorded
+`stdout_preview: "srm_***\r\n"` and the installed page serves the preview renderer. The release
+candidate was rebuilt with the preview device (sha `07ba344b…`) and the sd20 desktop — 96,877,017 bytes,
+sha256 `4479d466…` — and reinstalled silently on 9VH (exit 0, device 07ba, shell=0). Evidence:
+`docs/design/evidence/round85-preview.txt`. Device 678, Electron 93, gate green.
