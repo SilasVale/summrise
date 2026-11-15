@@ -1,7 +1,9 @@
 # Round protocol (long product-polish goal)
 
-One round = one backlog item delivered end to end. The session is the **controller**: it plans and
-dispatches; it does not write feature code itself.
+One round = one backlog item delivered end to end. **The plan is made fresh at the start of each
+round and may differ from the last one; the round ends only when that round's plan is complete.**
+There is no standing multi-round plan: re-read the state, write the plan, finish it, close the round.
+The session is the **controller**: it plans and dispatches; it does not write feature code itself.
 
 ## 1. Plan (controller, before any code)
 
@@ -10,6 +12,8 @@ dispatches; it does not write feature code itself.
   interfaces, tasks; each task has the failing test, the run that proves it fails, the implementation
   step, the run that proves it passes, and the commit.
 - State the proof: which screenshot or command output will show the item working on 9VH.
+- The plan is this round's, not a forecast: if the work changes mid-round, rewrite the plan (and record
+  the ruling), then continue until the rewritten plan is complete. A round never ends with tasks open.
 
 ## 2. Dispatch (controller)
 
