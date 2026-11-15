@@ -6,3 +6,6 @@ device/installer/*.exe
 
 # Wrangler leaves its local cache beside the landing config; it is not the site.
 landing/.wrangler/
+
+# Scratch workspace for dispatched plans, briefs and ledgers — never product files.
+.superpowers/
