@@ -1,28 +1,35 @@
-# Round protocol (for the long product-polish goal)
+# Round protocol (long product-polish goal)
 
-One round = one backlog item delivered end to end. A round never ends with code that has not been
-planned, tested, verified on 9VH when it is visible there, recorded and pushed.
+One round = one backlog item delivered end to end. The session is the **controller**: it plans and
+dispatches; it does not write feature code itself.
 
-## Before touching code
+## 1. Plan (controller, before any code)
 
-1. Pick the top item from `docs/design/product-backlog.md`.
-2. Write the plan to `docs/superpowers/plans/round-NNN-<slug>.md` in the writing-plans format:
-   goal, files, interfaces, tasks; every task has a failing test first, the run that proves it fails,
-   the implementation, the run that proves it passes, and the commit.
-3. If the item is visual, say in the plan exactly which screenshot will prove it and where it lands.
+- Pick the top item from `docs/design/product-backlog.md`.
+- Write `docs/superpowers/plans/round-NNN-<slug>.md` in the writing-plans format: goal, files,
+  interfaces, tasks; each task has the failing test, the run that proves it fails, the implementation
+  step, the run that proves it passes, and the commit.
+- State the proof: which screenshot or command output will show the item working on 9VH.
 
-## While executing
+## 2. Dispatch (controller)
 
-- TDD: test first, watch it fail, minimal implementation, watch it pass.
-- Keep `node scripts/check-architecture.mjs` green and the existing suites green.
-- One deploy to 9VH per round unless the plan says why; screenshots only when pixels changed.
-- If a step turns out wrong, fix the plan first, then the code.
+- One fresh **implementer** subagent per task, given the task brief, the interfaces from earlier
+  tasks, and the report contract; never parallel implementers.
+- After each task, one **reviewer** subagent gets the brief, the report and the diff; it returns spec
+  compliance and quality verdicts. The controller fixes nothing itself: findings go back to the
+  implementer or a fresh fix subagent.
+- At the end of the round, one whole-round reviewer on the most capable available model.
+- Model choice is explicit in every dispatch: cheap for transcription, standard for integration,
+  strongest for the final review.
 
-## After
+## 3. Integrate and prove (controller)
 
-- Evidence in `docs/design/evidence/` (screenshot or command output) when the item is observable.
-- `docs/design/program-ledger.md` entry naming what changed, how it was proven, what stayed open.
-- Update the backlog (done / dropped / reprioritised) and commit; push through `scripts/push-via-relay.sh`.
+- Keep `node scripts/check-architecture.mjs` and the existing suites green.
+- At most one deploy to 9VH per round; screenshots only when pixels changed. Evidence goes in
+  `docs/design/evidence/`.
+- Ledger entry in `docs/design/program-ledger.md`: what changed, how it was proven, what stayed open.
+- Update the backlog (done / dropped / reprioritised), commit, and push through
+  `scripts/push-via-relay.sh`.
 
 ## Every tenth round: pruning round
 
