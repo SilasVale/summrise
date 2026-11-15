@@ -1,0 +1,14 @@
+Published 2.0.1 to the canary mirror (http://100.85.163.159:18100)
+  artifact   summrise-device-2.0.1.exe  sha256 07ba344bb3fc3ca3f9fa52dc6f14e526bcf554cf092d8a09af97d504cfddba04
+  document   release-2.0.1.json (release key, plaintext allowed for the tailnet address)
+  pointer    release-canary.json -> 2.0.1
+  sidecar    summrise-device-2.0.1-canary.sidecar.json (launcher key)
+  installer  SummriseSetup-2.0.1-canary.exe 96,841,377 bytes
+             sha256 6cc2ed216d9c1fe90f8750102bb8e3c20b4164f85eb456c8b16119274a7b05ba
+
+scripts/verify-release.sh 2.0.1 --mirror http://100.85.163.159:18100 --channel canary
+  ok  the canary pointer names 2.0.1
+  ok  the artifact matches its signed digest
+  ok  the sidecar agrees with the document
+  ok  SummriseSetup-2.0.1-canary.exe is served
+  verify-release: ok

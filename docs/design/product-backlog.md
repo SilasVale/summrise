@@ -10,3 +10,13 @@ gate, a ledger entry and a push. DESKTOP-CPH4KB2 stays out until its service is 
 | 3 | Tray menu as an entry point | open transcript, open terminal, check for updates, and the running version in the menu | done (round 82) |
 | 4 | Transcript readability | click-to-expand shows the full `runs.exec` command, its exit facts and a capped output preview with credential shapes replaced by `***`; a terminal line links its session, and a tool filter narrows the list | done (round 85) |
 | 5 | Release-candidate installer | a 2.0.0 setup built from this tree installs and upgrades on 9VH; panel, terminal, transcript, tray and `shell=0` verified | done (round 84) |
+
+## Release and self-update (current goal)
+
+| # | Item | Acceptance | State |
+|---|------|-----------|-------|
+| 6 | Publish a signed canary | document + sidecar + installer on the mirror; `verify-release.sh` passes; pointer names the version | done (round 86) |
+| 7 | Device checks and applies an update | 9VH checks on demand, launcher stages 2.0.1, health proves it, the replaced generation is `previous` | pending |
+| 8 | A broken candidate is refused | device's own record shows the refusal; the serving version stays healthy | pending |
+| 9 | Update state is visible | panel/tray shows running version, last check result, and update-available/refused with reason | pending |
+| 10 | Install the published candidate | 9VH installs 2.0.1 from the mirror; panel, terminal, transcript, tray, shell=0 verified | pending |

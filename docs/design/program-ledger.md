@@ -1142,3 +1142,11 @@ and exit facts, and says what it scrubbed. Deployed live on 9VH: `cmd /c echo sr
 candidate was rebuilt with the preview device (sha `07ba344b…`) and the sd20 desktop — 96,877,017 bytes,
 sha256 `4479d466…` — and reinstalled silently on 9VH (exit 0, device 07ba, shell=0). Evidence:
 `docs/design/evidence/round85-preview.txt`. Device 678, Electron 93, gate green.
+
+**Round 86 — 2.0.1 is published and the mirror proves itself.** Signed with the release key
+(`artifactUrl` http://100.85.163.159:18100/summrise-device-2.0.1.exe, plaintext allowed for the tailnet
+address, minVersion 0.1.0), sidecar signed with the launcher key, installer built for 2.0.1
+(96,841,377 bytes, sha256 `6cc2ed21…`), pointer `release-canary.json` → 2.0.1. `verify-release.sh 2.0.1
+--mirror … --channel canary` answers `ok` on all four checks: pointer, artifact digest, sidecar
+agreement, installer served. Evidence: `docs/design/evidence/round86-publish.txt`. Nothing was deployed
+to a machine in this round; the next round points the device's update source at this mirror.
