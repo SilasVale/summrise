@@ -1171,3 +1171,15 @@ system. Its source is not in this repository, so the next round brings it in wit
 shim injects. Evidence: `docs/design/evidence/round88-legacy-empty.png`,
 `round88-legacy-terminal.png`, `round88-legacy.txt`. The goal's scope was updated to name this
 terminal view explicitly.
+
+**Round 89 — the device panel takes the transcript's grammar.** `summrise_ui::TOKENS` now carries a
+manual theme: the system dark block is scoped to `:root:not([data-theme="light"])` and a
+`:root[data-theme="dark"]` block holds the same values, so a chosen theme wins; a `.chip.fail` joined
+the shared chip set. The panel's header gained a `☾` button that flips `data-theme`, persists
+`summrise-theme` in localStorage, and an init script applies the saved choice before paint; the
+Timeline's status text became `chip ok` / `chip fail`. `scripts/generate-tokens.sh` regenerated the
+console sheet; token and panel tests are green (34/4 and 19), gate green. Deployed to 9VH (sha
+`f992f007…`) and checked in the served page: `id="theme"`, `chip ok`, `[data-theme="dark"]` all present.
+No pixel screenshot of this surface this round: the installed app's window refuses to navigate to
+`127.0.0.1:18090` (its navigation guard keeps it on the shim origin), so the panel was verified by its
+served markup instead — the screenshot path for it is still open.

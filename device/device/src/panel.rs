@@ -498,6 +498,7 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                 title { "Summrise — this machine" }
                 link rel="stylesheet" href="/panel/xterm.css";
                 style { (PreEscaped(style_sheet())) }
+                script { "try{var t=localStorage.getItem('summrise-theme');if(t==='light'||t==='dark'){document.documentElement.dataset.theme=t;}}catch(e){}" }
             }
             body class="app" {
                 header class="topbar" {
@@ -508,6 +509,9 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                         "this machine"
                     }
                     span class="spacer" {}
+                    button id="theme" type="button" title="Toggle light/dark" onclick="var d=document.documentElement;var n=d.dataset.theme==='dark'?'light':'dark';d.dataset.theme=n;try{localStorage.setItem('summrise-theme',n)}catch(e){};this.textContent=n==='dark'?'☀':'☾';this.title=n==='dark'?'Switch to light':'Switch to dark';" {
+                        "☾"
+                    }
                     button id="copy" type="button" data-copy="diagnostics" data-label="Copy diagnostics" {
                         "Copy diagnostics"
                     }
@@ -1199,9 +1203,9 @@ fn timeline_day(day: &TimelineDay) -> Markup {
                         { (row.time) }
                         span class="timeline-tool" { (row.tool) }
                         @if row.failed {
-                            span class="timeline-status failed" { (row.status) }
+                            span class="chip fail" { (row.status) }
                         } @else {
-                            span class="timeline-status" { (row.status) }
+                            span class="chip ok" { (row.status) }
                         }
                         @if !row.caller.is_empty() {
                             span class="timeline-caller" { (row.caller) }
@@ -1982,7 +1986,8 @@ mod tests {
         let html = page(&facts).into_string();
         assert!(html.contains(r#"<h2 class="timeline-day-label">Today</h2>"#));
         assert!(html.contains(r#"<span class="timeline-tool">runs.exec</span>"#));
-        assert!(html.contains(r#"<span class="timeline-status failed">failed</span>"#));
+        assert!(html.contains(r#"<span class="chip fail">failed</span>"#));
+        assert!(html.contains(r#"id="theme""#), "the panel offers a light/dark choice");
         assert!(html.contains(r#"<span class="timeline-error">refused</span>"#));
         assert!(html.contains(r#"<span class="timeline-caller">console</span>"#));
     }

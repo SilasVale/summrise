@@ -121,7 +121,8 @@
   --error-soft:var(--danger-soft); --hover:var(--panel-2);
 }
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
+
     --bg:#131418; --panel:#1c1d22; --panel-2:#16171b; --panel-3:#23242a;
     /* **AND AFTER DARK THE RECESS GOES THE OTHER WAY** — the card sits BELOW the pane there, so a recess is a step
        toward the GROUND at the same size. Restated in this block for the same reason every derived token is. */
@@ -152,5 +153,41 @@
     --term-black:#2a2c33; --term-white:#e8e9ec;
     --term-red:#ff8b84; --term-green:#6edc8b; --term-yellow:#e0a44a;
     --term-blue:#7fb0ff; --term-magenta:#c9a3ff; --term-cyan:#6fd3e6;
+
   }
+}
+/* A chosen theme wins over the system: the panel and the console set data-theme on the root. */
+:root[data-theme="dark"] {
+
+    --bg:#131418; --panel:#1c1d22; --panel-2:#16171b; --panel-3:#23242a;
+    /* **AND AFTER DARK THE RECESS GOES THE OTHER WAY** — the card sits BELOW the pane there, so a recess is a step
+       toward the GROUND at the same size. Restated in this block for the same reason every derived token is. */
+    --surface-recessed:color-mix(in srgb, var(--bg) 40%, var(--panel));
+    --ink:#ecedef; --muted:#a2a3ac; --faint:#8e909a;
+    --line:rgba(255,255,255,.08); --line-strong:rgba(255,255,255,.14); --line-soft:rgba(255,255,255,.05);
+    --accent:#ffa36b; --accent-solid:#b03a0a; --accent-hover:#c2410c;
+    --accent-soft:#3d2817; --accent-fg:#ffffff;
+    /* **AND AFTER DARK THE MEMBER INVERTS.** The wash is a dark brown; `#9c3a0a` on it measures **1.4:1**. The dark
+       accent `#ffa36b` measures **7.07:1** on the same wash, so that is the member here — the same JOB, the value
+       this theme's colours need. */
+    --accent-on-soft:#ffa36b;
+    --ok:#6edc8b; --warn:#e0a44a; --ok-soft:rgba(46,160,73,.16);
+    --warn-soft:#3a2a14; --danger:#ff8b84; --danger-soft:#2a1512;
+    --focus-ring:#ffa36b;
+    --rail:#0b0c0e; --rail-line:rgba(255,255,255,.07); --rail-ink:#8f9099;
+    --rail-ink-hover:#ffffff; --rail-focus:#ffb86b;
+    --shadow:0 1px 2px rgba(0,0,0,.4);
+    /* The pane after dark: a plain shadow is a colour, and the light theme's cool drop is invisible
+       on a near-black ground — the same computed-value trap this block's other shadows document. */
+    --shadow-pop:0 1px 1px rgba(0,0,0,.5),0 6px 14px -6px rgba(0,0,0,.5),0 22px 48px -28px rgba(0,0,0,.8);
+    --shadow-1:var(--shadow);
+    --shadow-2:0 8px 24px -18px rgba(0,0,0,.8);
+    /* The pane's deep drop carries its own dark value, as the console's local block did. */
+    --elev-2:0 24px 60px -18px rgba(0,0,0,.75),0 2px 8px rgba(0,0,0,.5);
+    --hover:#2a2b32;
+    --term-canvas:#0f1014; --term-selection:rgba(255,163,107,.24);
+    --term-black:#2a2c33; --term-white:#e8e9ec;
+    --term-red:#ff8b84; --term-green:#6edc8b; --term-yellow:#e0a44a;
+    --term-blue:#7fb0ff; --term-magenta:#c9a3ff; --term-cyan:#6fd3e6;
+
 }
