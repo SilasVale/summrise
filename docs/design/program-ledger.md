@@ -1160,3 +1160,14 @@ light by default, a saved choice wins, `?theme=dark|light` overrides it for a sc
 conversation, and the button flips it. Two screenshots from the installed app on 9VH:
 `docs/design/evidence/round87-activity-light.png` and `round87-activity-dark.png`. Electron suite 93,
 gate green. The release-loop goal stays paused until the user resumes it.
+
+**Round 88 — the legacy terminal panel is on screen at last, and it is a different product.** Captured
+from the installed app on 9VH by navigating the window through CDP (the panel is loopback-only) and
+reading `/screenshot.png`: the icon rail, the empty Terminal page, and a live PowerShell session with
+its Terminal/Timeline/Steps/Session tabs, "Take control" / "Set a goal" / "Ask before each command"
+chips and the `127.0.0.1:50696 · 1 session · v2.0.0` footer. Compared with the new transcript it is a
+warm-neutral/orange surface with icon-only navigation and 14 px cards, not the cool-gray/#c2410c
+system. Its source is not in this repository, so the next round brings it in with a theme layer the
+shim injects. Evidence: `docs/design/evidence/round88-legacy-empty.png`,
+`round88-legacy-terminal.png`, `round88-legacy.txt`. The goal's scope was updated to name this
+terminal view explicitly.
