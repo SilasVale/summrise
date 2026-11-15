@@ -20,3 +20,13 @@ gate, a ledger entry and a push. DESKTOP-CPH4KB2 stays out until its service is 
 | 8 | A broken candidate is refused | device's own record shows the refusal; the serving version stays healthy | pending |
 | 9 | Update state is visible | panel/tray shows running version, last check result, and update-available/refused with reason | pending |
 | 10 | Install the published candidate | 9VH installs 2.0.1 from the mirror; panel, terminal, transcript, tray, shell=0 verified | pending |
+
+## One visual system (paused release goal set aside)
+
+| # | Item | Acceptance | State |
+|---|------|-----------|-------|
+| 11 | Transcript redesign | system-UI chrome, mono only for tools/commands/ids, sticky status header, turn-grouped timeline, chips (allow/running/exit 0/refused), expandable detail card, filter, light-first theme with a persisted dark toggle | done (round 87) |
+| 12 | Device panel in the same system | same tokens, summary cards, list rows with chips, light/dark | pending |
+| 13 | `/desktop/` theme layer | shim injects colours/type/spacing so the legacy page matches | pending |
+| 14 | Side-by-side comparison | screenshots of the three surfaces; mismatches fixed | pending |
+| 15 | Visual regression suite | rows/chips/theme and panel markup tests | pending |

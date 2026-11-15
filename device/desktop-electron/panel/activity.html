@@ -1,87 +1,102 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Summrise — operations</title>
 <style>
   :root{
-    --bg:#0b0c0e; --ink:#e6e7ea; --muted:#8b8e96; --faint:#5a5d66;
-    --line:rgba(255,255,255,.07); --card:#13151a;
-    --accent:#d4551f; --ok:#3fb950; --fail:#f85149; --run:#d29922;
+    --bg:#f5f6f8; --surface:#ffffff; --surface-2:#fafbfc; --ink:#191b1f; --ink-2:#41454c;
+    --muted:#6b7078; --faint:#9aa0a8; --line:#e5e7eb; --line-2:#eef0f3;
+    --accent:#c2410c; --accent-soft:#fff1e8; --ok:#1a7f37; --ok-soft:#e8f5ec;
+    --fail:#cf222e; --fail-soft:#fdecec; --run:#9a6700; --run-soft:#fdf5e2;
     --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    --radius:10px; --shadow:0 1px 2px rgba(16,24,40,.04),0 4px 12px rgba(16,24,40,.06);
+    color-scheme:light;
+  }
+  [data-theme="dark"]{
+    --bg:#0d0f12; --surface:#15181d; --surface-2:#191d23; --ink:#e9ebee; --ink-2:#c6cad0;
+    --muted:#9aa0a8; --faint:#6b7280; --line:#262b33; --line-2:#1d2229;
+    --accent:#e2632b; --accent-soft:#2a1a12; --ok:#3fb950; --ok-soft:#12261a;
+    --fail:#f85149; --fail-soft:#2a1416; --run:#d29922; --run-soft:#2a2211;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 6px 20px rgba(0,0,0,.35);
     color-scheme:dark;
   }
   *{box-sizing:border-box}
   html,body{height:100%}
-  body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.5 var(--mono);display:flex;flex-direction:column}
-  header{display:flex;align-items:center;gap:14px;padding:10px 18px;border-bottom:1px solid var(--line);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;font-size:12px;color:var(--muted)}
-  .brand{color:var(--ink);font-weight:600;letter-spacing:.01em}
-  .brand b{color:var(--accent)}
-  .pill{display:inline-flex;align-items:center;gap:6px;padding:2px 8px;border:1px solid var(--line);border-radius:999px;font-size:11px}
-  .dot{width:6px;height:6px;border-radius:50%;background:var(--faint)}
-  .dot.live{background:var(--ok);box-shadow:0 0 0 3px rgba(63,185,80,.12);animation:pulse 2.4s ease-in-out infinite}
-  @keyframes pulse{50%{opacity:.4}}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 var(--sans);display:flex;flex-direction:column;-webkit-font-smoothing:antialiased}
+  header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;padding:12px 20px;background:color-mix(in srgb,var(--surface) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+  .brand{display:flex;align-items:center;gap:8px;font-weight:650;letter-spacing:-.01em;font-size:14.5px}
+  .brand .mark{width:18px;height:18px;border-radius:6px;background:linear-gradient(145deg,#e2632b,#b83a06);box-shadow:inset 0 1px 0 rgba(255,255,255,.35)}
+  .stem{color:var(--faint);font-weight:500}
+  .pill{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border:1px solid var(--line);border-radius:999px;font-size:12px;color:var(--muted);background:var(--surface)}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--faint)}
+  .dot.live{background:var(--ok);box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 16%,transparent)}
   .grow{flex:1}
-  a{color:var(--faint);text-decoration:none}
-  a:hover{color:var(--ink)}
-  main{flex:1;overflow:auto;padding:18px 0 40px;scroll-behavior:smooth}
-  .feed{max-width:860px;margin:0 auto;padding:0 22px}
-  .turn{display:flex;align-items:center;gap:10px;color:var(--faint);font-size:11px;margin:18px 0 8px}
+  .counts{font-size:12px;color:var(--muted)}
+  .counts b{color:var(--ink);font-weight:600}
+  select.filter{height:26px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink-2);font:12px var(--sans);padding:0 8px;outline:none}
+  select.filter:focus-visible{outline:2px solid color-mix(in srgb,var(--accent) 40%,transparent)}
+  button.icon{width:28px;height:28px;display:grid;place-items:center;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink-2);cursor:pointer;font-size:14px}
+  button.icon:hover{border-color:var(--accent);color:var(--accent)}
+  main{flex:1;overflow:auto;padding:8px 0 48px}
+  .feed{max-width:980px;margin:0 auto;padding:0 24px}
+  .turn{display:flex;align-items:center;gap:10px;margin:22px 0 6px;color:var(--faint);font-size:11.5px;font-variant-numeric:tabular-nums}
   .turn::after{content:"";flex:1;height:1px;background:var(--line)}
-  .row{display:flex;align-items:flex-start;gap:10px;padding:4px 6px;border-radius:6px;cursor:default;user-select:text}
-  .row:hover{background:rgba(255,255,255,.03)}
-  .row.selected{background:rgba(255,255,255,.05)}
-  .glyph{width:14px;flex:none;text-align:center;line-height:22px}
+  .row{display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:10px;align-items:start;padding:8px 10px;border-radius:8px;cursor:pointer;border:1px solid transparent}
+  .row:hover{background:var(--surface-2);border-color:var(--line-2)}
+  .row.selected{background:var(--surface);border-color:var(--line);box-shadow:var(--shadow)}
+  .glyph{line-height:22px;font-size:12px;text-align:center}
   .glyph.ok{color:var(--ok)} .glyph.fail{color:var(--fail)} .glyph.run{color:var(--run)}
-  .spinner{display:inline-block;width:10px;height:10px;border:2px solid rgba(210,153,34,.25);border-top-color:var(--run);border-radius:50%;animation:spin .9s linear infinite;vertical-align:-1px}
+  .spinner{display:inline-block;width:10px;height:10px;border:1.5px solid color-mix(in srgb,var(--run) 30%,transparent);border-top-color:var(--run);border-radius:50%;animation:spin .8s linear infinite;vertical-align:-1px}
   @keyframes spin{to{transform:rotate(360deg)}}
-  .body{min-width:0;flex:1}
-  .line{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
-  .tool{color:var(--ink)}
-  .verb{color:var(--muted)}
-  .badge{font-size:10px;padding:0 6px;border-radius:4px;border:1px solid var(--line);color:var(--muted);line-height:16px}
-  .badge.allow{color:#79c0ff;border-color:rgba(121,192,255,.25)}
-  .badge.deny{color:var(--fail);border-color:rgba(248,81,73,.35)}
-  .dur{color:var(--faint);font-size:11px}
-  .time{margin-left:auto;color:var(--faint);font-size:11px;flex:none}
-  .args{color:var(--muted);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:420px}
-  .outcome{color:var(--faint);font-size:11.5px}
-  .detail{margin:2px 0 8px 30px;padding:8px 12px;border-left:2px solid var(--line);color:var(--muted);font-size:11.5px;white-space:pre-wrap;display:none}
-  .detail.open{display:block}
-  .kv{display:grid;grid-template-columns:110px 1fr;gap:2px 12px}
-  .kv .k{color:var(--faint)} .kv .v{color:var(--ink);word-break:break-all}
-  .runblock{margin-top:8px;padding-top:8px;border-top:1px dashed var(--line)}
-  .runblock pre{margin:4px 0 0;white-space:pre-wrap;word-break:break-word;color:var(--ink);font-size:11.5px}
-  .runblock .note{color:var(--faint);margin-top:6px}
-  .openlink{color:#79c0ff;font-size:11.5px}
-  select.filter{background:transparent;color:var(--muted);border:1px solid var(--line);border-radius:999px;font:11px var(--mono);padding:2px 6px}
-  .empty{max-width:860px;margin:60px auto;padding:0 22px;color:var(--faint);font-size:12.5px}
-  .empty b{color:var(--muted);font-weight:500}
-  footer{display:flex;align-items:center;gap:16px;padding:8px 18px;border-top:1px solid var(--line);color:var(--faint);font-size:11px;font-family:system-ui,sans-serif}
-  kbd{border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 4px;font:10px var(--mono);color:var(--muted)}
-  .count strong{color:var(--ink);font-weight:600}
+  .line{display:flex;align-items:center;gap:8px;min-height:22px;flex-wrap:nowrap;min-width:0;overflow:hidden}
+  .tool{font:12.5px/1.4 var(--mono);color:var(--ink);font-weight:500;white-space:nowrap}
+  .verb{color:var(--muted);font-size:12.5px;white-space:nowrap}
+  .chip{display:inline-flex;align-items:center;flex:none;height:19px;padding:0 7px;border-radius:6px;font-size:11px;font-weight:500;letter-spacing:.01em;white-space:nowrap}
+  .chip.allow{color:#0969da;background:#e7f1ff} .chip.deny{color:var(--fail);background:var(--fail-soft)}
+  .chip.ok{color:var(--ok);background:var(--ok-soft)} .chip.fail{color:var(--fail);background:var(--fail-soft)}
+  .chip.run{color:var(--run);background:var(--run-soft)} .chip.muted{color:var(--muted);background:var(--surface-2);border:1px solid var(--line-2)}
+  [data-theme="dark"] .chip.allow{color:#79c0ff;background:#12233a}
+  .args{font:12px/1.4 var(--mono);color:var(--muted);flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .outcome{font:12px/1.4 var(--mono);color:var(--ink-2)}
+  .meta{display:flex;align-items:center;gap:8px;justify-content:flex-end;font-size:11.5px;color:var(--faint);font-variant-numeric:tabular-nums;white-space:nowrap;padding-top:2px}
+  .dur{min-width:44px;text-align:right}
+  .detail{grid-column:2/4;display:none;margin:6px 0 4px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px 16px}
+  .row.selected .detail{display:block}
+  .kv{display:grid;grid-template-columns:96px 1fr;gap:6px 14px;font-size:13px}
+  .kv .k{color:var(--faint)} .kv .v{color:var(--ink);overflow-wrap:anywhere;font-family:var(--mono);font-size:12.5px}
+  .kv .v.plain{font-family:var(--sans);font-size:13px}
+  .detail pre{margin:0;white-space:pre-wrap;word-break:break-word;background:var(--surface-2);border:1px solid var(--line-2);border-radius:8px;padding:8px 10px;font:12px/1.5 var(--mono);color:var(--ink)}
+  .detail .note{color:var(--faint);font-size:11.5px;margin-top:8px}
+  .openlink{color:var(--accent);text-decoration:none;font-size:12.5px}
+  .openlink:hover{text-decoration:underline}
+  .empty{max-width:980px;margin:80px auto;padding:0 24px;color:var(--faint);font-size:13px}
+  .empty b{display:block;color:var(--ink-2);font-weight:600;font-size:15px;margin-bottom:4px}
+  footer{display:flex;align-items:center;gap:16px;padding:9px 20px;border-top:1px solid var(--line);background:var(--surface);color:var(--faint);font-size:11.5px}
+  kbd{border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:0 5px;font:10.5px var(--mono);color:var(--muted);background:var(--surface-2)}
 </style>
 </head>
 <body>
 <header>
-  <span class="brand">Summrise<b>·</b> operations</span>
+  <span class="brand"><span class="mark"></span>Summrise<span class="stem">operations</span></span>
   <span class="pill"><i id="dot" class="dot"></i><span id="where">connecting</span></span>
   <span class="pill" id="version">—</span>
-  <span class="pill"><select class="filter" id="filter">
-    <option value="all">all tools</option>
-    <option value="runs">runs</option>
-    <option value="terminal">terminal</option>
-    <option value="files">files</option>
-    <option value="other">other</option>
-  </select></span>
   <div class="grow"></div>
-  <span class="count" id="counts"><strong>0</strong> calls · <strong>0</strong> failed</span>
-  <a href="/desktop" target="_self">legacy panel →</a>
+  <span class="counts" id="counts"><b>0</b> calls · <b>0</b> failed</span>
+  <select class="filter" id="filter" aria-label="Tool filter">
+    <option value="all">All tools</option>
+    <option value="runs">Runs</option>
+    <option value="terminal">Terminal</option>
+    <option value="files">Files</option>
+    <option value="other">Other</option>
+  </select>
+  <button class="icon" id="theme" title="Toggle light/dark" aria-label="Toggle theme">☾</button>
 </header>
 <main id="main">
   <div class="feed" id="feed"></div>
-  <div class="empty" id="empty"><b>Waiting for the AI to act…</b><br>The console's tool calls appear here as they happen.</div>
+  <div class="empty" id="empty"><b>Waiting for the AI to act</b>Tool calls appear here as they happen, newest at the bottom.</div>
 </main>
 <footer>
   <span id="conn">stream: connecting…</span>
@@ -100,27 +115,58 @@
   const counts = document.getElementById("counts");
   const conn = document.getElementById("conn");
   const last = document.getElementById("last");
+  const themeButton = document.getElementById("theme");
 
   const VERBS = {
     "runs.exec": "run a command", "runs.get": "read a run", "runs.list": "list runs",
-    "terminal.open": "open a terminal", "terminal.write": "type into a terminal", "terminal.close": "close a terminal",
+    "terminal.open": "open a terminal", "terminal.create": "open a terminal",
+    "terminal.write": "type into a terminal", "terminal.read": "read a terminal", "terminal.close": "close a terminal",
     "files.read": "read a file", "files.write": "write a file", "files.list": "list files",
     "screen.capture": "look at the screen", "state.get": "read device state",
     "browser.open": "open a browser", "browser.navigate": "navigate a browser",
+    "monitor.add": "watch an endpoint", "monitor.list": "list watches", "monitor.probe": "probe an endpoint",
   };
 
-  const calls = new Map();     // id -> call
+  const calls = new Map();
   const order = [];
   let selected = null;
   let follow = true;
-  let lastRendered = 0;
+  let filter = "all";
 
   function escapeHtml(text){
-    return String(text).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    return String(text).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
   }
   function fmtDur(ms){ return ms < 1000 ? Math.round(ms) + "ms" : (ms/1000).toFixed(1) + "s"; }
-  function fmtClock(ms){ const d = new Date(ms); return d.toLocaleTimeString([], { hour12:false }); }
+  function fmtClock(ms){ return new Date(ms).toLocaleTimeString([], { hour12:false }); }
   function toolVerb(tool){ return VERBS[tool] || ""; }
+  function groupOf(tool){
+    if (tool.indexOf("runs.") === 0) return "runs";
+    if (tool.indexOf("terminal.") === 0) return "terminal";
+    if (tool.indexOf("files.") === 0) return "files";
+    return "other";
+  }
+
+  // THEME: light first, a saved choice wins, and the button flips both the attribute and the label.
+  function applyTheme(theme){
+    document.documentElement.dataset.theme = theme;
+    themeButton.textContent = theme === "dark" ? "☀" : "☾";
+    themeButton.title = theme === "dark" ? "Switch to light" : "Switch to dark";
+  }
+  let saved = "light";
+  try { saved = localStorage.getItem("summrise-theme") || "light"; } catch {}
+  // A `?theme=dark|light` link wins over the saved choice: it is how a screenshot or a support
+  // conversation names the theme without touching this profile.
+  const queryTheme = new URLSearchParams(location.search).get("theme");
+  if (queryTheme === "dark" || queryTheme === "light") saved = queryTheme;
+  applyTheme(saved === "dark" ? "dark" : "light");
+  themeButton.onclick = () => {
+    const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+    applyTheme(next);
+    try { localStorage.setItem("summrise-theme", next); } catch {}
+  };
+
+  document.getElementById("filter").onchange = (e) => { filter = e.target.value; schedule(); };
+  document.getElementById("filter").value = filter;
 
   function add(ev){
     if (!ev || typeof ev.id !== "number") return;
@@ -132,18 +178,10 @@
       if (!c) { c = { id: ev.id, tool: "unknown", decision: "", start: ev.ts_ms || Date.now(), end: null, ok: null }; calls.set(ev.id, c); order.push(ev.id); }
       c.end = ev.ts_ms || Date.now(); c.ok = ev.ok === true;
       if (ev.outcome) c.outcome = ev.outcome;
+      if (ev.error_kind) c.errorKind = ev.error_kind;
       if (ev.run_id) c.runId = ev.run_id;
     }
     schedule();
-  }
-
-  let filter = "all";
-  document.getElementById("filter").onchange = (e) => { filter = e.target.value; schedule(); };
-  function groupOf(tool){
-    if (tool.indexOf("runs.") === 0) return "runs";
-    if (tool.indexOf("terminal.") === 0) return "terminal";
-    if (tool.indexOf("files.") === 0) return "files";
-    return "other";
   }
 
   let raf = 0;
@@ -162,42 +200,41 @@
       const dur = (c.end == null ? now : c.end) - c.start;
       const cls = c.end == null ? "run" : (c.ok ? "ok" : "fail");
       const glyph = c.end == null ? '<span class="spinner"></span>' : (c.ok ? "✓" : "✗");
-      const badge = c.decision ? `<span class="badge ${c.decision === "allow" ? "allow" : "deny"}">${c.decision}</span>` : "";
+      const decision = c.decision ? `<span class="chip ${c.decision === "allow" ? "allow" : "deny"}">${escapeHtml(c.decision)}</span>` : "";
+      const resultChip = c.end == null ? `<span class="chip run">running</span>` : (c.ok ? "" : `<span class="chip fail">${escapeHtml(c.errorKind || "failed")}</span>`);
       const verb = toolVerb(c.tool);
       const sel = selected === c.id ? " selected" : "";
       html += `<div class="row${sel}" data-id="${c.id}">
         <div class="glyph ${cls}">${glyph}</div>
-        <div class="body">
-          <div class="line"><span class="tool">${c.tool}</span>${verb ? `<span class="verb">${verb}</span>` : ""}${badge}<span class="dur">${fmtDur(dur)}</span>${c.args ? `<span class="args">${escapeHtml(c.args)}</span>` : ""}${c.outcome ? `<span class="outcome">→ ${escapeHtml(c.outcome)}</span>` : ""}<span class="time">${fmtClock(c.end == null ? c.start : c.end)}</span></div>
-          <div class="detail" id="d-${c.id}"><div class="kv">
-            <span class="k">call</span><span class="v">#${c.id}</span>
-            <span class="k">tool</span><span class="v">${c.tool}</span>
-            <span class="k">decision</span><span class="v">${c.decision || "—"}</span>
-            <span class="k">started</span><span class="v">${fmtClock(c.start)}</span>
-            <span class="k">duration</span><span class="v">${fmtDur(dur)}</span>
-            <span class="k">outcome</span><span class="v">${c.end == null ? "running" : (c.ok ? "ok" : "failed")}${c.outcome ? " · " + escapeHtml(c.outcome) : ""}</span>
-            ${c.args ? `<span class="k">args</span><span class="v">${escapeHtml(c.args)}</span>` : ""}
-            ${c.tool.indexOf("terminal.") === 0 && c.args ? `<span class="k">session</span><span class="v">${escapeHtml(c.args.replace(/^session=/, ""))}</span><span class="k"></span><span class="v"><a class="openlink" href="/desktop/?view=terminal" target="_self">open terminal →</a></span>` : ""}
-          </div>${c.runId ? `<div class="runblock" data-run="${escapeHtml(c.runId)}">loading run ${escapeHtml(c.runId)}…</div>` : ""}</div>
+        <div>
+          <div class="line"><span class="tool">${escapeHtml(c.tool)}</span>${verb ? `<span class="verb">${escapeHtml(verb)}</span>` : ""}${decision}${resultChip}${c.args ? `<span class="args">${escapeHtml(c.args)}</span>` : ""}${c.outcome ? `<span class="chip ok">${escapeHtml(c.outcome)}</span>` : ""}</div>
+          <div class="detail">
+            <div class="kv">
+              <span class="k">call</span><span class="v">#${c.id}</span>
+              <span class="k">tool</span><span class="v">${escapeHtml(c.tool)}</span>
+              <span class="k">decision</span><span class="v">${escapeHtml(c.decision || "—")}</span>
+              <span class="k">started</span><span class="v">${fmtClock(c.start)}</span>
+              <span class="k">duration</span><span class="v">${fmtDur(dur)}</span>
+              <span class="k">outcome</span><span class="v">${c.end == null ? "running" : (c.ok ? "ok" : "failed")}${c.outcome ? " · " + escapeHtml(c.outcome) : ""}</span>
+              ${c.args ? `<span class="k">args</span><span class="v">${escapeHtml(c.args)}</span>` : ""}
+            </div>
+            ${c.tool.indexOf("terminal.") === 0 && c.args ? `<div class="kv" style="margin-top:10px"><span class="k">session</span><span class="v">${escapeHtml(c.args.replace(/^session=/,""))}</span><span class="k"></span><span class="v"><a class="openlink" href="/desktop/?view=terminal" target="_self">Open terminal →</a></span></div>` : ""}
+            ${c.runId ? `<div class="runblock" data-run="${escapeHtml(c.runId)}">Loading run ${escapeHtml(c.runId)}…</div>` : ""}
+          </div>
         </div>
+        <div class="meta"><span class="dur">${fmtDur(dur)}</span><span>${fmtClock(c.end == null ? c.start : c.end)}</span></div>
       </div>`;
     });
     feed.innerHTML = html;
-    document.querySelectorAll(".row").forEach((row) => {
-      row.onclick = () => { selected = Number(row.dataset.id); schedule(); };
-    });
+    feed.querySelectorAll(".row").forEach((row) => { row.onclick = () => { selected = Number(row.dataset.id); schedule(); }; });
     if (selected != null) {
-      const d = document.getElementById("d-" + selected);
-      if (d) {
-        d.classList.add("open");
-        const block = d.querySelector("[data-run]");
-        if (block && !block.dataset.loaded) void loadRun(block);
-      }
+      const block = feed.querySelector(`[data-id="${selected}"] [data-run]`);
+      if (block && !block.dataset.loaded) void loadRun(block);
     }
 
     const all = order.map((id) => calls.get(id)).filter(Boolean);
     const failed = all.filter((c) => c.end != null && c.ok === false).length;
-    counts.innerHTML = `<strong>${all.length}</strong> calls · <strong>${failed}</strong> failed`;
+    counts.innerHTML = `<b>${all.length}</b> calls · <b>${failed}</b> failed`;
     const running = all.filter((c) => c.end == null).length;
     dot.className = "dot live";
     last.textContent = all.length + " events · " + (running ? running + " running" : "idle");
@@ -215,15 +252,15 @@
       const run = body.run || {};
       const argv = Array.isArray(run.args) && run.args.length ? " " + run.args.join(" ") : "";
       const code = run.exit_code === null || run.exit_code === undefined ? (run.timed_out ? "timed out" : "no exit code") : "exit " + run.exit_code;
-      block.innerHTML = `<div class="kv">
-        <span class="k">command</span><span class="v">${escapeHtml((run.command || "") + argv)}</span>
-        <span class="k">cwd</span><span class="v">${escapeHtml(run.cwd || "—")}</span>
-        <span class="k">result</span><span class="v">${escapeHtml(code)} · ${fmtDur(run.duration_ms || 0)}</span>
-        <span class="k">output</span><span class="v">stdout ${run.stdout_bytes ?? "?"} B · stderr ${run.stderr_bytes ?? "?"} B</span>
-      </div>
-      ${run.stdout_preview ? `<div class="kv"><span class="k">stdout</span><span class="v"><pre>${escapeHtml(run.stdout_preview)}</pre></span></div>` : ""}
-      ${run.stderr_preview ? `<div class="kv"><span class="k">stderr</span><span class="v"><pre>${escapeHtml(run.stderr_preview)}</pre></span></div>` : ""}
-      <div class="note">${run.stdout_preview || run.stderr_preview ? "Preview: the first bytes the history kept, with credential shapes replaced by ***." : "This row predates previews; the history has only the sizes."}</div>`;
+      block.innerHTML = `<div class="kv" style="margin-top:12px">
+          <span class="k">command</span><span class="v">${escapeHtml((run.command || "") + argv)}</span>
+          <span class="k">cwd</span><span class="v">${escapeHtml(run.cwd || "—")}</span>
+          <span class="k">result</span><span class="v">${escapeHtml(code)} · ${fmtDur(run.duration_ms || 0)}</span>
+          <span class="k">output</span><span class="v">stdout ${run.stdout_bytes ?? "?"} B · stderr ${run.stderr_bytes ?? "?"} B</span>
+        </div>
+        ${run.stdout_preview ? `<div class="kv" style="margin-top:10px"><span class="k">stdout</span><span class="v"><pre>${escapeHtml(run.stdout_preview)}</pre></span></div>` : ""}
+        ${run.stderr_preview ? `<div class="kv" style="margin-top:10px"><span class="k">stderr</span><span class="v"><pre>${escapeHtml(run.stderr_preview)}</pre></span></div>` : ""}
+        <div class="note">${run.stdout_preview || run.stderr_preview ? "Preview: the first bytes the history kept, with credential shapes replaced by ***." : "This row predates previews; the history has only the sizes."}</div>`;
     } catch (e) {
       block.textContent = "run " + block.dataset.run + " unavailable (" + e.message + ")";
     }

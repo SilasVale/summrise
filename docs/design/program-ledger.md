@@ -1150,3 +1150,13 @@ address, minVersion 0.1.0), sidecar signed with the launcher key, installer buil
 --mirror … --channel canary` answers `ok` on all four checks: pointer, artifact digest, sidecar
 agreement, installer served. Evidence: `docs/design/evidence/round86-publish.txt`. Nothing was deployed
 to a machine in this round; the next round points the device's update source at this mirror.
+
+**Round 87 — the transcript is a product page now, light first, dark real.** The rewrite replaced the
+black monospace log: system-UI chrome with mono reserved for tool names, commands and ids; a sticky
+header (brand, device, version, counts, tool filter, theme button); a turn-grouped timeline whose rows
+carry `allow`/`running`/`exit 0`/`refused` chips instead of tinting the whole row; a detail card with the
+full command, cwd, result and the scrubbed previews; the filter and follow keys kept. The theme is
+light by default, a saved choice wins, `?theme=dark|light` overrides it for a screenshot or a support
+conversation, and the button flips it. Two screenshots from the installed app on 9VH:
+`docs/design/evidence/round87-activity-light.png` and `round87-activity-dark.png`. Electron suite 93,
+gate green. The release-loop goal stays paused until the user resumes it.
