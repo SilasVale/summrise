@@ -1183,3 +1183,13 @@ console sheet; token and panel tests are green (34/4 and 19), gate green. Deploy
 No pixel screenshot of this surface this round: the installed app's window refuses to navigate to
 `127.0.0.1:18090` (its navigation guard keeps it on the shim origin), so the panel was verified by its
 served markup instead — the screenshot path for it is still open.
+
+**Round 90 — the device panel is finally on screen, in light.** The app window refuses to leave the shim
+origin (navigation guard), the spare CDP target route returned no usable page, and Edge headless in
+session 0 wrote no screenshot — so the panel was rendered by embedding `http://127.0.0.1:18090/` in an
+iframe inside the app window and reading `/screenshot.png`. That capture is a real render of the served
+panel: brand, "this machine", the moon theme button, Running, Console linked, Build (2.0.0 / canary /
+f992f007 / pid 47152) and Updates idle. The dark capture failed (the iframe was gone on the second
+shot; a CDP click landed on the transcript instead). Evidence:
+`docs/design/evidence/round90-panel-light.png` and `round90-panel.txt`. Still open: the panel's dark
+screenshot, the legacy theme layer, the three-surface comparison and the visual regression suite.
