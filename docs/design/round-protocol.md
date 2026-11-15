@@ -3,14 +3,20 @@
 One round = one backlog item delivered end to end. **The plan is made fresh at the start of each
 round and may differ from the last one; the round ends only when that round's plan is complete.**
 There is no standing multi-round plan: re-read the state, write the plan, finish it, close the round.
-The session is the **controller**: it plans and dispatches; it does not write feature code itself.
+The session is the **controller**: it dispatches planning, implementation and review to subagents, and
+keeps for itself only dispatch, adjudication, integration, verification and the ledger. It does not
+write feature code or plans itself except to unblock a dispatched agent.
 
-## 1. Plan (controller, before any code)
+## 1. Plan (a planner subagent, dispatched by the controller)
 
-- Pick the top item from `docs/design/product-backlog.md`.
-- Write `docs/superpowers/plans/round-NNN-<slug>.md` in the writing-plans format: goal, files,
-  interfaces, tasks; each task has the failing test, the run that proves it fails, the implementation
-  step, the run that proves it passes, and the commit.
+- The controller picks the top item from `docs/design/product-backlog.md` and dispatches a **planner**
+  subagent on the strongest model with: the item, the repo state it may read, the quality bar, and the
+  writing-plans format.
+- The planner writes `docs/superpowers/plans/round-NNN-<slug>.md`: goal, files, interfaces, tasks; each
+  task has the failing test, the run that proves it fails, the implementation step, the run that proves
+  it passes, and the commit.
+- The controller reads the plan once, accepts it or sends specific defects back, and records the
+  acceptance in the ledger. It does not rewrite the plan itself unless the planner is blocked.
 - State the proof: which screenshot or command output will show the item working on 9VH.
 - The plan is this round's, not a forecast: if the work changes mid-round, rewrite the plan (and record
   the ruling), then continue until the rewritten plan is complete. A round never ends with tasks open.
