@@ -1122,3 +1122,13 @@ the output SIZES — the run history deliberately keeps no output bodies, so no 
 terminal row names its session and links `/desktop/?view=terminal`, and the header's filter narrows by
 runs/terminal/files/other without changing the counts. Served page on 9VH: filter, run route and
 session link all present. Device 678 tests, Electron 93, gate green.
+
+**Round 84 — the release candidate installs and the whole surface answers.** Built on this host with the
+extracted NSIS (`NSISDIR=/tmp/nsisroot/usr/share/nsis`): the four windows-gnu binaries, a launcher-signed
+seed sidecar, and the sd19 desktop payload. `SummriseSetup-2.0.0-canary.exe`, 96,840,452 bytes, sha256
+`22bf24d31d3225c237f8d580bbdfbcfa120fc78c7e9271fc067023529bed1d77`. Installed silently on 9VH through a SYSTEM task (exit 0): health `2.0.0` pid 8472, device sha
+`68bd2233…`, pointer 2.0.0, `shell=0`, `desktop=4`. The installed EXE carries `BUILTIN\Users:(I)(RX)`
+because the installer applied it — no manual icacls — and the `SummriseShell` Run value points at
+`C:\Program Files\Summrise\desktop\SummriseDesktop.exe`. Panel serves the filter and the runs route, a
+pty was created and read, and `GET /api/runs/run-1794700942150-2` answered
+`cmd /c echo rc-install-ok`, exit 0, 16 bytes. Evidence: `docs/design/evidence/round84-rc-install.txt`.
