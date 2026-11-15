@@ -1193,3 +1193,13 @@ f992f007 / pid 47152) and Updates idle. The dark capture failed (the iframe was 
 shot; a CDP click landed on the transcript instead). Evidence:
 `docs/design/evidence/round90-panel-light.png` and `round90-panel.txt`. Still open: the panel's dark
 screenshot, the legacy theme layer, the three-surface comparison and the visual regression suite.
+
+**Round 91 — the panel's dark theme is on screen, and the legacy page gets the theme layer.** The iframe
+route worked for the panel: reload, embed, click the moon, capture — dark panel with the sun button,
+Build and Updates cards readable. The legacy panel now loads `panel/desktop/theme.css`, which moves it
+to the transcript's `#f5f6f8` ground and `#c2410c` accent and gives `body[data-theme="dark"]` its own
+values. `test/surfaces.test.mjs` covers all of it (transcript toggle + persistence, panel toggle and
+chips, shared `:root[data-theme="dark"]`, legacy link and variables): Electron suite 95. A light montage
+of the three surfaces is `docs/design/evidence/round91-surfaces-light.png`; the dark montage is still
+missing because the legacy page has not been re-captured after the theme layer, and the panel's dark is
+`round91-panel-dark.png`. Gate green.

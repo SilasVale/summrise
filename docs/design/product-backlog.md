@@ -28,5 +28,5 @@ gate, a ledger entry and a push. DESKTOP-CPH4KB2 stays out until its service is 
 | 11 | Transcript redesign | system-UI chrome, mono only for tools/commands/ids, sticky status header, turn-grouped timeline, chips (allow/running/exit 0/refused), expandable detail card, filter, light-first theme with a persisted dark toggle | done (round 87) |
 | 12 | Device panel in the same system | shared tokens now carry a manual `[data-theme="dark"]` choice, the panel has a persisted light/dark button and chip status rows; verified in the served HTML on 9VH | done (round 89) |
 | 13 | `/desktop/` theme layer | the legacy panel and its live terminal are captured (round 88); shim injects colours/type/spacing so the page and terminal match | in progress |
-| 14 | Side-by-side comparison | screenshots of the three surfaces; mismatches fixed | pending |
-| 15 | Visual regression suite | rows/chips/theme and panel markup tests | pending |
+| 14 | Side-by-side comparison | light montage of transcript, legacy terminal and panel captured; dark montage incomplete (legacy dark not re-captured) | in progress |
+| 15 | Visual regression suite | `test/surfaces.test.mjs`: transcript theme persistence, panel toggle + chips, shared dark block, legacy theme layer link/variables | done (round 91) |
