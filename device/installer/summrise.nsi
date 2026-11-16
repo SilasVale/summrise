@@ -542,17 +542,18 @@ Section "Summrise runtime" SecRuntime
     Abort
   ${EndIf}
 
-  ; **THE EVENT TASK IS A SECOND OWNER, AND IT IS DELETED BEFORE ANY IMAGE OR STOP.** The installed
-  ; full-tray shell has registered `SummriseShellOnReconnect` itself on every normal run
-  ; (device/shell/src/app.rs): a session reconnect starts that tray next to the Electron login Run
-  ; entry, which is the second owner this round retires. The login Run entry is the one automatic
-  ; surface; the task is removed here, after the relay hand-off and before the first image
-  ; replacement or service stop, so a failure leaves the running product untouched.
+  ; **THE EVENT TASK IS A SECOND OWNER, AND IT IS DELETED BEFORE ANY IMAGE OR STOP.** An older
+  ; full-tray shell registered `SummriseShellOnReconnect` itself on every normal run; the current
+  ; shell does not. A session reconnect starts that tray next to the Electron login Run entry,
+  ; which is the second owner this round retires. The login Run entry is the one automatic surface;
+  ; the task is removed here, after the relay hand-off and before the first image replacement or
+  ; service stop, so a failure leaves the running product untouched.
   ;
   ; A TASK THAT CANNOT BE DELETED IS AN ABORT, NOT A WARNING. Continuing would install the new tree
   ; and leave the next RDP reconnect starting a tray this install claims to have removed. An absent
-  ; task is the normal first-install path and is logged, not an error. `SummriseShell` and
-  ; `SummriseShellNow` are inert (consumed one-shot triggers, no next run) and are deliberately kept.
+  ; task is the normal first-install path and is logged, not an error. The legacy one-shot tasks
+  ; `SummriseShell` and `SummriseShellNow` are not created or deleted by this installer; the copies
+  ; found on the reference device were removed in Round 10.
   nsExec::ExecToStack 'schtasks /query /tn SummriseShellOnReconnect'
   Pop $0
   Pop $1

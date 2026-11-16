@@ -24,7 +24,6 @@
     "productName": "SummriseDesktop",
     "files": [
       "src/**/*",
-      "panel/**/*",
       "icon.ico",
       "icon.png",
       "package.json"

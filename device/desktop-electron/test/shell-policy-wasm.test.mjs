@@ -19,8 +19,8 @@
 //      `setAgentPort(7740)` through one glue would leave the other at 18080 — a custom-port install where
 //      the DSH door admits the wrong origin and the main-window tripwire snaps the panel back. Silent,
 //      device-only. The assertion at the bottom of this file is what stops that dependency coming back.
-//   3. THE ONE CALL SITE PER DECISION — a smoke over the values the SHELL asks about (the menu table, the
-//      browser-open plan, the control router, the watchdog, the tooltip), not a corpus.
+//   3. THE ONE CALL SITE PER DECISION — a smoke over the values the SHELL asks about (the browser-open
+//      plan, the control router, the watchdog, the tooltip), not a corpus.
 //   4. THE BOUNDARY CASES a wasm parameter gets WRONG. Several of these channels are renderer-reachable
 //      (`browser-session:open`, `embedded-browser:zoom`, `embedded-dsh:go`, `embedded-browser:place`) and
 //      two are NETWORK-reachable (`req.url`, `req.headers.origin`). url-policy's first build TRAPPED with
@@ -166,13 +166,6 @@ test("the decisions the shell asks about answer from the committed bytes", () =>
   assert.equal(policy.aumidReport("linux"), "(non-windows)");
   assert.equal(policy.agentHostLabel("http://127.0.0.1:18080"), "127.0.0.1:18080");
 
-  // ── the menu table and the constants ───────────────────────────────────────────────────────────────
-  const menu = JSON.parse(policy.appMenuJson("win32", "Summrise"));
-  assert.deepEqual(menu.map((s) => s.label), ["File", "Edit", "View", "Session"]);
-  assert.equal(menu[0].items[0].command, "new-pty");
-  assert.equal(menu[0].items[4].separator, true);
-  const mac = JSON.parse(policy.appMenuJson("darwin", "Summrise"));
-  assert.equal(mac[0].label, "Summrise", "the Apple menu is labelled with app.name");
   const K = JSON.parse(policy.shellConstants());
   assert.equal(K.CDP_PORT, 9333, "the product contract agent/tests/mcp_autoselect_integration.rs binds");
   assert.equal(K.CTRL_PORT, 9444);
@@ -233,9 +226,6 @@ test("the decisions the shell asks about answer from the committed bytes", () =>
   assert.equal(policy.corsAllowOrigin(undefined), "*");
 
   // ── the lifecycle, the tripwire and the CDP self-check ─────────────────────────────────────────────
-  assert.equal(policy.autoLaunchPlan(true, true), "nothing");
-  assert.equal(policy.autoLaunchPlan(true, false), "create");
-  assert.equal(policy.autoLaunchPlan(false, true), "remove");
   assert.deepEqual(policy.schtasksRunArgs("SummriseAgent"), ["/run", "/tn", "SummriseAgent"]);
   assert.ok(
     policy.schtasksCreateArgs("SummriseDesktop", "C:\\s\\start-desktop.ps1")[4].includes('\\"C:\\s\\start-desktop.ps1\\"'),

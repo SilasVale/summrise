@@ -33,7 +33,7 @@ exports.browserCloseAll = browserCloseAll;
 // channel set is pinned against the preload's by `test/ipc-door.test.mjs`. A handler registered here
 // would be a second door, so `main.ts` keeps the three `ipcHandle("browser-session:…")` lines and calls
 // in — and with them the THREE other call sites the section always had: the loopback control server's
-// `browser-open`/`browser-close`/`browser-list` routes (the SPA in a plain browser) and the main
+// `browser-open`/`browser-close`/`browser-list` routes and the main
 // window's `setWindowOpenHandler`, which routes a `target=_blank` from the panel to a sandboxed session
 // instead of a preload-bearing window.
 const electron_1 = require("electron");
