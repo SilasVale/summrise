@@ -85,6 +85,9 @@ const install_root_1 = require("./install-root");
 // its `src` is four levels below it. `<install>\etc\config.yaml` (token, agent port) and every other
 // install-root-relative path derive from this one const.
 const INSTALL_ROOT = (0, install_root_1.installRootFrom)(__dirname);
+// THE SELF-CHECK IS A HOST-OWNED READ over those same paths (see the route branch below). It is its
+// own module — fs/crypto and nothing else — so the facts it composes are testable without Electron.
+const self_check_1 = require("./self-check");
 let _tokenCache = { at: 0, tok: null };
 function agentToken() {
     if ((0, summrise_shell_policy_1.tokenCacheFresh)(_tokenCache.at, Date.now()))
@@ -567,6 +570,12 @@ const httpServer = http.createServer((req, res) => {
     // request target answers `undefined` instead of throwing out of this listener.
     const pathname = (0, summrise_shell_policy_1.controlPath)(req.url) ?? "";
     const send = (obj, code = 200) => {
+        // A CLIENT THAT HUNG UP MUST NOT MAKE A LATE ANSWER THROW. The self-check branch below answers
+        // after a hash and a health probe; a probe that disconnects first leaves this response finished,
+        // and `writeHead` on it throws `ERR_HTTP_HEADERS_SENT` out of the promise chain. Dropping the
+        // answer is the only correct thing to do with it.
+        if (res.writableEnded || res.destroyed)
+            return;
         // review #8: was ACAO:* with no origin check — ANY web page open in ANY local browser could POST
         // /api/browser-session/open (loopback is exempt from mixed-content blocking). Reflect the origin,
         // and reject requests from foreign origins (reads included — the GET routes expose session URLs
@@ -589,6 +598,30 @@ const httpServer = http.createServer((req, res) => {
         return send({ ok: false, error: K.FORBIDDEN_ORIGIN }, 403);
     }
     try {
+        // THE HOST-OWNED READ ROUTE: `/api/shell/self-check`, GET only. It sits AFTER the preflight and
+        // the origin veto above (so it inherits both) and BEFORE the policy router — the crate's table
+        // has no such route, and `controlRoute("GET", SELF_CHECK_PATH)` returning "not-found" is pinned by
+        // a test. A POST falls through to the router's 404; no second listener, no page server, nothing
+        // started. The document carries the token's PRESENCE as a boolean only (`agentToken() !== null`);
+        // the config body is never passed in or read here. The answer is async (hashes + health probe),
+        // so a failure is a JSON 500 rather than an exception out of the listener.
+        if (req.method === self_check_1.SELF_CHECK_METHOD && pathname === self_check_1.SELF_CHECK_PATH) {
+            void (0, self_check_1.collectSelfCheck)({
+                installRoot: INSTALL_ROOT,
+                configPath: path.join(INSTALL_ROOT, "etc", "config.yaml"),
+                tokenPresent: agentToken() !== null,
+                agentBase: (0, summrise_url_policy_1.agentBase)(),
+                agentHealth: () => agentResponds(),
+                appPath: electron_1.app.getAppPath(),
+                exePath: process.execPath,
+                electron: process.versions.electron,
+                appVersion: electron_1.app.getVersion(),
+                shellPath: path.join(INSTALL_ROOT, "summrise-shell.exe"),
+                currentPath: path.join(INSTALL_ROOT, "current.txt"),
+                previousPath: path.join(INSTALL_ROOT, "previous.txt"),
+            }).then(send, (e) => send({ ok: false, error: String(e) }, 500));
+            return;
+        }
         // THE ROUTE TABLE IS THE POLICY CRATE'S, INCLUDING ITS ASYMMETRY, which is the original behaviour
         // and not an accident to tidy: `/list` and `/icon-status` have NO method guard (a POST reaches the
         // same reader), while `/open` and `/close` require POST and a GET to one of them falls through to
