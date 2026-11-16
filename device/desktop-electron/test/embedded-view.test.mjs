@@ -251,6 +251,7 @@ test("an unbound slot creates NOTHING and leaves NO state — the refusal preced
       canFwd: false,
       title: "",
       visible: false,
+      load: null,
     },
     "and the record is the empty one — not a description of a view that was never attached",
   );
@@ -547,6 +548,7 @@ test("state() answers from the slot's own record — it never reads the window",
       canFwd: false,
       title: "",
       visible: false,
+      load: null,
     },
     "state() must answer, not throw, for a slot that has never been placed or navigated",
   );

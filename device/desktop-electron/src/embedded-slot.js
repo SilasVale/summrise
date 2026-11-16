@@ -105,18 +105,31 @@ function embeddedSlot(config) {
     }
     const { win, door, popupTarget, recoverUrl, stateUrl, goneChannel, navChannel } = config;
     // ── THE PER-INSTANCE STATE, AND IT IS THE INSTANCE'S ─────────────────────────────────────────
-    // Four bindings, closed over rather than module-level, which is what makes two slots independent: the
+    // Six bindings, closed over rather than module-level, which is what makes two slots independent: the
     // two modules this replaces each held their state at module scope, so a second instance was not
-    // merely unused, it was unrepresentable. (`embeddedUrl` is the fourth rather than the third: the
+    // merely unused, it was unrepresentable. (`lastDecided` is the fourth rather than the third: the
     // browser's module held view/visible/bounds AND the last url its door decided, which recovery and
-    // `state()` both read. The DSH's recover ignores it and its `stateUrl` does too.)
+    // `state()` both read. The DSH's recover ignores it and its `stateUrl` does too.) `load` is the
+    // page's, not the view's: it says what the screen HAS where `visible` says only that the native view
+    // is on screen, and `finishBlocked` is the per-attempt flag that keeps a queued finish from overriding
+    // this attempt's terminal state — a failure, or a renderer that died.
     let view = null;
     let visible = false;
     let bounds = null;
     let lastDecided = "about:blank";
+    let load = null;
+    let finishBlocked = false;
+    /** Record one page-load transition. A fresh object each time: `state()` hands out a copy, not this. */
+    function setLoad(status, url, code, desc) {
+        load = { status, url, code, desc };
+    }
     function ensure() {
         if (view && !view.webContents.isDestroyed())
             return view;
+        // A FRESH VIEW HAS NO PAGE, so it has no load to report — neither the old view's failure nor its
+        // page. `state()` returns the fresh view's record from the first read after Recover/Hide-Show.
+        load = null;
+        finishBlocked = false;
         // ── THE HOST IS READ BEFORE ANYTHING IS BUILT, AND BEFORE ANY STATE IS SET ─────────────────────
         // An UNBOUND slot is one whose window getter refuses (`deps().win()` on a host whose `bind()` never
         // ran), and a refusal must leave the slot exactly as it was: nothing built, nothing assigned, no
@@ -151,6 +164,35 @@ function embeddedSlot(config) {
                 navigateDecided(decided);
             return { action: "deny" };
         });
+        // ── THE PAGE'S LOAD LIFECYCLE, FOUR EVENTS AND ONE PER-ATTEMPT FLAG ──────────────────────────
+        // `state().visible` says the native view is on screen; this record says what that screen HAS. They
+        // are independent, which is the defect this pair exists to end: a failed provisional load leaves the
+        // view visible over a blank page (`visible: true`, url often ""), so a pane that paints visibility as
+        // success paints `live` over the B2 failure. The record is reported in `state()`; no new channel.
+        built.webContents.on("did-start-loading", () => {
+            // A NEW ATTEMPT CLEARS THE OLD TERMINAL STATE: a finish may only describe an attempt that has not
+            // failed or died since it started.
+            finishBlocked = false;
+            setLoad("loading", lastDecided, 0, "");
+        });
+        // A FAILURE OR A DEAD RENDERER SINCE THE LAST START OUTRANKS A FINISH. Chromium can emit
+        // `did-finish-load` for the replacement document of a failed navigation, and a finish can already be
+        // queued when the renderer dies; the page the operator asked for still never arrived, so the record
+        // stays `failed`/`gone` until a new load starts (or navigate/recover/reload presets one).
+        built.webContents.on("did-finish-load", () => {
+            if (finishBlocked)
+                return;
+            setLoad("ready", built.webContents.getURL() || lastDecided, 0, "");
+        });
+        // ONE PREDICATE FOR "THE PAGE FAILED": the shell policy's `shouldRetryLoad` is main frame AND not
+        // ERR_ABORTED (-3). A subframe's refusal and a reload/in-page abort are not the page failing, so
+        // neither overwrites the record. The event is Electron's first argument; the values start at code.
+        built.webContents.on("did-fail-load", (_e, errorCode, errorDescription, validatedURL, isMainFrame) => {
+            if (!(0, summrise_shell_policy_1.shouldRetryLoad)(!!isMainFrame, errorCode))
+                return;
+            finishBlocked = true;
+            setLoad("failed", validatedURL || lastDecided, errorCode, errorDescription);
+        });
         if (navChannel) {
             // Event-driven (no polling): the SPA's address bar and back/fwd buttons track the ACTUAL page, so
             // an in-page (hash) navigation and a title-only update are changes it has to see too.
@@ -170,6 +212,11 @@ function embeddedSlot(config) {
         // native view, becomes visible in the slot; only the PUSH needs a live window, which `main.ts`
         // re-creates and nulls (a destroyed window's `send` throws in Electron).
         built.webContents.on("render-process-gone", (_e, details) => {
+            // The page is GONE before the view is hidden: the record is read even if no push is consumed.
+            // And it is TERMINAL for this attempt: a did-finish-load already queued behind the crash must not
+            // flip a dead renderer's page back to ready (only a new start clears the flag).
+            finishBlocked = true;
+            setLoad("gone", lastDecided, details.exitCode, details.reason);
             try {
                 built.setVisible(false);
             }
@@ -200,7 +247,7 @@ function embeddedSlot(config) {
         const w = win();
         if (!w)
             return;
-        if ((0, summrise_shell_policy_1.slotTooSmall)(next)) {
+        if (next === null || (0, summrise_shell_policy_1.slotTooSmall)(next)) {
             v.setVisible(false);
             visible = false;
             return;
@@ -218,6 +265,10 @@ function embeddedSlot(config) {
     function navigateDecided(url) {
         const v = ensure();
         lastDecided = url;
+        // The preset is what makes the pane honest between the call and the page's commit: the URL is now
+        // known and the previous page's state is not. Cleared terminal flag: this is a NEW attempt.
+        finishBlocked = false;
+        setLoad("loading", url, 0, "");
         v.webContents.loadURL(url).catch(() => { });
     }
     function navigate(raw) {
@@ -231,15 +282,20 @@ function embeddedSlot(config) {
         const v = view;
         if (!v || v.webContents.isDestroyed())
             return { ok: false };
+        // The preset follows a reload that was ACCEPTED, so a throw leaves the record as it was rather than
+        // claiming a load that never began. The url is the last decided target, the same answer a new
+        // `did-start-loading` records; the flag clear makes this a new attempt too.
         try {
             v.webContents.reload();
-            return { ok: true };
         }
         catch {
             return { ok: false };
         }
+        finishBlocked = false;
+        setLoad("loading", lastDecided, 0, "");
+        return { ok: true };
     }
-    /** The record WITHOUT a history surface: exactly the four keys the DSH's pane reads. */
+    /** The record WITHOUT a history surface: exactly the five keys the DSH's pane reads. */
     function stateRecord() {
         const v = view;
         const wc = v && !v.webContents.isDestroyed() ? v.webContents : null;
@@ -248,6 +304,11 @@ function embeddedSlot(config) {
             url: stateUrl(wc ? wc.getURL() : undefined, lastDecided),
             title: wc ? wc.getTitle() : "",
             visible: (0, summrise_shell_policy_1.viewVisible)(visible, !!wc),
+            // A DESTROYED webContents HAS NO PAGE: the record answers `null` rather than reporting the load of
+            // a view that no longer exists — the same rule as the url/title fields above. A live view keeps the
+            // record until `ensure()` builds the fresh one (`gone` included: a crashed renderer leaves its
+            // webContents object alive, which is why `gone` is still readable after `render-process-gone`).
+            load: wc && load ? { ...load } : null,
         };
     }
     /** ...and the same record WITH the two history fields, which only the browser's slot has. */
@@ -286,8 +347,12 @@ function embeddedSlot(config) {
             return { ok: false };
         // The recovery target is the parameter's, and it is ALREADY A DECISION: the browser's re-loads the
         // last url its door decided (never a third-party home page a crash would fetch), the DSH's is its
-        // own home (`dshHome`), because a recovery that lands anywhere else is a view nobody asked for.
-        fresh.webContents.loadURL(recoverUrl(lastDecided)).catch(() => { });
+        // own home (`dshHome`), because a recovery that lands anywhere else is a view nobody asked for. It
+        // becomes `lastDecided` before the load so the record and the loading preset name the target.
+        lastDecided = recoverUrl(lastDecided);
+        finishBlocked = false;
+        setLoad("loading", lastDecided, 0, "");
+        fresh.webContents.loadURL(lastDecided).catch(() => { });
         // Re-show at the same spot if the slot was live when the renderer died — and restore the flag, so the
         // record the pane reads agrees with what is on screen. A slot that was hidden (never placed, or the
         // SPA cleared its placeholder) stays hidden: the SPA's next place() is what shows it.

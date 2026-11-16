@@ -308,6 +308,83 @@ test("a crash on one slot pushes that slot's channel once, hides only its own vi
   assert.equal(viewA.visible, false, "and A stays hidden: B's crash must not re-show A's dead view");
 });
 
+test("state() reports the page load per slot — failed never turns ready, a fresh load clears it, and a dead renderer is gone", () => {
+  // THE PAGE, NOT THE VIEW: `visible` says a native view is on screen and can be true over a blank failed
+  // page (the B2 defect). The load record is what tells the pane whether that page ever arrived, and it
+  // lives in the SAME `state()` reply as `visible` — per instance, exactly like the view, the flags and
+  // the last decided url are.
+  const { slotA, slotB, views } = twoSlots();
+  const target = "https://example.com/slow";
+  const decided = urlPolicy.sanitizeBrowserUrl(target);
+  assert.equal(decided, target, "guard: the browser's door admits the target, so the decided url is the target");
+  // ── NO LOAD OBSERVED ────────────────────────────────────────────────────────────────────────────
+  assert.deepEqual(slotA.state().load, null, "a slot that has never loaded reports no load — not ready, not blank");
+  assert.deepEqual(slotB.state().load, null, "and each slot answers for ITS OWN loads");
+  // ── LOADING ─────────────────────────────────────────────────────────────────────────────────────
+  slotA.navigate(target);
+  const viewA = views[0];
+  assert.deepEqual(
+    slotA.state().load,
+    { status: "loading", url: decided, code: 0, desc: "" },
+    "navigate() preset the decided target as loading, so the pane can tell a pending page from a ready one",
+  );
+  assert.deepEqual(slotB.state().load, null, "B never navigated, and A's load is not B's");
+  // ── FAILED ──────────────────────────────────────────────────────────────────────────────────────
+  // The event is FIRST and there are SEVEN arguments: Electron's `did-fail-load` passes the Event before
+  // `errorCode`. The predicate's two guards are asked of the crate before the emissions, so a passing case
+  // below cannot be the stub agreeing with itself.
+  assert.equal(policy.shouldRetryLoad(true, -102), true, "guard: a main-frame connection refusal is a page failure");
+  assert.equal(policy.shouldRetryLoad(false, -102), false, "guard: a subframe failure is not the page failing");
+  assert.equal(policy.shouldRetryLoad(true, -3), false, "guard: ERR_ABORTED (-3) is not the page failing");
+  viewA.webContents.emit("did-fail-load", {}, -102, "ERR_CONNECTION_REFUSED", decided, true, 1, 2);
+  const failed = { status: "failed", url: decided, code: -102, desc: "ERR_CONNECTION_REFUSED" };
+  assert.deepEqual(slotA.state().load, failed,
+    "a main-frame failure records the code, the description and the target — the pane can name what failed");
+  assert.deepEqual(slotB.state().load, null, "a failure on A does not touch B's record");
+  // ── FAILED NEVER TURNS READY ON A STRAY FINISH ─────────────────────────────────────────────────
+  viewA.webContents.emit("did-finish-load");
+  assert.deepEqual(slotA.state().load, failed,
+    "Chromium can fire did-finish-load for the failed navigation's replacement document; a failure since the last start must stay failed");
+  // ...AND A FAILURE THAT IS NOT THE PAGE'S LEAVES IT ALONE: a subframe refusal and ERR_ABORTED are both
+  // excluded by `shouldRetryLoad`, so neither overwrites the recorded main-frame failure.
+  viewA.webContents.emit("did-fail-load", {}, -102, "ERR_CONNECTION_REFUSED", "https://ads.example/frame", false, 1, 2);
+  assert.deepEqual(slotA.state().load, failed, "a subframe failure must not overwrite the page's own failure");
+  viewA.webContents.emit("did-fail-load", {}, -3, "ERR_ABORTED", decided, true, 1, 2);
+  assert.deepEqual(slotA.state().load, failed, "ERR_ABORTED is a reload/in-page detail, not the page failing");
+  // ── A FRESH LOAD CLEARS IT ─────────────────────────────────────────────────────────────────────
+  viewA.webContents.emit("did-start-loading");
+  assert.deepEqual(
+    slotA.state().load,
+    { status: "loading", url: decided, code: 0, desc: "" },
+    "a new load starts from loading again — the stored failure is not sticky across attempts",
+  );
+  viewA.webContents.emit("did-finish-load");
+  assert.deepEqual(
+    slotA.state().load,
+    { status: "ready", url: decided, code: 0, desc: "" },
+    "the finish of that fresh load is ready, and the old failure is gone",
+  );
+  // ── A DEAD RENDERER IS GONE ────────────────────────────────────────────────────────────────────
+  // A is PLACED first, so the crash's hide is a real transition: the record starts from a shown view
+  // and must end hidden, rather than passing because A was never on screen.
+  slotA.place({ x: 0, y: 0, width: 800, height: 600 });
+  assert.equal(viewA.visible, true, "guard: A's page is on screen before the renderer dies");
+  const gone = { status: "gone", url: decided, code: 133, desc: "crashed" };
+  viewA.webContents.emit("render-process-gone", {}, { reason: "crashed", exitCode: 133 });
+  assert.deepEqual(
+    slotA.state().load,
+    gone,
+    "a renderer that died reports gone with its reason and exit code, not the last ready page",
+  );
+  // GONE IS TERMINAL UNTIL A NEW START: a finish already queued behind the crash must not revive the
+  // dead renderer's page as ready.
+  viewA.webContents.emit("did-finish-load");
+  assert.deepEqual(slotA.state().load, gone,
+    "a did-finish-load queued after the crash must not turn gone back into ready");
+  assert.equal(slotA.state().visible, false, "and the dead view is hidden, so the record cannot claim a visible page");
+  assert.deepEqual(slotB.state().load, null, "B's record is still untouched by everything A did");
+});
+
 test("each slot opens only its own door — the two doors decide differently and neither touches the other's slot", () => {
   const { slotA, slotB, askedA, askedB, views } = twoSlots();
   // THE SAME RAW ADDRESS, TWO DOORS: the browser's admits any http/https, the DSH's admits only its own

@@ -272,7 +272,7 @@ test("an unbound slot creates NOTHING and leaves NO state — the refusal preced
   assert.deepEqual(slot.reload(), { ok: false }, "reload has no view to reach");
   assert.deepEqual(
     slot.state(),
-    { ok: true, url: policy.shownUrl(undefined, ""), title: "", visible: false },
+    { ok: true, url: policy.shownUrl(undefined, ""), title: "", visible: false, load: null },
     "and the record is the empty one — not a description of a view that was never attached",
   );
   assert.equal(shell.win.attached.length, 0, "nor did any view reach the window's contentView");
@@ -332,7 +332,7 @@ test("open() builds the view LAZILY, hidden, with the browser view's security po
   const { slot, views, win, asked, permissions } = boundModule();
   // LAZY: reading the state must not build a view — the SPA asks for state on a page the operator may
   // never open, and a view per page would be a Chromium process per page.
-  assert.deepEqual(slot.state(), { ok: true, url: "", title: "", visible: false }, "state() before any open");
+  assert.deepEqual(slot.state(), { ok: true, url: "", title: "", visible: false, load: null }, "state() before any open");
   assert.equal(views.length, 0, "state() must not create the view");
   const expected = home();
   assert.deepEqual(open(slot), { ok: true, url: expected }, "open() answers with the address it loaded");
@@ -466,15 +466,19 @@ test("a destroyed window is sent nothing — the view is still hidden, the push 
   assert.equal(views[0].visible, false, "the hide is not conditional on the window surviving");
 });
 
-test("state() reports exactly url, title and visible — the DSH has NO back/fwd, so no canBack/canFwd", () => {
+test("state() reports exactly url, title, visible and the page load — the DSH has NO back/fwd, so no canBack/canFwd", () => {
   const { slot, views, win } = boundModule();
   const expected = home();
   open(slot);
   views[0].webContents.title = "Harness";
   const state = slot.state();
-  assert.deepEqual(Object.keys(state).sort(), ["ok", "title", "url", "visible"],
+  assert.deepEqual(Object.keys(state).sort(), ["load", "ok", "title", "url", "visible"],
     "the record's KEY SET is the contract: the browser view's `canBack`/`canFwd` are history the DSH pane does not have");
-  assert.deepEqual(state, { ok: true, url: expected, title: "Harness", visible: false });
+  assert.deepEqual(
+    state,
+    { ok: true, url: expected, title: "Harness", visible: false, load: { status: "loading", url: expected, code: 0, desc: "" } },
+    "open() navigated the harness home through the door, so the record says that target is loading",
+  );
   assert.equal("canBack" in state, false, "a keystroke here would be a history the pane cannot offer");
   assert.equal("canFwd" in state, false);
   assert.equal(win.attached.length, 1, "guard: the view was attached, so the record describes a live one");
@@ -484,7 +488,7 @@ test("state() reports exactly url, title and visible — the DSH has NO back/fwd
   // url its door decided; this pane's record describes the LIVE view and nothing else.
   slot.place({ x: 0, y: 0, width: 800, height: 600 });
   views[0].webContents.destroyed = true;
-  assert.deepEqual(slot.state(), { ok: true, url: "", title: "", visible: false });
+  assert.deepEqual(slot.state(), { ok: true, url: "", title: "", visible: false, load: null });
 });
 
 test("reload() refuses when there is no live view and reloads the live one", () => {
