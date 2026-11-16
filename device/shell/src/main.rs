@@ -104,17 +104,26 @@ mod tests {
 
 #[cfg(windows)]
 fn main() {
-    // A DIAGNOSTIC THAT OPENS THE WINDOW AND EXITS. The tray menu is a click on a machine this project
-    // is often not sitting at, so "Open console does nothing" was reported twice without a way to
-    // separate the menu wiring from the window: `--check-window` builds the same window and WebView2
-    // view the menu builds, waits for the page to load, and answers on the log and the exit code.
-    if std::env::args().any(|argument| argument == "--check-window") {
-        let code = app::check_window();
-        std::process::exit(code);
+    // A DIAGNOSTIC AND A FALLBACK: BOTH ARE ONE-SHOT WINDOWS, DECIDED BEFORE THE MUTEX. The tray
+    // menu is a click on a machine this project is often not sitting at, so "Open console does
+    // nothing" was reported twice without a way to separate the menu wiring from the window:
+    // `--check-window` builds the same window and WebView2 view the menu builds, waits for the page
+    // to load, and answers on the log and the exit code. `--panel` is the supported fallback: one
+    // visible window on the device's own panel, with no tray.
+    match app::mode_from_args(std::env::args()) {
+        app::Mode::CheckWindow => {
+            let code = app::check_window();
+            std::process::exit(code);
+        }
+        app::Mode::Fallback => {
+            let code = app::show_panel();
+            std::process::exit(code);
+        }
+        app::Mode::Tray => {}
     }
     if app::already_running() {
-        // A second instance is the session-reconnect task asking for the icon back, not a user
-        // double-clicking: signal the running instance to re-add the tray, and only then exit.
+        // A second launch asks for the icon back rather than becoming a second tray: signal the
+        // running instance to re-add it, and only then exit.
         if app::signal_wake() {
             note("another instance owns the tray; asked it to re-add the icon");
         } else {

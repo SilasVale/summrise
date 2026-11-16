@@ -90,7 +90,7 @@ jobs:
           set -euo pipefail
           # **EVERY BINARY THE NSIS SCRIPT COPIES, OR MAKENSIS FAILS BY NAME.** `summrise-shell.exe`
           # is installer-owned (the updater never swaps it), but it is still built here: the setup
-          # copies it at device/installer/summrise.nsi:630 and the tray is what a person sees. This
+          # copies it at device/installer/summrise.nsi:662 and the tray is what a person sees. This
           # list and that File line must stay in step; a new shipped binary belongs in both.
           cargo build --release --manifest-path device/Cargo.toml \
             -p summrise-launch -p summrise-device -p summrise-console -p summrise-shell
@@ -158,9 +158,25 @@ jobs:
           set -euo pipefail
           cd device/desktop-electron
           npm ci
+          # THE TYPE CHECK AND UNIT TESTS ARE THE PAYLOAD'S OWN GATE, BEFORE PACKAGING. The fallback
+          # trigger and its tray row are TypeScript and committed JS; a build that skips its tests
+          # would package a host the tests reject.
+          npx tsc --noEmit
+          node --test test/*.mjs
           npm run dist -- --win dir
           test -f dist/win-unpacked/SummriseDesktop.exe
           test -f dist/win-unpacked/resources/app.asar
+          # THE ASAR MUST CARRY THE FALLBACK LAUNCHER, not only the generated main.js: the tray
+          # imports `./fallback-shell`, so a missing module turns the row into a runtime error.
+          asar_list="$(mktemp)"
+          npx asar list dist/win-unpacked/resources/app.asar > "$asar_list"
+          if ! grep -qE '^[/\\]src[/\\]fallback-shell\.js[[:space:]]*$' "$asar_list"; then
+            echo "::error::the built asar does not carry src/fallback-shell.js"
+            rm -f "$asar_list"
+            exit 1
+          fi
+          rm -f "$asar_list"
+          echo "payload asar carries src/fallback-shell.js"
 
       - name: install NSIS
         shell: powershell
@@ -229,6 +245,48 @@ jobs:
           Write-Host "health: $($health | ConvertTo-Json -Compress)"
           if ($health.status -ne 'ok') { throw "health is not ok: $($health | ConvertTo-Json -Compress)" }
 
+          # ONE OWNER: the installer deletes the old full-tray shell's event task. It is the task
+          # that starts a second tray on every RDP reconnect; a setup that leaves it behind has not
+          # installed this round's ownership model.
+          $reconnectTask = Get-ScheduledTask -TaskName 'SummriseShellOnReconnect' -ErrorAction SilentlyContinue
+          if ($null -ne $reconnectTask) { throw "SummriseShellOnReconnect survived the install: $($reconnectTask.State)" }
+          Write-Host "SummriseShellOnReconnect is gone"
+
+          # THE INSTALLED FALLBACK IS THE BINARY THIS RUN BUILT. The installer-owned Rust shell is
+          # the window-only fallback the Electron host spawns; a setup that shipped an older or
+          # unrelated shell would be a silent second product.
+          $installedShell = 'C:\SummriseCI\summrise-shell.exe'
+          if (-not (Test-Path -LiteralPath $installedShell -PathType Leaf)) { throw "the installer did not install the fallback shell: $installedShell" }
+          $builtShell = 'device/target/release/summrise-shell.exe'
+          if (-not (Test-Path -LiteralPath $builtShell -PathType Leaf)) { throw "the built fallback shell is missing: $builtShell" }
+          $installedShellHash = (Get-FileHash -LiteralPath $installedShell -Algorithm SHA256).Hash
+          $builtShellHash = (Get-FileHash -LiteralPath $builtShell -Algorithm SHA256).Hash
+          Write-Host "installed shell sha256: $installedShellHash"
+          Write-Host "built shell sha256:     $builtShellHash"
+          if ($installedShellHash -ne $builtShellHash) { throw "the installed summrise-shell.exe is not the one this run built" }
+
+          # WEBVIEW2 IS THE FALLBACK'S RENDERER. The Electron default ships its own Chromium and does
+          # not need it; the window-only fallback does. The installer logs the machine property; a
+          # per-user or newer runtime may not write that key, so msedgewebview2.exe is the second
+          # accepted answer.
+          $webview2Key = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          $webview2Pv = $null
+          $webview2 = Get-ItemProperty -Path $webview2Key -Name pv -ErrorAction SilentlyContinue
+          if ($null -ne $webview2) { $webview2Pv = $webview2.pv }
+          if (-not [string]::IsNullOrEmpty($webview2Pv)) {
+            Write-Host "WebView2 runtime: $webview2Pv"
+          } else {
+            $webview2Exes = @(
+              Get-Item -Path 'C:\Program Files (x86)\Microsoft\EdgeWebView\Application\*\msedgewebview2.exe' -ErrorAction SilentlyContinue
+              Get-Item -Path 'C:\Program Files\Microsoft\EdgeWebView\Application\*\msedgewebview2.exe' -ErrorAction SilentlyContinue
+              if (-not [string]::IsNullOrEmpty($env:LOCALAPPDATA)) {
+                Get-Item -Path "$env:LOCALAPPDATA\Microsoft\EdgeWebView\Application\*\msedgewebview2.exe" -ErrorAction SilentlyContinue
+              }
+            )
+            if ($webview2Exes.Count -eq 0) { throw "the WebView2 runtime is not registered and msedgewebview2.exe was not found" }
+            Write-Host "WebView2 runtime: msedgewebview2.exe at $($webview2Exes[0].FullName)"
+          }
+
           # The installed Electron payload is the thing the installer exists to deliver.
           $desktop = 'C:\SummriseCI\desktop\SummriseDesktop.exe'
           if (-not (Test-Path -LiteralPath $desktop -PathType Leaf)) { throw "the Electron desktop was not installed: $desktop" }
@@ -257,6 +315,52 @@ jobs:
           if ($entries -match '[/\\]panel[/\\]activity\.html$') { throw "the built asar still carries panel/activity.html" }
           Write-Host "payload asar lists src/device-page.js and not panel/activity.html"
 
+          # **THE SHELL SMOKE IS HONEST ABOUT THE WINDOW STATION.** A GitHub-hosted Windows job is
+          # session 0, which has no interactive desktop: `--check-window` must refuse with exit 2 and
+          # its named line, and `--panel` must refuse the same way. An interactive runner (a
+          # self-hosted agent in a user session) must build the window and WebView2 view and exit 0;
+          # there `--panel` is not run because it would open a second window. Neither branch is a
+          # render proof, and this step never claims one.
+          function Invoke-ShellProbe {
+            param([string]$Argument, [string]$LogPath)
+            if (Test-Path -LiteralPath $LogPath) { Remove-Item -LiteralPath $LogPath -Force }
+            $process = Start-Process -FilePath $installedShell -ArgumentList $Argument -PassThru
+            if (-not $process.WaitForExit(30000)) {
+              Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+              throw "summrise-shell.exe $Argument did not exit within 30 s"
+            }
+            $text = ''
+            if (Test-Path -LiteralPath $LogPath) { $text = Get-Content -LiteralPath $LogPath -Raw }
+            Write-Host "summrise-shell.exe $Argument exit: $($process.ExitCode)"
+            Write-Host $text
+            [pscustomobject]@{ ExitCode = $process.ExitCode; Text = $text }
+          }
+
+          if ([string]::IsNullOrEmpty($env:LOCALAPPDATA)) { throw "LOCALAPPDATA is not set; the shell has nowhere to write its log" }
+          $shellLog = Join-Path $env:LOCALAPPDATA 'Summrise\shell.log'
+          $sessionId = [System.Diagnostics.Process]::GetCurrentProcess().SessionId
+          Write-Host "runner session id: $sessionId"
+          $check = Invoke-ShellProbe -Argument '--check-window' -LogPath $shellLog
+          if ($sessionId -eq 0) {
+            if ($check.ExitCode -ne 2) { throw "--check-window in session 0 returned $($check.ExitCode), expected 2" }
+            if ($check.Text -notmatch [regex]::Escape('session 0, which has no interactive desktop')) {
+              throw "--check-window in session 0 did not log 'session 0, which has no interactive desktop'"
+            }
+            Write-Host "session 0: --check-window refused with exit 2 and the named line"
+            $panel = Invoke-ShellProbe -Argument '--panel' -LogPath $shellLog
+            if ($panel.ExitCode -ne 2) { throw "--panel in session 0 returned $($panel.ExitCode), expected 2" }
+            if ($panel.Text -notmatch [regex]::Escape('fallback: this is session 0')) {
+              throw "--panel in session 0 did not log 'fallback: this is session 0'"
+            }
+            Write-Host "session 0: --panel refused with exit 2 and the named line"
+          } else {
+            if ($check.ExitCode -ne 0) { throw "--check-window in session ${sessionId} returned $($check.ExitCode), expected 0" }
+            if ($check.Text -notmatch [regex]::Escape('window and view built')) {
+              throw "--check-window in session ${sessionId} did not log 'window and view built'"
+            }
+            Write-Host "session ${sessionId}: --check-window built the window and view (exit 0); --panel is not run on an interactive runner because it would open a window there"
+          }
+
       - name: uninstall it on the runner
         shell: powershell
         run: |
@@ -271,6 +375,13 @@ jobs:
           $run = Get-ItemProperty -Path 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run' -Name SummriseShell -ErrorAction SilentlyContinue
           if ($null -ne $run) { throw "the Run value survived the uninstall: $($run.SummriseShell)" }
           Write-Host "Run value is gone"
+          # The fallback binary and the retired event task go with the install.
+          $installedShell = 'C:\SummriseCI\summrise-shell.exe'
+          if (Test-Path -LiteralPath $installedShell) { throw "the fallback shell survived the uninstall: $installedShell" }
+          Write-Host "fallback shell is gone"
+          $reconnectTask = Get-ScheduledTask -TaskName 'SummriseShellOnReconnect' -ErrorAction SilentlyContinue
+          if ($null -ne $reconnectTask) { throw "SummriseShellOnReconnect survived the uninstall" }
+          Write-Host "SummriseShellOnReconnect is gone"
 
       # A run artifact is a convenience, not the record: the tag release above attaches the same
       # installer to the release, which is where an operator downloads it months later. Keeping the

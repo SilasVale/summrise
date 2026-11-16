@@ -114,6 +114,9 @@ const BOOT_TAB: "browser" | "harness" | null =
   process.argv.includes("--harness") ? "harness" :
   process.argv.includes("--browser") ? "browser" : null;
 import { isDevicePage } from "./device-page";
+// THE FALLBACK TRIGGER IS ITS OWN MODULE: the path derivation and the detached `--panel` spawn are
+// testable without Electron, and this file owns only WHEN to call them (a tray row or `--fallback`).
+import { launchFallbackShell } from "./fallback-shell";
 
 function bootAgentPort(): number {
   const fromDevice = readDevicePort();
@@ -305,6 +308,24 @@ function focusMain(): void {
   win.focus();
 }
 
+/** Open the installed Rust shell in its WINDOW-ONLY mode (`--panel`): no tray, helper, first-run,
+ *  geometry or reconnect. Called from the tray row and from an explicit `--fallback` argv only — this
+ *  host never starts the fallback by itself, because Electron stays the one automatic surface.
+ *
+ *  The path is `process.execPath`'s sibling (the installed `summrise-shell.exe`), not a config value.
+ *  A missing shell is a visible dialog rather than a dead click; a spawn failure is the same door. */
+function openFallbackShell(): void {
+  const result = launchFallbackShell({ execPath: process.execPath });
+  if (result.ok) {
+    console.log(`[summrise] fallback shell opened: ${result.path}${result.pid ? ` (pid ${result.pid})` : ""}`);
+    return;
+  }
+  dialog.showErrorBox(
+    "Summrise fallback shell",
+    "The window-only fallback shell (summrise-shell.exe) could not be opened.\n\n" + result.error,
+  );
+}
+
 // stage-m: SINGLE-INSTANCE LOCK — a second Summrise exits, and its argv is routed to the running
 // instance: `--browser`/`--harness` open the host window, anything else focuses the main window.
 const gotTheLock = app.requestSingleInstanceLock();
@@ -312,7 +333,8 @@ if (!gotTheLock) {
   app.quit();
 } else {
   app.on("second-instance", (_event, argv) => {
-    if (argv.includes("--harness")) openHost("harness");
+    if (argv.includes("--fallback")) openFallbackShell();
+    else if (argv.includes("--harness")) openHost("harness");
     else if (argv.includes("--browser")) openHost("browser");
     else focusMain();
   });
@@ -581,6 +603,11 @@ if (gotTheLock) {
     // The harness view's door, pinned the same way and for the same reason: a predicate that ran
     // before this line would check a port nothing is listening on.
     setDshPort(bootDshPort());
+
+    // `--fallback` is the explicit argv door to the installed Rust shell, checked ONCE here and never
+    // derived from the boot state. It runs BEFORE the host windows so an explicit fallback does not
+    // wait on (or depend on) this host's device-page load; a normal start never reaches it.
+    if (process.argv.includes("--fallback")) openFallbackShell();
 
     // ── THE HOST WINDOW: created ONCE, after the ports are pinned and BEFORE the browser slot's
     // eager `ensure()` (the slot's window getter is this window, and a view created before it would
@@ -861,6 +888,7 @@ if (gotTheLock) {
           case "panel": return { label: row.label, click: () => openDevicePage("panel") };
           case "browser": return { label: row.label, click: () => openHost("browser") };
           case "harness": return { label: row.label, click: () => openHost("harness") };
+          case "fallback": return { label: row.label, click: () => openFallbackShell() };
           case "update": return {
             label: row.label,
             click: () => {

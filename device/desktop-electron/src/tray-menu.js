@@ -18,6 +18,10 @@ function trayMenuRows(facts) {
     { label: "Open panel", action: "panel" },
     { label: "Browser", action: "browser" },
     { label: "Harness", action: "harness" },
+    // The installed Rust shell, window only: one explicit click, never a boot path. It is a FALLBACK
+    // beside the panes, not a fifth surface — the label says "window only" so nobody expects the tray
+    // the full shell used to own.
+    { label: "Open fallback shell (window only)", action: "fallback" },
     { type: "separator" },
     { label: version ? "Version " + version : "Version (not reported)", enabled: false },
     { label: "Check for updates\u2026", action: "update" },

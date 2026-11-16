@@ -542,6 +542,36 @@ Section "Summrise runtime" SecRuntime
     Abort
   ${EndIf}
 
+  ; **THE EVENT TASK IS A SECOND OWNER, AND IT IS DELETED BEFORE ANY IMAGE OR STOP.** The installed
+  ; full-tray shell has registered `SummriseShellOnReconnect` itself on every normal run
+  ; (device/shell/src/app.rs): a session reconnect starts that tray next to the Electron login Run
+  ; entry, which is the second owner this round retires. The login Run entry is the one automatic
+  ; surface; the task is removed here, after the relay hand-off and before the first image
+  ; replacement or service stop, so a failure leaves the running product untouched.
+  ;
+  ; A TASK THAT CANNOT BE DELETED IS AN ABORT, NOT A WARNING. Continuing would install the new tree
+  ; and leave the next RDP reconnect starting a tray this install claims to have removed. An absent
+  ; task is the normal first-install path and is logged, not an error. `SummriseShell` and
+  ; `SummriseShellNow` are inert (consumed one-shot triggers, no next run) and are deliberately kept.
+  nsExec::ExecToStack 'schtasks /query /tn SummriseShellOnReconnect'
+  Pop $0
+  Pop $1
+  ${If} $0 == "0"
+    nsExec::ExecToStack 'schtasks /delete /tn SummriseShellOnReconnect /f'
+    Pop $0
+    Pop $1
+    ${If} $0 == "0"
+      FileWrite $6 "reconnect task: removed$\r$\n"
+    ${Else}
+      FileWrite $6 "reconnect task: remove failed; refusing to install a second owner$\r$\n$1$\r$\n"
+      FileClose $6
+      SetErrorLevel 1
+      Abort
+    ${EndIf}
+  ${Else}
+    FileWrite $6 "reconnect task: not registered$\r$\n"
+  ${EndIf}
+
   ; **STAGE AND PROVE BEFORE ANY STOP.** An existing install's new generation goes into its own
   ; `versions\<version>\` directory — a new path, so nothing running is touched — and
   ; `--install-version` starts it on a scratch port with a copy of the data directory, requires two
@@ -630,6 +660,31 @@ Section "Summrise runtime" SecRuntime
   File /oname=summrise-device.exe "${SOURCE}\summrise-device.exe"
   File /oname=summrise-console.exe "${SOURCE}\summrise-console.exe"
   File /oname=summrise-shell.exe "${SOURCE}\summrise-shell.exe"
+  ; **THE FALLBACK'S BINARY MUST BE THERE WHEN THE COPY IS DONE.** `File` is compile-time packaging,
+  ; so a release that omitted `summrise-shell.exe` fails at makensis; this runtime check catches the
+  ; other case — a copy that did not land (a locked or denied path) — before the setup reports a
+  ; successful install whose fallback tray row would spawn nothing.
+  ${IfNot} ${FileExists} "$INSTDIR\summrise-shell.exe"
+    FileWrite $6 "shell: summrise-shell.exe missing after the copy; the fallback would be a dead click$\r$\n"
+    FileClose $6
+    SetErrorLevel 1
+    Abort
+  ${EndIf}
+  FileWrite $6 "shell: summrise-shell.exe present$\r$\n"
+  ; **WEBVIEW2 IS THE FALLBACK'S RENDERER, AND ITS ABSENCE IS LOGGED, NOT FATAL.** The Electron
+  ; default ships its own Chromium, so a machine without the Edge WebView2 runtime still gets the
+  ; product; the fallback window would show an error page instead of `/panel`, and this line is what
+  ; says so in the setup log. The machine-wide runtime registers under WOW6432Node even on 64-bit
+  ; Windows (the installer itself is 32-bit and the runtime is shared).
+  ClearErrors
+  ReadRegStr $0 HKLM "SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" "pv"
+  ${If} ${Errors}
+    FileWrite $6 "webview2 runtime: not registered$\r$\n"
+  ${ElseIf} $0 == ""
+    FileWrite $6 "webview2 runtime: not registered$\r$\n"
+  ${Else}
+    FileWrite $6 "webview2 runtime: '$0'$\r$\n"
+  ${EndIf}
   ; The local surface is the Electron app when the release carries it; `--start-shell` prefers
   ; `desktop\SummriseDesktop.exe` over the Rust shell, so shipping both is safe.
   !ifdef DESKTOP_SOURCE
@@ -957,6 +1012,10 @@ Section "Uninstall"
   ; A supervised silent install hands itself to this task; an uninstall in the gap between the
   ; hand-off and the task's run must not leave a boot-time install behind.
   nsExec::Exec 'schtasks /delete /tn ${RELAY_TASK} /f'
+  ; The event task is the retired second owner: the install no longer leaves it behind, and an
+  ; uninstall must not leave it pointing at a shell binary this section is about to delete. Best
+  ; effort, like the relay task: an absent task is the normal case and there is no log handle here.
+  nsExec::Exec 'schtasks /delete /tn SummriseShellOnReconnect /f'
   Delete "$INSTDIR\repair.cmd"
   Delete "$INSTDIR\summrise-launch.exe"
   Delete "$INSTDIR\summrise-shell.exe"

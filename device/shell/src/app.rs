@@ -97,6 +97,38 @@ const UNKNOWN: [u8; 4] = [0x9a, 0x9a, 0x9a, 0xff];
 /// next logon instead of lingering invisibly.
 const TRAY_WATCHDOG: Duration = Duration::from_secs(180);
 
+/// What the command line asks this process to be.
+///
+/// The full tray is the default and the only mode that owns an icon. `--check-window` is the
+/// diagnostic that answers through the exit code; `--panel` is the supported window-only fallback,
+/// with no tray, helper, first-run, geometry or reconnect task.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    Tray,
+    CheckWindow,
+    Fallback,
+}
+
+/// Which [`Mode`] `args` asks for. Unknown arguments (the program path included) are ignored.
+///
+/// `--check-window` wins when both flags are present: it is the diagnostic that must always answer
+/// on the exit code, and the call site checks it before `--panel` for the same reason.
+pub fn mode_from_args<I, S>(args: I) -> Mode
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let mut mode = Mode::Tray;
+    for argument in args {
+        match argument.as_ref() {
+            "--check-window" => return Mode::CheckWindow,
+            "--panel" => mode = Mode::Fallback,
+            _ => {}
+        }
+    }
+    mode
+}
+
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let first_run = first_run_pending();
     let event_loop = EventLoopBuilder::<Wake>::with_user_event().build();
@@ -114,10 +146,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     // Armed before the build, disarmed after it: a build that hangs leaves a line that names the
     // stage and an exit the operator can see in the log, rather than a process with no icon.
-    // A SECOND INSTANCE IS A REQUEST, NOT A MISTAKE. The session-reconnect task starts this binary
-    // when the operator comes back; the first instance holds the mutex and, before this, the second
-    // one simply exited and the icon stayed missing. It now signals this event instead, and the
-    // listener below re-adds the tray.
+    // A SECOND INSTANCE IS A REQUEST, NOT A MISTAKE. The first instance holds the mutex, and a
+    // second launch used to exit with the icon left as it was; it now signals this event instead,
+    // and the listener below re-adds the tray.
     if let Some(event) = wake_event() {
         let proxy = event_loop.create_proxy();
         std::thread::spawn(move || loop {
@@ -182,13 +213,6 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     register_with_the_device();
 
-    // THE TRAY HAS TO COME BACK WHEN THE OPERATOR DOES. A per-machine Run key fires at logon, and a
-    // session that was disconnected (an RDP session left open) reconnects without one — the tray
-    // simply is not there, and on 2026-10-28 Windows refused to start it from a task for that reason
-    // (`0x80070005`). Registering a task on the session-reconnection event, as the user this process
-    // already runs as, is what makes the next reconnect restore the icon.
-    ensure_reconnect_task();
-
     let mut last: Option<State> = None;
     event_loop.run(move |event, target, control_flow| {
         *control_flow = ControlFlow::Wait;
@@ -221,10 +245,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             })) => open_url(panel()),
             Event::UserEvent(Wake::Tray(_)) => {}
             Event::UserEvent(Wake::Repaint) => {
-                // A second instance (the session-reconnect task) asked for the icon to be added
-                // again: Windows re-creates the notification area on reconnect, and an icon added
-                // before that is not there afterwards. Rebuilding the tray is the only re-add the
-                // tray crate offers.
+                // A second launch asked for the icon to be added again: Windows re-creates the
+                // notification area on reconnect, and an icon added before that is not there
+                // afterwards. Rebuilding the tray is the only re-add the tray crate offers.
                 let tooltip = last
                     .as_ref()
                     .map(|state| describe(state).1)
@@ -268,84 +291,6 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             _ => {}
         }
     });
-}
-
-/// Run a console program without giving it a window.
-///
-/// **THIS PROCESS IS A GUI SUBSYSTEM BINARY, SO A CONSOLE CHILD GETS A VISIBLE WINDOW.** `schtasks` is a
-/// console program: every call from the tray opened a black window for as long as it ran, which the
-/// operator reported on 2026-10-28 as "something black flashing" after the shell learned to register its
-/// reconnect task on each start.
-fn hidden(command: &mut std::process::Command) -> &mut std::process::Command {
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        command.creation_flags(CREATE_NO_WINDOW);
-    }
-    command
-}
-
-/// The name of the task that starts a tray after a session reconnects.
-const RECONNECT_TASK: &str = "SummriseShellOnReconnect";
-
-/// The `schtasks` arguments that register the reconnect task for `exe`.
-///
-/// **THE `/tr` VALUE IS QUOTED, AND THE MEASUREMENT THAT MOTIVATED IT IS AMBIGUOUS — SAID HERE SO THE NEXT
-/// READER DOES NOT INHERIT A PROVEN CONCLUSION (measured 2026-11-10).** The shell logs
-/// `could not register the session-reconnect task (schtasks exit exit code: 1)` on one machine and
-/// `registered the session-reconnect task` on another, running the SAME binary with the SAME unquoted
-/// argument — so the failed registration's CAUSE IS NOT ESTABLISHED. What IS measured: (a) `schtasks`
-/// invoked through `cmd /c` with an unquoted `/tr C:\Program Files\…` fails and prints "单词不能与安全
-/// 标识符进行任何映射", because CMD re-splits the line before schtasks ever sees it; (b) the Rust code
-/// passes ONE argv element, so that re-split does not happen there and the same unquoted form registered
-/// successfully on DESKTOP-84T3LIN; (c) `/change /tr "<quoted>"` succeeds from CMD and the task then starts
-/// the tray. So the quoting is CORRECT AND CHEAP (it is what `summrise_core::repair_task` has always
-/// done), and it makes a CMD-shaped invocation survivable — but it does not explain the one machine's
-/// failure, and this comment must not pretend it does.
-///
-/// A function so the wiring can be read and tested: the trigger is Windows' own *session reconnection*
-/// event (TerminalServices-LocalSessionManager, id 25), because a reconnected session has no logon for the
-/// Run key to fire on, and "run only when the user is logged on" is what puts the icon in that session.
-fn reconnect_task_args(exe: &str) -> Vec<String> {
-    [
-        "/create",
-        "/tn",
-        RECONNECT_TASK,
-        "/tr",
-        &quote_action(exe),
-        "/sc",
-        "onevent",
-        "/ec",
-        "Microsoft-Windows-TerminalServices-LocalSessionManager/Operational",
-        "/mo",
-        "*[System[EventID=25]]",
-        "/f",
-    ]
-    .iter()
-    .map(|argument| (*argument).to_owned())
-    .collect()
-}
-
-/// The `/tr` value for one executable: ONE argument, QUOTED when the path has a space in it.
-///
-/// **MEASURED ON A LIVE MACHINE, 2026-11-10:** the reconnect task could not be created at all —
-///
-///     could not register the session-reconnect task (schtasks exit exit code: 1)
-///
-/// — and the reason was this value: the shell passed the RAW path, so on the install root the product
-/// actually ships (`C:\Program Files\Summrise\summrise-shell.exe`) `schtasks` read `/tr C:\Program` and
-/// then tried to interpret `Files\Summrise\...` as a `/ru` value ("单词不能与安全标识符进行任何映射").
-/// The task that exists on that machine still points at `C:\SummriseInstall\summrise-shell.exe` — the
-/// path WITHOUT a space, from an older install — which is why this survived: it only breaks on the
-/// default install root. The repair task (`summrise_core::repair_task::registration_args`) has quoted its
-/// `/tr` all along, and its own comment calls this "the form measured to survive a path with a space".
-fn quote_action(exe: &str) -> String {
-    if exe.contains(' ') && !exe.starts_with('"') {
-        format!("\"{exe}\"")
-    } else {
-        exe.to_owned()
-    }
 }
 
 /// Keep this process registered with the device.
@@ -392,53 +337,6 @@ fn register_with_the_device() {
         }
     });
 }
-
-/// Make sure a task starts this shell when the user reconnects to their session.
-///
-/// Best effort on purpose: a machine whose policy forbids scheduled tasks still gets a tray, and the
-/// only thing lost is the automatic return after a reconnect. The task is created as *this* user
-/// with an interactive token, so no password or elevation is involved, and it does nothing when it
-/// already exists (the check is what makes the "at every start" cost a `query` rather than a rewrite).
-#[cfg(windows)]
-fn ensure_reconnect_task() {
-    use std::process::{Command, Stdio};
-
-    std::thread::spawn(|| {
-        // The task is RECREATED rather than kept when it exists: an install that moved this binary
-        // leaves the old action pointing at a path that no longer exists, and a reconnection would then
-        // start nothing. `/f` makes the registration idempotent, and the cost is one `schtasks` call at
-        // startup.
-        let existed = hidden(&mut Command::new("schtasks"))
-            .args(["/query", "/tn", RECONNECT_TASK])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .is_ok_and(|status| status.success());
-        let Ok(exe) = std::env::current_exe() else {
-            return;
-        };
-        let created = hidden(&mut Command::new("schtasks"))
-            .args(reconnect_task_args(&exe.to_string_lossy()))
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
-        match created {
-            Ok(status) if status.success() && !existed => {
-                crate::note("registered the session-reconnect task")
-            }
-            Ok(status) if status.success() => {}
-            Ok(status) => crate::note(&format!(
-                "could not register the session-reconnect task (schtasks exit {status})"
-            )),
-            Err(error) => crate::note(&format!(
-                "could not register the session-reconnect task: {error}"
-            )),
-        }
-    });
-}
-
-#[cfg(not(windows))]
-fn ensure_reconnect_task() {}
 
 /// Build the console window once, then exit — the menu's own code path without a menu.
 ///
@@ -526,6 +424,125 @@ pub fn check_window() -> i32 {
 #[cfg(not(windows))]
 pub fn check_window() -> i32 {
     1
+}
+
+/// Open the device's own panel in one window, and exit when the operator closes it.
+///
+/// This is the supported fallback: one visible window on the Rust `/panel`, with no tray, no helper,
+/// no first-run marker, no saved geometry and no reconnect task. It answers on the exit code: 2 for
+/// a session that cannot show a window, 1 when the window or its WebView2 view cannot be built, and
+/// 0 when the window closes (tao exits the process on [`ControlFlow::Exit`]).
+#[cfg(windows)]
+pub fn show_panel() -> i32 {
+    // SESSION 0 HAS NO WINDOW STATION A GUI CAN USE, exactly as for `--check-window`: the event
+    // loop would never arrive at its first `NewEvents(Init)`, so waiting there is a process with no
+    // window and no answer. The caller gets a named refusal instead.
+    match current_session_id() {
+        Some(0) => {
+            crate::note("fallback: this is session 0, which has no interactive desktop");
+            return 2;
+        }
+        None => {
+            crate::note("fallback: cannot read the session id");
+            return 2;
+        }
+        Some(_) => {}
+    }
+    // THE SUPPORTED FALLBACK IS THE DEVICE'S OWN PANEL, never the console: it is the Rust page the
+    // installed device already serves, and it needs no console, credential or helper.
+    let page = panel();
+    crate::note(&format!("fallback: opening {page}"));
+    // `build()` is not fallible in tao 0.34; the call can panic on a thread that already owns an
+    // event loop, which is a programming error this window cannot see from inside.
+    let event_loop = EventLoopBuilder::<Wake>::with_user_event().build();
+    // Held for the life of the loop, exactly as `run` holds its window: dropping either the view or
+    // the window closes it, and the WebContext must outlive the view or the profile goes with it.
+    let mut ui: Option<(tao::window::Window, wry::WebView)> = None;
+    let mut profile: Option<wry::WebContext> = None;
+    // `run` never returns: every exit here is a `process::exit` in an arm or tao's own exit for
+    // `ControlFlow::Exit`, so there is no success value to carry out of it.
+    event_loop.run(move |event, target, control_flow| {
+        *control_flow = ControlFlow::Wait;
+        match event {
+            Event::NewEvents(StartCause::Init) => {
+                let window = match WindowBuilder::new()
+                    .with_title("Summrise fallback")
+                    .with_window_icon(window_icon())
+                    .with_visible(true)
+                    .build(target)
+                {
+                    Ok(window) => window,
+                    Err(error) => {
+                        crate::note(&format!("fallback: the window could not be built: {error}"));
+                        show_error_box(
+                            "Summrise fallback",
+                            r"Summrise could not open the fallback window. See %LOCALAPPDATA%\Summrise\shell.log for the reason.",
+                        );
+                        std::process::exit(1);
+                    }
+                };
+                // A PERSISTENT PROFILE, so the device's own pages keep their state between opens;
+                // this is the profile the console window uses too.
+                let built = match profile_dir() {
+                    Some(dir) => {
+                        let context = profile.get_or_insert_with(|| wry::WebContext::new(Some(dir)));
+                        WebViewBuilder::new_with_web_context(context)
+                            .with_url(page)
+                            .build(&window)
+                    }
+                    None => WebViewBuilder::new().with_url(page).build(&window),
+                };
+                match built {
+                    Ok(view) => {
+                        ui = Some((window, view));
+                        crate::note(&format!("fallback: window and view built for {page}"));
+                    }
+                    Err(error) => {
+                        crate::note(&format!("fallback: no WebView2 view: {error}"));
+                        show_error_box(
+                            "Summrise fallback",
+                            r"Summrise could not create the WebView2 view. WebView2 may be missing or broken; see %LOCALAPPDATA%\Summrise\shell.log.",
+                        );
+                        std::process::exit(1);
+                    }
+                }
+            }
+            Event::WindowEvent {
+                event: WindowEvent::CloseRequested,
+                ..
+            } => {
+                // THE WINDOW IS THE WHOLE PROCESS. Closing it is quitting, so the view is dropped
+                // before its window and the loop exits with code 0.
+                if let Some((window, view)) = ui.take() {
+                    drop(view);
+                    drop(window);
+                }
+                *control_flow = ControlFlow::Exit;
+            }
+            _ => {}
+        }
+    })
+}
+
+/// A native, visible failure. A GUI-subsystem process has no console, so a fallback that cannot
+/// build its view must not exit silently and leave a dead click behind.
+#[cfg(windows)]
+fn show_error_box(title: &str, text: &str) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
+
+    let wide = |value: &str| -> Vec<u16> {
+        use std::os::windows::ffi::OsStrExt;
+        std::ffi::OsStr::new(value)
+            .encode_wide()
+            .chain(Some(0))
+            .collect()
+    };
+    let text = wide(text);
+    let title = wide(title);
+    // SAFETY: both strings are NUL-terminated and outlive the call; no owner window is needed.
+    unsafe {
+        MessageBoxW(0, text.as_ptr(), title.as_ptr(), MB_OK | MB_ICONERROR);
+    }
 }
 
 /// Whether this user has seen the first-run panel.
@@ -1146,62 +1163,29 @@ pub fn signal_wake() -> bool {
 #[cfg(test)]
 mod tests {
 
-    /// **A RECONNECTED SESSION HAS NO LOGON, SO THE RUN KEY NEVER FIRES FOR IT.** The task this process
-    /// registers is the answer, and its trigger is the part that makes it work: Windows' session
-    /// reconnection event, not a logon, not a schedule.
+    /// **THERE IS ONE SUPPORTED FALLBACK, AND IT IS A WINDOW.** `--panel` selects the window-only
+    /// mode and never the tray: a second tray would be a second automatic surface.
     #[test]
-    fn the_reconnect_task_listens_for_the_session_reconnection_event() {
-        let args = reconnect_task_args("C:\\SummriseCanary\\summrise-shell.exe");
-        let joined = args.join(" ");
-
-        assert_eq!(args[0], "/create", "it creates the task: {joined}");
-        assert!(
-            joined.contains(RECONNECT_TASK),
-            "it names the task: {joined}"
-        );
-        assert!(
-            joined.contains("C:\\SummriseCanary\\summrise-shell.exe"),
-            "it names this binary: {joined}"
-        );
-        // **A PATH WITH A SPACE IS ONE QUOTED ARGUMENT (measured 2026-11-10).** The install root the
-        // product ships is `C:\Program Files\Summrise`, and the raw path made `schtasks` read `/tr
-        // C:\Program` and treat `Files\...` as another switch — so the task could not be created at all.
-        let spaced = reconnect_task_args("C:\\Program Files\\Summrise\\summrise-shell.exe");
-        let action = spaced
-            .iter()
-            .position(|argument| argument == "/tr")
-            .and_then(|index| spaced.get(index + 1))
-            .expect("the task names an action");
+    fn the_fallback_mode_is_a_window_only_panel() {
         assert_eq!(
-            action, "\"C:\\Program Files\\Summrise\\summrise-shell.exe\"",
-            "a path with a space is quoted, as ONE argument: {action}"
+            mode_from_args(["x", "--panel"]),
+            Mode::Fallback,
+            "the fallback flag is the window-only mode"
         );
-        // AND A PATH WITHOUT ONE IS NOT: the quoting is for the separator, not for the look of it.
-        let flat = reconnect_task_args("C:\\SummriseCanary\\summrise-shell.exe");
-        let flat_action = flat
-            .iter()
-            .position(|argument| argument == "/tr")
-            .and_then(|index| flat.get(index + 1))
-            .expect("the task names an action");
         assert_eq!(
-            flat_action, "C:\\SummriseCanary\\summrise-shell.exe",
-            "no space, no quotes: {flat_action}"
+            mode_from_args(["x", "--check-window"]),
+            Mode::CheckWindow,
+            "the diagnostic keeps its own mode"
         );
-        assert!(
-            joined.contains("/sc onevent"),
-            "it is event-driven, not scheduled: {joined}"
+        assert_eq!(
+            mode_from_args(["x"]),
+            Mode::Tray,
+            "no flag is the full tray, as before"
         );
-        assert!(
-            joined.contains("Microsoft-Windows-TerminalServices-LocalSessionManager/Operational"),
-            "the session manager's own log: {joined}"
-        );
-        assert!(
-            joined.contains("*[System[EventID=25]]"),
-            "session reconnection is event 25: {joined}"
-        );
-        assert!(
-            args.contains(&"/f".to_owned()),
-            "a re-registration replaces the old action instead of failing: {joined}"
+        assert_eq!(
+            mode_from_args(["--show"]),
+            Mode::Tray,
+            "an unknown flag is not a mode"
         );
     }
     #[test]
