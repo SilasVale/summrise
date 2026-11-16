@@ -163,6 +163,7 @@
     var load = harnessRecord.load;
     var paint = loadPaint(harnessRecord);
     $("harness-status-state").textContent = paint.text;
+    $("harness-status").dataset.state = paint.state;
     // The harness is the pane whose failure the operator most needs explained: with no DSH on loopback
     // the page is blank but the view is visible, so the reason is spelled out rather than left as a code.
     // A failed LOAD means the DSH is not answering; a dead RENDERER is this view's own crash, so it is

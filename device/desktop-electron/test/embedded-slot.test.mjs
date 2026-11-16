@@ -382,6 +382,19 @@ test("state() reports the page load per slot — failed never turns ready, a fre
   assert.deepEqual(slotA.state().load, gone,
     "a did-finish-load queued after the crash must not turn gone back into ready");
   assert.equal(slotA.state().visible, false, "and the dead view is hidden, so the record cannot claim a visible page");
+  // ...BUT A NEW START ENDS "TERMINAL": starting after the crash is a real attempt, and its finish is ready.
+  viewA.webContents.emit("did-start-loading");
+  assert.deepEqual(
+    slotA.state().load,
+    { status: "loading", url: decided, code: 0, desc: "" },
+    "a load started after gone is loading again — the crash does not leave the slot terminal",
+  );
+  viewA.webContents.emit("did-finish-load");
+  assert.deepEqual(
+    slotA.state().load,
+    { status: "ready", url: decided, code: 0, desc: "" },
+    "and its finish is ready, proving the start cleared finishBlocked — a still-blocked finish would stay gone",
+  );
   assert.deepEqual(slotB.state().load, null, "B's record is still untouched by everything A did");
 });
 
