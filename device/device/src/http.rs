@@ -23,6 +23,7 @@ use summrise_core::{
     authorize, ApprovalState, Ctx, Decision, DenyReason, Subject, ToolCall, Transport,
 };
 
+use crate::activity;
 use crate::capabilities::{self, browser, terminal};
 use crate::config::{Config, Release};
 use crate::helper;
@@ -121,6 +122,9 @@ fn router_with(
         data: config.data.clone(),
         port: config.port,
         panel_token: mint_panel_token(),
+        // This process's id, fixed for the life of the router: a transcript cursor names it so a
+        // cursor from another boot cannot address rows in this boot's numbering.
+        boot: now_ms().max(0) as u64,
         audit,
         supervised: config.supervised,
         restart,
@@ -151,6 +155,12 @@ fn router_with(
         // The same panel, rendered in Rust, one path ahead of the switch: `/` still serves
         // `panel.html` until a later step flips it.
         .route("/panel", get(panel_page))
+        // The operations transcript, the old Electron page moved onto the device: the first paint is
+        // server-rendered from the panel's bounded audit tail, and `/api/activity` streams the rows
+        // after a cursor for the page's one-second poll. Both are loopback-only; the page carries the
+        // panel token in its meta tag and the streaming route requires that token in a header.
+        .route("/activity", get(activity_page))
+        .route("/api/activity", get(activity_api))
         // The rendered page has no script for enrollment, so the form posts here. The redirect
         // carries the outcome; the page renders it as a banner on the next GET.
         .route("/panel/enroll", post(enroll_from_panel_form))
@@ -363,6 +373,9 @@ struct AppState {
     /// This boot's panel token: 64 lowercase hex, minted once when the router is built. It is served
     /// only in the panel's HTML (a meta tag) and never in `/api/panel`, an error body, or a log line.
     panel_token: String,
+    /// This boot's id, minted with the router. `/activity` cursors carry it, so a page left open
+    /// across a device restart cannot mistake the new process's row numbering for the old one's.
+    boot: u64,
     /// The process's one audit, shared with the MCP service: panel operations are recorded there.
     audit: std::sync::Arc<crate::mcp::Audit>,
     /// Whether the launcher started this process with a verified digest. Only then may a panel
@@ -506,6 +519,107 @@ async fn panel_page(
     };
 
     Html(markup.into_string()).into_response()
+}
+
+/// The transcript's query string: the page's theme, and the stream's cursor and page size.
+#[derive(Deserialize)]
+struct ActivityQuery {
+    /// `dark` chooses the dark theme; anything else (or nothing) is the light theme.
+    theme: Option<String>,
+    /// The cursor a poll asks after, as [`activity::cursor_string`] spells it.
+    after: Option<String>,
+    /// The new-begin page size, clamped to `1..=200`. Late-end updates are outside it.
+    limit: Option<u64>,
+}
+
+/// `GET /activity`: the transcript's first paint.
+///
+/// Loopback-only by peer address, like the panel: the page carries this boot's panel token, so a
+/// request that arrived through something else gets no page and no token. The token is in the page's
+/// meta tag only; the view reads it from there.
+async fn activity_page(
+    State(app): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Query(query): Query<ActivityQuery>,
+) -> Response {
+    if !peer.ip().is_loopback() {
+        return error_response(StatusCode::FORBIDDEN, "loopback_only", None);
+    }
+
+    let theme = activity::Theme::from_query(query.theme.as_deref());
+    Html(activity::page(&activity_facts(&app), theme).into_string()).into_response()
+}
+
+/// `GET /api/activity?after=<boot>.<seq>&limit=<n>`: the transcript's rows for the page's poll.
+///
+/// Loopback and this boot's panel token, like the other panel reads. Without a cursor the answer is
+/// the newest `limit` rows, oldest first, with `more` saying older rows exist. With a cursor,
+/// `next` is the greatest begin-`seq` among the new rows (the caller's cursor when none arrived),
+/// `limit` bounds the new begins only, and every row whose `end` landed after the cursor is
+/// included outside that cap as an update for a running call. A cursor naming another boot is
+/// treated as no cursor, so a page open across a restart starts from the newest window instead of
+/// answering nothing. `counts` is always the whole window's counts, so the header does not go
+/// stale.
+async fn activity_api(
+    State(app): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Query(query): Query<ActivityQuery>,
+) -> Response {
+    if !peer.ip().is_loopback() {
+        return error_response(StatusCode::FORBIDDEN, "loopback_only", None);
+    }
+    if !app.panel_authorized(&headers) {
+        return error_response(StatusCode::FORBIDDEN, "unauthorized", None);
+    }
+
+    let facts = activity_facts(&app);
+    let rows = facts
+        .audit
+        .as_deref()
+        .map(|audit| activity::rows(audit, facts.now_ms))
+        .unwrap_or_default();
+    let after = query.after.as_deref().and_then(|text| {
+        activity::parse_cursor(text)
+            .filter(|(boot, _)| *boot == facts.boot)
+            .map(|(_, seq)| seq)
+    });
+    let limit = query
+        .limit
+        .unwrap_or(activity::DEFAULT_LIMIT as u64)
+        .clamp(1, activity::MAX_ROWS as u64) as usize;
+
+    Json(activity::page_of(
+        &rows,
+        after,
+        limit,
+        facts.boot,
+        facts.truncated,
+    ))
+    .into_response()
+}
+
+/// The transcript's facts: the panel's bounded audit tail, read once per request, plus this boot's
+/// token and id and the instant a running call's duration is measured to.
+fn activity_facts(app: &AppState) -> activity::ActivityFacts {
+    let (audit, truncated) =
+        match read_audit_tail(&app.data.join("events.jsonl"), panel::TIMELINE_LINES) {
+            Ok(tail) => (Some(tail.lines), tail.truncated),
+            // The transcript says the audit could not be read; that is not the empty record.
+            Err(_) => (None, false),
+        };
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis().min(u128::from(u64::MAX)) as u64)
+        .unwrap_or(0);
+
+    activity::ActivityFacts {
+        audit,
+        truncated,
+        now_ms,
+        boot: app.boot,
+        panel_token: app.panel_token.clone(),
+    }
 }
 
 /// The newest `limit` lines of the audit file, and whether older lines exist beyond them.
@@ -2765,6 +2879,454 @@ mod tests {
         );
     }
 
+    /// The value of one HTML attribute, for the transcript page's cursor and boot facts.
+    fn page_attribute(html: &str, name: &str) -> Option<String> {
+        let opening = format!(r#"{name}=""#);
+        let start = html.find(&opening)? + opening.len();
+        let rest = &html[start..];
+        let end = rest.find('"')?;
+
+        Some(rest[..end].to_owned())
+    }
+
+    /// The transcript's audit pair for a tool call, as `events.jsonl` spells it.
+    fn call_begin(id: u64, at: u64, tool: &str, args: Option<&str>) -> Value {
+        json!({
+            "id": id,
+            "ts_ms": at,
+            "event": "begin",
+            "tool": tool,
+            "decision": "allow",
+            "transport": "loopback",
+            "args": args,
+        })
+    }
+
+    fn call_end(id: u64, at: u64, ok: bool, run_id: Option<&str>) -> Value {
+        json!({
+            "id": id,
+            "ts_ms": at,
+            "event": "end",
+            "ok": ok,
+            "error_kind": if ok { None } else { Some("refused") },
+            "transport": "loopback",
+            "run_id": run_id,
+        })
+    }
+
+    fn write_audit(fixture: &Fixture, lines: &[Value]) {
+        let text: String = lines.iter().map(|line| format!("{line}\n")).collect();
+        fs::write(fixture.config.data.join("events.jsonl"), text)
+            .expect("the audit fixture is written");
+    }
+
+    async fn activity_query(
+        client: &reqwest::Client,
+        base_url: &str,
+        token: &str,
+        query: &str,
+    ) -> (StatusCode, Value) {
+        let response = client
+            .get(format!("{base_url}/api/activity{query}"))
+            .header("x-summrise-panel", token)
+            .send()
+            .await
+            .expect("the activity route answers");
+        let status = response.status();
+        let text = response.text().await.expect("the answer is text");
+
+        (
+            status,
+            serde_json::from_str(&text).expect("the answer is JSON"),
+        )
+    }
+
+    async fn activity_answer(
+        client: &reqwest::Client,
+        base_url: &str,
+        token: &str,
+        after: &str,
+        limit: u64,
+    ) -> (StatusCode, Value) {
+        activity_query(
+            client,
+            base_url,
+            token,
+            &format!("?after={after}&limit={limit}"),
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn the_transcript_page_is_loopback_only_and_needs_the_panel_token() {
+        let fixture = fixture("activity-loopback", None);
+        write_audit(
+            &fixture,
+            &[
+                call_begin(1, 1_761_566_401_000, "files.list", None),
+                call_end(1, 1_761_566_401_100, true, None),
+            ],
+        );
+        let app = fixture.app();
+        let remote = SocketAddr::from(([203, 0, 113, 10], 40_123));
+
+        // The page carries this boot's token, so a request that reached the listener through
+        // something else gets no page.
+        let mut request = get("/activity", None);
+        request.extensions_mut().insert(ConnectInfo(remote));
+        let response = app
+            .clone()
+            .oneshot(request)
+            .await
+            .expect("the router answers");
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+            .await
+            .expect("the refusal is readable");
+        let refusal: Value = serde_json::from_slice(&bytes).expect("the refusal is JSON");
+        assert_eq!(refusal, json!({ "error": "loopback_only" }));
+
+        let mut request = get("/activity", None);
+        request
+            .extensions_mut()
+            .insert(ConnectInfo(loopback_addr(0)));
+        let response = app
+            .clone()
+            .oneshot(request)
+            .await
+            .expect("the router answers");
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+            .await
+            .expect("the page is readable");
+        let html = String::from_utf8_lossy(&bytes).into_owned();
+        let token = panel_meta(&html).expect("the transcript carries this boot's token");
+        assert_eq!(token.len(), 64, "the token is 32 bytes as hex: {token}");
+        assert!(
+            token
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+            "the token is lowercase hex: {token}"
+        );
+        assert_eq!(
+            html.matches(&token).count(),
+            1,
+            "the page carries the token only in its meta tag"
+        );
+
+        // The streaming route is the other half of the same page: without the panel token it is
+        // refused even on loopback.
+        let mut request = get("/api/activity", None);
+        request
+            .extensions_mut()
+            .insert(ConnectInfo(loopback_addr(0)));
+        let (status, answer) = send(app.clone(), request).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(answer, json!({ "error": "unauthorized" }));
+
+        // The right token on the wrong peer is still refused: the token exists only on this machine.
+        let mut request = Request::builder()
+            .method("GET")
+            .uri("/api/activity")
+            .header("x-summrise-panel", &token)
+            .body(Body::empty())
+            .expect("the request builds");
+        request.extensions_mut().insert(ConnectInfo(remote));
+        let (status, answer) = send(app, request).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(answer, json!({ "error": "loopback_only" }));
+    }
+
+    #[tokio::test]
+    async fn the_transcript_run_detail_names_the_session_and_the_command() {
+        let fixture = fixture("activity-run-detail", None);
+        write_audit(
+            &fixture,
+            &[
+                call_begin(
+                    1,
+                    1_761_566_401_000,
+                    "terminal.write",
+                    Some("session=session-1"),
+                ),
+                call_end(1, 1_761_566_401_100, true, None),
+                call_begin(2, 1_761_566_402_000, "runs.exec", Some("echo srm_deadbeef")),
+                call_end(2, 1_761_566_402_040, true, Some("run-1")),
+            ],
+        );
+        let record = serde_json::json!({
+            "id": "run-1",
+            "command": "cmd /c echo srm_deadbeef0123456789",
+            "args": [],
+            "cwd": "C:\\ProgramData\\Summrise\\workspace",
+            "exit_code": 0,
+            "timed_out": false,
+            "duration_ms": 42,
+            "started_at_ms": 1_761_566_402_000u64,
+            "stdout_bytes": 26,
+            "stderr_bytes": 0
+        });
+        std::fs::write(
+            fixture.config.data.join("runs.jsonl"),
+            format!("{record}\n"),
+        )
+        .expect("the run history is written");
+
+        let client = client();
+        let server = PanelServer::start(fixture.app()).await;
+        let (status, html) = get_text(&client, &format!("{}/activity", server.base_url)).await;
+        assert_eq!(status, StatusCode::OK);
+        let token = panel_meta(&html).expect("the page carries the panel token");
+
+        assert!(
+            html.contains("session-1"),
+            "the terminal call names its session: {html}"
+        );
+        assert!(
+            html.contains(r#"data-run="run-1""#),
+            "the run call names the run its end wrote: {html}"
+        );
+
+        let answer = client
+            .get(format!("{}/api/runs/run-1", server.base_url))
+            .header("x-summrise-panel", &token)
+            .send()
+            .await
+            .expect("the run detail route answers");
+        assert_eq!(answer.status(), StatusCode::OK);
+        let body: Value = serde_json::from_str(&answer.text().await.expect("the answer is text"))
+            .expect("the answer is JSON");
+        assert_eq!(
+            body["run"]["command"], "cmd /c echo srm_deadbeef0123456789",
+            "the expand reads the command the audit deliberately does not carry: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_activity_route_streams_rows_after_a_cursor_and_reports_more() {
+        let fixture = fixture("activity-cursor", None);
+        let at = 1_761_566_401_000;
+        write_audit(
+            &fixture,
+            &[
+                call_begin(1, at, "runs.exec", Some("echo one")),
+                call_end(1, at + 100, true, Some("run-1")),
+                call_begin(2, at + 1_000, "files.read", Some("notes.txt")),
+                call_end(2, at + 1_100, true, None),
+                call_begin(3, at + 2_000, "terminal.write", Some("session=session-1")),
+                call_end(3, at + 2_100, true, None),
+            ],
+        );
+        let client = client();
+        let server = PanelServer::start(fixture.app()).await;
+        let (status, html) = get_text(&client, &format!("{}/activity", server.base_url)).await;
+        assert_eq!(status, StatusCode::OK);
+        let token = panel_meta(&html).expect("the page carries the panel token");
+        let boot = page_attribute(&html, "data-boot").expect("the page carries this boot's id");
+
+        let (status, first) =
+            activity_answer(&client, &server.base_url, &token, &format!("{boot}.0"), 2).await;
+        assert_eq!(status, StatusCode::OK);
+        let rows = first["rows"].as_array().expect("the page carries rows");
+        assert_eq!(rows.len(), 2, "the limit is the page size: {first}");
+        assert_eq!(rows[0]["tool"], "runs.exec", "oldest first: {first}");
+        assert_eq!(rows[1]["tool"], "files.read", "oldest first: {first}");
+        assert_eq!(first["more"], true, "a third row is not in this page");
+
+        let next = first["next"].as_u64().expect("the page carries its cursor");
+        let (status, second) = activity_answer(
+            &client,
+            &server.base_url,
+            &token,
+            &format!("{boot}.{next}"),
+            2,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let rows = second["rows"].as_array().expect("the page carries rows");
+        assert_eq!(
+            rows.last().map(|row| row["tool"].clone()),
+            Some(json!("terminal.write")),
+            "the rest of the record ends with the third call: {second}"
+        );
+        assert!(
+            rows.iter().any(|row| row["id"] == json!(3)),
+            "the third call is not skipped: {second}"
+        );
+        assert_eq!(second["more"], false, "nothing follows the last row");
+
+        // A cursor from another boot is not this boot's numbering: the route answers the newest
+        // window rather than nothing for a page whose cursor is stale.
+        let stale = boot
+            .parse::<u64>()
+            .expect("the boot id is decimal")
+            .saturating_add(1);
+        let (status, restarted) =
+            activity_answer(&client, &server.base_url, &token, &format!("{stale}.0"), 2).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            !restarted["rows"]
+                .as_array()
+                .expect("the page carries rows")
+                .is_empty(),
+            "a stale cursor still answers rows: {restarted}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_activity_route_needs_the_panel_token() {
+        let fixture = fixture("activity-token", None);
+        write_audit(
+            &fixture,
+            &[
+                call_begin(1, 1_761_566_401_000, "files.list", None),
+                call_end(1, 1_761_566_401_100, true, None),
+                call_begin(2, 1_761_566_402_000, "runs.exec", Some("false")),
+                call_end(2, 1_761_566_402_100, false, None),
+                call_begin(3, 1_761_566_403_000, "terminal.write", None),
+            ],
+        );
+        let client = client();
+        let server = PanelServer::start(fixture.app()).await;
+        let (status, html) = get_text(&client, &format!("{}/activity", server.base_url)).await;
+        assert_eq!(status, StatusCode::OK);
+        let token = panel_meta(&html).expect("the page carries the panel token");
+
+        let anonymous = client
+            .get(format!("{}/api/activity", server.base_url))
+            .send()
+            .await
+            .expect("the anonymous request runs");
+        assert_eq!(anonymous.status(), StatusCode::FORBIDDEN);
+
+        let wrong = format!(
+            "{}{}",
+            if token.starts_with('0') { '1' } else { '0' },
+            &token[1..]
+        );
+        let refused = client
+            .get(format!("{}/api/activity", server.base_url))
+            .header("x-summrise-panel", &wrong)
+            .send()
+            .await
+            .expect("the refused request runs");
+        assert_eq!(refused.status(), StatusCode::FORBIDDEN);
+
+        let answer = client
+            .get(format!("{}/api/activity", server.base_url))
+            .header("x-summrise-panel", &token)
+            .send()
+            .await
+            .expect("the authorized request runs");
+        assert_eq!(answer.status(), StatusCode::OK);
+        let text = answer.text().await.expect("the answer is text");
+        let body: Value = serde_json::from_str(&text).expect("the answer is JSON");
+        let object = body.as_object().expect("the answer is an object");
+        assert_eq!(
+            object.len(),
+            4,
+            "the answer is exactly rows, next, more and counts: {text}"
+        );
+        for key in ["rows", "next", "more", "counts"] {
+            assert!(object.contains_key(key), "the answer carries {key}: {text}");
+        }
+        assert_eq!(body["counts"]["total"], 3, "{text}");
+        assert_eq!(body["counts"]["failed"], 1, "{text}");
+        assert_eq!(body["counts"]["groups"]["files"], 1, "{text}");
+        assert_eq!(body["counts"]["groups"]["runs"], 1, "{text}");
+        assert_eq!(body["counts"]["groups"]["terminal"], 1, "{text}");
+        assert_eq!(body["counts"]["groups"]["other"], 0, "{text}");
+        let rows = body["rows"].as_array().expect("the answer carries rows");
+        assert_eq!(rows.len(), 3, "{text}");
+        assert!(
+            rows[0]["end_seq"].is_u64(),
+            "a completed row carries its end sequence: {text}"
+        );
+        assert!(
+            rows[1]["end_seq"].is_u64(),
+            "a completed row carries its end sequence: {text}"
+        );
+        assert_eq!(
+            rows[2]["end_seq"],
+            Value::Null,
+            "a running row's end sequence is null: {text}"
+        );
+        assert!(
+            !text.contains(&token),
+            "the page token never travels in the body: {text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_activity_page_honors_the_theme_query() {
+        let fixture = fixture("activity-theme", None);
+        let client = client();
+        let server = PanelServer::start(fixture.app()).await;
+
+        let (status, light) = get_text(&client, &format!("{}/activity", server.base_url)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            light.contains(r#"<html lang="en" data-theme="light">"#),
+            "the page defaults to light: {light}"
+        );
+
+        let (status, dark) =
+            get_text(&client, &format!("{}/activity?theme=dark", server.base_url)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            dark.contains(r#"<html lang="en" data-theme="dark">"#),
+            "the query chooses dark: {dark}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_activity_route_returns_the_newest_rows_without_a_cursor() {
+        let fixture = fixture("activity-newest", None);
+        let at = 1_761_566_400_000u64;
+        let mut lines = Vec::with_capacity(120);
+        for index in 1..=60u64 {
+            let start = at + index * 1_000;
+            lines.push(call_begin(index, start, "files.list", None));
+            lines.push(call_end(index, start + 100, true, None));
+        }
+        write_audit(&fixture, &lines);
+        let client = client();
+        let server = PanelServer::start(fixture.app()).await;
+        let token = served_token(&client, &server).await;
+
+        // No cursor: the newest 50 rows by default, oldest first, and older rows remain.
+        let (status, answer) = activity_query(&client, &server.base_url, &token, "").await;
+        assert_eq!(status, StatusCode::OK);
+        let rows = answer["rows"].as_array().expect("the answer carries rows");
+        assert_eq!(rows.len(), 50, "the default page is 50 rows: {answer}");
+        assert_eq!(
+            rows[0]["id"], 11,
+            "the newest window, still oldest first: {answer}"
+        );
+        assert_eq!(rows[49]["id"], 60, "{answer}");
+        assert_eq!(answer["more"], true, "ten older rows remain");
+        assert_eq!(
+            answer["counts"]["total"], 60,
+            "the counts cover the window, not the page"
+        );
+
+        // limit=0 clamps up to one row: the newest.
+        let (status, one) = activity_query(&client, &server.base_url, &token, "?limit=0").await;
+        assert_eq!(status, StatusCode::OK);
+        let rows = one["rows"].as_array().expect("the answer carries rows");
+        assert_eq!(rows.len(), 1, "{one}");
+        assert_eq!(rows[0]["id"], 60, "the newest row: {one}");
+
+        // limit=999 is bounded by this window's 60 rows; the 200 cap is unit-tested.
+        let (status, all) = activity_query(&client, &server.base_url, &token, "?limit=999").await;
+        assert_eq!(status, StatusCode::OK);
+        let rows = all["rows"].as_array().expect("the answer carries rows");
+        assert_eq!(rows.len(), 60, "{all}");
+        assert_eq!(rows[0]["id"], 1, "{all}");
+        assert_eq!(rows[59]["id"], 60, "{all}");
+        assert_eq!(all["more"], false, "{all}");
+    }
+
     #[tokio::test]
     async fn the_panel_snapshot_never_carries_the_install_token() {
         let token = token_hex();
@@ -3204,7 +3766,7 @@ mod tests {
             "the newest call is in the record: {html}"
         );
         assert!(
-            html.contains(r#"<span class="timeline-status failed">failed</span>"#),
+            html.contains(r#"<span class="chip fail">failed</span>"#),
             "the audit's `ok: false` is a failed row: {html}"
         );
         assert!(html.contains(r#"<span class="timeline-caller">loopback</span>"#));

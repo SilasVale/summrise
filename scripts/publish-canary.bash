@@ -72,8 +72,8 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 # The cargo workspace is `device/`; the repository root is not a crate.
 cd "$root/device"
 
-# The signer is the same binary for both keys; the scheme of the advertised address decides whether
-# the opt-in is needed, and it is passed in exactly the form the device will see.
+# The release signer is the same binary for both keys; the scheme of the advertised address decides
+# whether the opt-in is needed, and it is passed in exactly the form the device will see.
 plaintext=""
 case "$mirror" in
     http://localhost*|http://127.*|http://\[::1\]*) ;;
@@ -91,6 +91,14 @@ esac
 : "${SUMMRISE_CONSOLE_GRANT_KEY:?SUMMRISE_CONSOLE_GRANT_KEY is not set}"
 export SUMMRISE_LAUNCHER_PUBKEY SUMMRISE_RELEASE_PUBKEY SUMMRISE_CONSOLE_GRANT_KEY
 
+# **THE ELECTRON PAYLOAD IS WHAT THE INSTALLER MUST CARRY.** NSIS copies `desktop\` only when
+# DESKTOP_SOURCE names a directory, and the tray then starts that directory instead of the Rust shell.
+# A source without SummriseDesktop.exe is a typo, not a fallback: fail before a long build.
+if [[ -n "${SUMMRISE_DESKTOP_SOURCE:-}" && ! -f "$SUMMRISE_DESKTOP_SOURCE/SummriseDesktop.exe" ]]; then
+    echo "publish-canary: SUMMRISE_DESKTOP_SOURCE has no SummriseDesktop.exe: $SUMMRISE_DESKTOP_SOURCE" >&2
+    exit 2
+fi
+
 # **AUTHENTICODE IS OPTIONAL BY ENVIRONMENT, NOT BY SILENCE.** A certificate cannot live in this
 # repository, but the publish path should be ready when one exists: with SUMMRISE_SIGN_PFX set, every
 # user-facing PE is signed before the installer packages it, and the setup is signed afterwards. With
@@ -99,48 +107,57 @@ export SUMMRISE_LAUNCHER_PUBKEY SUMMRISE_RELEASE_PUBKEY SUMMRISE_CONSOLE_GRANT_K
 sign_pfx="${SUMMRISE_SIGN_PFX:-}"
 sign_password="${SUMMRISE_SIGN_PASSWORD:-}"
 sign_timestamp="${SUMMRISE_SIGN_TIMESTAMP:-http://timestamp.digicert.com}"
-signer=""
+authenticode_signer=""
 if [[ -n "$sign_pfx" ]]; then
     [[ -f "$sign_pfx" ]] || { echo "publish-canary: SUMMRISE_SIGN_PFX is not a file: $sign_pfx" >&2; exit 2; }
-    signer="$(command -v signtool 2>/dev/null || command -v signtool.exe 2>/dev/null || true)"
-    if [[ -z "$signer" ]] && command -v osslsigncode >/dev/null 2>&1; then
-        signer="$(command -v osslsigncode)"
+    authenticode_signer="$(command -v signtool 2>/dev/null || command -v signtool.exe 2>/dev/null || true)"
+    if [[ -z "$authenticode_signer" ]] && command -v osslsigncode >/dev/null 2>&1; then
+        authenticode_signer="$(command -v osslsigncode)"
     fi
-    [[ -n "$signer" ]] || {
+    [[ -n "$authenticode_signer" ]] || {
         echo "publish-canary: SUMMRISE_SIGN_PFX is set but neither signtool nor osslsigncode is available" >&2
         exit 2
     }
-    echo "== Authenticode signer: $signer"
+    echo "== Authenticode signer: $authenticode_signer"
 else
     echo "== Authenticode: unsigned (set SUMMRISE_SIGN_PFX to sign the binaries and setup)"
 fi
 
 sign_file() {
     local file="$1"
-    [[ -n "$signer" ]] || return 0
-    case "$(basename "$signer")" in
+    [[ -n "$authenticode_signer" ]] || return 0
+    case "$(basename "$authenticode_signer")" in
         signtool*)
             if [[ -n "$sign_password" ]]; then
-                "$signer" sign /fd sha256 /f "$sign_pfx" /p "$sign_password" /tr "$sign_timestamp" /td sha256 "$file"
+                "$authenticode_signer" sign /fd sha256 /f "$sign_pfx" /p "$sign_password" /tr "$sign_timestamp" /td sha256 "$file"
             else
-                "$signer" sign /fd sha256 /f "$sign_pfx" /tr "$sign_timestamp" /td sha256 "$file"
+                "$authenticode_signer" sign /fd sha256 /f "$sign_pfx" /tr "$sign_timestamp" /td sha256 "$file"
             fi
             ;;
         osslsigncode)
             local signed="$file.signed"
             if [[ -n "$sign_password" ]]; then
-                "$signer" sign -pkcs12 "$sign_pfx" -pass "$sign_password" -t "$sign_timestamp" -h sha256 -in "$file" -out "$signed"
+                "$authenticode_signer" sign -pkcs12 "$sign_pfx" -pass "$sign_password" -t "$sign_timestamp" -h sha256 -in "$file" -out "$signed"
             else
-                "$signer" sign -pkcs12 "$sign_pfx" -t "$sign_timestamp" -h sha256 -in "$file" -out "$signed"
+                "$authenticode_signer" sign -pkcs12 "$sign_pfx" -t "$sign_timestamp" -h sha256 -in "$file" -out "$signed"
             fi
             mv "$signed" "$file"
+            ;;
+        *)
+            # Signing was requested, so a tool that matches neither invocation is a broken publish,
+            # not a silent no-op: the setup would ship unsigned while every log said "signing".
+            echo "publish-canary: SUMMRISE_SIGN_PFX is set but $(basename "$authenticode_signer") matches neither signtool nor osslsigncode" >&2
+            exit 2
             ;;
     esac
 }
 
-echo "== building the signer for this host (it is what signs; it never ships to the device)"
+echo "== building the release signer for this host (it signs the document and sidecar; it never ships)"
 cargo build --release -p summrise-release
-signer="target/release/summrise-release"
+# **TWO SIGNERS, TWO JOBS.** This binary signs the release document and the sidecar; Authenticode is
+# signtool/osslsigncode over a certificate. Writing this path into the Authenticode signer used to make
+# `sign_file` dispatch on it, match neither case and ship an unsigned installer in silence.
+release_signer="$PWD/target/release/summrise-release"
 
 # **BEFORE THE BUILD, NOT AFTER IT.** `SUMMRISE_BUILD_VERSION` is read by build.rs, so exporting it
 # after the cargo line only labels the document: the binary keeps whatever version it was last built
@@ -159,17 +176,16 @@ cargo xwin build --release --target "$target" -p summrise-launch -p summrise-dev
 bin="target/$target/release"
 mkdir -p "$out"
 
-if [[ -n "$signer" ]]; then
+if [[ -n "$authenticode_signer" ]]; then
     for file in summrise-launch.exe summrise-device.exe summrise-console.exe summrise-shell.exe; do
         sign_file "$bin/$file"
     done
 fi
 
 echo "== signing the release document for $version ($channel)"
-signer_bin="$signer"
 artifact="$bin/summrise-device.exe"
 cp "$artifact" "$out/summrise-device-$version.exe"
-"$signer_bin" sign --key-file "$release_key" \
+"$release_signer" sign --key-file "$release_key" \
     --artifact "$out/summrise-device-$version.exe" \
     --version "$version" --channel "$channel" \
     --url "$mirror/summrise-device-$version.exe" \
@@ -183,7 +199,7 @@ cp "$out/release-$version.json" "$out/release-$channel.json"
 echo "== channel pointer: release-$channel.json -> $version"
 
 echo "== signing the first-generation sidecar with the launcher key"
-"$signer_bin" sidecar --key-file "$launcher_key" \
+"$release_signer" sidecar --key-file "$launcher_key" \
     --artifact "$artifact" --version "$version" --channel "$channel" \
     --out "$bin/summrise-device.sidecar.json"
 # The mirror carries the sidecar beside the artifact, named the way the operator's 0.3.271 publish
@@ -204,6 +220,8 @@ for candidate in "$(command -v makensis 2>/dev/null || true)" \
                  "/tmp/nsis/usr/bin/makensis"; do
     if [ -n "$candidate" ] && [ -x "$candidate" ]; then makensis="$candidate"; break; fi
 done
+# Empty until a setup actually reached $out; the mirror copy must not assume one exists.
+installer_path=""
 if [ -n "$makensis" ]; then
     if [ ! -e /usr/share/nsis/Stubs ] && [ -d /tmp/nsis/usr/share/nsis/Stubs ]; then
         export NSISDIR="/tmp/nsis/usr/share/nsis"
@@ -217,19 +235,30 @@ if [ -n "$makensis" ]; then
     if [ -n "${SUMMRISE_DESKTOP_SOURCE:-}" ]; then
         desktop_args=(-DDESKTOP_SOURCE="$SUMMRISE_DESKTOP_SOURCE")
     fi
+    # Both arrays reach NSIS. `desktop_args` used to be built and dropped here, so
+    # SUMMRISE_DESKTOP_SOURCE never reached the installer and the setup silently packaged the Rust
+    # shell instead of the Electron payload.
     (cd installer && "$makensis" -DVERSION="$version" -DPORT="$port" \
-        -DCHANNEL="$channel" -DSOURCE="$source_dir" "${browser_args[@]}" summrise.nsi)
-    sign_file "installer/SummriseSetup-$version-$channel.exe"
-    cp installer/SummriseSetup-"$version-$channel".exe "$out/"
+        -DCHANNEL="$channel" -DSOURCE="$source_dir" "${browser_args[@]}" "${desktop_args[@]}" summrise.nsi)
+    # The copy is what makes the installer exist; under `set -e` a failed copy exits, so the path is
+    # set only after NSIS wrote the file and it reached $out.
+    cp "installer/SummriseSetup-$version-$channel.exe" "$out/"
+    installer_path="$out/SummriseSetup-$version-$channel.exe"
+    sign_file "$installer_path"
 else
     echo "publish-canary: makensis was not found; the installer is not in this publish" >&2
 fi
 
 # The mirror directory is what the public URL serves. Copying here instead of by hand is the difference
-# between a publish that is complete and one that is complete once someone remembers the cp.
+# between a publish that is complete and one that is complete once someone remembers the cp. The
+# installer may not exist (no makensis), and a `cp` of a missing file under `set -e` would turn a
+# publish without an installer into no publish at all.
 if [[ -n "$mirror_dir" ]]; then
-    cp "$out/SummriseSetup-$version-$channel.exe" "$out/summrise-device-$version.exe" \
+    cp "$out/summrise-device-$version.exe" \
        "$out/release-$version.json" "$out/release-$channel.json" "$mirror_dir/"
+    if [[ -n "$installer_path" ]]; then
+        cp "$installer_path" "$mirror_dir/"
+    fi
     echo "== mirrored to $mirror_dir"
 fi
 

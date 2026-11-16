@@ -60,7 +60,6 @@ test("the status endpoint answers the legacy panel's shape from the device's own
   const panel = await startLegacyPanel({
     deviceBase: `http://127.0.0.1:${device.address().port}`,
     html: "<head></head>",
-    activityHtml: "<head></head>",
     token: "t",
   });
   try {
@@ -72,47 +71,6 @@ test("the status endpoint answers the legacy panel's shape from the device's own
     assert.equal(body.release, "2.0.0");
     assert.equal(body.host, "127.0.0.1");
     assert.match(body.config_path, /etc\\config\.yaml$/);
-  } finally {
-    await panel.close();
-    device.close();
-  }
-});
-
-test("the event stream carries the device's tool calls as SSE frames", async () => {
-  const device = await deviceServer(
-    JSON.stringify({
-      version: "2.0.0",
-      events: [
-        { event: "begin", id: 7, tool: "runs.exec", decision: "allow", ts_ms: 1000 },
-        { event: "end", id: 7, ok: true, ts_ms: 1500 },
-      ],
-    }),
-  );
-  const panel = await startLegacyPanel({
-    deviceBase: `http://127.0.0.1:${device.address().port}`,
-    html: "<head></head>",
-    activityHtml: "<head></head>",
-    token: "t",
-  });
-  try {
-    const frames = await new Promise((resolve, reject) => {
-      const req = http.get(`${panel.base}/api/events`, { headers: { Authorization: "Bearer t" } }, (res) => {
-        let body = "";
-        res.setEncoding("utf8");
-        res.on("data", (chunk) => {
-          body += chunk;
-          if ((body.match(/^data: /gm) || []).length >= 2) {
-            req.destroy();
-            resolve(body.split("\n\n").filter((f) => f.startsWith("data: ")));
-          }
-        });
-      });
-      req.on("error", () => {});
-      setTimeout(() => reject(new Error("no SSE frames")), 5000);
-    });
-    const events = frames.map((f) => JSON.parse(f.replace(/^data: /, "")));
-    assert.deepEqual(events[0], { event: "begin", id: 7, tool: "runs.exec", decision: "allow", ts_ms: 1000 });
-    assert.deepEqual(events[1], { event: "end", id: 7, ok: true, ts_ms: 1500 });
   } finally {
     await panel.close();
     device.close();
@@ -153,7 +111,6 @@ test("the terminal tools speak the legacy panel's shapes over the device's own e
   const panel = await startLegacyPanel({
     deviceBase: `http://127.0.0.1:${device.address().port}`,
     html: "<head></head>",
-    activityHtml: "<head></head>",
     token: "t",
   });
   try {
@@ -196,7 +153,6 @@ test("the logs route reads the device's own log directory", async () => {
   const panel = await startLegacyPanel({
     deviceBase: `http://127.0.0.1:${device.address().port}`,
     html: "<head></head>",
-    activityHtml: "<head></head>",
     token: "t",
   });
   try {
@@ -210,53 +166,6 @@ test("the logs route reads the device's own log directory", async () => {
     assert.match(body.logs[0].log, /last line/);
   } finally {
     await panel.close();
-    device.close();
-  }
-});
-
-test("a run's record reaches the transcript's expand through the panel's own token", async () => {
-  const record = {
-    id: "run-1",
-    command: "cmd /c echo srm_deadbeef",
-    args: [],
-    cwd: "C:\\ProgramData\\Summrise\\workspace",
-    exit_code: 0,
-    timed_out: false,
-    duration_ms: 12,
-    started_at_ms: 1,
-    stdout_bytes: 18,
-    stderr_bytes: 0,
-  };
-  let presented = "";
-  const device = await fakeDevice({
-    "/panel": (_req, res) => {
-      res.writeHead(200, { "content-type": "text/html" });
-      res.end('<meta name="summrise-panel" content="' + "b".repeat(64) + '">');
-    },
-    "/api/runs/run-1": (req, res) => {
-      presented = String(req.headers["x-summrise-panel"] || "");
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ ok: true, run: record }));
-    },
-  });
-  const panel = await startLegacyPanel({
-    deviceBase: `http://127.0.0.1:${device.address().port}`,
-    html: "<head></head>",
-    activityHtml: "<head></head>",
-    token: "t",
-  });
-  try {
-    const anonymous = await fetch(`${panel.base}/api/runs/run-1`);
-    assert.equal(anonymous.status, 401, "the shim's own token is still required");
-
-    const response = await fetch(`${panel.base}/api/runs/run-1`, { headers: { Authorization: "Bearer t" } });
-    assert.equal(response.status, 200);
-    const body = await response.json();
-    assert.equal(body.run.command, "cmd /c echo srm_deadbeef");
-    assert.equal(body.run.stdout_bytes, 18);
-    assert.equal(presented, "b".repeat(64), "the device sees this boot's panel token, not the shim's");
-  } finally {
-    panel.close();
     device.close();
   }
 });

@@ -1077,14 +1077,15 @@ pub(crate) struct TimelineDay {
     rows: Vec<TimelineRow>,
 }
 
-/// The calls the audit records, grouped by this machine's local day and newest first.
+/// The audit's calls: one `begin` line and, when the window carries it, the `end` that closes it.
 ///
-/// The audit writes two lines per call, `begin` and `end`, under one `id`; the panel shows one row
-/// per call, with the `end` line's outcome and error. An `end` whose `begin` is outside the bounded
-/// window carries no tool, so it cannot become a row: that is the one case the pairing drops. A
-/// `begin` whose `end` has not been written yet keeps the decision as its status.
-pub(crate) fn timeline_days(audit: &[serde_json::Value], now_ms: u64) -> Vec<TimelineDay> {
-    use std::collections::{BTreeMap, HashMap};
+/// The audit writes two lines per call, `begin` and `end`, under one `id`. A call whose `end` is
+/// outside the bounded window has no outcome; a call whose `begin` was outside it is not a call at
+/// all and is not returned here. The panel's Timeline and the transcript both pair this way.
+pub(crate) fn call_pairs(
+    audit: &[serde_json::Value],
+) -> Vec<(&serde_json::Value, Option<&serde_json::Value>)> {
+    use std::collections::HashMap;
 
     let mut calls: Vec<(&serde_json::Value, Option<&serde_json::Value>)> = Vec::new();
     let mut pending: HashMap<u64, usize> = HashMap::new();
@@ -1112,6 +1113,20 @@ pub(crate) fn timeline_days(audit: &[serde_json::Value], now_ms: u64) -> Vec<Tim
             _ => {}
         }
     }
+
+    calls
+}
+
+/// The calls the audit records, grouped by this machine's local day and newest first.
+///
+/// The audit writes two lines per call, `begin` and `end`, under one `id`; the panel shows one row
+/// per call, with the `end` line's outcome and error. An `end` whose `begin` is outside the bounded
+/// window carries no tool, so it cannot become a row: that is the one case the pairing drops. A
+/// `begin` whose `end` has not been written yet keeps the decision as its status.
+pub(crate) fn timeline_days(audit: &[serde_json::Value], now_ms: u64) -> Vec<TimelineDay> {
+    use std::collections::BTreeMap;
+
+    let calls = call_pairs(audit);
 
     let today = local_at(now_ms).map(|at| at.date_naive());
     let mut days: BTreeMap<chrono::NaiveDate, Vec<TimelineRow>> = BTreeMap::new();
@@ -1266,7 +1281,7 @@ fn timeline_row(
 }
 
 /// The instant in this machine's timezone, or `None` when it is not a representable local time.
-fn local_at(milliseconds: u64) -> Option<chrono::DateTime<Local>> {
+pub(crate) fn local_at(milliseconds: u64) -> Option<chrono::DateTime<Local>> {
     let milliseconds = i64::try_from(milliseconds).ok()?;
     Local.timestamp_millis_opt(milliseconds).single()
 }
@@ -1987,7 +2002,10 @@ mod tests {
         assert!(html.contains(r#"<h2 class="timeline-day-label">Today</h2>"#));
         assert!(html.contains(r#"<span class="timeline-tool">runs.exec</span>"#));
         assert!(html.contains(r#"<span class="chip fail">failed</span>"#));
-        assert!(html.contains(r#"id="theme""#), "the panel offers a light/dark choice");
+        assert!(
+            html.contains(r#"id="theme""#),
+            "the panel offers a light/dark choice"
+        );
         assert!(html.contains(r#"<span class="timeline-error">refused</span>"#));
         assert!(html.contains(r#"<span class="timeline-caller">console</span>"#));
     }

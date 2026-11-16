@@ -17,6 +17,7 @@
 
 #![forbid(unsafe_code)]
 
+mod activity;
 mod capabilities;
 mod config;
 mod console;

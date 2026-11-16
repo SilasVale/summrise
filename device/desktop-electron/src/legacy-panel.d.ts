@@ -3,7 +3,6 @@ export function startLegacyPanel(options: {
   html: string;
   desktopDir?: string;
   token?: string;
-  activityHtml?: string;
   capture?: () => Promise<string>;
 }): Promise<{
   base: string;

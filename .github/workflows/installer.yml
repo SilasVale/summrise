@@ -40,6 +40,13 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      # The Electron payload is built here, not fetched: `-DDESKTOP_SOURCE` below makes the setup
+      # carry this tree, so the installed `desktop\` is the one this run compiled.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: device/desktop-electron/package-lock.json
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.98.1
@@ -140,6 +147,20 @@ jobs:
             --version "$version" --channel "$CHANNEL" \
             --out device/target/release/summrise-device.sidecar.json
           echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "CHANNEL=$CHANNEL" >> "$GITHUB_ENV"
+
+      # **THE PAYLOAD THE INSTALLER PACKAGES IS BUILT HERE.** NSIS only copies `desktop\` when
+      # DESKTOP_SOURCE is defined; without this step the setup ships the Rust shell and the Electron
+      # transcript change is never installed by the installer CI proves.
+      - name: build the Electron payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd device/desktop-electron
+          npm ci
+          npm run dist -- --win dir
+          test -f dist/win-unpacked/SummriseDesktop.exe
+          test -f dist/win-unpacked/resources/app.asar
 
       - name: install NSIS
         shell: powershell
@@ -151,14 +172,19 @@ jobs:
         shell: bash
         env:
           PORT: ${{ github.event.inputs.port || '18080' }}
+          CHANNEL: ${{ github.event.inputs.channel || 'canary' }}
         run: |
           set -euo pipefail
           makensis="/c/Program Files (x86)/NSIS/makensis.exe"
           test -x "$makensis"
+          desktop_dir="$(cygpath -u "$GITHUB_WORKSPACE")/device/desktop-electron/dist/win-unpacked"
+          test -f "$desktop_dir/SummriseDesktop.exe"
+          desktop_source="$(cygpath -w "$desktop_dir")"
           cd device/installer
-          "$makensis" -DVERSION="$VERSION" -DPORT="$PORT" -DCHANNEL=canary \
-            -DSOURCE="$(cygpath -w ../target/release)" summrise.nsi
-          ls -l "SummriseSetup-$VERSION.exe"
+          "$makensis" -DVERSION="$VERSION" -DPORT="$PORT" -DCHANNEL="$CHANNEL" \
+            -DSOURCE="$(cygpath -w ../target/release)" \
+            -DDESKTOP_SOURCE="$desktop_source" summrise.nsi
+          ls -l "SummriseSetup-$VERSION-$CHANNEL.exe"
 
       # Signing is opt-in and shell-guarded: a repository without a certificate still gets an
       # installer (unsigned, and SmartScreen will say so), and adding the two secrets turns it on
@@ -177,19 +203,22 @@ jobs:
           pfx="$RUNNER_TEMP/signing.pfx"
           printf '%s' "$PFX_BASE64" | base64 -d > "$pfx"
           signtool sign /f "$pfx" /p "$PFX_PASSWORD" /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 \
-            "device/installer/SummriseSetup-$VERSION.exe"
+            "device/installer/SummriseSetup-$VERSION-$CHANNEL.exe"
           rm -f "$pfx"
 
-      # **THE INSTALLER MUST INSTALL ITSELF.** Every build runs the setup silently on the runner,
-      # then reads the device's own health endpoint and uninstalls. A setup that registers a service
-      # but serves nothing is the failure this catches — and it is a failure no unit test can see.
+      # **THE INSTALLER MUST INSTALL ITSELF AND ITS PAYLOAD.** Every build runs the setup silently on
+      # the runner, reads the device's own health endpoint, and proves the Electron tree it just built
+      # is the tree on disk — installed executable, app.asar hash, and the Run value that starts it.
+      # A setup that registers a service but serves nothing, or installs the Rust shell where the
+      # transcript lives, is the failure this catches — and no unit test can see it.
       - name: install it on the runner
         shell: powershell
         env:
           PORT: ${{ github.event.inputs.port || '18080' }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $setup = "device/installer/SummriseSetup-$env:VERSION.exe"
+          $setup = "device/installer/SummriseSetup-$env:VERSION-$env:CHANNEL.exe"
+          if (-not (Test-Path -LiteralPath $setup -PathType Leaf)) { throw "the setup is missing: $setup" }
           $process = Start-Process -FilePath $setup -ArgumentList '/S', '/D=C:\SummriseCI' -Wait -PassThru
           Write-Host "installer exit: $($process.ExitCode)"
           if ($process.ExitCode -ne 0) { throw "the installer failed: $($process.ExitCode)" }
@@ -199,6 +228,34 @@ jobs:
           $health = Invoke-RestMethod "http://127.0.0.1:$env:PORT/api/health" -TimeoutSec 10
           Write-Host "health: $($health | ConvertTo-Json -Compress)"
           if ($health.status -ne 'ok') { throw "health is not ok: $($health | ConvertTo-Json -Compress)" }
+
+          # The installed Electron payload is the thing the installer exists to deliver.
+          $desktop = 'C:\SummriseCI\desktop\SummriseDesktop.exe'
+          if (-not (Test-Path -LiteralPath $desktop -PathType Leaf)) { throw "the Electron desktop was not installed: $desktop" }
+          $installedAsar = 'C:\SummriseCI\desktop\resources\app.asar'
+          if (-not (Test-Path -LiteralPath $installedAsar -PathType Leaf)) { throw "the installed payload has no resources\app.asar: $installedAsar" }
+          $builtAsar = 'device/desktop-electron/dist/win-unpacked/resources/app.asar'
+          if (-not (Test-Path -LiteralPath $builtAsar -PathType Leaf)) { throw "the built payload is missing: $builtAsar" }
+          $installedHash = (Get-FileHash -LiteralPath $installedAsar -Algorithm SHA256).Hash
+          $builtHash = (Get-FileHash -LiteralPath $builtAsar -Algorithm SHA256).Hash
+          Write-Host "installed asar sha256: $installedHash"
+          Write-Host "built asar sha256:     $builtHash"
+          if ($installedHash -ne $builtHash) { throw "the installed app.asar is not the one this run built" }
+          $run = (Get-ItemProperty -Path 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run' -Name SummriseShell).SummriseShell
+          Write-Host "Run value: $run"
+          if ($run -ne '"C:\SummriseCI\desktop\SummriseDesktop.exe"') {
+            throw "the Run value does not start the installed desktop payload: $run"
+          }
+          Push-Location 'device/desktop-electron'
+          try {
+            $entries = & npx asar list 'dist/win-unpacked/resources/app.asar'
+            if ($LASTEXITCODE -ne 0) { throw "npx asar list failed: $LASTEXITCODE" }
+          } finally {
+            Pop-Location
+          }
+          if (-not ($entries -match '^[/\\]src[/\\]device-page\.js$')) { throw "the built asar does not carry src/device-page.js" }
+          if ($entries -match '[/\\]panel[/\\]activity\.html$') { throw "the built asar still carries panel/activity.html" }
+          Write-Host "payload asar lists src/device-page.js and not panel/activity.html"
 
       - name: uninstall it on the runner
         shell: powershell
@@ -211,6 +268,9 @@ jobs:
           $service = Get-Service -Name SummriseLaunch -ErrorAction SilentlyContinue
           if ($null -ne $service) { throw "the service survived the uninstall: $($service.Status)" }
           Write-Host "service is gone"
+          $run = Get-ItemProperty -Path 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run' -Name SummriseShell -ErrorAction SilentlyContinue
+          if ($null -ne $run) { throw "the Run value survived the uninstall: $($run.SummriseShell)" }
+          Write-Host "Run value is gone"
 
       # A run artifact is a convenience, not the record: the tag release above attaches the same
       # installer to the release, which is where an operator downloads it months later. Keeping the
@@ -218,8 +278,8 @@ jobs:
       # one day is enough to fetch a build from its run, and expired artifacts are deleted for us.
       - uses: actions/upload-artifact@v4
         with:
-          name: SummriseSetup-${{ env.VERSION }}
-          path: device/installer/SummriseSetup-*.exe
+          name: SummriseSetup-${{ env.VERSION }}-${{ env.CHANNEL }}
+          path: device/installer/SummriseSetup-${{ env.VERSION }}-${{ env.CHANNEL }}.exe
           if-no-files-found: error
           retention-days: 1
 
@@ -236,4 +296,4 @@ jobs:
           if ! gh release view "$tag" >/dev/null 2>&1; then
             gh release create "$tag" --title "$tag" --notes "Summrise runtime $tag"
           fi
-          gh release upload "$tag" device/installer/SummriseSetup-*.exe --clobber
+          gh release upload "$tag" "device/installer/SummriseSetup-$VERSION-$CHANNEL.exe" --clobber

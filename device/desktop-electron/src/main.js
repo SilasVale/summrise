@@ -149,6 +149,7 @@ const START_VISIBLE = process.argv.includes("--show") || process.env.SUMMRISE_ST
 /** `--panel` opens the React panel instead of the operations transcript. */
 const START_PANEL = process.argv.includes("--panel");
 const legacy_panel_1 = require("./legacy-panel");
+const device_page_1 = require("./device-page");
 function bootAgentPort() {
     const fromDevice = (0, device_port_1.readDevicePort)();
     if (fromDevice)
@@ -263,6 +264,10 @@ let tray = null;
 let legacyBase = "";
 /** Whether a URL is the loopback page that serves the legacy panel. */
 function legacyUrl(url) { return legacyBase !== "" && url.startsWith(legacyBase + "/"); }
+/** Whether a URL is one of the device's own pages (`/activity`, `/panel`) on the agent's origin. */
+function onDevicePage(url) { return (0, summrise_url_policy_1.isBaseOrigin)(url) && (0, device_page_1.isDevicePage)(url, (0, summrise_url_policy_1.agentBase)()); }
+/** The device's operations transcript. */
+function deviceActivityUrl() { return new URL("/activity", (0, summrise_url_policy_1.agentBase)()).toString(); }
 /** Whether the hide-to-tray notification has been shown (once per launch). */
 let hideNotified = false;
 // stage-m: SINGLE-INSTANCE LOCK — a second Summrise window exits immediately.
@@ -872,14 +877,12 @@ if (gotTheLock) {
         // The legacy panel is a single page that calls /api/panel; it is served from a loopback origin of
         // its own and that one path is proxied to the device (see src/legacy-panel.ts).
         const legacyHtml = fs.readFileSync(path.join(__dirname, "..", "panel", "legacy.html"), "utf8");
-        const activityHtml = fs.readFileSync(path.join(__dirname, "..", "panel", "activity.html"), "utf8");
         const panelToken = (0, crypto_1.randomBytes)(16).toString("hex");
         const legacyPanel = await (0, legacy_panel_1.startLegacyPanel)({
             deviceBase: (0, summrise_url_policy_1.agentBase)(),
             html: legacyHtml,
             desktopDir: path.join(__dirname, "..", "panel", "desktop"),
             token: panelToken,
-            activityHtml,
             capture: async () => (win ? (await win.webContents.capturePage()).toPNG().toString("base64") : ""),
         });
         legacyBase = legacyPanel.base;
@@ -968,11 +971,11 @@ if (gotTheLock) {
             // composes it with the two literal carve-outs — the data: wait page and about:blank.
             //
             // The port deleted a dead `if (url === "about:blank") return;` here — the line above already returns for it.
-            if ((0, summrise_shell_policy_1.tripwireAllows)(url, (0, summrise_url_policy_1.isDesktopSpaUrl)(url)) || legacyUrl(url))
+            if ((0, summrise_shell_policy_1.tripwireAllows)(url, (0, summrise_url_policy_1.isDesktopSpaUrl)(url)) || legacyUrl(url) || onDevicePage(url))
                 return;
             console.log((0, summrise_shell_policy_1.tripwireLog)(url));
             snappingBack = true;
-            win?.loadURL(`${legacyBase}${START_PANEL ? "/desktop/" : "/activity"}`).catch(() => { }).finally(() => {
+            win?.loadURL(START_PANEL ? new URL("/desktop/", legacyBase).toString() : deviceActivityUrl()).catch(() => { }).finally(() => {
                 setTimeout(() => { snappingBack = false; }, TRIPWIRE_BACKOFF_MS);
             });
         });
@@ -1153,7 +1156,7 @@ if (gotTheLock) {
             if (await agentReady()) {
                 agentMissCount = 0;
                 resetRetry();
-                win?.loadURL(`${legacyBase}${START_PANEL ? "/desktop/" : "/activity"}`).catch(() => { });
+                win?.loadURL(START_PANEL ? new URL("/desktop/", legacyBase).toString() : deviceActivityUrl()).catch(() => { });
             }
             else {
                 // THE MISS IS COUNTED BEFORE THE PAGE IS HANDED THE NUMBER, because this
@@ -1359,12 +1362,17 @@ if (gotTheLock) {
                 if (win && !win.isDestroyed() && legacyBase !== "")
                     void win.loadURL(`${legacyBase}${page}`);
             };
+            const openLocation = (url) => {
+                focusMain();
+                if (win && !win.isDestroyed())
+                    void win.loadURL(url);
+            };
             tray.setContextMenu(electron_1.Menu.buildFromTemplate(rows.map((row) => {
                 if (row.type === "separator")
                     return { type: "separator" };
                 switch (row.action) {
                     case "open": return { label: row.label, click: () => { focusMain(); } };
-                    case "transcript": return { label: row.label, click: () => openPage("/activity") };
+                    case "transcript": return { label: row.label, click: () => openLocation(deviceActivityUrl()) };
                     case "terminal": return { label: row.label, click: () => openPage("/desktop/?view=terminal") };
                     case "update": return {
                         label: row.label,

@@ -167,6 +167,7 @@ const START_VISIBLE = process.argv.includes("--show") || process.env.SUMMRISE_ST
 /** `--panel` opens the React panel instead of the operations transcript. */
 const START_PANEL = process.argv.includes("--panel");
 import { startLegacyPanel } from "./legacy-panel";
+import { isDevicePage } from "./device-page";
 
 function bootAgentPort(): number {
   const fromDevice = readDevicePort();
@@ -277,6 +278,10 @@ let tray: Tray | null = null;
 let legacyBase = "";
 /** Whether a URL is the loopback page that serves the legacy panel. */
 function legacyUrl(url: string): boolean { return legacyBase !== "" && url.startsWith(legacyBase + "/"); }
+/** Whether a URL is one of the device's own pages (`/activity`, `/panel`) on the agent's origin. */
+function onDevicePage(url: string): boolean { return isBaseOrigin(url) && isDevicePage(url, agentBase()); }
+/** The device's operations transcript. */
+function deviceActivityUrl(): string { return new URL("/activity", agentBase()).toString(); }
 /** Whether the hide-to-tray notification has been shown (once per launch). */
 let hideNotified = false;
 
@@ -874,14 +879,12 @@ if (gotTheLock) {
     // The legacy panel is a single page that calls /api/panel; it is served from a loopback origin of
     // its own and that one path is proxied to the device (see src/legacy-panel.ts).
     const legacyHtml = fs.readFileSync(path.join(__dirname, "..", "panel", "legacy.html"), "utf8");
-    const activityHtml = fs.readFileSync(path.join(__dirname, "..", "panel", "activity.html"), "utf8");
     const panelToken = randomBytes(16).toString("hex");
     const legacyPanel = await startLegacyPanel({
       deviceBase: agentBase(),
       html: legacyHtml,
       desktopDir: path.join(__dirname, "..", "panel", "desktop"),
       token: panelToken,
-      activityHtml,
       capture: async () => (win ? (await win.webContents.capturePage()).toPNG().toString("base64") : ""),
     });
     legacyBase = legacyPanel.base;
@@ -968,10 +971,10 @@ if (gotTheLock) {
       // composes it with the two literal carve-outs — the data: wait page and about:blank.
       //
       // The port deleted a dead `if (url === "about:blank") return;` here — the line above already returns for it.
-      if (tripwireAllows(url, isDesktopSpaUrl(url)) || legacyUrl(url)) return;
+      if (tripwireAllows(url, isDesktopSpaUrl(url)) || legacyUrl(url) || onDevicePage(url)) return;
       console.log(tripwireLog(url));
       snappingBack = true;
-      win?.loadURL(`${legacyBase}${START_PANEL ? "/desktop/" : "/activity"}`).catch(() => { /* retry below */ }).finally(() => {
+      win?.loadURL(START_PANEL ? new URL("/desktop/", legacyBase).toString() : deviceActivityUrl()).catch(() => { /* retry below */ }).finally(() => {
         setTimeout(() => { snappingBack = false; }, TRIPWIRE_BACKOFF_MS);
       });
     });
@@ -1151,7 +1154,7 @@ if (gotTheLock) {
       if (await agentReady()) {
         agentMissCount = 0;
         resetRetry();
-        win?.loadURL(`${legacyBase}${START_PANEL ? "/desktop/" : "/activity"}`).catch(() => { /* did-fail-load retries below */ });
+        win?.loadURL(START_PANEL ? new URL("/desktop/", legacyBase).toString() : deviceActivityUrl()).catch(() => { /* did-fail-load retries below */ });
       } else {
         // THE MISS IS COUNTED BEFORE THE PAGE IS HANDED THE NUMBER, because this
         // failed probe IS one: the count the operator reads is the number of
@@ -1353,11 +1356,15 @@ if (gotTheLock) {
         focusMain();
         if (win && !win.isDestroyed() && legacyBase !== "") void win.loadURL(`${legacyBase}${page}`);
       };
+      const openLocation = (url: string): void => {
+        focusMain();
+        if (win && !win.isDestroyed()) void win.loadURL(url);
+      };
       tray!.setContextMenu(Menu.buildFromTemplate(rows.map((row) => {
         if (row.type === "separator") return { type: "separator" as const };
         switch (row.action) {
           case "open": return { label: row.label, click: () => { focusMain(); } };
-          case "transcript": return { label: row.label, click: () => openPage("/activity") };
+          case "transcript": return { label: row.label, click: () => openLocation(deviceActivityUrl()) };
           case "terminal": return { label: row.label, click: () => openPage("/desktop/?view=terminal") };
           case "update": return {
             label: row.label,

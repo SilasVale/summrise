@@ -74,15 +74,6 @@ function statusFromPanel(snapshot, deviceBase) {
   };
 }
 
-function deviceEvents(deviceBase) {
-  return readBody(`${deviceBase}/api/panel`, 4000).then((r) => {
-    const snapshot = JSON.parse(r.body);
-    const events = Array.isArray(snapshot.events) ? snapshot.events : [];
-    return { snapshot, events };
-  });
-}
-
-
 /** Read one JSON request body; the panel's tool calls are small. */
 function readRequestBody(req) {
   return new Promise((resolve) => {
@@ -138,7 +129,7 @@ function sessionRow(session) {
   };
 }
 
-function makeHandler({ deviceBase, html, desktopDir, token, activityHtml, capture }) {
+function makeHandler({ deviceBase, html, desktopDir, token, capture }) {
   const cache = { token: "" };
   return async (req, res) => {
     const url = req.url || "/";
@@ -164,12 +155,6 @@ function makeHandler({ deviceBase, html, desktopDir, token, activityHtml, captur
         res.writeHead(500, { "content-type": "application/json" });
         res.end(JSON.stringify({ error: String(error) }));
       }
-      return;
-    }
-
-    if (pathOnly === "/activity") {
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
-      res.end(panelHtml(activityHtml, token));
       return;
     }
 
@@ -219,18 +204,6 @@ function makeHandler({ deviceBase, html, desktopDir, token, activityHtml, captur
         }
         return;
       }
-      if (pathOnly.startsWith("/api/runs/")) {
-        try {
-          const panelToken = await devicePanelToken(deviceBase, cache);
-          const upstream = await deviceRequest(deviceBase, pathOnly, { token: panelToken });
-          res.writeHead(upstream.status, { "content-type": "application/json", "cache-control": "no-store" });
-          res.end(upstream.body);
-        } catch {
-          res.writeHead(502, { "content-type": "application/json" });
-          res.end('{"ok":false,"error":"device_unreachable"}');
-        }
-        return;
-      }
       if (pathOnly === "/api/status") {
         try {
           const snapshot = JSON.parse((await readBody(`${deviceBase}/api/panel`)).body);
@@ -240,40 +213,6 @@ function makeHandler({ deviceBase, html, desktopDir, token, activityHtml, captur
           res.writeHead(502, { "content-type": "application/json" });
           res.end('{"ok":false,"error":"device_unreachable"}');
         }
-        return;
-      }
-      if (pathOnly === "/api/events") {
-        res.writeHead(200, {
-          "content-type": "text/event-stream",
-          "cache-control": "no-store",
-          connection: "keep-alive",
-        });
-        let closed = false;
-        let seen = new Set();
-        let cursor = 0;
-        const send = (event) => {
-          const key = `${event.event}:${event.id}`;
-          if (seen.has(key)) return;
-          seen.add(key);
-          res.write(`data: ${JSON.stringify(event)}\n\n`);
-        };
-        const poll = async () => {
-          if (closed) return;
-          try {
-            const { events } = await deviceEvents(deviceBase);
-            for (const event of events) {
-              if (typeof event.id === "number" && event.id > cursor) cursor = event.id;
-              send(event);
-            }
-          } catch { /* device asleep: the stream stays open and retries */ }
-          if (!closed) setTimeout(poll, 1000);
-        };
-        const heartbeat = setInterval(() => { if (!closed) res.write(": keep-alive\n\n"); }, 15000);
-        req.on("close", () => {
-          closed = true;
-          clearInterval(heartbeat);
-        });
-        void poll();
         return;
       }
       if (pathOnly.startsWith("/api/tools/")) {
@@ -433,9 +372,9 @@ function makeHandler({ deviceBase, html, desktopDir, token, activityHtml, captur
 }
 
 /** Start the panel on an ephemeral loopback port; resolves to its origin and a closer. */
-function startLegacyPanel({ deviceBase, html, desktopDir, token, activityHtml, capture }) {
+function startLegacyPanel({ deviceBase, html, desktopDir, token, capture }) {
   return new Promise((resolve, reject) => {
-    const server = http.createServer(makeHandler({ deviceBase, html, desktopDir, token, activityHtml, capture }));
+    const server = http.createServer(makeHandler({ deviceBase, html, desktopDir, token, capture }));
     server.on("error", reject);
     server.listen(0, "127.0.0.1", () => {
       const base = `http://127.0.0.1:${server.address().port}`;

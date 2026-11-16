@@ -5,11 +5,7 @@ import { readFileSync } from "node:fs";
 const root = new URL("../", import.meta.url);
 const read = (p) => readFileSync(new URL(p, root), "utf8");
 
-test("every surface can choose light or dark, and the choice is stored", () => {
-  const activity = read("panel/activity.html");
-  assert.match(activity, /data-theme="light"/, "the transcript defaults to light");
-  assert.match(activity, /summrise-theme/, "the transcript persists the choice");
-
+test("the device panel can choose light or dark, and the shared sheet carries the choice", () => {
   const panel = read("../device/src/panel.rs");
   assert.match(panel, /id="theme"/, "the device panel has the toggle");
   assert.match(panel, /chip ok/, "the panel's status rows are chips");
