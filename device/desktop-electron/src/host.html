@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Summrise Browser</title>
+<link rel="stylesheet" href="host.css">
+</head>
+<body>
+<header class="tabs" role="tablist" aria-label="Panes">
+  <button id="tab-browser" class="tab" role="tab" aria-selected="true" aria-controls="browser-pane" type="button">Browser</button>
+  <button id="tab-harness" class="tab" role="tab" aria-selected="false" aria-controls="harness-pane" type="button">Harness</button>
+  <span id="bridge-missing" class="notice" role="alert" hidden></span>
+</header>
+
+<main>
+  <section id="browser-pane" class="pane" role="tabpanel" aria-labelledby="tab-browser">
+    <div class="toolbar">
+      <button id="browser-back" type="button" title="Back" aria-label="Back">&#8592;</button>
+      <button id="browser-fwd" type="button" title="Forward" aria-label="Forward">&#8594;</button>
+      <button id="browser-reload" type="button" title="Reload" aria-label="Reload">&#8635;</button>
+      <input id="browser-url" type="text" spellcheck="false" autocomplete="off" placeholder="Address" aria-label="Address">
+      <button id="browser-go" type="button">Go</button>
+      <select id="browser-zoom" aria-label="Zoom">
+        <option value="0.9">90%</option>
+        <option value="1" selected>100%</option>
+        <option value="1.1">110%</option>
+      </select>
+      <button id="browser-toggle" type="button">Hide</button>
+      <button id="browser-recover" type="button">Recover</button>
+    </div>
+    <div id="browser-status" class="status" role="status" data-state="hidden">
+      <span id="browser-status-state" class="state">hidden</span>
+      <span id="browser-status-title" class="title"></span>
+      <span id="browser-status-url" class="url">(none)</span>
+    </div>
+    <div id="browser-slot" class="slot"></div>
+  </section>
+
+  <section id="harness-pane" class="pane" role="tabpanel" aria-labelledby="tab-harness" hidden>
+    <div class="toolbar">
+      <select id="harness-target" aria-label="Harness target"></select>
+      <button id="harness-open" type="button">Open</button>
+      <button id="harness-go" type="button">Go</button>
+      <button id="harness-reload" type="button">Reload</button>
+      <button id="harness-toggle" type="button">Hide</button>
+      <button id="harness-recover" type="button">Recover</button>
+    </div>
+    <div id="harness-status" class="status" role="status" data-state="hidden">
+      <span id="harness-status-state" class="state">hidden</span>
+      <span id="harness-status-title" class="title"></span>
+      <span id="harness-status-url" class="url">(none)</span>
+    </div>
+    <div id="harness-slot" class="slot"></div>
+  </section>
+</main>
+
+<script src="host.js"></script>
+</body>
+</html>

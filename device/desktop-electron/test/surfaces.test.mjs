@@ -13,12 +13,3 @@ test("the device panel can choose light or dark, and the shared sheet carries th
   const tokens = read("../ui/src/lib.rs");
   assert.match(tokens, /:root\[data-theme="dark"\]/, "the shared sheet carries the chosen dark");
 });
-
-test("the legacy panel is pulled onto the same values by its theme layer", () => {
-  const index = read("panel/desktop/index.html");
-  assert.match(index, /theme\.css/, "the legacy page loads the theme layer");
-  const theme = read("panel/desktop/theme.css");
-  assert.match(theme, /--accent:#c2410c/, "the accent is the transcript's");
-  assert.match(theme, /--bg:#f5f6f8/, "the ground is the transcript's");
-  assert.match(theme, /body\[data-theme="dark"\]/, "the legacy page keeps its dark choice");
-});

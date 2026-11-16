@@ -3,17 +3,21 @@
 // launching Electron. `main.ts` maps `action` to the one thing that row does; anything without an
 // action is a label the poll fills in (version, health).
 //
-// THE VERSION ROW IS THE POINT: a tray that only says "Open" and "Quit" makes the running build
+// TWO SURFACES, TWO WINDOWS: the two device pages (transcript = /activity, panel) and the two panes
+// of the thin host window (Browser, Harness). There is no "Open" row: a row that means "focus
+// whatever is already there" is the tray icon's own click, and the terminal is gone with the SPA.
+//
+// THE VERSION ROW IS THE POINT: a tray that only says "Browser" and "Quit" makes the running build
 // invisible, and "is this the update I installed?" becomes a guessing game. The row is disabled on
 // purpose — it is a fact, not a button.
 function trayMenuRows(facts) {
   const version = facts && typeof facts.version === "string" ? facts.version : "";
   const health = facts && typeof facts.health === "string" ? facts.health : "";
   const rows = [
-    { label: "Open", action: "open" },
-    { type: "separator" },
     { label: "Open transcript", action: "transcript" },
-    { label: "Open terminal", action: "terminal" },
+    { label: "Open panel", action: "panel" },
+    { label: "Browser", action: "browser" },
+    { label: "Harness", action: "harness" },
     { type: "separator" },
     { label: version ? "Version " + version : "Version (not reported)", enabled: false },
     { label: "Check for updates\u2026", action: "update" },

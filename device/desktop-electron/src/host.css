@@ -1,0 +1,209 @@
+/* The thin host page: two tabs over two native WebContentsViews. The page is chrome only — the
+   native views paint inside the .slot boxes, so everything here is a frame, never a page body. */
+
+:root {
+  --bg: #111;
+  --chrome: #16171c;
+  --chrome-2: #1d1f26;
+  --chrome-3: #242731;
+  --ink: #ecedef;
+  --dim: #a2a3ac;
+  --line: #262832;
+  --line-2: #2e303a;
+  --accent: #b03a0a;
+  --danger: #ff8787;
+  --live: #79b778;
+}
+
+* { box-sizing: border-box; }
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--ink);
+  font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* ── Tabs ─────────────────────────────────────────────────────────────────────────────────────── */
+
+.tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  flex: none;
+  padding: 8px 10px 0;
+  background: var(--chrome);
+  border-bottom: 1px solid var(--line);
+}
+
+.tab {
+  padding: 7px 16px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  background: transparent;
+  color: var(--dim);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tab:hover { color: var(--ink); background: var(--chrome-2); }
+
+.tab[aria-selected="true"] {
+  background: var(--bg);
+  border-color: var(--line);
+  color: var(--ink);
+  /* The tab is fused to the pane below: one fewer line between them. */
+  margin-bottom: -1px;
+  padding-bottom: 8px;
+}
+
+.notice {
+  margin: 0 0 8px auto;
+  padding: 4px 10px;
+  border: 1px solid #6b2b2b;
+  border-radius: 6px;
+  background: #2a1616;
+  color: var(--danger);
+  font-size: 12px;
+}
+
+/* ── Panes and toolbars ──────────────────────────────────────────────────────────────────────── */
+
+main {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.pane {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.pane[hidden] { display: none; }
+
+.toolbar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--chrome);
+  border-bottom: 1px solid var(--line);
+}
+
+button,
+select,
+input {
+  padding: 5px 9px;
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  background: var(--chrome-2);
+  color: var(--ink);
+  font: inherit;
+}
+
+button { cursor: pointer; }
+button:hover:not(:disabled) { background: var(--chrome-3); }
+button:active:not(:disabled) { transform: translateY(1px); }
+
+button:disabled,
+select:disabled,
+input:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+button:focus-visible,
+select:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+#browser-url {
+  flex: 1;
+  min-width: 120px;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+#browser-go {
+  border-color: #7a2c0a;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+#browser-go:hover:not(:disabled) { background: #c04410; }
+
+#harness-target { max-width: 42ch; }
+
+/* ── Status line ─────────────────────────────────────────────────────────────────────────────── */
+
+.status {
+  display: flex;
+  flex: none;
+  align-items: baseline;
+  gap: 10px;
+  min-height: 28px;
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--line);
+  background: #131418;
+  color: var(--dim);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.status .state {
+  flex: none;
+  font-weight: 600;
+  color: var(--dim);
+}
+
+.status[data-state="live"] .state { color: var(--live); }
+.status[data-state="gone"] .state { color: var(--danger); }
+
+.status .title {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ink);
+}
+
+.status .url {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: ltr;
+  text-align: right;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+  color: var(--dim);
+}
+
+/* ── The native views' placeholder: the view paints exactly over this box ────────────────────── */
+
+.slot {
+  flex: 1;
+  min-height: 0;
+  margin: 8px;
+  border: 1px dashed var(--line-2);
+  border-radius: 8px;
+  background: #0c0d10;
+}

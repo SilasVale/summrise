@@ -1,13 +1,8 @@
 {
-  "_why": "THE ELECTRON BRIDGE, pinned from both sides. `summrise-desktop-electron/src/preload.ts` exposes three objects to the SPA via contextBridge; the panel calls into them from `EmbeddedBrowserPane` (window.summriseEmbedded) and the desktop settings card (window.summriseDesktop). Each side is TYPED separately \u2014 a TS interface in the panel, an object literal in the preload \u2014 so each compiles happily while a renamed member breaks the desktop app silently, and ONLY there: these surfaces exist behind `window.summriseEmbedded`, which a plain-browser harness does not have, so no rendered sweep has ever seen them (rounds 45 and 50 both had to name them as unmeasurable). This fixture cannot render them either. It pins their NAMES, which is the part that drifts without any test noticing; behaviour still needs the desktop app.",
-  "_verdict": "A member present here must exist on BOTH sides. Adding one to the preload without the panel (or vice versa) fails a test; renaming fails both.",
+  "_why": "THE TWO HOST-ONLY BRIDGES, pinned from both sides. `summrise-desktop-electron/src/preload.ts` exposes exactly two objects to the thin host page (`src/host.html`) via contextBridge: `summriseBrowser` (the native browser view) and `summriseHarness` (the harness view on this machine's loopback). The page and the preload are written separately \u2014 an object literal in the preload, plain functions in the page \u2014 so each works while a renamed member breaks the shell silently, and ONLY there: these surfaces exist behind a contextBridge global that a plain browser does not have, so no rendered sweep has ever seen them. This fixture cannot render them either. It pins their NAMES, which is the part that drifts without any test noticing; behaviour still needs the desktop app.",
+  "_verdict": "A member present here must exist on BOTH sides. Adding one to the preload without the host page (or vice versa) fails a test; renaming fails both. The preload may expose NO OTHER GLOBAL: a third `exposeInMainWorld` call fails the bridge test even if it has no fixture entry.",
   "bridges": {
     "summriseBrowser": [
-      "open",
-      "close",
-      "list"
-    ],
-    "summriseEmbedded": [
       "navigate",
       "back",
       "fwd",
@@ -19,15 +14,11 @@
       "onNav",
       "onGone"
     ],
-    "summriseDesktop": [
-      "getAutoLaunch",
-      "setAutoLaunch",
-      "onCommand"
-    ],
-    "summriseDsh": [
+    "summriseHarness": [
+      "targets",
       "open",
-      "go",
       "place",
+      "go",
       "state",
       "reload",
       "recover",
@@ -35,10 +26,10 @@
     ]
   },
   "_notes": {
-    "summriseBrowser": "browser-session windows, driven over CDP; used from the panel's browser page",
-    "summriseEmbedded": "the REAL embedded browser view: the panel reports its placeholder bounds (place) and the main process positions the WebContentsView over them, which is why this surface cannot be rendered in a plain browser",
-    "summriseDesktop": "auto-launch settings and the native menu command bridge; hidden from the SPA entirely in a plain browser",
-    "onNav/onGone/onCommand": "these SUBSCRIBE and return an unsubscribe function \u2014 a member that must return a function, not a promise (summriseDsh's onGone joined them: a crashed DSH view with no signal shows 'starting\u2026' forever)",
-    "summriseDsh": "the DSH view: the harness's own UI on THIS machine's loopback, a SECOND WebContentsView beside the browser one. The panel reports the slot's bounds (place) and asks the MAIN process to open it (open) -- the port lives in main.ts, so the SPA never learns it and the door (url-policy.isDshUrl) has one origin to check"
+    "summriseBrowser": "the browser view: the host page reports its placeholder bounds (place) and the main process positions the native WebContentsView over them, which is why this surface cannot be rendered in a plain browser; navigate is decided by the shell's ONE load door, never by the page",
+    "summriseHarness": "the harness view: the harness's own UI on THIS machine's loopback, a SECOND native view beside the browser one. The page reports the slot's bounds (place) and asks the MAIN process to open it (open), so the page never learns the harness port; targets is the policy's door list and go is re-checked against it",
+    "onNav/onGone": "these SUBSCRIBE and return an unsubscribe function \u2014 a member that must return a function, not a promise (the harness view's onGone matters as much as the browser's: a crashed view with no signal shows a stale pane forever)",
+    "summriseBrowser.onNav": "navigation pushes: url, canBack, canFwd and title after every real navigation, so the address bar tracks the actual page",
+    "summriseBrowser.onGone/summriseHarness.onGone": "the view's renderer crashed (reason + exitCode); the pane shows a recovery state instead of a dead picture"
   }
 }
