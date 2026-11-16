@@ -24,6 +24,10 @@ fn main() {
 
 #[cfg(windows)]
 mod app;
+// The 9444 browser-session door: a hand-written loopback request, portable so its exact bytes and
+// its refusal parse are tested where no Electron host or tray exists.
+#[cfg_attr(not(windows), allow(dead_code))]
+mod browser;
 // Which page a window opens: the console when one is configured and answers, the device's own
 // panel otherwise. Portable so the decision's tests run in CI's Linux job, where the tray cannot.
 #[cfg_attr(not(windows), allow(dead_code))]
@@ -34,6 +38,9 @@ mod console;
 mod health;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod helper;
+// The desktop chrome's rows: portable, so the ids/labels/chords are tested where no tray can be.
+#[cfg_attr(not(windows), allow(dead_code))]
+mod menu;
 // The device's port is a deployment choice, so the tray and the helper resolve it instead of naming it.
 #[cfg_attr(not(windows), allow(dead_code))]
 mod port;
@@ -104,12 +111,13 @@ mod tests {
 
 #[cfg(windows)]
 fn main() {
-    // A DIAGNOSTIC AND A FALLBACK: BOTH ARE ONE-SHOT WINDOWS, DECIDED BEFORE THE MUTEX. The tray
-    // menu is a click on a machine this project is often not sitting at, so "Open console does
-    // nothing" was reported twice without a way to separate the menu wiring from the window:
-    // `--check-window` builds the same window and WebView2 view the menu builds, waits for the page
-    // to load, and answers on the log and the exit code. `--panel` is the supported fallback: one
-    // visible window on the device's own panel, with no tray.
+    // A DIAGNOSTIC, A FALLBACK AND A BROWSER-SESSION REQUEST: ALL ONE-SHOT, DECIDED BEFORE THE
+    // MUTEX. The tray menu is a click on a machine this project is often not sitting at, so "Open
+    // console does nothing" was reported twice without a way to separate the menu wiring from the
+    // window: `--check-window` builds the same window and WebView2 view the menu builds, waits for
+    // the page to load, and answers on the log and the exit code. `--panel` is the supported
+    // fallback: one visible window on the device's own panel, with no tray. `--browser-session`
+    // asks the existing 9444 door for one session, with no tray, no mutex and no fallback window.
     match app::mode_from_args(std::env::args()) {
         app::Mode::CheckWindow => {
             let code = app::check_window();
@@ -117,6 +125,12 @@ fn main() {
         }
         app::Mode::Fallback => {
             let code = app::show_panel();
+            std::process::exit(code);
+        }
+        app::Mode::BrowserSession => {
+            // THE DOOR, ONCE, AND THE EXIT CODE IS THE ANSWER. No tray and no mutex: this is the
+            // same call the Browser row makes, provable from a scheduled task.
+            let code = app::browser_session();
             std::process::exit(code);
         }
         app::Mode::Tray => {}

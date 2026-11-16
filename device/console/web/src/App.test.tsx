@@ -87,10 +87,31 @@ vi.mock("./api", () => ({
 
 // The workspace owns xterm and the tabs, and this file is about the shell around it. The stub is a
 // marker, so "a page change did not remount it" is a node-identity assertion rather than a guess;
-// `visible` is the prop App uses to hide it on every tab that is not the terminal.
+// `visible` is the prop App uses to hide it on every tab that is not the terminal. The `#connect-kind`
+// select is the connect dialog's own control: the stub draws the kind the shell handed the workspace,
+// so the App test proves the one-shot request reached it (the local→pty mapping is the real
+// workspace's, and TerminalWorkspace.test.tsx owns that assertion).
 vi.mock("./TerminalWorkspace", () => ({
-  TerminalWorkspace: ({ visible }: { visible: boolean }) => (
-    <div data-testid="workspace" data-visible={visible ? "yes" : "no"} />
+  TerminalWorkspace: ({
+    visible,
+    newSession
+  }: {
+    visible: boolean;
+    newSession?: { kind: "local" | "ssh" | "serial"; nonce: number };
+  }) => (
+    <div data-testid="workspace" data-visible={visible ? "yes" : "no"}>
+      {newSession && (
+        <select
+          id="connect-kind"
+          value={newSession.kind === "local" ? "pty" : newSession.kind}
+          onChange={() => undefined}
+        >
+          <option value="pty">pty</option>
+          <option value="ssh">ssh</option>
+          <option value="serial">serial</option>
+        </select>
+      )}
+    </div>
   )
 }));
 
@@ -453,6 +474,12 @@ async function openOverview() {
 /** Open the account menu, where version, console URL, docs and sign out live now. */
 function openAccount() {
   fireEvent.click(screen.getByLabelText("Account menu"));
+}
+
+/** The mocked workspace's connect dialog kind, or null when the dialog is not drawn. */
+function connectKind(): string | null {
+  const select = document.querySelector<HTMLSelectElement>("#connect-kind");
+  return select?.value ?? null;
 }
 
 describe("App", () => {
@@ -1432,6 +1459,27 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "Tools", level: 1 })).toBeInTheDocument();
     expect(await screen.findByRole("dialog", { name: "files.read" })).toBeInTheDocument();
     await waitFor(() => expect(window.location.hash).toBe("#device/tools/files.read"));
+    window.history.replaceState(null, "", window.location.pathname);
+  });
+
+  it("opens the connect dialog from a terminal deep link and applies a later one-shot", async () => {
+    window.history.replaceState(null, "", "#device/terminal/new=ssh");
+    // A terminal surface needs a machine; the selection survives a reload.
+    localStorage.setItem("summrise.selected.device", workshop.id);
+    await boot();
+    fireEvent.change(screen.getByLabelText("Operator token"), { target: { value: "operator-token" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    expect(await screen.findByRole("heading", { name: "Terminal", level: 1 })).toBeInTheDocument();
+    await waitFor(() => expect(connectKind()).toBe("ssh"));
+
+    // **THE REQUEST IS STATE, NOT THE ADDRESS.** The writer canonicalises the one-shot, so the next
+    // click is a NEW fragment rather than the one already in the bar; only then can a repeated tray
+    // click reach the dialog again.
+    await waitFor(() => expect(window.location.hash).toBe("#device/terminal"));
+    window.history.replaceState(null, "", "#device/terminal/new=local");
+    window.dispatchEvent(new Event("hashchange"));
+    await waitFor(() => expect(connectKind()).toBe("pty"));
     window.history.replaceState(null, "", window.location.pathname);
   });
 

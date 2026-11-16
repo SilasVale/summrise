@@ -386,6 +386,10 @@ export function App() {
   const [initialSelected] = useState<string | null>(
     () => initialRun?.deviceId ?? readSelectedDevice()
   );
+  // **A TRAY REQUEST IS CONSUMED, NOT REMEMBERED.** Each one-shot fragment the page reads gets a new
+  // nonce, and the child effect that handles it is keyed by that nonce: the same fragment arriving
+  // again is a new object even when the kind or the URL is unchanged.
+  const requestNonce = useRef(0);
   const [initialSurface] = useState(() =>
     parseSurfaceHash(window.location.hash, { machineSelected: initialSelected !== null })
   );
@@ -405,6 +409,25 @@ export function App() {
   const [openTool, setOpenTool] = useState<string | null>(
     initialSurface?.page === "device" && initialSurface.tab === "tools"
       ? initialSurface.tool ?? null
+      : null
+  );
+  /**
+   * The tray's one-shot terminal request: the Connect dialog's kind. It is consumed by the
+   * workspace's effect (which clears it through `onNewSessionHandled`), never written to the
+   * address, and replaced by every fragment that names another request.
+   */
+  const [newSession, setNewSession] = useState<{
+    kind: "local" | "ssh" | "serial";
+    nonce: number;
+  } | null>(() =>
+    initialSurface?.newSession
+      ? { ...initialSurface.newSession, nonce: ++requestNonce.current }
+      : null
+  );
+  /** The tray's one-shot browser request: the address to prefill. View only, consumed like above. */
+  const [openBrowser, setOpenBrowser] = useState<{ url: string; nonce: number } | null>(() =>
+    initialSurface?.openBrowser
+      ? { ...initialSurface.openBrowser, nonce: ++requestNonce.current }
       : null
   );
   const [selected, setSelected] = useState<string | null>(initialSelected);
@@ -1016,6 +1039,12 @@ export function App() {
   // The fragment is the page's address: a reload keeps the destination and the Device tab, and a run
   // link keeps both the machine and the run. Leaving Runs replaces the run link with the new surface
   // instead of leaving a stale run in the URL.
+  //
+  // **THE ONE-SHOT REQUESTS ARE REWRITTEN AWAY TOO.** The destination usually changes when a tray
+  // link arrives, which is what runs this effect; but a second link for the surface already showing
+  // (`#device/terminal` → `#device/terminal/new=ssh`) changes no destination, and without the two
+  // request states here the bar would keep the one-shot and a repeated click would set the hash it
+  // already has. The writer runs on every request, so the address is canonical before the next click.
   useEffect(() => {
     if (!session?.authenticated) return;
     // `#signin` is a view the address asks for, not a surface this effect may overwrite with #home.
@@ -1039,7 +1068,18 @@ export function App() {
       range: page === "activity" ? activityRange ?? undefined : undefined
     });
     if (window.location.hash !== wanted) window.history.replaceState(null, "", wanted);
-  }, [page, tab, screenView, openTool, runsFocus, session?.authenticated, activityRange, signInRoute]);
+  }, [
+    page,
+    tab,
+    screenView,
+    openTool,
+    runsFocus,
+    session?.authenticated,
+    activityRange,
+    signInRoute,
+    newSession,
+    openBrowser
+  ]);
 
   // A page or a machine change replaces the control the operator pressed: a rail click left focus on
   // the rail, and a fleet row's door unmounted its own button. The new page's <main> takes the focus,
@@ -1059,15 +1099,23 @@ export function App() {
   // uses apply every fragment change, so a hash the app cannot read leaves the screen alone.
   useEffect(() => {
     const apply = () => {
+      // A fragment that names no request clears the one carried by the fragment before it: the
+      // one-shots are requests from the shell, not state the page keeps until something handles it.
+      const noRequests = () => {
+        setNewSession(null);
+        setOpenBrowser(null);
+      };
       // THE SIGN-IN PANEL IS AN ADDRESS, NOT A GESTURE'S SIDE EFFECT. Reachable signed in or out,
       // and never rewritten to #home by the surface effect while the hash names it.
       if (window.location.hash === SIGN_IN_HASH) {
+        noRequests();
         setSignInRoute(true);
         return;
       }
       setSignInRoute(false);
       const run = parseRunLink(window.location.hash);
       if (run) {
+        noRequests();
         setSelected(run.deviceId);
         storeSelectedDevice(run.deviceId);
         setRunsFocus(run.runId);
@@ -1078,7 +1126,22 @@ export function App() {
       const surface = parseSurfaceHash(window.location.hash, {
         machineSelected: selected !== null
       });
-      if (!surface) return;
+      if (!surface) {
+        noRequests();
+        return;
+      }
+      // The request is given a nonce here, at the one place every arriving fragment passes through:
+      // the same kind on the same surface is still a new request, because the tray click is new.
+      setNewSession(
+        surface.newSession
+          ? { ...surface.newSession, nonce: ++requestNonce.current }
+          : null
+      );
+      setOpenBrowser(
+        surface.openBrowser
+          ? { ...surface.openBrowser, nonce: ++requestNonce.current }
+          : null
+      );
       setRunsFocus(null);
       setPage(surface.page);
       // A fragment that names a range restores that request; one that does not puts the newest
@@ -1900,6 +1963,8 @@ export function App() {
                       helperRunning={chosen?.host?.helper?.registered}
                       helperSession={chosen?.host?.helper?.session}
                       sessions={chosen?.host?.sessions}
+                      openBrowser={openBrowser ?? undefined}
+                      onOpenBrowserHandled={() => setOpenBrowser(null)}
                     />
                   </section>
                 ) : null}
@@ -1981,6 +2046,8 @@ export function App() {
                 deviceName={chosen.name ?? shortId(chosen.id)}
                 liveLines={live.lines}
                 onGrantRefused={() => setGrantStale(true)}
+                newSession={newSession ?? undefined}
+                onNewSessionHandled={() => setNewSession(null)}
               />
             </section>
           </div>

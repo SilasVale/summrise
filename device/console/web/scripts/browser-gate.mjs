@@ -446,6 +446,8 @@ const state = {
   writes: '',
   echoed: false,
   cursor: 0,
+  /** How many `browser.open` calls the page made. A deep link must add none: it only prefills. */
+  browserOpens: 0,
   /** Whether the page subscribed to the session's stream: the push path, not the polling one. */
   streamOpened: false,
   /** How many ptys the page opened, so the retained-start session has an id of its own. */
@@ -819,6 +821,31 @@ function apiReply(request, url) {
               ])
             }
           ]
+        }
+      });
+    }
+    // **THE DEEP-LINK LEG'S BROWSER PAYLOAD IS THE PAGE'S OWN, NOT THE LINK'S.** The Browser view
+    // lists a page when it mounts; the tray's link only fills the address field. `browser.open` is
+    // counted so the leg can assert the link never pressed it.
+    if (name === 'browser.list') {
+      return json({
+        result: {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify([
+                { id: 'gate-browser-page', title: 'Example', url: 'https://example.test/a', type: 'page' }
+              ])
+            }
+          ]
+        }
+      });
+    }
+    if (name === 'browser.open') {
+      state.browserOpens += 1;
+      return json({
+        result: {
+          content: [{ type: 'text', text: JSON.stringify({ target: 'gate-browser-page' }) }]
         }
       });
     }
@@ -2657,6 +2684,77 @@ try {
   }
   step('a cursor too old paged the ring, drew it and resumed the stream at the reached cursor');
   await page.screenshot({ path: path.join(OUT, '04-terminal-retained.png') });
+
+  // **THE TRAY'S DEEP LINKS ARE VIEW ONLY, AND ONE-SHOT.** The shell cannot address this page's
+  // dialog or its address field, so it names a request in the fragment and the page consumes it:
+  // the Connect dialog opens with the requested kind, the Browser view opens with the address
+  // prefilled, and neither is a device call — no `terminal.create`, no `browser.open`. The writer
+  // then canonicalises the fragment (proving a repeated click has a new hash to arrive on).
+  const createdBeforeLink = state.created;
+  await page.goto(base + '/#device/terminal/new=ssh', { waitUntil: 'domcontentloaded' });
+  await page.getByRole('dialog', { name: 'New terminal session' }).waitFor({ timeout: 10_000 });
+  const linkedKind = await page.locator('#connect-kind').inputValue();
+  if (linkedKind !== 'ssh') {
+    throw new Error(`the terminal deep link opened the dialog with kind ${JSON.stringify(linkedKind)}`);
+  }
+  if (state.created !== createdBeforeLink) {
+    throw new Error('the terminal deep link created a session; it may only open the dialog');
+  }
+  await page.waitForFunction(() => window.location.hash === '#device/terminal', null, {
+    timeout: 10_000
+  });
+  // The dialog's entrance and the tab strip's segment wash are transitions, and the screenshot is
+  // the evidence: let them settle rather than photographing half a highlight.
+  await page.waitForTimeout(250);
+  await page.screenshot({ path: path.join(OUT, 'round11-terminal-new-ssh.png') });
+  await page.keyboard.press('Escape');
+  await page
+    .getByRole('dialog', { name: 'New terminal session' })
+    .waitFor({ state: 'detached', timeout: 10_000 });
+  step(
+    'a terminal deep link opened the connect dialog with kind ssh, created no session, and ' +
+      'the writer canonicalised the fragment to #device/terminal'
+  );
+
+  const browserOpensBeforeLink = state.browserOpens;
+  await page.goto(base + '/#device/browser/open=https%3A%2F%2Fexample.test%2Fa', {
+    waitUntil: 'domcontentloaded'
+  });
+  await page.getByLabel('Address').waitFor({ timeout: 10_000 });
+  const linkedBrowser = await page.evaluate(() => ({
+    hash: window.location.hash,
+    view:
+      [...document.querySelectorAll('.screen-view-head button')]
+        .find((button) => button.getAttribute('aria-pressed') === 'true')
+        ?.textContent?.trim() ?? '',
+    address: document.querySelector('input[aria-label="Address"]')?.value ?? null
+  }));
+  if (linkedBrowser.view !== 'Browser') {
+    throw new Error(`the browser deep link did not select the Browser view: ${JSON.stringify(linkedBrowser)}`);
+  }
+  if (linkedBrowser.address !== 'https://example.test/a') {
+    throw new Error(`the browser deep link prefilled ${JSON.stringify(linkedBrowser.address)}`);
+  }
+  if (state.browserOpens !== browserOpensBeforeLink) {
+    throw new Error('the browser deep link called browser.open; it may only prefill the address');
+  }
+  await page.waitForFunction(() => window.location.hash === '#device/screen/browser', null, {
+    timeout: 10_000
+  });
+  // The tab strip's segment wash and the Screen view's segment are transitions; settle before the
+  // evidence is taken so neither is photographed mid-highlight.
+  await page.waitForTimeout(250);
+  await page.screenshot({ path: path.join(OUT, 'round11-browser-open.png') });
+  step(
+    'a browser deep link selected Screen → Browser and prefilled https://example.test/a, ' +
+      'opened nothing, and the writer canonicalised the fragment to #device/screen/browser'
+  );
+  // The page keeps the Screen view in state across fragment changes; the later Screen legs measure
+  // the desktop view, so this leg gives it back before moving on.
+  await page.getByRole('button', { name: 'Machine screen' }).click();
+  await page.waitForFunction(() => window.location.hash === '#device/screen', null, {
+    timeout: 10_000
+  });
 
   await page.getByRole('button', { name: 'Activity' }).click();
   await page.getByRole('heading', { name: 'Activity' }).waitFor({ timeout: 10_000 });

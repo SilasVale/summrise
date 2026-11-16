@@ -78,10 +78,11 @@ const {
   STATUS_FETCH_MS, CDP_CHECK_MS, TRAY_POLL_MS, RETRY_START_MS, TRIPWIRE_BACKOFF_MS,
 } = K;
 
-// Layout v2 (ADR 0008): the shell lives at
-// <install>\components\summrise-desktop-electron\src\, so the install root is THREE levels up from
-// here. All install-root-relative paths derive from this one const.
-const INSTALL_ROOT = path.join(__dirname, "..", "..", "..");
+import { installRootFrom } from "./install-root";
+// THE INSTALL ROOT is `<install>`: the installed app is `<install>\desktop\resources\app.asar`, so
+// its `src` is four levels below it. `<install>\etc\config.yaml` (token, agent port) and every other
+// install-root-relative path derive from this one const.
+const INSTALL_ROOT = installRootFrom(__dirname);
 let _tokenCache: { at: number; tok: string | null } = { at: 0, tok: null };
 function agentToken(): string | null {
   if (tokenCacheFresh(_tokenCache.at, Date.now())) return _tokenCache.tok;

@@ -109,6 +109,83 @@ describe("surface links", () => {
     expect(parseSurfaceHash("#activity?to=1")).toBeNull();
   });
 
+  it("reads the two one-shot tray links and refuses anything that is not one", () => {
+    // **THE TRAY'S LINKS ARE ONE-SHOT.** `#device/terminal/new=<kind>` opens the Connect dialog;
+    // `#device/browser/open=<url>` prefills the Browser address. The address writer below never
+    // emits either, so the App has to consume the request into state.
+    expect(parseSurfaceHash("#device/terminal/new=local")).toEqual({
+      page: "device",
+      tab: "terminal",
+      newSession: { kind: "local" }
+    });
+    for (const kind of ["ssh", "serial"] as const) {
+      expect(parseSurfaceHash(`#device/terminal/new=${kind}`)).toEqual({
+        page: "device",
+        tab: "terminal",
+        newSession: { kind }
+      });
+    }
+    // The dialog's own name is `pty`; the link says `local` and the dialog maps it. The parser is
+    // not the dialog, so `new=pty` is not a link.
+    expect(parseSurfaceHash("#device/terminal/new=pty")).toBeNull();
+    // One decode: `%3F`/`%3D`/`%26` are the URL's own characters, not a second query string.
+    expect(
+      parseSurfaceHash("#device/browser/open=https%3A%2F%2Fexample.test%2Fa%3Fb%3D1%26c%3D2")
+    ).toEqual({
+      page: "device",
+      tab: "screen",
+      view: "browser",
+      openBrowser: { url: "https://example.test/a?b=1&c=2" }
+    });
+    expect(parseSurfaceHash("#device/browser/open=about%3Ablank")).toEqual({
+      page: "device",
+      tab: "screen",
+      view: "browser",
+      openBrowser: { url: "about:blank" }
+    });
+    // A fragment and a space in the address are the URL's own characters, not a second hash or a
+    // truncated field: one decode, and the whole address survives.
+    expect(parseSurfaceHash("#device/browser/open=https%3A%2F%2Fexample.test%2Fa%23frag")).toEqual({
+      page: "device",
+      tab: "screen",
+      view: "browser",
+      openBrowser: { url: "https://example.test/a#frag" }
+    });
+    expect(parseSurfaceHash("#device/browser/open=https%3A%2F%2Fexample.test%2Fa%20b")).toEqual({
+      page: "device",
+      tab: "screen",
+      view: "browser",
+      openBrowser: { url: "https://example.test/a b" }
+    });
+    for (const bad of [
+      // A scheme the WebView must never be handed from a fragment.
+      "#device/browser/open=javascript%3Aalert(1)",
+      "#device/browser/open=file%3A%2F%2Fx",
+      // A broken escape is not an address; a double-encoded scheme is not http(s).
+      "#device/browser/open=%E0%A4%A",
+      "#device/browser/open=https%253A%252F%252Fexample.test",
+      "#device/browser/open=",
+      "#device/terminal/new=",
+      "#device/terminal/new=local/extra"
+    ]) {
+      expect(parseSurfaceHash(bad)).toBeNull();
+    }
+    // The writer is the destination only: a one-shot field on a Surface cannot become an address.
+    expect(
+      surfaceHash({ page: "device", tab: "terminal", newSession: { kind: "local" } })
+    ).toBe("#device/terminal");
+    expect(
+      surfaceHash({
+        page: "device",
+        tab: "screen",
+        view: "browser",
+        openBrowser: { url: "https://example.test/a" }
+      })
+    ).toBe("#device/screen/browser");
+    // The tab's own link is unchanged by the new forms.
+    expect(parseSurfaceHash("#device/terminal")).toEqual({ page: "device", tab: "terminal" });
+  });
+
   it("rejects run links, unknown names and near misses", () => {
     for (const hash of [
       "",

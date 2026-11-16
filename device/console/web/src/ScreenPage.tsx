@@ -29,7 +29,9 @@ export function ScreenPage({
   deviceOnline,
   helperRunning,
   helperSession,
-  sessions
+  sessions,
+  openBrowser,
+  onOpenBrowserHandled
 }: {
   grant: Grant;
   /** The machine the pane is about, so a launch that failed is remembered for THAT machine (the hundred-and-ninety-eighth list). */
@@ -59,6 +61,13 @@ export function ScreenPage({
   helperSession?: number | null;
   /** The device's session rows from the same fleet read; the helper's state is looked up here. */
   sessions?: HostFacts["sessions"];
+  /**
+   * A one-shot request from the desktop shell's tray: the Browser address to prefill. Passed
+   * through to the pane, which fills the field and opens nothing; the operator's press is the call.
+   */
+  openBrowser?: { url: string; nonce: number };
+  /** Called once the request above is in the address field. */
+  onOpenBrowserHandled?: () => void;
 }) {
   const offline = deviceOnline === false;
   const helper = helperSessionFact(helperSession, sessions);
@@ -213,7 +222,13 @@ export function ScreenPage({
       </div>
 
       {view === "browser" ? (
-        <BrowserPane grant={grant} deviceOnline={deviceOnline} deviceId={deviceId ?? null} />
+        <BrowserPane
+          grant={grant}
+          deviceOnline={deviceOnline}
+          deviceId={deviceId ?? null}
+          openBrowser={openBrowser}
+          onOpenBrowserHandled={onOpenBrowserHandled}
+        />
       ) : (
         <>
           {error && <p className="error">{error}</p>}

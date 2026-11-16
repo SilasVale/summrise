@@ -694,7 +694,9 @@ export function TerminalWorkspace({
   lastSeenMs,
   deviceName,
   liveLines = [],
-  onGrantRefused
+  onGrantRefused,
+  newSession,
+  onNewSessionHandled
 }: {
   grant: Grant;
   visible?: boolean;
@@ -718,6 +720,15 @@ export function TerminalWorkspace({
    */
   liveLines?: readonly LiveLine[];
   onGrantRefused?: () => void;
+  /**
+   * A one-shot request from the desktop shell's tray: the Connect dialog's kind, with a nonce so
+   * the same request arriving again is a new one. The workspace opens the dialog and nothing else;
+   * the operator's press is what calls `terminal.create`. `local` is the link's word for the
+   * dialog's `pty`, and the mapping happens at the dialog.
+   */
+  newSession?: { kind: "local" | "ssh" | "serial"; nonce: number };
+  /** Called once the request above has been consumed into the dialog. */
+  onNewSessionHandled?: () => void;
 }) {
   const offline = deviceOnline === false;
   const [tabs, setTabs] = useState<Tab[]>([]);
@@ -769,6 +780,7 @@ export function TerminalWorkspace({
   const diagnosing = useRef(new Set<string>());
   const grantRef = useRef(grant);
   const grantRefusedRef = useRef(onGrantRefused);
+  const newSessionHandledRef = useRef(onNewSessionHandled);
   const activeRef = useRef<string | null>(null);
   /** Tabs with a read in flight. A slow device must not queue a second read at the same cursor. */
   const reading = useRef(new Set<string>());
@@ -816,6 +828,10 @@ export function TerminalWorkspace({
   useEffect(() => {
     grantRefusedRef.current = onGrantRefused;
   }, [onGrantRefused]);
+
+  useEffect(() => {
+    newSessionHandledRef.current = onNewSessionHandled;
+  }, [onNewSessionHandled]);
 
   useEffect(() => {
     activeRef.current = active;
@@ -1812,6 +1828,16 @@ export function TerminalWorkspace({
       previous ? { ...previous, draft: { ...previous.draft, ...patch }, error: null } : previous
     );
   };
+
+  // **A TRAY LINK IS THE DIALOG, NEVER A SESSION.** The shell cannot address this page's tabs, so
+  // it names a kind and the page opens the one form the operator already knows; `terminal.create`
+  // remains the operator's own press. `local` is the link's vocabulary, `pty` the dialog's — the
+  // translation belongs here, where the select's options are, and nowhere earlier.
+  useEffect(() => {
+    if (!newSession) return;
+    openDialog({ kind: newSession.kind === "local" ? "pty" : newSession.kind }, null);
+    newSessionHandledRef.current?.();
+  }, [newSession]);
 
   const submitConnect = async () => {
     if (!connect) return;

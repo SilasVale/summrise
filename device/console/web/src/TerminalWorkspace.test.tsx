@@ -2098,3 +2098,30 @@ describe("TerminalWorkspace session card", () => {
     expect(screen.getAllByRole("button", { name: "New session" })).toHaveLength(1);
   });
 });
+
+describe("TerminalWorkspace deep links", () => {
+  it("opens the connect dialog for a one-shot request without creating a session", async () => {
+    const handled = vi.fn();
+    render(
+      <TerminalWorkspace
+        grant={GRANT}
+        newSession={{ kind: "ssh", nonce: 1 }}
+        onNewSessionHandled={handled}
+      />
+    );
+
+    const dialog = await screen.findByRole("dialog", { name: "New terminal session" });
+    expect(within(dialog).getByLabelText("Kind")).toHaveValue("ssh");
+    // **VIEW ONLY.** A tray link opens the dialog; the operator's own press is what creates.
+    expect(callToolMock.mock.calls.some(([, name]) => name === "terminal.create")).toBe(false);
+    expect(handled).toHaveBeenCalledTimes(1);
+  });
+
+  it("maps a local link to the dialog's pty kind only at the dialog", async () => {
+    render(<TerminalWorkspace grant={GRANT} newSession={{ kind: "local", nonce: 1 }} />);
+
+    const dialog = await screen.findByRole("dialog", { name: "New terminal session" });
+    expect(within(dialog).getByLabelText("Kind")).toHaveValue("pty");
+    expect(callToolMock.mock.calls.some(([, name]) => name === "terminal.create")).toBe(false);
+  });
+});

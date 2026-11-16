@@ -67,12 +67,21 @@ const launchFailure = new Map<string, string>();
 export function BrowserPane({
   grant,
   deviceId = null,
-  deviceOnline
+  deviceOnline,
+  openBrowser,
+  onOpenBrowserHandled
 }: {
   grant: Grant;
   /** The machine this view draws, so a failed launch is remembered per machine. */
   deviceId?: string | null;
   deviceOnline?: boolean;
+  /**
+   * A one-shot request from the desktop shell's tray: an address to put in the field, with a nonce
+   * so the same URL arriving again is a new request. The pane performs no device call for it.
+   */
+  openBrowser?: { url: string; nonce: number };
+  /** Called once the address is in the field. */
+  onOpenBrowserHandled?: () => void;
 }) {
   const offline = deviceOnline === false;
   const [targets, setTargets] = useState<Target[]>([]);
@@ -94,6 +103,21 @@ export function BrowserPane({
   const [frames, setFrames] = useState(0);
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
   const [zoom, setZoom] = useState<"fit" | "actual">("fit");
+
+  const openBrowserHandledRef = useRef(onOpenBrowserHandled);
+
+  useEffect(() => {
+    openBrowserHandledRef.current = onOpenBrowserHandled;
+  }, [onOpenBrowserHandled]);
+
+  // **THE TRAY'S BROWSER LINK IS AN ADDRESS, NOT A PRESS.** The shell names a URL; the operator
+  // still chooses Open new tab (or Navigate). Nothing here calls `browser.open`: a page that acted
+  // on the fragment would launch a remote browser without the person in front of it asking.
+  useEffect(() => {
+    if (!openBrowser) return;
+    setUrl(openBrowser.url);
+    openBrowserHandledRef.current?.();
+  }, [openBrowser]);
 
   // A live tick never queues behind itself: if the device is still answering the previous screenshot,
   // the next interval is skipped rather than stacking a second request.

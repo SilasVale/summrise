@@ -498,6 +498,25 @@ describe("BrowserPane", () => {
   });
 
 
+  it("prefills the address from a one-shot deep link and opens nothing", async () => {
+    const handled = vi.fn();
+    render(
+      <BrowserPane
+        grant={grant}
+        openBrowser={{ url: "https://example.test/a", nonce: 1 }}
+        onOpenBrowserHandled={handled}
+      />
+    );
+    await screen.findByText("1 page.");
+
+    // **THE LINK IS AN ADDRESS, NOT A PRESS.** The tray names a URL; the operator still chooses
+    // Open new tab (or Navigate). `browser.open` from a fragment would be a page that acts without
+    // the operator asking.
+    expect(screen.getByLabelText("Address")).toHaveValue("https://example.test/a");
+    expect(callToolMock.mock.calls.some(([, name]) => name === "browser.open")).toBe(false);
+    expect(handled).toHaveBeenCalledTimes(1);
+  });
+
   it("does not ask a machine twice for a browser it already failed to start", async () => {
     // **THE CONSOLE'S OWN FAILED CALLS WERE POLLUTING THE RECORD (the hundred-and-ninety-eighth list).** `browser.list` STARTS the
     // browser, so on a machine where chrome cannot come up every visit fired one doomed call — three `browser.list` failures in a

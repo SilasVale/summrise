@@ -15,13 +15,16 @@ use std::time::Duration;
 use tao::event::{Event, StartCause, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy};
 use tao::window::WindowBuilder;
-use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
+use tray_icon::menu::accelerator::Accelerator;
+use tray_icon::menu::{IsMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIconBuilder, TrayIconEvent};
 use wry::WebViewBuilder;
 
+use crate::browser;
 use crate::console;
 use crate::health::{self, State};
 use crate::helper;
+use crate::menu;
 
 /// Where the device's own panel lives: what works when the console does not. This is the product's
 /// panel (0.3.49 lists the live terminal sessions), never the legacy panel.
@@ -64,6 +67,36 @@ const VERSION: &str = match option_env!("SUMMRISE_BUILD_VERSION") {
 const WINDOW_DEFAULT: (u32, u32) = (1280, 840);
 const WINDOW_MIN: (u32, u32) = (960, 640);
 
+/// How much of its natural size the console is drawn at. `wry`'s zoom is WebView2's own zoom factor,
+/// so 1.0 is the page at its designed size; the menu's row range is 50 % to 200 % in ten-percent
+/// steps, exactly what the legacy host's zoom roles did.
+const ZOOM_MIN: f64 = 0.5;
+const ZOOM_MAX: f64 = 2.0;
+const ZOOM_STEP: f64 = 0.1;
+
+/// The one-shot fragments the Session rows hand the console.
+///
+/// The console reads them as requests — the Connect dialog's kind, the Browser address — and its
+/// address writer canonicalises them away after reading, so the same row clicked again is a new
+/// fragment rather than a hash the page already has. The shell names no kind the console cannot
+/// map (`local` is the dialog's `pty`), and the browser arm is the console's own prefilled view
+/// until the 9444 door replaces it.
+const NEW_TERMINAL_LINK: &str = "#device/terminal/new=local";
+const NEW_SSH_LINK: &str = "#device/terminal/new=ssh";
+const NEW_SERIAL_LINK: &str = "#device/terminal/new=serial";
+const NEW_BROWSER_LINK: &str = "#device/browser/open=about%3Ablank";
+
+/// The one window this process owns, with the page it was built for.
+///
+/// `page` is what a deep link reads: a view on the console takes the fragment as a hash through the
+/// console's own reader (no reload, no second sign-in), while a view on the panel is given the whole
+/// address, because the panel does not read a trailing fragment the console's way.
+struct Ui {
+    window: tao::window::Window,
+    view: wry::WebView,
+    page: String,
+}
+
 /// Everything that can wake the event loop: a probe's answer, the tray's own events (which arrive on
 /// a channel rather than in tao's event enum), and a menu click.
 enum Wake {
@@ -101,29 +134,53 @@ const TRAY_WATCHDOG: Duration = Duration::from_secs(180);
 ///
 /// The full tray is the default and the only mode that owns an icon. `--check-window` is the
 /// diagnostic that answers through the exit code; `--panel` is the supported window-only fallback,
-/// with no tray, helper, first-run, geometry or reconnect task.
+/// with no tray, helper, first-run, geometry or reconnect task; `--browser-session` asks the
+/// existing 9444 door for one browser session, with no tray and no mutex, and answers on the exit
+/// code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     Tray,
     CheckWindow,
     Fallback,
+    /// `--browser-session`: one `POST` to the Electron host's loopback door.
+    BrowserSession,
 }
 
 /// Which [`Mode`] `args` asks for. Unknown arguments (the program path included) are ignored.
 ///
-/// `--check-window` wins when both flags are present: it is the diagnostic that must always answer
-/// on the exit code, and the call site checks it before `--panel` for the same reason.
+/// `--check-window` wins when it is present at all: it is the diagnostic that must always answer on
+/// the exit code, so it is decided before any other flag. `--browser-session` is a valueless
+/// one-shot: it asks the 9444 door for one session and exits.
 pub fn mode_from_args<I, S>(args: I) -> Mode
 where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
 {
+    let arguments: Vec<String> = args
+        .into_iter()
+        .map(|argument| argument.as_ref().to_owned())
+        .collect();
+    if arguments
+        .iter()
+        .any(|argument| argument == "--check-window")
+    {
+        return Mode::CheckWindow;
+    }
     let mut mode = Mode::Tray;
-    for argument in args {
-        match argument.as_ref() {
-            "--check-window" => return Mode::CheckWindow,
-            "--panel" => mode = Mode::Fallback,
-            _ => {}
+    let mut index = 0;
+    while index < arguments.len() {
+        match arguments[index].as_str() {
+            "--panel" => {
+                if matches!(mode, Mode::Tray) {
+                    mode = Mode::Fallback;
+                }
+                index += 1;
+            }
+            "--browser-session" => {
+                mode = Mode::BrowserSession;
+                index += 1;
+            }
+            _ => index += 1,
         }
     }
     mode
@@ -139,8 +196,11 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // outlives the window and the window is rebuilt on demand.
     // The WebView2 profile context outlives the view, so it is owned here rather than in the builder:
     // a context dropped after `build` takes the cookies with it.
-    let mut ui: Option<(tao::window::Window, wry::WebView)> = None;
+    let mut ui: Option<Ui> = None;
     let mut profile: Option<wry::WebContext> = None;
+    // The zoom the next window opens at. It outlives the window on purpose: a closed and reopened
+    // console keeps the operator's size instead of asking them to choose it again.
+    let mut zoom = 1.0;
 
     crate::note("menu built");
 
@@ -261,32 +321,39 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             Event::UserEvent(Wake::Quit) => *control_flow = ControlFlow::Exit,
-            Event::UserEvent(Wake::Menu(event)) => match event.id.as_ref() {
-                OPEN_CONSOLE => open_console(target, &mut ui, &mut profile),
-                OPEN_PANEL => open_url(panel()),
-                UPDATE_STATUS => open_url(&format!("{}#updates", panel())),
-                COPY_PANEL => copy_panel_address(),
-                COPY_DIAGNOSTICS => copy_diagnostics(),
-                ABOUT => show_about(),
-                OPEN_LOGS => open_log_folder(),
-                QUIT => {
-                    if let Some((window, _)) = ui.as_ref() {
-                        save_window_geometry(window);
-                    }
-                    *control_flow = ControlFlow::Exit
+            Event::UserEvent(Wake::Menu(event)) => {
+                // **THE ID IS THE ONLY KEY.** A menu row's id is its action: the model is looked up by
+                // the same string the item was built with, so the tray cannot drift from the table
+                // and there is no second string-to-action map. A click that names no model row falls
+                // through to the product rows, whose ids and arms are unchanged.
+                let id = event.id.as_ref();
+                match menu::row(id) {
+                    Some(row) => perform(row.action, target, &mut ui, &mut profile, &mut zoom),
+                    None => match id {
+                        OPEN_CONSOLE => open_console(target, &mut ui, &mut profile, zoom, None),
+                        OPEN_PANEL => open_url(panel()),
+                        UPDATE_STATUS => open_url(&format!("{}#updates", panel())),
+                        COPY_PANEL => copy_panel_address(),
+                        COPY_DIAGNOSTICS => copy_diagnostics(),
+                        ABOUT => show_about(),
+                        OPEN_LOGS => open_log_folder(),
+                        QUIT => {
+                            if let Some(ui) = ui.as_ref() {
+                                save_window_geometry(&ui.window);
+                            }
+                            *control_flow = ControlFlow::Exit
+                        }
+                        _ => {}
+                    },
                 }
-                _ => {}
-            },
+            }
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
                 ..
             } => {
                 // The tray stays; the window is rebuilt by the next click. Quitting is a menu item,
                 // so a closed window cannot leave a device with no way back to its icon.
-                if let Some((window, _)) = ui.as_ref() {
-                    save_window_geometry(window);
-                }
-                ui = None;
+                drop_window(&mut ui);
             }
             _ => {}
         }
@@ -604,7 +671,28 @@ fn current_session_id() -> Option<u32> {
     (ok != 0).then_some(session)
 }
 
-/// The three items, with the ids the event handler matches.
+/// `--browser-session`: one request to the 9444 door, answering on the exit code.
+///
+/// The same call the Browser row makes, without a tray or a mutex. There is no fallback here: the
+/// diagnostic exists to prove whether the door answered, and opening a console window instead would
+/// hide the very failure it was invoked to report.
+pub fn browser_session() -> i32 {
+    match browser::open() {
+        Ok(()) => {
+            crate::note(&format!(
+                "browser-session: the door at {} opened one session",
+                browser::CONTROL
+            ));
+            0
+        }
+        Err(error) => {
+            crate::note(&format!("browser-session: {error}"));
+            2
+        }
+    }
+}
+
+/// The eight product rows, with the ids the event handler matches.
 ///
 /// **THE IDS ARE EXPLICIT, AND THAT IS THE FIX FOR "THE MENU DOES NOTHING".** `MenuItem::new` with
 /// `None` mints an id of its own, so the handler compared `open-console` against a generated string
@@ -632,19 +720,61 @@ fn menu_items() -> (
     )
 }
 
+/// The model's rows as tray items, in display order.
+///
+/// One item per row, built from the same [`menu::Row`] the click is looked up by. A chord that does
+/// not parse leaves the row enabled and unaccelerated and says so in the log: the tray must not
+/// panic in release over one string, and a row that lost its chord is still a working row.
+fn model_menu_items() -> Vec<MenuItem> {
+    menu::sections()
+        .iter()
+        .flat_map(|section| section.rows.iter())
+        .map(menu_item)
+        .collect()
+}
+
+/// One model row as a tray item; the accelerator is parsed once, here.
+fn menu_item(row: &menu::Row) -> MenuItem {
+    let accelerator = row
+        .accelerator
+        .and_then(|text| match text.parse::<Accelerator>() {
+            Ok(accelerator) => Some(accelerator),
+            Err(error) => {
+                crate::note(&format!(
+                    "the accelerator {text:?} for the tray row {} does not parse: {error}",
+                    row.id
+                ));
+                None
+            }
+        });
+    MenuItem::with_id(row.id, row.label, true, accelerator)
+}
+
+/// Bring a window that already exists back in front.
+///
+/// **A MINIMIZED WINDOW IGNORES `set_visible(true)` AND `set_focus()`.** tao's `apply_diff` returns
+/// early when no flag changed, and its `set_focus` skips activating a minimized window, so a click on
+/// "Open console" with the window minimized looked exactly like a dead menu item.
+fn bring_forward(window: &tao::window::Window) {
+    window.set_minimized(false);
+    window.set_visible(true);
+    window.set_focus();
+}
+
 /// Show the console window, building it if this is the first time (or the last one was closed).
+///
+/// `fragment` is a one-shot deep link the NEW window must open with. An existing window is only
+/// brought forward here: replacing its page would drop the console's open sessions, so a deep link
+/// against a live window goes through [`open_fragment`] and the page's own hash reader.
 fn open_console(
     target: &tao::event_loop::EventLoopWindowTarget<Wake>,
-    ui: &mut Option<(tao::window::Window, wry::WebView)>,
+    ui: &mut Option<Ui>,
     profile: &mut Option<wry::WebContext>,
+    zoom: f64,
+    fragment: Option<&str>,
 ) {
-    if let Some((window, _)) = ui.as_ref() {
-        // **A MINIMIZED WINDOW IGNORES `set_visible(true)` AND `set_focus()`.** tao's `apply_diff`
-        // returns early when no flag changed, and its `set_focus` skips activating a minimized window,
-        // so a click on "Open console" with the window minimized looked exactly like a dead menu item.
-        window.set_minimized(false);
-        window.set_visible(true);
-        window.set_focus();
+    if let Some(ui) = ui.as_ref() {
+        bring_forward(&ui.window);
         return;
     }
     // **WHICH PAGE, DECIDED BEFORE THE WINDOW EXISTS.** The console is probed once per open; an
@@ -656,6 +786,10 @@ fn open_console(
     } else {
         crate::note(&format!("opening the console at {page}"));
     }
+    let url = match fragment {
+        Some(fragment) => format!("{page}{fragment}"),
+        None => page.clone(),
+    };
     let (width, height, position) = saved_window_geometry();
     let mut builder = WindowBuilder::new()
         .with_title("Summrise console")
@@ -680,27 +814,209 @@ fn open_console(
         Some(dir) => {
             let context = profile.get_or_insert_with(|| wry::WebContext::new(Some(dir)));
             WebViewBuilder::new_with_web_context(context)
-                .with_url(page.as_str())
+                .with_url(url.as_str())
                 .build(&window)
         }
-        None => WebViewBuilder::new().with_url(page.as_str()).build(&window),
+        None => WebViewBuilder::new().with_url(url.as_str()).build(&window),
     };
     match built {
         Ok(view) => {
+            // **THE ZOOM IS RE-APPLIED BY THE REBUILD.** A closed window takes its zoom with it, and
+            // a window action can be the click that rebuilds it; a fresh view that ignored the stored
+            // factor would silently return the operator to 100 %.
+            if let Err(error) = view.zoom(zoom) {
+                crate::note(&format!("cannot apply the stored zoom {zoom:.1}: {error}"));
+            }
             // A click that worked leaves a line too: without it, "the menu does nothing" and "the
             // menu opened a window I closed" look the same from this side of the machine.
-            crate::note(&format!("window built for {page}"));
-            *ui = Some((window, view))
+            crate::note(&format!("window built for {url}"));
+            *ui = Some(Ui { window, view, page });
         }
         Err(error) => {
             // WebView2 is part of Windows 10 and later, but a machine can have the runtime removed
             // or broken; without this line the window closes itself and the menu looks dead.
             crate::note(&format!(
-                "cannot build the WebView2 view for {page}: {error}"
+                "cannot build the WebView2 view for {url}: {error}"
             ));
             window.set_visible(false);
         }
     }
+}
+
+/// Do what a menu row says.
+///
+/// The match over [`menu::Action`] is exhaustive: a new action in the model is a compile error until
+/// this function says what it does, and the event handler looks the row up by id instead of keeping a
+/// second string-to-action table.
+fn perform(
+    action: menu::Action,
+    target: &tao::event_loop::EventLoopWindowTarget<Wake>,
+    ui: &mut Option<Ui>,
+    profile: &mut Option<wry::WebContext>,
+    zoom: &mut f64,
+) {
+    match action {
+        menu::Action::NewTerminal => open_fragment(NEW_TERMINAL_LINK, target, ui, profile, *zoom),
+        menu::Action::NewSsh => open_fragment(NEW_SSH_LINK, target, ui, profile, *zoom),
+        menu::Action::NewSerial => open_fragment(NEW_SERIAL_LINK, target, ui, profile, *zoom),
+        // **THE 9444 DOOR FIRST, THE CONSOLE VIEW SECOND.** The Electron host's route opens a real
+        // OS browser window through CDP; the console's Browser view is the documented fallback when
+        // that host is not running. The failure is logged as its own sentence before the fallback,
+        // so "the console opened instead" never hides why the door did not.
+        menu::Action::NewBrowser => match browser::open() {
+            Ok(()) => crate::note(&format!(
+                "browser-session: the door at {} opened one session",
+                browser::CONTROL
+            )),
+            Err(error) => {
+                crate::note(&format!(
+                    "browser-session: {error}; falling back to the console browser view"
+                ));
+                open_fragment(NEW_BROWSER_LINK, target, ui, profile, *zoom);
+            }
+        },
+        // The window closes and the tray stays: quitting is its own row, so closing the console
+        // never leaves a machine with a running process and no visible way back.
+        menu::Action::CloseWindow => close_window(ui),
+        menu::Action::Reload => {
+            // A window that does not exist is built by the same path as Open console, and its first
+            // load is already a fresh page; only a live view has something to reload.
+            if ui.is_none() {
+                open_console(target, ui, profile, *zoom, None);
+            } else if let Some(ui) = ui.as_ref() {
+                match ui.view.reload() {
+                    Ok(()) => crate::note("reloaded the window"),
+                    Err(error) => crate::note(&format!("cannot reload the window: {error}")),
+                }
+            }
+        }
+        menu::Action::ZoomIn => {
+            *zoom = stepped_zoom(*zoom, ZOOM_STEP);
+            zoom_window(target, ui, profile, *zoom);
+        }
+        menu::Action::ZoomOut => {
+            *zoom = stepped_zoom(*zoom, -ZOOM_STEP);
+            zoom_window(target, ui, profile, *zoom);
+        }
+        menu::Action::ZoomReset => {
+            *zoom = 1.0;
+            zoom_window(target, ui, profile, *zoom);
+        }
+        menu::Action::ToggleDevTools => {
+            open_console(target, ui, profile, *zoom, None);
+            if let Some(ui) = ui.as_ref() {
+                // WebView2 has no close verb and its `is_devtools_open` cannot see the window, so
+                // the only honest action on this platform is open-and-focus: a second click brings
+                // the inspector forward rather than claiming a close that cannot happen.
+                ui.view.open_devtools();
+                crate::note("opened the developer tools");
+            }
+        }
+    }
+}
+
+/// Apply the zoom to the window, building it first with that zoom when there is none.
+fn zoom_window(
+    target: &tao::event_loop::EventLoopWindowTarget<Wake>,
+    ui: &mut Option<Ui>,
+    profile: &mut Option<wry::WebContext>,
+    zoom: f64,
+) {
+    if ui.is_none() {
+        // The build path applies the stored zoom, so the new window opens at the operator's size.
+        open_console(target, ui, profile, zoom, None);
+        return;
+    }
+    if let Some(ui) = ui.as_ref() {
+        match ui.view.zoom(zoom) {
+            Ok(()) => crate::note(&format!("zoom {zoom:.1}")),
+            Err(error) => crate::note(&format!("cannot set the zoom to {zoom:.1}: {error}")),
+        }
+    }
+}
+
+/// The next zoom factor: whole ten-percent steps, clamped to the range the rows offer.
+fn stepped_zoom(current: f64, delta: f64) -> f64 {
+    (((current + delta) * 10.0).round() / 10.0).clamp(ZOOM_MIN, ZOOM_MAX)
+}
+
+/// Close and drop the window; the tray keeps running, so the next click rebuilds it.
+fn close_window(ui: &mut Option<Ui>) {
+    if ui.is_none() {
+        crate::note("close-window: no window is open");
+        return;
+    }
+    drop_window(ui);
+    crate::note("closed the window; the tray stays");
+}
+
+/// Take the window down, dropping the view before its window (the view borrows the window's handle).
+fn drop_window(ui: &mut Option<Ui>) {
+    let Some(ui) = ui.take() else {
+        return;
+    };
+    // Remember the geometry before the window goes; the next open restores it.
+    save_window_geometry(&ui.window);
+    let Ui { window, view, .. } = ui;
+    drop(view);
+    drop(window);
+}
+
+/// Open a console deep link: build the window on it, or hand it to the page already running.
+///
+/// A view on the console takes the fragment as its hash, so the console's own reader consumes the
+/// request without a reload (the open sessions and the sign-in survive). A view on the panel gets
+/// the whole address, because the panel has no reader for the console's fragment.
+fn open_fragment(
+    fragment: &str,
+    target: &tao::event_loop::EventLoopWindowTarget<Wake>,
+    ui: &mut Option<Ui>,
+    profile: &mut Option<wry::WebContext>,
+    zoom: f64,
+) {
+    let page = window_target();
+    if page == panel() {
+        // The deep link is the console's: the panel has no Connect dialog and no Browser view to
+        // receive it, and a page that ignored the request would look like a dead row. Say why and
+        // show what this machine does have.
+        crate::note("console unreachable; deep link needs the console");
+        open_url(&page);
+        return;
+    }
+    let url = format!("{page}{fragment}");
+    crate::note(&format!("deep link {url}"));
+    let Some(mut current) = ui.take() else {
+        // No window: build it ON the fragment, so the page's first render already knows the request
+        // instead of racing a hash written after the load.
+        open_console(target, ui, profile, zoom, Some(fragment));
+        return;
+    };
+    if current.page == panel() {
+        match current.view.load_url(&url) {
+            Ok(()) => {
+                current.page = page;
+                crate::note(&format!("window loaded the deep link at {url}"));
+            }
+            Err(error) => crate::note(&format!("cannot load the deep link at {url}: {error}")),
+        }
+    } else {
+        // A JSON string, not string interpolation: the fragment is data, and a quote in it must not
+        // become script.
+        let script = format!(
+            "window.location.hash = {};",
+            serde_json::to_string(fragment).unwrap_or_else(|_| "\"\"".to_owned())
+        );
+        match current.view.evaluate_script(&script) {
+            Ok(()) => crate::note(&format!("window took the deep link {fragment}")),
+            Err(error) => crate::note(&format!("cannot send the deep link {fragment}: {error}")),
+        }
+    }
+    // **A DEEP LINK IS A CLICK, AND A CLICK MUST BE SEEN.** The request can arrive while the console
+    // is minimized or behind another window; handing it to the page would open the dialog out of
+    // sight. Bringing the window forward is the same step Open console takes, and it is why the
+    // existing-window path is still a visible response to the row.
+    bring_forward(&current.window);
+    *ui = Some(current);
 }
 
 /// The console this process is configured to use, in words, without probing. A machine with no
@@ -1087,6 +1403,31 @@ pub fn already_running() -> bool {
 /// It is a function rather than three lines in `run` because a re-add after a reconnect needs a
 /// SECOND tray object, and a tray without its menu is a tray whose items do nothing.
 fn build_tray(tooltip: &str) -> Result<tray_icon::TrayIcon, Box<dyn std::error::Error>> {
+    // **THE MODEL COMES FIRST, THE PRODUCT ROWS AFTER.** The Session and Window sections are the
+    // tray's copy of the desktop chrome; a separator closes each section, so the last one divides
+    // them from the product rows. Every item is held in `items` until `Menu::with_items` has taken
+    // its clone, exactly as the previous eight-item build did.
+    let model_rows = model_menu_items();
+    // The labels are the model's names for its groups; the tray renders the sections flat, so the
+    // startup line is where a reader sees which rows came from where.
+    let labels: Vec<&str> = menu::sections()
+        .iter()
+        .map(|section| section.label)
+        .collect();
+    crate::note(&format!("tray sections: {}", labels.join(", ")));
+    let mut items: Vec<&dyn IsMenuItem> = Vec::with_capacity(model_rows.len() + 12);
+    let mut next = 0;
+    let section_separators: Vec<PredefinedMenuItem> = menu::sections()
+        .iter()
+        .map(|_| PredefinedMenuItem::separator())
+        .collect();
+    for (index, section) in menu::sections().iter().enumerate() {
+        for _ in section.rows {
+            items.push(&model_rows[next]);
+            next += 1;
+        }
+        items.push(&section_separators[index]);
+    }
     let (
         console_item,
         panel_item,
@@ -1097,23 +1438,29 @@ fn build_tray(tooltip: &str) -> Result<tray_icon::TrayIcon, Box<dyn std::error::
         logs_item,
         quit_item,
     ) = menu_items();
-    let menu = Menu::with_items(&[
-        &console_item,
-        &panel_item,
-        &update_item,
-        &copy_item,
-        &diagnostics_item,
-        &PredefinedMenuItem::separator(),
-        &about_item,
-        &logs_item,
-        &PredefinedMenuItem::separator(),
-        &quit_item,
-    ])?;
-    Ok(TrayIconBuilder::new()
+    // The two dividers the product rows already had, bound here because the menu borrows every
+    // item until it has taken its own copy.
+    let product_separator = PredefinedMenuItem::separator();
+    let quit_separator = PredefinedMenuItem::separator();
+    items.push(&console_item);
+    items.push(&panel_item);
+    items.push(&update_item);
+    items.push(&copy_item);
+    items.push(&diagnostics_item);
+    items.push(&product_separator);
+    items.push(&about_item);
+    items.push(&logs_item);
+    items.push(&quit_separator);
+    items.push(&quit_item);
+    let menu = Menu::with_items(&items)?;
+    // The menu has taken its own copies of the items, so the borrows can go.
+    drop(items);
+    let tray = TrayIconBuilder::new()
         .with_menu(Box::new(menu))
         .with_icon(tray_icon(UNKNOWN)?)
         .with_tooltip(tooltip)
-        .build()?)
+        .build()?;
+    Ok(tray)
 }
 
 /// The name of the event a second instance signals.
@@ -1188,6 +1535,34 @@ mod tests {
             "an unknown flag is not a mode"
         );
     }
+
+    /// **`--browser-session` IS A VALUELESS ONE-SHOT.** It asks the 9444 door for one session and
+    /// must not fall through to a tray or take the next argument as a value; `--check-window` keeps
+    /// its exit-code precedence when the diagnostic is combined with it.
+    #[test]
+    fn the_browser_session_mode_is_one_shot() {
+        assert_eq!(
+            mode_from_args(["x", "--browser-session"]),
+            Mode::BrowserSession,
+            "the browser-session flag is its own mode"
+        );
+        assert_eq!(
+            mode_from_args(["--browser-session", "--panel"]),
+            Mode::BrowserSession,
+            "the door is not downgraded to the window-only fallback"
+        );
+        assert_eq!(
+            mode_from_args(["--check-window", "--browser-session"]),
+            Mode::CheckWindow,
+            "check-window still wins the exit-code answer"
+        );
+        assert_eq!(
+            mode_from_args(["x"]),
+            Mode::Tray,
+            "a plain launch is still the tray"
+        );
+    }
+
     #[test]
     fn the_default_targets_are_the_product_surfaces() {
         let console = console::DEFAULT_CONSOLE;
@@ -1263,5 +1638,117 @@ mod tests {
         assert_eq!(about.id().as_ref(), ABOUT);
         assert_eq!(logs.id().as_ref(), OPEN_LOGS);
         assert_eq!(quit.id().as_ref(), QUIT);
+    }
+
+    /// **THE TRAY IS BUILT FROM THE MODEL, NOT FROM A SECOND LIST.** Every model row must become one
+    /// item with that row's id and label; a row the build path missed would be a chord with no
+    /// button. The model itself is portable and tested where no tray exists; this test is with the
+    /// Windows tests because a `MenuItem` needs the Win32 menu machinery (a headless Linux job
+    /// cannot build one, and this is the documented limitation rather than a fake render).
+    #[test]
+    fn the_tray_menu_carries_every_model_row() {
+        let items = model_menu_items();
+        let rows: Vec<&menu::Row> = menu::sections()
+            .iter()
+            .flat_map(|section| section.rows.iter())
+            .collect();
+        assert_eq!(items.len(), rows.len(), "one item per model row");
+        for (item, row) in items.iter().zip(rows.iter()) {
+            assert_eq!(item.id().as_ref(), row.id, "{} has its own id", row.id);
+            assert_eq!(item.text(), row.label, "{} has its own label", row.id);
+        }
+        // The six chords parse in muda; a failed parse would have logged and left the row without
+        // one, which is the defect the tray test exists to catch.
+        for row in rows {
+            if let Some(text) = row.accelerator {
+                assert!(
+                    text.parse::<Accelerator>().is_ok(),
+                    "{} has an unparseable chord",
+                    row.id
+                );
+            }
+        }
+    }
+
+    /// **EVERY MODEL ACTION COMPILES INTO A DISPATCH.** `perform` matches `menu::Action` with no
+    /// wildcard arm, so adding a variant is a compile error until it has a behaviour. This test
+    /// compiles the same exhaustive shape over every action the tray can raise, so a row cannot name
+    /// an action the shell does not know how to run.
+    #[test]
+    fn every_action_compiles() {
+        let actions: Vec<menu::Action> = menu::sections()
+            .iter()
+            .flat_map(|section| section.rows.iter())
+            .map(|row| row.action)
+            .collect();
+        assert_eq!(actions.len(), 10, "ten model rows, one action each");
+        for action in actions {
+            let label = match action {
+                menu::Action::NewTerminal => "new terminal",
+                menu::Action::NewSsh => "new ssh",
+                menu::Action::NewSerial => "new serial",
+                menu::Action::NewBrowser => "new browser",
+                menu::Action::CloseWindow => "close window",
+                menu::Action::Reload => "reload",
+                menu::Action::ZoomIn => "zoom in",
+                menu::Action::ZoomOut => "zoom out",
+                menu::Action::ZoomReset => "reset zoom",
+                menu::Action::ToggleDevTools => "toggle devtools",
+            };
+            assert!(!label.is_empty(), "every action names a behaviour");
+        }
+    }
+
+    /// A tray row is not a reason to panic in release: a chord muda cannot read is dropped and the
+    /// row remains, enabled and unaccelerated.
+    #[test]
+    fn a_row_whose_chord_does_not_parse_still_builds() {
+        let row = menu::Row {
+            id: "test-row",
+            label: "Test row",
+            accelerator: Some("not+a+chord"),
+            action: menu::Action::Reload,
+        };
+        let item = menu_item(&row);
+        assert_eq!(item.id().as_ref(), "test-row");
+        assert_eq!(item.text(), "Test row");
+        // The chord may be lost; the button may not be. A row disabled by its own accelerator is
+        // the tray losing a feature to a typo in a string.
+        assert!(item.is_enabled());
+    }
+
+    /// **THE TWO ID SPACES ARE ONE NAMESPACE AT THE EVENT HANDLER.** The model is looked up first,
+    /// so a product id that also named a model row would silently perform the model's action and
+    /// the product's arm would be dead. The eight product ids and the ten model ids must be
+    /// disjoint.
+    #[test]
+    fn the_product_ids_and_the_model_ids_do_not_collide() {
+        let (console, panel, update, copy, diagnostics, about, logs, quit) = menu_items();
+        let product = [
+            console.id().as_ref(),
+            panel.id().as_ref(),
+            update.id().as_ref(),
+            copy.id().as_ref(),
+            diagnostics.id().as_ref(),
+            about.id().as_ref(),
+            logs.id().as_ref(),
+            quit.id().as_ref(),
+        ];
+        for id in product {
+            assert!(
+                menu::row(id).is_none(),
+                "{id} is both a product id and a model id"
+            );
+        }
+    }
+
+    /// 50 %..200 % in whole ten-percent steps: the ends clamp instead of wrapping or drifting.
+    #[test]
+    fn the_zoom_rows_move_in_ten_percent_steps_and_stop_at_the_ends() {
+        assert_eq!(stepped_zoom(1.0, ZOOM_STEP), 1.1);
+        assert_eq!(stepped_zoom(1.1, -ZOOM_STEP), 1.0);
+        assert_eq!(stepped_zoom(0.5, ZOOM_STEP), 0.6);
+        assert_eq!(stepped_zoom(ZOOM_MAX, ZOOM_STEP), ZOOM_MAX);
+        assert_eq!(stepped_zoom(ZOOM_MIN, -ZOOM_STEP), ZOOM_MIN);
     }
 }

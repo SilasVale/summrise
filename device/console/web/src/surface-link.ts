@@ -17,6 +17,18 @@ export type Surface = {
    * Activity Table's request, and a link to one is a link to that view of the record.
    */
   range?: AuditRange;
+  /**
+   * A one-shot request from the desktop shell's tray: open the Connect dialog with this kind. It is
+   * read from the fragment and consumed into page state; [`surfaceHash`] never writes it back, so
+   * the address stays the destination and a second click is a new fragment.
+   */
+  newSession?: { kind: "local" | "ssh" | "serial" };
+  /**
+   * A one-shot request from the tray: prefill the Browser address with this URL. View only — the
+   * page opens nothing; the operator still presses Open new tab. Never written back, like
+   * [`Surface.newSession`].
+   */
+  openBrowser?: { url: string };
 };
 
 const PAGES: readonly Page[] = ["home", "activity", "device"];
@@ -48,6 +60,9 @@ const LEGACY: Record<string, Surface> = {
 
 /** The fragment for a surface: `#home`, `#activity[?from=&to=]`, `#device/<tab>[/<tool>]`. */
 export function surfaceHash(surface: Surface): string {
+  // **A REQUEST IS NOT AN ADDRESS.** `newSession`/`openBrowser` are one-shot asks read by
+  // `parseSurfaceHash`; writing one back would make a repeat click a no-op and leave a one-shot in
+  // the bar. The destination is the whole fragment.
   if (surface.page === "activity" && surface.range) {
     return "#activity?" + rangeQuery(surface.range);
   }
@@ -64,6 +79,11 @@ export function surfaceHash(surface: Surface): string {
 
 /**
  * Read a surface fragment; anything that is not a destination, tab or tool is not a link.
+ *
+ * Two forms also name a one-shot request for a page that already exists: the tray's
+ * `#device/terminal/new=local|ssh|serial` and `#device/browser/open=<percent-encoded url>`. They are
+ * view only — the caller turns them into dialog/address state and performs no device call for the
+ * link itself — and [`surfaceHash`] never emits them.
  *
  * The retired `#capabilities` and `#plugins` destinations land on the machine's Tools tab when
  * `machineSelected` says there is a machine to put it under; without one they land on Home, where
@@ -102,6 +122,38 @@ export function parseSurfaceHash(
 
   if (rest !== undefined) {
     if (name === "device") {
+      // **THE TRAY'S TWO LINKS ARE READ BEFORE THE TAB CHECKS, AND THEY ARE ONE-SHOT.** The shell
+      // cannot address the console's tabs or its dialog, so it names a request: a terminal kind to
+      // prefill, or a URL to put in the Browser address. Each is consumed into page state and the
+      // address writer canonicalises it away (`#device/terminal`, `#device/screen/browser`); a
+      // repeated click therefore needs a new fragment. The kind is the LINK's vocabulary (`local`),
+      // not the dialog's (`pty`): the dialog maps it, and nobody else does.
+      const session = /^terminal\/new=(local|ssh|serial)$/.exec(rest);
+      if (session) {
+        return {
+          page: "device",
+          tab: "terminal",
+          newSession: { kind: session[1] as "local" | "ssh" | "serial" }
+        };
+      }
+      const browser = /^browser\/open=(.+)$/.exec(rest);
+      if (browser) {
+        let url: string;
+        try {
+          // Exactly one decode: `%23`, `%26` and a space in the URL are the URL's own characters.
+          url = decodeURIComponent(browser[1]);
+        } catch {
+          // `%E0%A4%A` is not an address; a broken escape is not a link.
+          return null;
+        }
+        // **A FRAGMENT MAY NAME ANY HTTP PAGE, AND NOTHING ELSE.** The WebView must never be handed
+        // `javascript:` or `file:` from a link, and a double-encoded scheme is not http(s) after the
+        // one decode the contract allows.
+        if (url === "about:blank" || /^https?:\/\//i.test(url)) {
+          return { page: "device", tab: "screen", view: "browser", openBrowser: { url } };
+        }
+        return null;
+      }
       // `#device/browser` is the short link the runbook uses; the canonical form is
       // `#device/screen/browser`, which keeps the tab first.
       if (rest === "browser") return { page: "device", tab: "screen", view: "browser" };
