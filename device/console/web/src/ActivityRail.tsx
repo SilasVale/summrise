@@ -4,9 +4,11 @@ import type { LiveLine, StartedCall } from "./liveActivity";
 import { sessionActivity } from "./sessionActivity";
 import {
   buildSessionSpine,
+  drift,
   groupEnd,
   groupHeader,
   isUnknownRow,
+  receiptParts,
   type SpineGroup,
   type SpineRow
 } from "./sessionSpine";
@@ -65,8 +67,8 @@ function RowCard({
  * One transaction, as the record describes it.
  *
  * The header is the purpose and its author's claim badge; the body is the rows the device observed;
- * the foot is the receipt's totals or the fact that no end was recorded. The page never closes a
- * working group: only the transaction's author may end it.
+ * the foot is the receipt's declaration and observation, or the fact that no end was recorded. The
+ * page never closes a working group: only the transaction's author may end it.
  */
 function GroupBlock({
   group,
@@ -77,6 +79,9 @@ function GroupBlock({
 }) {
   const header = groupHeader(group);
   const end = groupEnd(group);
+  const parts = receiptParts(group);
+  // At most one hint per receipt, and none when the declaration and the observation agree.
+  const hint = drift(group);
   return (
     <li className={"activity-group state-" + group.state}>
       <header className="activity-group-head">
@@ -106,7 +111,28 @@ function GroupBlock({
           />
         ))}
       </ul>
-      <p className={"activity-group-foot" + (end.open ? " is-open" : "")}>{end.sentence}</p>
+      {parts !== null ? (
+        // The receipt's two parts: what the transaction declared, and what the device observed.
+        // The observation carries the receipt's own counts, never this window's count of the rows
+        // above it. The hint under them says where the two disagree, from the receipt alone.
+        <div className="activity-group-receipt">
+          <p className="activity-group-declared">
+            <span className="activity-group-receipt-label">Declared:</span>{" "}
+            {parts.declared}
+          </p>
+          <p className="activity-group-observed">
+            <span className="activity-group-receipt-label">Observed:</span>{" "}
+            <span className="mono">{parts.observed}</span>
+          </p>
+          {hint !== null && (
+            <p className="activity-group-drift receipt-drift">
+              <span className="activity-group-receipt-label">drift</span> {hint}
+            </p>
+          )}
+        </div>
+      ) : (
+        <p className={"activity-group-foot" + (end.open ? " is-open" : "")}>{end.sentence}</p>
+      )}
     </li>
   );
 }

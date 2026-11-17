@@ -26,7 +26,7 @@ pub(crate) const TIMELINE_VISIBLE_ROWS: usize = 20;
 /// quotes in the font stacks would put literal `&quot;` into the CSS.
 /// The panel's own component rules; the tokens they read from are [`summrise_ui::TOKENS`], the same
 /// block the console renders, so a colour cannot mean two things on two surfaces.
-const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
+pub(crate) const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
   /* The panel is one column: a top bar, the content, a status strip. The console's shell is a row of
      rail + column, so the direction belongs here and not in the shared block. */
   body.app { flex-direction: column; }
@@ -111,8 +111,16 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
   .timeline-txn { padding: var(--sp-1-5) 0 var(--sp-2); }
   .timeline-txn + .timeline-txn { border-top: 1px solid var(--line); }
   .timeline-txn-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-2); margin: 0 0 var(--sp-1); }
-  .timeline-txn-purpose { font-weight: 600; font-size: var(--fs-base); }
+  .timeline-txn-purpose { font-weight: 600; font-size: var(--fs-base); font-family: var(--font-serif); }
   .timeline-txn-receipt { color: var(--ink-muted); font-size: var(--fs-sm); }
+  /* The receipt's two labelled parts, the same two words `/activity` prints: the ending the
+     transaction declared, then the counts the device observed. The chip is the declared word. */
+  .timeline-txn-declared, .timeline-txn-observed { display: inline-flex; align-items: baseline; gap: var(--sp-1); }
+  .receipt-label { color: var(--ink-faint); font-size: var(--fs-xs); }
+  /* The receipt's one hint, when the declared ending and the observed calls disagree. It is
+     labelled like the receipt's own facts and drawn in the warning ink; it invents nothing. */
+  .receipt-drift { display: flex; align-items: baseline; gap: var(--sp-2); margin: 0 0 var(--sp-1); color: var(--warn); font-size: var(--fs-sm); }
+  .receipt-drift-label { flex: none; min-width: 4.5rem; color: var(--ink-faint); font-size: var(--fs-xs); }
   .timeline-txn-by { color: var(--ink-faint); font-size: var(--fs-sm); }
   /* The session card: holder, goal (a badged claim), open transaction, last call. */
   .session-card { padding: var(--sp-2) 0; border-bottom: 1px dotted var(--line); }
@@ -125,6 +133,11 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
   .session-holder { margin-left: auto; color: var(--ink-faint); font-size: var(--fs-sm); }
   .session-shell { margin: var(--sp-0-5) 0 0; color: var(--ink-muted); }
   .session-goal, .session-txn, .session-call { margin: var(--sp-1) 0 0; font-size: var(--fs-base); }
+  /* The goal sentence is the document's voice; the claim badge and the author beside it are the
+     UI's, and a card with no goal is a UI note rather than a purpose. */
+  .session-goal { font-family: var(--font-serif); }
+  .session-goal .claim-badge, .session-goal-by { font-family: var(--font); }
+  .session-goal.none { font-family: var(--font); }
   .session-goal-by { color: var(--ink-faint); font-size: var(--fs-sm); }
   .session-card .none { color: var(--ink-faint); }
   .claim-badge {
@@ -162,20 +175,26 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
   form button {
     justify-self: start; font: inherit; font-size: var(--fs-base); font-weight: 600;
     padding: var(--sp-1-5) var(--sp-3); border-radius: var(--radius-xs); cursor: pointer;
-    /* `--accent` is a FOREGROUND in the dark theme (#ffa36b); as a fill it put white on it at 1.96:1.
-       `--accent-solid`/`--accent-fg` is the pair the tokens were measured for. */
+    /* `--accent` is a FOREGROUND; a fill drawn with it would not carry the measured pair.
+       `--accent-solid`/`--accent-fg` is the white-on-accent pair the tokens were measured for. */
     border: 1px solid transparent; background: var(--accent-solid); color: var(--accent-fg);
   }
   form button:disabled { background: var(--panel-2); color: var(--faint); border-color: var(--line); cursor: progress; }
+  /* One focus system across the device's Rust pages: the shipped accent outline, which measures
+     4.84:1 on the paper (the 1.37:1 halo alone is not a focus indicator), with the system's
+     CanvasText surviving a forced-colors session. */
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  @media (forced-colors: active) {
+    :focus-visible { outline: 2px solid CanvasText; }
+  }
   .enroll-status { margin: 0; min-height: 1.35em; font-size: var(--fs-base); color: var(--ink-muted); }
   .enroll-status.ok { color: var(--ok); }
   .enroll-status.error { color: var(--error); }
 
   /* The local MCP instructions: the config is the thing to copy, so it gets the free space and a
      button, while the token itself is named by file and never printed. */
-  /* The terminal canvas, the same token the console uses: white in the light theme, near-black in the
-     dark one. A black block inside a light page is what made the two surfaces read as two products. */
+  /* The terminal canvas, the same token the console uses: the sheet. A black block inside a light page
+     is what made the two surfaces read as two products. */
   /* **FIVE CONTROLS USED TO BE THE BROWSER'S, NOT OURS.** `#term-pty`, `#term-port`, `#term-baud`,
      `#term-serial` and `#term-close` matched no selector (they are not inside a form), so they drew
      at the UA's 13.33px/2px radius — the one place the type scale visibly broke. */
@@ -416,6 +435,22 @@ pub(crate) struct TxnFact {
     pub(crate) retained: bool,
 }
 
+impl TxnFact {
+    /// The receipt as the drift rule may read it: the declared ending and the device's own counts.
+    ///
+    /// The purpose, the reason and the goals are the author's text; the shared rule is arithmetic
+    /// over the receipt and cannot see them.
+    pub(crate) fn reading(&self) -> crate::activity::ReceiptReading<'_> {
+        crate::activity::ReceiptReading {
+            state: &self.state,
+            calls: self.calls,
+            failures: self.failures,
+            refusals: self.refusals,
+            retained: self.retained,
+        }
+    }
+}
+
 /// A holder as the pages name it. Attribution only: no rank, no person, no permission.
 pub(crate) fn holder_label(holder: &summrise_core::Holder) -> String {
     use summrise_core::HolderKind;
@@ -651,7 +686,6 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                 title { "Summrise — this machine" }
                 link rel="stylesheet" href="/panel/xterm.css";
                 style { (PreEscaped(style_sheet())) }
-                script { "try{var t=localStorage.getItem('summrise-theme');if(t==='light'||t==='dark'){document.documentElement.dataset.theme=t;}}catch(e){}" }
             }
             body class="app" {
                 header class="topbar" {
@@ -662,9 +696,6 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                         "this machine"
                     }
                     span class="spacer" {}
-                    button id="theme" type="button" title="Toggle light/dark" onclick="var d=document.documentElement;var n=d.dataset.theme==='dark'?'light':'dark';d.dataset.theme=n;try{localStorage.setItem('summrise-theme',n)}catch(e){};this.textContent=n==='dark'?'☀':'☾';this.title=n==='dark'?'Switch to light':'Switch to dark';" {
-                        "☾"
-                    }
                     button id="copy" type="button" data-copy="diagnostics" data-label="Copy diagnostics" {
                         "Copy diagnostics"
                     }
@@ -1397,12 +1428,18 @@ fn timeline_day(day: &TimelineDay, txns: &[TxnFact]) -> Markup {
                                 span class="timeline-txn-by" { (fact.author) }
                             }
                             @if fact.retained {
-                                span class="chip" { (fact.state) }
-                                span class="timeline-txn-receipt" {
-                                    (fact.calls) " calls · "
-                                    (count_noun(fact.failures, "failure")) " · "
-                                    (fact.refusals) " refused · "
-                                    (crate::activity::duration_text(fact.duration_ms))
+                                span class="timeline-txn-declared" {
+                                    span class="receipt-label" { "Declared" }
+                                    span class="chip" { (fact.state) }
+                                }
+                                span class="timeline-txn-observed" {
+                                    span class="receipt-label" { "Observed" }
+                                    span class="timeline-txn-receipt" {
+                                        (fact.calls) " calls · "
+                                        (count_noun(fact.failures, "failure")) " · "
+                                        (fact.refusals) " refused · "
+                                        (crate::activity::duration_text(fact.duration_ms))
+                                    }
                                 }
                             } @else {
                                 span class="timeline-txn-receipt" { "receipt not retained" }
@@ -1411,6 +1448,14 @@ fn timeline_day(day: &TimelineDay, txns: &[TxnFact]) -> Markup {
                         @if !fact.retained {
                             p class="hint" {
                                 "The audit still records this transaction's calls, but this process holds no receipt for it."
+                            }
+                        }
+                        @if let Some(sentence) = crate::activity::drift(&fact.reading()) {
+                            // The same sentence `/activity` draws, from the same rule: the declared
+                            // ending against the calls the device observed.
+                            p class="receipt-drift" {
+                                span class="receipt-drift-label" { "drift" }
+                                " " (sentence)
                             }
                         }
                     } @else {
@@ -1873,11 +1918,11 @@ mod tests {
         let css = COMPONENTS;
         assert!(
             css.contains("background: var(--accent-solid); color: var(--accent-fg)"),
-            "the submit button must be the measured pair: --accent is a foreground in the dark theme"
+            "the submit button must be the measured pair: --accent is a foreground, not a fill"
         );
         assert!(
             !css.contains("background: var(--accent); color: #fff"),
-            "white on the dark --accent measured 1.96:1"
+            "a fill drawn in the accent's foreground value is not the measured pair"
         );
         assert!(
             css.contains("#term-pty, #term-serial, #term-close"),
@@ -1908,6 +1953,120 @@ mod tests {
         assert!(
             !html.contains("class=\"chip ok\" id=\"console-chip\""),
             "the chip must not be green when nothing was observed: {html}"
+        );
+    }
+
+    /// One rule by its exact opening selector, out of the panel's own sheet.
+    fn rule<'a>(css: &'a str, selector: &str) -> &'a str {
+        let needle = format!("{selector} {{");
+        let at = css
+            .find(&needle)
+            .unwrap_or_else(|| panic!("the sheet styles {selector}: {css}"));
+        let open = at + needle.len() - 1;
+        let close = css[open..].find('}').expect("the rule closes") + open;
+        &css[at..=close]
+    }
+
+    /// The forced-colors fallback block, by its media query.
+    fn forced_colors(css: &str) -> &str {
+        let at = css
+            .find("@media (forced-colors: active)")
+            .expect("the sheet has a forced-colors fallback");
+        let open = css[at..].find('{').expect("the media opens") + at;
+        let close = css[open..].rfind('}').expect("the media closes") + open;
+        &css[at..=close]
+    }
+
+    /// **THE PANEL'S FOCUS RING IS THE SAME VISIBLE ACCENT OUTLINE, NOT A 1.37:1 HALO.** The shipped
+    /// 2 px `--accent` outline measures 4.84:1 on the paper; a forced-colors session, which drops
+    /// shadows and sometimes the author's colours, keeps a `CanvasText` ring.
+    #[test]
+    fn the_panel_focus_ring_is_the_same_outline() {
+        let focus = rule(COMPONENTS, ":focus-visible");
+        assert!(
+            focus.contains("outline: 2px solid var(--accent)")
+                && focus.contains("outline-offset: 2px"),
+            "the panel focuses with the accent outline: {focus}"
+        );
+        assert!(
+            !focus.contains("outline: none"),
+            "the panel does not hide the outline behind a halo: {focus}"
+        );
+        let forced = forced_colors(COMPONENTS);
+        assert!(
+            forced.contains("outline: 2px solid CanvasText"),
+            "a forced-colors session keeps a visible ring: {forced}"
+        );
+    }
+
+    /// **THE GOAL SENTENCE IS THE DOCUMENT'S, AND THE TIMELINE'S PURPOSE WITH IT (the light
+    /// contract).** A computed face is not a question a string can answer, so the named rules in the
+    /// panel's own sheet are read: the sentence is serif, while its author badge and "set by" fact
+    /// stay in the UI face.
+    #[test]
+    fn the_panel_goal_is_set_in_the_document_face() {
+        let mut facts = facts();
+        facts.sessions[0].goal = Some("ship the installer".to_owned());
+        facts.sessions[0].goal_by = Some("token srm_7f".to_owned());
+        let html = page(&facts).into_string();
+        assert!(
+            html.contains(r#"<p class="session-goal">"#),
+            "the card draws the goal line: {html}"
+        );
+        assert!(
+            html.contains("ship the installer"),
+            "the claim itself is the line: {html}"
+        );
+        let goal = rule(COMPONENTS, ".session-goal");
+        assert!(
+            goal.contains("font-family: var(--font-serif)"),
+            "the goal sentence is the document face: {goal}"
+        );
+        let by = rule(COMPONENTS, ".session-goal-by");
+        assert!(
+            !by.contains("font-serif"),
+            "the goal's author is a fact and stays in the UI face: {by}"
+        );
+        let purpose = rule(COMPONENTS, ".timeline-txn-purpose");
+        assert!(
+            purpose.contains("font-family: var(--font-serif)"),
+            "a transaction's purpose is the same document line: {purpose}"
+        );
+        let receipt = rule(COMPONENTS, ".timeline-txn-receipt");
+        assert!(
+            !receipt.contains("font-serif"),
+            "the receipt's counts and duration are facts, not the document face: {receipt}"
+        );
+    }
+
+    /// **THE TERMINAL'S CANVAS IS THE SHEET, EVEN WITHOUT THE SHEET.** The page reads `--term-canvas`,
+    /// but a page rendered on its own must still be paper: the script's hard-coded fallbacks are the
+    /// light palette's values, not the deleted near-white/near-black pair.
+    #[test]
+    fn the_panel_terminal_canvas_is_the_sheet() {
+        let js = include_str!("../assets/panel-terminal.js");
+        assert!(
+            js.contains(r##"token("--term-canvas", token("--surface", "#fbf9f4"))"##),
+            "the canvas falls back to the sheet: {js}"
+        );
+        assert!(
+            !js.contains("#ffffff"),
+            "the terminal's fallback canvas is not the old white: {js}"
+        );
+        for (token, value) in [
+            ("--ink", "#1d1c1a"),
+            ("--accent", "#b4451f"),
+            ("--term-selection", "rgba(180,69,31,.18)"),
+        ] {
+            let read = format!(r#"token("{token}", "{value}")"#);
+            assert!(
+                js.contains(&read),
+                "the {token} fallback is the paper value: {js}"
+            );
+        }
+        assert!(
+            js.contains("getComputedStyle(document.documentElement)"),
+            "the theme still reads the page's tokens: {js}"
         );
     }
 
@@ -2284,11 +2443,27 @@ mod tests {
         assert!(html.contains(r#"<span class="timeline-tool">runs.exec</span>"#));
         assert!(html.contains(r#"<span class="chip fail">failed</span>"#));
         assert!(
-            html.contains(r#"id="theme""#),
-            "the panel offers a light/dark choice"
+            html.contains(r#"<span class="timeline-error">refused</span>"#),
+            "the panel names the audit's refusal"
         );
-        assert!(html.contains(r#"<span class="timeline-error">refused</span>"#));
         assert!(html.contains(r#"<span class="timeline-caller">console</span>"#));
+    }
+
+    #[test]
+    fn the_panel_has_no_theme_control() {
+        let html = page(&facts()).into_string();
+        assert!(
+            !html.contains(r#"id="theme""#),
+            "the panel offers no theme toggle"
+        );
+        assert!(
+            !html.contains("summrise-theme"),
+            "the panel stores no theme choice"
+        );
+        assert!(
+            !html.contains("data-theme"),
+            "the panel declares no theme attribute"
+        );
     }
 
     #[test]
@@ -2725,6 +2900,22 @@ mod tests {
             group.contains("7 calls") && group.contains("1 failure"),
             "the receipt shows the device's totals, not the window's: {group}"
         );
+        // The receipt's two parts are labelled with the same two words `/activity` prints, and
+        // the declared word keeps its chip.
+        let declared = group
+            .find(r#"<span class="receipt-label">Declared</span>"#)
+            .unwrap_or_else(|| panic!("the declaration is labelled: {group}"));
+        let observed = group
+            .find(r#"<span class="receipt-label">Observed</span>"#)
+            .unwrap_or_else(|| panic!("the observation is labelled: {group}"));
+        assert!(
+            declared < observed,
+            "the receipt reads Declared then Observed: {group}"
+        );
+        assert!(
+            group.contains(r#"<span class="chip">committed</span>"#),
+            "the declared word keeps its chip: {group}"
+        );
     }
 
     /// The production shape of an orphan: `http::txn_facts` enumerates the audit's ids and marks a
@@ -2843,6 +3034,66 @@ mod tests {
         assert!(
             html.contains("the device's totals") && html.contains("the rows beneath"),
             "the page says the counts are the device's totals and the rows are this window's: {html}"
+        );
+    }
+
+    /// The receipt's drift element, when the page drew one.
+    fn receipt_drift(html: &str) -> Option<String> {
+        let open = r#"<p class="receipt-drift">"#;
+        let start = html.find(open)?;
+        let close = html[start..].find("</p>")? + start + "</p>".len();
+        Some(html[start..close].to_owned())
+    }
+
+    /// **ONE RULE, TWO PAGES (the light contract).** The panel's Timeline receipt draws the same
+    /// drift sentence `/activity` draws, from the same function: the declared ending against the
+    /// device's own counts.
+    #[test]
+    fn the_timeline_receipt_states_the_same_drift_as_the_ledger() {
+        let mut facts = facts();
+        let at = 1_761_566_400_000u64;
+        let mut begin = begin(1, at, "files.read", "loopback");
+        begin["txn"] = json!("txn-1");
+        let mut end = end(1, at + 1_000, true, None, "loopback");
+        end["txn"] = json!("txn-1");
+        facts.audit = Some(vec![begin, end]);
+        facts.txns = vec![TxnFact {
+            id: "txn-1".to_owned(),
+            purpose: "publish the release".to_owned(),
+            author: "the install door".to_owned(),
+            session: None,
+            state: "committed".to_owned(),
+            reason: None,
+            started_at_ms: at,
+            ended_at_ms: Some(at + 1_000),
+            calls: 5,
+            failures: 1,
+            refusals: 0,
+            duration_ms: 1_000,
+            retained: true,
+        }];
+
+        let expected =
+            crate::activity::drift(&facts.txns[0].reading()).expect("the fixture's receipt drifts");
+        assert_eq!(expected, "Committed over 1 failed call.");
+
+        let html = page(&facts).into_string();
+        let line = receipt_drift(&html).expect("the panel's receipt draws the hint");
+        assert!(
+            line.contains(r#"<span class="receipt-drift-label">drift</span>"#),
+            "the element carries the visible drift label: {line}"
+        );
+        assert!(
+            line.contains(&expected),
+            "the panel draws /activity's exact sentence: {line}"
+        );
+
+        // A clean receipt draws none, on either page.
+        facts.txns[0].failures = 0;
+        let clean = page(&facts).into_string();
+        assert!(
+            receipt_drift(&clean).is_none(),
+            "a clean receipt draws no hint: {clean}"
         );
     }
 }

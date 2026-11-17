@@ -297,19 +297,20 @@ function token(name: string, fallback: string): string {
 /**
  * The xterm theme IS the page's palette, not a second one.
  *
- * The canvas follows the system theme — white in light, #131418 in dark — and the ANSI colours are
- * the canonical --term-* tokens (device/ui). The old theme painted a black canvas in both themes,
- * which is the black-terminal-on-a-white-page defect the canonical palette's header records.
+ * The canvas is the page's sheet (`--term-canvas`) and the ink is the page's ink; the ANSI colours
+ * are the canonical --term-* tokens (device/ui). There is one palette, so nothing here asks the OS
+ * for a scheme. The old theme painted a black canvas in both themes, which is the
+ * black-terminal-on-a-white-page defect the canonical palette's header records.
  */
 function terminalTheme() {
-  const canvas = token("--term-canvas", "#ffffff");
-  const ink = token("--ink", "#18181b");
+  const canvas = token("--term-canvas", "#fbf9f4");
+  const ink = token("--ink", "#1d1c1a");
   return {
     background: canvas,
     foreground: ink,
-    cursor: token("--accent", "#bf3a0a"),
+    cursor: token("--accent", "#b4451f"),
     cursorAccent: canvas,
-    selectionBackground: token("--term-selection", "rgba(191,58,10,.18)"),
+    selectionBackground: token("--term-selection", "rgba(180,69,31,.18)"),
     black: token("--term-black", "#1d1d1f"),
     red: token("--term-red", "#b3261e"),
     green: token("--term-green", "#1d7a3c"),
@@ -318,7 +319,7 @@ function terminalTheme() {
     magenta: token("--term-magenta", "#8a3ffc"),
     cyan: token("--term-cyan", "#0e7490"),
     white: token("--term-white", "#44403c"),
-    brightBlack: token("--ink-muted", "#5d5e67"),
+    brightBlack: token("--ink-muted", "#6f6a61"),
     brightRed: token("--term-red", "#b3261e"),
     brightGreen: token("--term-green", "#1d7a3c"),
     brightYellow: token("--term-yellow", "#a8620a"),
@@ -336,12 +337,12 @@ function terminalTheme() {
  */
 function searchDecorations() {
   return {
-    matchBackground: token("--term-selection", "rgba(191,58,10,.18)"),
-    matchBorder: token("--accent", "#bf3a0a"),
-    matchOverviewRuler: token("--accent", "#bf3a0a"),
-    activeMatchBackground: token("--accent-soft", "#fff0e6"),
-    activeMatchBorder: token("--accent", "#bf3a0a"),
-    activeMatchColorOverviewRuler: token("--accent", "#bf3a0a")
+    matchBackground: token("--term-selection", "rgba(180,69,31,.18)"),
+    matchBorder: token("--accent", "#b4451f"),
+    matchOverviewRuler: token("--accent", "#b4451f"),
+    activeMatchBackground: token("--accent-soft", "#f6e5d8"),
+    activeMatchBorder: token("--accent", "#b4451f"),
+    activeMatchColorOverviewRuler: token("--accent", "#b4451f")
   };
 }
 
@@ -1374,20 +1375,6 @@ export function TerminalWorkspace({
       observer?.disconnect();
     };
   }, [active, fitActive]);
-
-  // The terminal follows the page's scheme while the tab is open, not only when it is created: the
-  // operator can flip the system theme, and a terminal stuck in the other palette is the one pane on
-  // the page that looks broken.
-  useEffect(() => {
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const onScheme = () => {
-      for (const instance of instances.current.values()) {
-        instance.term.options.theme = terminalTheme();
-      }
-    };
-    media.addEventListener("change", onScheme);
-    return () => media.removeEventListener("change", onScheme);
-  }, []);
 
   // The field is the point of opening the bar, so the operator can type a term straight away.
   useEffect(() => {

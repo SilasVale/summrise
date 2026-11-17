@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Actor } from "./sessionActivity";
-import type { SpineRow } from "./sessionSpine";
-import { buildSessionSpine, groupEnd, groupHeader } from "./sessionSpine";
+import type { SpineGroup, SpineRow } from "./sessionSpine";
+import { buildSessionSpine, drift, groupEnd, groupHeader, receiptParts } from "./sessionSpine";
 
 const YOU: Actor = {
   label: "You",
@@ -43,6 +43,57 @@ describe("the session spine", () => {
     expect(header.authorKind).toBe("you");
     expect(header.owner).toBe("you");
     expect(header.claim).toBe("the operator's claim");
+  });
+
+  it("the_receipt_is_declared_then_observed", () => {
+    const spine = buildSessionSpine([
+      row({ id: "begin", atMs: 10, txn: "txn-1", purpose: "verify the suite" }),
+      row({ id: "call", atMs: 20, txn: "txn-1", outcome: "ok" }),
+      row({
+        id: "end",
+        atMs: 30,
+        txn: "txn-1",
+        outcome: "committed",
+        receipt: {
+          txn: "txn-1",
+          state: "committed",
+          observed: { calls: 9, failures: 1, refusals: 2, duration_ms: 192_000 }
+        }
+      })
+    ]);
+
+    const parts = receiptParts(spine.groups[0]);
+    expect(parts, "a committed receipt has its two parts").not.toBeNull();
+    // Declared is the state word the transaction ended on.
+    expect(parts!.declared).toBe("committed");
+    // Observed is the receipt's own arithmetic: calls, failures, refusals and the duration.
+    expect(parts!.observed).toContain("9 calls");
+    expect(parts!.observed).toContain("1 failure");
+    expect(parts!.observed).toContain("2 refused");
+    expect(parts!.observed).toContain("3m 12s");
+    // The window's own count is not the receipt's: the observation is the device's numbers only.
+    expect(parts!.observed).not.toMatch(/in this window/);
+  });
+
+  it("a_receipt_without_a_state_does_not_borrow_the_end_rows", () => {
+    const spine = buildSessionSpine([
+      row({ id: "begin", atMs: 10, txn: "txn-1", purpose: "verify the suite" }),
+      row({
+        id: "end",
+        atMs: 30,
+        txn: "txn-1",
+        outcome: "committed",
+        // A receipt the device retained without a declared state: the end row says committed, but
+        // the declaration is the receipt's to carry. The page must not borrow the row's word.
+        receipt: { txn: "txn-1", observed: { calls: 1 } }
+      })
+    ]);
+
+    expect(spine.groups[0].state).toBe("committed");
+    const parts = receiptParts(spine.groups[0]);
+    expect(parts, "the receipt is retained even without a state").not.toBeNull();
+    expect(parts!.declared).toBe("not recorded");
+    expect(parts!.observed).toContain("1 call");
   });
 
   it("a_declared_abort_does_not_relabel_its_calls", () => {
@@ -243,6 +294,147 @@ describe("the session spine", () => {
     expect(spine.counts.rows).toBe(2);
     expect(spine.counts.calls).toBe(1);
     expect(spine.entries).toHaveLength(2);
+  });
+
+  /**
+   * One transaction that ended, with the receipt the device sent.
+   *
+   * The begin row carries the purpose; the end row carries the receipt, whose own numbers are the
+   * only ones the drift sentence may read. The window additionally holds one call row, so a
+   * sentence that counted the page's rows instead of the receipt's would be caught.
+   */
+  function ended(
+    state: "committed" | "aborted",
+    observed: { calls: number; failures: number; refusals: number },
+    claim: { purpose?: string; reason?: string; goal?: { text: string } } = {}
+  ): SpineGroup {
+    const spine = buildSessionSpine([
+      row({
+        id: "begin",
+        atMs: 10,
+        txn: "txn-1",
+        purpose: claim.purpose ?? "verify the suite"
+      }),
+      row({ id: "call", atMs: 20, txn: "txn-1", outcome: "ok" }),
+      row({
+        id: "end",
+        atMs: 30,
+        txn: "txn-1",
+        rowKind: state === "committed" ? "txn.committed" : "txn.aborted",
+        outcome: state,
+        receipt: {
+          txn: "txn-1",
+          state,
+          ...(claim.reason === undefined ? {} : { reason: claim.reason }),
+          observed: { ...observed, duration_ms: 61_000 }
+        },
+        ...(claim.goal === undefined ? {} : { goal: claim.goal })
+      })
+    ]);
+    return spine.groups[0];
+  }
+
+  it("a_committed_transaction_with_a_failure_says_so", () => {
+    const sentence = drift(ended("committed", { calls: 5, failures: 1, refusals: 0 }));
+    // The declared ending against the observed calls: the author committed, and one call failed.
+    expect(sentence).toBe("Committed over 1 failed call.");
+  });
+
+  it("an_aborted_transaction_with_no_failure_says_the_ending_is_its_authors", () => {
+    // An abort the record cannot justify: no call failed and none was refused, so the ending is
+    // the author's decision, not something the device observed.
+    expect(drift(ended("aborted", { calls: 2, failures: 0, refusals: 0 }))).toBe(
+      "Aborted after 2 clean calls — the ending is the author's, not the record's."
+    );
+    // The noun is the receipt's: singular at one.
+    expect(drift(ended("aborted", { calls: 1, failures: 0, refusals: 0 }))).toBe(
+      "Aborted after 1 clean call — the ending is the author's, not the record's."
+    );
+    // A row that retained only the call count omits the zeroes; an absent counter reads as the
+    // device's zero, exactly as the Rust receipt's u64 does, so the sentence is still spoken.
+    const sparse = buildSessionSpine([
+      row({
+        id: "end",
+        atMs: 30,
+        txn: "txn-4",
+        rowKind: "txn.aborted",
+        outcome: "aborted",
+        receipt: { txn: "txn-4", state: "aborted", observed: { calls: 2 } }
+      })
+    ]);
+    expect(drift(sparse.groups[0])).toBe(
+      "Aborted after 2 clean calls — the ending is the author's, not the record's."
+    );
+    // An abort after a failure is consistent: the failure is the record's, and there is no drift.
+    expect(drift(ended("aborted", { calls: 2, failures: 1, refusals: 0 }))).toBeNull();
+  });
+
+  it("an_empty_transaction_says_it_recorded_no_calls", () => {
+    // A receipt that closed without observing a single call: whatever the purpose said, the
+    // record holds no work to compare it with.
+    expect(drift(ended("committed", { calls: 0, failures: 0, refusals: 0 }))).toBe(
+      "Ended with no calls recorded."
+    );
+    expect(drift(ended("aborted", { calls: 0, failures: 0, refusals: 0 }))).toBe(
+      "Ended with no calls recorded."
+    );
+  });
+
+  it("a_clean_committed_transaction_has_no_drift_line", () => {
+    // A clean commit is the normal ending; it earns no sentence at all.
+    expect(drift(ended("committed", { calls: 5, failures: 0, refusals: 0 }))).toBeNull();
+    // A working transaction has no declared ending to compare, and an orphan has no receipt.
+    const working = buildSessionSpine([
+      row({ id: "begin", atMs: 10, txn: "txn-2", purpose: "verify the suite" })
+    ]);
+    expect(drift(working.groups[0])).toBeNull();
+    const orphan = buildSessionSpine([
+      row({ id: "call", atMs: 10, txn: "txn-3", outcome: "ok" })
+    ]);
+    expect(drift(orphan.groups[0])).toBeNull();
+  });
+
+  it("the_drift_line_names_both_sides", () => {
+    const sentence = drift(ended("committed", { calls: 4, failures: 2, refusals: 0 }));
+    expect(sentence).toBe("Committed over 2 failed calls.");
+    // The declaration (`Committed`) and the observation (`2 failed calls`) are both in the line.
+    expect(sentence!).toContain("Committed");
+    expect(sentence!).toContain("2 failed calls");
+    // The receipt's total is not the drift: only the side that disagrees is counted.
+    expect(sentence!).not.toContain("4 calls");
+    // Refusals are the same arithmetic, and the noun agrees with the receipt's count.
+    expect(drift(ended("committed", { calls: 4, failures: 0, refusals: 2 }))).toBe(
+      "Committed over 2 refused calls."
+    );
+    expect(drift(ended("committed", { calls: 4, failures: 0, refusals: 1 }))).toBe(
+      "Committed over 1 refused call."
+    );
+  });
+
+  it("the_drift_line_invents_no_fact", () => {
+    const sentence = drift(
+      ended(
+        "committed",
+        { calls: 9, failures: 1, refusals: 0 },
+        {
+          purpose: "fix the failing test",
+          reason: "the build was red",
+          goal: { text: "ship the installer" }
+        }
+      )
+    );
+    // The sentence is the receipt's arithmetic and nothing else: not the purpose, not the
+    // reason, not the goal, not the total, not the duration.
+    expect(sentence).toBe("Committed over 1 failed call.");
+    for (const claim of [
+      "fix the failing test",
+      "the build was red",
+      "ship the installer",
+      "9 calls",
+      "1m 1s"
+    ]) {
+      expect(sentence!).not.toContain(claim);
+    }
   });
 
   it("breaks a tie by the order the rows arrived, so one instant keeps its record order", () => {

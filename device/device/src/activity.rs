@@ -2,10 +2,9 @@
 //!
 //! The page is the old Electron transcript moved into Rust: one row per audited call, oldest first,
 //! split into turns where the audit went quiet for more than eight seconds, with the tool groups,
-//! counts and the light/dark theme computed here. The first paint is server-rendered from the panel's
-//! bounded audit tail; [`VIEW_SCRIPT`] only filters, follows, applies the stored theme and expands a
-//! run through `/api/runs/:id`. It groups and counts nothing: every row carries the group, status,
-//! turn and label this module decided.
+//! counts computed here. The first paint is server-rendered from the panel's bounded audit tail;
+//! [`VIEW_SCRIPT`] only filters, follows and expands a run through `/api/runs/:id`. It groups and
+//! counts nothing: every row carries the group, status, turn and label this module decided.
 //!
 //! The audit writes two lines per call, `begin` and `end`, under one `id`. An `end` whose `begin` is
 //! outside the bounded window is still a fact — the call ended — so it becomes an `unknown` row with
@@ -48,7 +47,7 @@ pub(crate) const STYLES: &str = r##"  * { box-sizing: border-box; }
     backdrop-filter: blur(10px); border-bottom: 1px solid var(--line);
   }
   .activity-brand { display: flex; align-items: baseline; gap: var(--sp-1-5); }
-  .activity-brand h1 { margin: 0; font-size: var(--fs-lg); letter-spacing: var(--tracking-tight); }
+  .activity-brand h1 { margin: 0; font-size: var(--fs-lg); letter-spacing: var(--tracking-tight); font-family: var(--font-serif); }
   .activity-brand .stem { color: var(--ink-faint); font-size: var(--fs-base); font-weight: 500; }
   .activity-pill {
     display: inline-flex; align-items: center; gap: var(--sp-1-5); height: 24px; padding: 0 var(--sp-2);
@@ -72,9 +71,17 @@ pub(crate) const STYLES: &str = r##"  * { box-sizing: border-box; }
     height: 26px; border: 1px solid var(--line); border-radius: var(--radius-xs);
     background: var(--surface); color: var(--ink); font: inherit; font-size: var(--fs-sm); padding: 0 var(--sp-1-5);
   }
-  .activity-theme {
-    width: 28px; height: 28px; display: grid; place-items: center; cursor: pointer;
-    border: 1px solid var(--line); border-radius: var(--radius-xs); background: var(--surface); color: var(--ink);
+  /* **A KEYBOARD USER MUST SEE THE RING ON PAPER.** The shipped accent outline measures 4.84:1 on
+     the paper; the refraction halo alone composites to 1.37:1 and is not a focus indicator. The
+     accent outline is the primary ring. High-contrast sessions drop shadows and sometimes the
+     author's colours, so the forced-colors fallback is the system's `CanvasText`. */
+  a:focus-visible, button:focus-visible, select:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+  }
+  @media (forced-colors: active) {
+    a:focus-visible, button:focus-visible, select:focus-visible, summary:focus-visible {
+      outline: 2px solid CanvasText;
+    }
   }
   .activity-main { flex: 1; padding: var(--sp-3) 0 var(--sp-6); }
   .activity-feed { max-width: 60rem; margin: 0 auto; padding: 0 var(--sp-4); }
@@ -156,7 +163,7 @@ pub(crate) const STYLES: &str = r##"  * { box-sizing: border-box; }
   .ledger-entry:first-of-type { border-top: 1px solid var(--line); }
   .ledger-line { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--sp-2); }
   .ledger-time { flex: none; width: 3.2rem; font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--ink-faint); }
-  .ledger-purpose { min-width: 0; font-size: var(--fs-md); font-weight: 500; overflow-wrap: anywhere; }
+  .ledger-purpose { min-width: 0; font-size: var(--fs-md); font-weight: 500; font-family: var(--font-serif); overflow-wrap: anywhere; }
   .ledger-chip { flex: none; }
   .ledger-chip.state-working { color: var(--warn); background: var(--warn-soft); }
   .ledger-chip.state-committed { color: var(--ok); background: var(--ok-soft); }
@@ -200,14 +207,20 @@ pub(crate) const STYLES: &str = r##"  * { box-sizing: border-box; }
   .step-outcome { margin-top: var(--sp-0-5); color: var(--ink-muted); font-size: var(--fs-2xs); }
   .effects { margin: var(--sp-2) 0 0; color: var(--ink-muted); font-size: var(--fs-xs); }
   .receipt { border-left: 2px solid var(--line-strong); padding-left: var(--sp-2); font-size: var(--fs-sm); color: var(--ink-muted); }
-  .receipt-big { font-size: var(--fs-base); font-weight: 600; color: var(--ink); }
+  .receipt-big { font-size: var(--fs-base); font-weight: 600; color: var(--ink); font-family: var(--font-serif); }
   .receipt-dim { margin: var(--sp-1) 0 0; color: var(--ink-faint); font-size: var(--fs-xs); }
   .receipt-pending { margin: var(--sp-1) 0 0; color: var(--warn); font-size: var(--fs-xs); }
-  .receipt-summary { margin: var(--sp-1) 0 0; color: var(--ink); font-size: var(--fs-sm); }
+  /* The receipt's two parts, labelled: what the transaction declared, and what the device
+     observed. The label is a fact like the counts; the serif headline is the declaration. */
+  .receipt-declared, .receipt-observed { display: flex; align-items: baseline; gap: var(--sp-2); margin: 0; }
+  .receipt-observed { margin-top: var(--sp-0-5); }
+  .receipt-label { flex: none; min-width: 4.5rem; color: var(--ink-faint); font-size: var(--fs-xs); }
+  .receipt-summary { margin: 0; color: var(--ink); font-size: var(--fs-sm); }
+  /* The hint is one sentence, labelled like the two parts it compares, and drawn in the warning
+     ink: it is the page's own observation of a disagreement, never the author's words. */
+  .receipt-drift { display: flex; align-items: baseline; gap: var(--sp-2); margin: var(--sp-1) 0 0; color: var(--warn); font-size: var(--fs-xs); }
+  .receipt-drift-label { flex: none; min-width: 4.5rem; color: var(--ink-faint); font-size: var(--fs-xs); }
   .receipt-reason { margin: var(--sp-1) 0 0; }
-  .receipt-counts { display: grid; grid-template-columns: auto 1fr; gap: var(--sp-0-5) var(--sp-2); margin: var(--sp-1) 0 0; }
-  .receipt-counts dt { color: var(--ink-faint); font-size: var(--fs-xs); }
-  .receipt-counts dd { margin: 0; font-family: var(--font-mono); font-size: var(--fs-sm); }
   .ledger-none, .ledger-note, .ledger-missing, .ledger-empty { color: var(--ink-muted); font-size: var(--fs-sm); }
   .ledger-empty { padding: var(--sp-4) 0; }
   .ledger-empty b { display: block; color: var(--ink); font-size: var(--fs-md); }
@@ -250,14 +263,13 @@ pub(crate) const STYLES: &str = r##"  * { box-sizing: border-box; }
   }
 "##;
 
-/// The page's only script: poll, append/update, filter, theme, follow and run expand.
+/// The page's only script: poll, append/update, filter, follow and run expand.
 pub(crate) const VIEW_SCRIPT: &str = r##"(function () {
   "use strict";
   var feed = document.getElementById("feed");
   if (!feed) return;
   var stateLine = document.getElementById("activity-state");
   var filter = document.getElementById("activity-filter");
-  var themeButton = document.getElementById("activity-theme");
   var meta = document.querySelector('meta[name="summrise-panel"]');
   var token = meta ? meta.getAttribute("content") : "";
   var boot = feed.getAttribute("data-boot") || "";
@@ -347,30 +359,6 @@ pub(crate) const VIEW_SCRIPT: &str = r##"(function () {
       var detail = rows[i].querySelector(".activity-detail-duration");
       if (detail) detail.textContent = text;
     }
-  }
-
-  function applyTheme(theme) {
-    document.documentElement.dataset.theme = theme;
-    if (themeButton) {
-      themeButton.textContent = theme === "dark" ? "\u2600" : "\u263e";
-      themeButton.title = theme === "dark" ? "Switch to light" : "Switch to dark";
-    }
-  }
-
-  var queryTheme = new URLSearchParams(location.search).get("theme");
-  var saved = "light";
-  if (queryTheme === "dark" || queryTheme === "light") {
-    saved = queryTheme;
-  } else {
-    try { saved = localStorage.getItem("summrise-theme") || "light"; } catch (e) {}
-  }
-  applyTheme(saved === "dark" ? "dark" : "light");
-  if (themeButton) {
-    themeButton.addEventListener("click", function () {
-      var next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
-      applyTheme(next);
-      try { localStorage.setItem("summrise-theme", next); } catch (e) {}
-    });
   }
 
   function applyFilter() {
@@ -603,41 +591,6 @@ pub(crate) const VIEW_SCRIPT: &str = r##"(function () {
   }
   window.setInterval(refreshRunningDurations, 1000);
 })();"##;
-
-/// The page's heading script: the query's theme wins over the stored one, as the old transcript's did.
-const THEME_SCRIPT: &str = r#"try {
-  var q = new URLSearchParams(location.search).get("theme");
-  if (q === "light" || q === "dark") {
-    document.documentElement.dataset.theme = q;
-  } else {
-    var t = localStorage.getItem("summrise-theme");
-    if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
-  }
-} catch (e) {}"#;
-
-/// Which of the page's two themes the request asked for.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Theme {
-    Light,
-    Dark,
-}
-
-impl Theme {
-    /// `?theme=dark` chooses the dark theme; every other spelling, and no query, is light.
-    pub(crate) fn from_query(theme: Option<&str>) -> Theme {
-        match theme {
-            Some("dark") => Theme::Dark,
-            _ => Theme::Light,
-        }
-    }
-
-    fn as_str(self) -> &'static str {
-        match self {
-            Theme::Light => "light",
-            Theme::Dark => "dark",
-        }
-    }
-}
 
 /// Everything the transcript shows: the bounded audit tail and the facts the page and its polls need.
 #[derive(Debug)]
@@ -1222,6 +1175,76 @@ impl LedgerGroup {
     fn is_working(&self) -> bool {
         self.state == "working"
     }
+
+    /// The receipt as the drift rule may read it: the declared ending and the device's own counts.
+    ///
+    /// A receipt this process does not hold declared no ending, so `retained` travels with the
+    /// reading and the rule returns no sentence for it.
+    fn reading(&self) -> ReceiptReading<'_> {
+        ReceiptReading {
+            state: &self.state,
+            calls: self.calls,
+            failures: self.failures,
+            refusals: self.refusals,
+            retained: self.retained,
+        }
+    }
+}
+
+/// What the drift sentence may read: the declared ending and the device's own counts.
+///
+/// The receipt also carries a purpose, a reason and the goals at its two ends. Those are text its
+/// author wrote, and the sentence is arithmetic over what the device observed, so they are not on
+/// this type: there is nothing here for a later edit to read. `reason` is drawn beside the receipt
+/// in its own words and is never reworded into the hint.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ReceiptReading<'a> {
+    pub(crate) state: &'a str,
+    pub(crate) calls: u64,
+    pub(crate) failures: u64,
+    pub(crate) refusals: u64,
+    /// Whether this process still holds the receipt. An orphan declared no ending to compare.
+    pub(crate) retained: bool,
+}
+
+/// The one drift rule: the declared ending against the calls the device observed.
+///
+/// `None` is the normal case — a clean commit, a working transaction, an abort over a failure or a
+/// refusal, and a receipt this process no longer holds. The sentence names the ending and counts
+/// only the side that disagrees; it never repeats the receipt's total and never says what the
+/// author meant.
+pub(crate) fn drift(group: &ReceiptReading<'_>) -> Option<String> {
+    if !group.retained {
+        return None;
+    }
+    match group.state {
+        "committed" if group.failures > 0 => Some(format!(
+            "Committed over {}.",
+            call_noun(group.failures, "failed")
+        )),
+        "committed" if group.refusals > 0 => Some(format!(
+            "Committed over {}.",
+            call_noun(group.refusals, "refused")
+        )),
+        "aborted" if group.failures == 0 && group.refusals == 0 && group.calls > 0 => {
+            Some(format!(
+                "Aborted after {} — the ending is the author's, not the record's.",
+                call_noun(group.calls, "clean")
+            ))
+        }
+        "committed" | "aborted" if group.calls == 0 => {
+            Some("Ended with no calls recorded.".to_owned())
+        }
+        _ => None,
+    }
+}
+
+/// `1 failed call`, `2 failed calls`.
+fn call_noun(count: u64, adjective: &str) -> String {
+    format!(
+        "{count} {adjective} call{}",
+        if count == 1 { "" } else { "s" }
+    )
 }
 
 /// The ledger's answer from one read: the transaction groups, the rows that rode no transaction,
@@ -1527,26 +1550,30 @@ fn ledger_spread(group: &LedgerGroup) -> Markup {
                     }
                 } @else {
                     div class="receipt" data-state=(state_name_for_receipt(group)) {
-                        div class="receipt-big" {
-                            @if group.state == "committed" { "Committed." } @else { "Aborted." }
+                        // The receipt's two parts: what the transaction declared, and what the
+                        // device observed. The hint below compares them and adds no fact of its own.
+                        p class="receipt-declared" {
+                            span class="receipt-label" { "Declared" }
+                            span class="receipt-big" {
+                                @if group.state == "committed" { "Committed." } @else { "Aborted." }
+                            }
                         }
                         @if let Some(reason) = &group.reason {
                             p class="receipt-reason" { "Reason: " (reason) }
                         }
-                        p class="receipt-summary" {
-                            (group.calls) " calls · " (group.failures) " "
-                            (failure_noun(group.failures)) " · "
-                            (group.refusals) " refused · " (group.duration_text())
+                        p class="receipt-observed" {
+                            span class="receipt-label" { "Observed" }
+                            span class="receipt-summary" {
+                                (group.calls) " calls · " (group.failures) " "
+                                (failure_noun(group.failures)) " · "
+                                (group.refusals) " refused · " (group.duration_text())
+                            }
                         }
-                        dl class="receipt-counts" {
-                            dt { "calls" }
-                            dd { (group.calls) }
-                            dt { "failures" }
-                            dd { (group.failures) }
-                            dt { "refused" }
-                            dd { (group.refusals) }
-                            dt { "duration" }
-                            dd { (group.duration_text()) }
+                        @if let Some(sentence) = drift(&group.reading()) {
+                            p class="receipt-drift" {
+                                span class="receipt-drift-label" { "drift" }
+                                " " (sentence)
+                            }
                         }
                         p class="receipt-dim" {
                             "The counts are the device's totals for the transaction; the steps beside them are the rows in this window."
@@ -1649,7 +1676,7 @@ fn ledger_rail(facts: &ActivityFacts) -> Markup {
 }
 
 /// `GET /activity`: the transcript's first paint, server-rendered from the audited facts.
-pub(crate) fn page(facts: &ActivityFacts, theme: Theme) -> Markup {
+pub(crate) fn page(facts: &ActivityFacts) -> Markup {
     let rows = facts
         .audit
         .as_deref()
@@ -1704,22 +1731,15 @@ pub(crate) fn page(facts: &ActivityFacts, theme: Theme) -> Markup {
         (Some(_), true) => "empty",
         (Some(_), false) => "rows",
     };
-    let theme_name = theme.as_str();
-    let theme_glyph = match theme {
-        Theme::Light => "\u{263e}",
-        Theme::Dark => "\u{2600}",
-    };
-
     html! {
         (DOCTYPE)
-        html lang="en" data-theme=(theme_name) {
+        html lang="en" {
             head {
                 meta charset="utf-8";
                 meta name="viewport" content="width=device-width, initial-scale=1";
                 meta name="summrise-panel" content=(facts.panel_token);
                 title { "Summrise — operations" }
                 style { (PreEscaped(summrise_ui::style(STYLES))) }
-                script { (PreEscaped(THEME_SCRIPT)) }
             }
             body class="activity-page" {
                 header class="activity-head" {
@@ -1774,14 +1794,6 @@ pub(crate) fn page(facts: &ActivityFacts, theme: Theme) -> Markup {
                         option value="other" { "Other" }
                     }
                     a class="terminal-link" href="/panel#terminal" { "terminal ↗" }
-                    button
-                        id="activity-theme"
-                        class="activity-theme"
-                        type="button"
-                        title="Toggle light/dark"
-                    {
-                        (theme_glyph)
-                    }
                 }
                 main id="main" class="activity-main" {
                     div class="ledger-layout" {
@@ -2206,7 +2218,7 @@ mod tests {
             end(3, at + 10_500, false, None),
         ];
         let mut facts = transcript(audit, at + 20_000);
-        let html = page(&facts, Theme::Light).into_string();
+        let html = page(&facts).into_string();
 
         assert_eq!(
             html.matches(r#"class="activity-turn""#).count(),
@@ -2236,13 +2248,13 @@ mod tests {
         );
 
         facts.truncated = true;
-        let cut = page(&facts, Theme::Light).into_string();
+        let cut = page(&facts).into_string();
         assert!(
             cut.contains("data-truncated"),
             "a cut tail says older lines exist: {cut}"
         );
 
-        let empty = page(&transcript(vec![], NOW), Theme::Light).into_string();
+        let empty = page(&transcript(vec![], NOW)).into_string();
         assert!(
             empty.contains(r#"data-state="empty""#),
             "an audit with no lines is empty: {empty}"
@@ -2251,7 +2263,7 @@ mod tests {
 
         let mut unreadable = transcript(vec![], NOW);
         unreadable.audit = None;
-        let unreadable = page(&unreadable, Theme::Light).into_string();
+        let unreadable = page(&unreadable).into_string();
         assert!(
             unreadable.contains(r#"data-state="unreadable""#),
             "an audit that cannot be read is not empty: {unreadable}"
@@ -2266,7 +2278,7 @@ mod tests {
             begin(1, at, "<img src=x onerror=alert(1)>", None),
             end(1, at + 100, true, None),
         ];
-        let html = page(&transcript(audit, at + 200), Theme::Light).into_string();
+        let html = page(&transcript(audit, at + 200)).into_string();
 
         assert!(
             html.contains("&lt;img src=x onerror=alert(1)&gt;"),
@@ -2293,7 +2305,7 @@ mod tests {
             begin(5, at + 4_000, "screen.capture", None),
             end(5, at + 4_100, true, None),
         ];
-        let html = page(&transcript(audit, at + 5_000), Theme::Light).into_string();
+        let html = page(&transcript(audit, at + 5_000)).into_string();
 
         assert!(html.contains(r#"data-total="5""#), "five rows: {html}");
         assert!(
@@ -2324,27 +2336,27 @@ mod tests {
     }
 
     #[test]
-    fn the_activity_page_carries_the_light_and_dark_theme() {
-        let light = page(&transcript(vec![], NOW), Theme::Light).into_string();
+    fn the_activity_page_has_one_palette() {
+        let html = page(&transcript(vec![], NOW)).into_string();
         assert!(
-            light.contains(r#"<html lang="en" data-theme="light">"#),
-            "the page defaults to the light theme: {light}"
+            !html.contains("data-theme"),
+            "the page declares no theme attribute"
         );
         assert!(
-            light.contains(r#":root[data-theme="dark"]"#),
-            "the shared tokens carry the dark theme: {light}"
+            !html.contains(r#"id="theme""#),
+            "the page offers no theme button"
         );
-
-        let dark = page(&transcript(vec![], NOW), Theme::Dark).into_string();
+        assert!(!html.contains("summrise-theme"), "the page stores no theme");
         assert!(
-            dark.contains(r#"<html lang="en" data-theme="dark">"#),
-            "the query chooses the dark theme: {dark}"
+            !html.contains(r#":root[data-theme="dark"]"#),
+            "the shared sheet carries no dark block"
         );
-        assert!(dark.contains(r#":root[data-theme="dark"]"#));
-        assert_eq!(Theme::from_query(Some("dark")), Theme::Dark);
-        assert_eq!(Theme::from_query(Some("light")), Theme::Light);
-        assert_eq!(Theme::from_query(None), Theme::Light);
+        assert!(
+            html.contains("color-scheme: light"),
+            "the one palette is light"
+        );
     }
+
     #[test]
     fn a_begin_without_an_end_is_a_running_row() {
         let at = BOOT + 1_000;
@@ -2354,7 +2366,7 @@ mod tests {
             calls[0].end_seq.is_none(),
             "a running row has no end sequence"
         );
-        let html = page(&transcript(audit, at + 2_500), Theme::Light).into_string();
+        let html = page(&transcript(audit, at + 2_500)).into_string();
 
         let running = row(&html, 1);
         assert!(
@@ -2486,7 +2498,7 @@ mod tests {
 
     #[test]
     fn the_activity_counts_say_they_are_the_window() {
-        let html = page(&transcript(vec![], NOW), Theme::Light).into_string();
+        let html = page(&transcript(vec![], NOW)).into_string();
 
         assert!(
             html.contains(r#"data-window="last 200""#),
@@ -2523,7 +2535,7 @@ mod tests {
             txn("txn-2", "verify the suite", None, "committed", at + 30_000),
             txn("txn-1", "fix the parser", Some("session-1"), "working", at),
         ];
-        let html = page(&ledger(audit, txns, vec![], None), Theme::Light).into_string();
+        let html = page(&ledger(audit, txns, vec![], None)).into_string();
 
         assert_eq!(
             html.matches(r#"class="ledger-entry""#).count(),
@@ -2562,15 +2574,12 @@ mod tests {
                     at + 30_000,
                 ),
             ];
-            page(
-                &ledger(
-                    audit,
-                    txns,
-                    vec![session_facts("session-1", "the operator", true)],
-                    None,
-                ),
-                Theme::Light,
-            )
+            page(&ledger(
+                audit,
+                txns,
+                vec![session_facts("session-1", "the operator", true)],
+                None,
+            ))
             .into_string()
         };
 
@@ -2606,7 +2615,7 @@ mod tests {
             txn("txn-2", "verify the suite", None, "committed", at + 30_000),
             txn("txn-1", "fix the parser", None, "working", at),
         ];
-        let html = page(&ledger(audit, txns, vec![], None), Theme::Light).into_string();
+        let html = page(&ledger(audit, txns, vec![], None)).into_string();
 
         assert!(
             html.contains(r#"data-txn="txn-1" data-expanded="true""#),
@@ -2625,11 +2634,7 @@ mod tests {
             txn("txn-2", "verify the suite", None, "committed", at + 30_000),
             txn("txn-1", "fix the parser", None, "working", at),
         ];
-        let html = page(
-            &ledger(Vec::new(), txns, vec![], Some("txn-2")),
-            Theme::Light,
-        )
-        .into_string();
+        let html = page(&ledger(Vec::new(), txns, vec![], Some("txn-2"))).into_string();
 
         assert!(
             html.contains(r#"data-txn="txn-2" data-expanded="true""#),
@@ -2662,7 +2667,7 @@ mod tests {
             at,
         )];
         txns[0].failures = 1;
-        let html = page(&ledger(audit, txns, vec![], None), Theme::Light).into_string();
+        let html = page(&ledger(audit, txns, vec![], None)).into_string();
 
         assert!(html.contains(r#"class="said""#), "the claim column: {html}");
         assert!(
@@ -2698,7 +2703,7 @@ mod tests {
         txns[0].calls = 5;
         txns[0].failures = 1;
         txns[0].refusals = 2;
-        let html = page(&ledger(Vec::new(), txns, vec![], None), Theme::Light).into_string();
+        let html = page(&ledger(Vec::new(), txns, vec![], None)).into_string();
 
         assert!(
             html.contains(">committed<"),
@@ -2714,9 +2719,260 @@ mod tests {
         );
     }
 
+    /// The receipt's declared ending and the device's own counts, as the drift rule reads them.
+    fn reading(state: &str, calls: u64, failures: u64, refusals: u64) -> ReceiptReading<'_> {
+        ReceiptReading {
+            state,
+            calls,
+            failures,
+            refusals,
+            retained: true,
+        }
+    }
+
+    /// The receipt's drift element, when the page drew one.
+    fn receipt_drift(html: &str) -> Option<String> {
+        let open = r#"<p class="receipt-drift">"#;
+        let start = html.find(open)?;
+        let close = html[start..].find("</p>")? + start + "</p>".len();
+        Some(html[start..close].to_owned())
+    }
+
+    #[test]
+    fn a_committed_transaction_with_a_failure_says_so() {
+        // The declared ending against the observed calls: the author committed, and one call
+        // failed. The noun is the receipt's, singular at one.
+        assert_eq!(
+            drift(&reading("committed", 5, 1, 0)).as_deref(),
+            Some("Committed over 1 failed call.")
+        );
+        assert_eq!(
+            drift(&reading("committed", 5, 3, 0)).as_deref(),
+            Some("Committed over 3 failed calls.")
+        );
+
+        let at = BOOT + 10_000;
+        let mut txns = vec![txn("txn-1", "publish the release", None, "committed", at)];
+        txns[0].calls = 5;
+        txns[0].failures = 1;
+        let html = page(&ledger(Vec::new(), txns, vec![], None)).into_string();
+        let line = receipt_drift(&html).expect("a committed receipt over a failure draws the hint");
+        assert!(
+            line.contains(r#"<span class="receipt-drift-label">drift</span>"#),
+            "the element carries the visible drift label: {line}"
+        );
+        assert!(
+            line.contains("Committed over 1 failed call."),
+            "the receipt's own sentence is drawn: {line}"
+        );
+    }
+
+    #[test]
+    fn an_aborted_transaction_with_no_failure_says_the_ending_is_its_authors() {
+        // An abort the record cannot justify: no call failed and none was refused, so the ending
+        // is the author's decision, not something the device observed.
+        assert_eq!(
+            drift(&reading("aborted", 2, 0, 0)).as_deref(),
+            Some("Aborted after 2 clean calls — the ending is the author's, not the record's.")
+        );
+        // The wire omits a counter that was zero; the receipt's u64s carry it explicitly, so a
+        // receipt that retained only `calls: 2` is exactly this reading.
+        assert_eq!(
+            drift(&ReceiptReading {
+                state: "aborted",
+                calls: 2,
+                failures: 0,
+                refusals: 0,
+                retained: true,
+            })
+            .as_deref(),
+            Some("Aborted after 2 clean calls — the ending is the author's, not the record's.")
+        );
+        assert_eq!(
+            drift(&reading("aborted", 1, 0, 0)).as_deref(),
+            Some("Aborted after 1 clean call — the ending is the author's, not the record's.")
+        );
+        // An abort after a failure is consistent: the failure is the record's, and there is no
+        // drift.
+        assert_eq!(drift(&reading("aborted", 2, 1, 0)), None);
+
+        // The rendered receipt, not only the rule: the page draws the same sentence.
+        let at = BOOT + 10_000;
+        let txns = vec![txn("txn-1", "stop before the release", None, "aborted", at)];
+        let html = page(&ledger(Vec::new(), txns, vec![], None)).into_string();
+        let line = receipt_drift(&html).expect("an abort over clean calls draws the hint");
+        assert!(
+            line.contains(
+                "Aborted after 2 clean calls — the ending is the author's, not the record's."
+            ),
+            "the abort's own sentence is drawn: {line}"
+        );
+    }
+
+    #[test]
+    fn an_empty_transaction_says_it_recorded_no_calls() {
+        // A receipt that closed without observing a single call: whatever the purpose said, the
+        // record holds no work to compare it with.
+        assert_eq!(
+            drift(&reading("committed", 0, 0, 0)).as_deref(),
+            Some("Ended with no calls recorded.")
+        );
+        assert_eq!(
+            drift(&reading("aborted", 0, 0, 0)).as_deref(),
+            Some("Ended with no calls recorded.")
+        );
+
+        // The rendered receipt, not only the rule: an empty commit draws the same sentence.
+        let at = BOOT + 10_000;
+        let mut txns = vec![txn("txn-1", "an empty transaction", None, "committed", at)];
+        txns[0].calls = 0;
+        txns[0].duration_ms = 0;
+        let html = page(&ledger(Vec::new(), txns, vec![], None)).into_string();
+        let line = receipt_drift(&html).expect("an empty receipt draws the hint");
+        assert!(
+            line.contains("Ended with no calls recorded."),
+            "the empty receipt's own sentence is drawn: {line}"
+        );
+    }
+
+    #[test]
+    fn a_clean_committed_transaction_has_no_drift_line() {
+        // A clean commit is the normal ending; it earns no sentence at all.
+        assert_eq!(drift(&reading("committed", 5, 0, 0)), None);
+        // A working transaction has no declared ending to compare; an orphan has no receipt.
+        assert_eq!(
+            drift(&ReceiptReading {
+                state: "working",
+                calls: 2,
+                failures: 0,
+                refusals: 0,
+                retained: true,
+            }),
+            None
+        );
+        assert_eq!(
+            drift(&ReceiptReading {
+                state: "committed",
+                calls: 5,
+                failures: 1,
+                refusals: 0,
+                retained: false,
+            }),
+            None
+        );
+
+        let at = BOOT + 10_000;
+        let mut txns = vec![txn("txn-1", "verify the suite", None, "committed", at)];
+        txns[0].calls = 5;
+        let html = page(&ledger(Vec::new(), txns, vec![], None)).into_string();
+        assert!(
+            receipt_drift(&html).is_none(),
+            "a clean receipt draws no hint: {html}"
+        );
+    }
+
+    #[test]
+    fn the_drift_line_names_both_sides() {
+        let sentence = drift(&reading("committed", 4, 2, 0)).expect("the line exists");
+        assert_eq!(sentence, "Committed over 2 failed calls.");
+        // The declaration (`Committed`) and the observation (`2 failed calls`) are both in the line.
+        assert!(
+            sentence.contains("Committed"),
+            "the declared ending: {sentence}"
+        );
+        assert!(
+            sentence.contains("2 failed calls"),
+            "the observed calls: {sentence}"
+        );
+        // The receipt's total is not the drift: only the side that disagrees is counted.
+        assert!(
+            !sentence.contains("4 calls"),
+            "the line does not repeat the total: {sentence}"
+        );
+        // Refusals are the same arithmetic, and the noun agrees with the receipt's count.
+        assert_eq!(
+            drift(&reading("committed", 4, 0, 2)).as_deref(),
+            Some("Committed over 2 refused calls.")
+        );
+        assert_eq!(
+            drift(&reading("committed", 4, 0, 1)).as_deref(),
+            Some("Committed over 1 refused call.")
+        );
+    }
+
+    #[test]
+    fn the_drift_line_invents_no_fact() {
+        let at = BOOT + 10_000;
+        let mut txns = vec![txn("txn-1", "fix the failing test", None, "committed", at)];
+        txns[0].calls = 9;
+        txns[0].failures = 1;
+        txns[0].reason = Some("the build was red".to_owned());
+        let html = page(&ledger(Vec::new(), txns, vec![], None)).into_string();
+        let line = receipt_drift(&html).expect("the receipt draws its hint");
+        let sentence = line
+            .split_once("</span>")
+            .map(|(_, rest)| rest.trim_end_matches("</p>").trim().to_owned())
+            .expect("the drift element carries its label");
+        // The sentence is the receipt's arithmetic and nothing else: not the purpose, not the
+        // reason, not the total, not the duration.
+        assert_eq!(sentence, "Committed over 1 failed call.");
+        for claim in [
+            "fix the failing test",
+            "the build was red",
+            "9 calls",
+            "1m 0s",
+        ] {
+            assert!(
+                !sentence.contains(claim),
+                "the hint invents no fact from {claim}: {sentence}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_receipt_is_declared_then_observed() {
+        let at = BOOT + 10_000;
+        let mut txns = vec![txn("txn-1", "verify the suite", None, "committed", at)];
+        txns[0].calls = 9;
+        txns[0].failures = 1;
+        txns[0].refusals = 2;
+        let html = page(&ledger(Vec::new(), txns, vec![], None)).into_string();
+        let start = html.find(r#"class="receipt""#).expect("the receipt exists");
+        let close = html[start..].find("</div>").expect("the receipt closes") + start;
+        let receipt = &html[start..close];
+
+        let declared = receipt
+            .find(r#"<span class="receipt-label">Declared</span>"#)
+            .unwrap_or_else(|| panic!("the declaration is labelled: {receipt}"));
+        let observed = receipt
+            .find(r#"<span class="receipt-label">Observed</span>"#)
+            .unwrap_or_else(|| panic!("the observation is labelled: {receipt}"));
+        let drift = receipt
+            .find(r#"<p class="receipt-drift">"#)
+            .unwrap_or_else(|| panic!("the hint sits under the two parts: {receipt}"));
+        assert!(
+            declared < observed && observed < drift,
+            "the receipt reads Declared, then Observed, then the hint: {receipt}"
+        );
+        assert!(
+            receipt.contains(r#"<span class="receipt-big">Committed.</span>"#),
+            "the declaration is the receipt's state word: {receipt}"
+        );
+        assert!(
+            receipt.contains("9 calls")
+                && receipt.contains("1 failure")
+                && receipt.contains("2 refused"),
+            "the observation is the receipt's own counts: {receipt}"
+        );
+        assert!(
+            receipt.contains("Committed over 1 failed call."),
+            "the hint compares the two parts: {receipt}"
+        );
+    }
+
     #[test]
     fn the_terminal_is_a_link_not_a_pane() {
-        let html = page(&ledger(Vec::new(), Vec::new(), vec![], None), Theme::Light).into_string();
+        let html = page(&ledger(Vec::new(), Vec::new(), vec![], None)).into_string();
 
         assert!(
             html.contains(r#"<a class="terminal-link" href="/panel#terminal">terminal ↗</a>"#),
@@ -2732,11 +2988,7 @@ mod tests {
     fn the_side_rail_names_sessions_holders_and_the_legend() {
         let mut session = session_facts("session-1", "the operator", true);
         session.open_txn = Some("txn-1".to_owned());
-        let html = page(
-            &ledger(Vec::new(), Vec::new(), vec![session], None),
-            Theme::Light,
-        )
-        .into_string();
+        let html = page(&ledger(Vec::new(), Vec::new(), vec![session], None)).into_string();
 
         assert!(html.contains(r#"class="ledger-rail""#), "the rail: {html}");
         assert!(
@@ -2765,7 +3017,7 @@ mod tests {
             begin(1, at, "mystery.tool", None),
             end(1, at + 100, true, None),
         ];
-        let html = page(&ledger(audit, vec![], vec![], None), Theme::Light).into_string();
+        let html = page(&ledger(audit, vec![], vec![], None)).into_string();
 
         assert!(
             html.contains(r#"data-unknown="1""#),
@@ -2806,15 +3058,12 @@ mod tests {
         orphan.failures = 0;
         orphan.refusals = 0;
         orphan.duration_ms = 0;
-        let html = page(
-            &ledger(
-                audit,
-                vec![orphan],
-                vec![session_facts("session-1", "the operator", true)],
-                None,
-            ),
-            Theme::Light,
-        )
+        let html = page(&ledger(
+            audit,
+            vec![orphan],
+            vec![session_facts("session-1", "the operator", true)],
+            None,
+        ))
         .into_string();
 
         assert!(
@@ -2874,7 +3123,7 @@ mod tests {
             "working",
             at,
         )];
-        let html = page(&ledger(audit, txns, vec![], None), Theme::Light).into_string();
+        let html = page(&ledger(audit, txns, vec![], None)).into_string();
 
         assert!(
             html.contains("Observed in this window: 1 calls · 1 failure · 1 refused"),
@@ -2904,15 +3153,12 @@ mod tests {
             "working",
             at,
         )];
-        let html = page(
-            &ledger(
-                audit,
-                txns,
-                vec![session_facts("session-1", "the operator", true)],
-                None,
-            ),
-            Theme::Light,
-        )
+        let html = page(&ledger(
+            audit,
+            txns,
+            vec![session_facts("session-1", "the operator", true)],
+            None,
+        ))
         .into_string();
 
         assert!(
@@ -2929,7 +3175,7 @@ mod tests {
     /// grid draws it there.
     #[test]
     fn the_rail_is_drawn_once_on_the_left_of_the_ledger() {
-        let html = page(&ledger(Vec::new(), Vec::new(), vec![], None), Theme::Light).into_string();
+        let html = page(&ledger(Vec::new(), Vec::new(), vec![], None)).into_string();
         assert_eq!(
             html.matches(r#"class="ledger-rail""#).count(),
             1,
@@ -2952,11 +3198,7 @@ mod tests {
     fn a_stale_query_transaction_says_it_is_not_in_this_window() {
         let at = BOOT + 10_000;
         let txns = vec![txn("txn-1", "fix the parser", None, "working", at)];
-        let html = page(
-            &ledger(Vec::new(), txns, vec![], Some("txn-gone")),
-            Theme::Light,
-        )
-        .into_string();
+        let html = page(&ledger(Vec::new(), txns, vec![], Some("txn-gone"))).into_string();
 
         assert!(
             html.contains("txn-gone") && html.contains("is not in this window"),
@@ -2982,7 +3224,7 @@ mod tests {
             end(22, at + 3_100, true, None),
         ];
         let txns = vec![txn("txn-1", "fix the parser", None, "working", at)];
-        let html = page(&ledger(audit, txns, vec![], None), Theme::Light).into_string();
+        let html = page(&ledger(audit, txns, vec![], None)).into_string();
 
         assert!(
             html.contains(r#"data-transactions="1" data-unknown="2""#),
@@ -2994,9 +3236,139 @@ mod tests {
         );
     }
 
+    /// The page's own stylesheet, out of the rendered document.
+    fn css_of(html: &str) -> &str {
+        let start = html.find("<style>").expect("the page carries its sheet") + "<style>".len();
+        let end = html[start..].find("</style>").expect("the sheet closes") + start;
+        &html[start..end]
+    }
+
+    /// One rule by its opening selector: the declarations between its `{` and `}`, inclusive.
+    fn rule<'a>(css: &'a str, selector: &str) -> &'a str {
+        let at = css
+            .find(selector)
+            .unwrap_or_else(|| panic!("the sheet styles {selector}: {css}"));
+        let open = css[at..].find('{').expect("the rule opens") + at;
+        let close = css[open..].find('}').expect("the rule closes") + open;
+        &css[at..=close]
+    }
+
+    /// The forced-colors fallback block, by its media query.
+    fn forced_colors(css: &str) -> &str {
+        let at = css
+            .find("@media (forced-colors: active)")
+            .expect("the sheet has a forced-colors fallback");
+        let open = css[at..].find('{').expect("the media opens") + at;
+        let close = css[open..].rfind('}').expect("the media closes") + open;
+        &css[at..=close]
+    }
+
+    /// **THE DOCUMENT FACE IS A ROLE, NOT A NEW SIZE (the light contract).** The transaction's purpose,
+    /// the receipt's headline and the page's brand word are the document; the test reads the named
+    /// rules in the rendered sheet, because a computed face is not a question a string can answer.
+    #[test]
+    fn the_ledger_purpose_is_set_in_the_document_face() {
+        let at = BOOT + 1_000;
+        let html = page(&ledger(
+            vec![
+                tagged_begin(1, at, "files.read", None, "txn-1"),
+                tagged_end(1, at + 100, true, "txn-1"),
+            ],
+            vec![txn("txn-1", "fix the parser", None, "committed", at)],
+            vec![],
+            None,
+        ))
+        .into_string();
+        assert!(
+            html.contains(r#"<span class="ledger-purpose">fix the parser</span>"#),
+            "the purpose the claim declared is the line under its time: {html}"
+        );
+        let css = css_of(&html);
+        for selector in [".ledger-purpose", ".receipt-big", ".activity-brand h1"] {
+            let declarations = rule(css, selector);
+            assert!(
+                declarations.contains("font-family: var(--font-serif)"),
+                "{selector} is the document face: {declarations}"
+            );
+        }
+    }
+
+    /// **EVERY CONTROL CARRIES THE VISIBLE ACCENT OUTLINE, ON BOTH RUST PAGES.** A link, a button, the
+    /// filter select and each disclosure summary of the ledger must show where the keyboard is. The
+    /// shipped 2 px outline (`--accent`, 4.84:1 on the paper) is the ring; the refraction halo alone
+    /// composites to 1.37:1 and is not a focus indicator. The panel's universal `:focus-visible`
+    /// declares the same block, and both keep a `CanvasText` fallback for forced-colors sessions,
+    /// which drop shadows and sometimes the author's colours.
+    #[test]
+    fn the_ledger_has_a_focus_ring_on_every_control() {
+        let at = BOOT + 1_000;
+        let html = page(&ledger(
+            vec![
+                tagged_begin(1, at, "files.read", None, "txn-1"),
+                tagged_end(1, at + 100, true, "txn-1"),
+            ],
+            vec![txn("txn-1", "fix the parser", None, "committed", at)],
+            vec![],
+            None,
+        ))
+        .into_string();
+        let css = css_of(&html);
+        let focus = rule(css, "a:focus-visible");
+        for selector in [
+            "a:focus-visible",
+            "button:focus-visible",
+            "select:focus-visible",
+            "summary:focus-visible",
+        ] {
+            assert!(
+                focus.contains(selector),
+                "{selector} is one of the controls the ring covers: {focus}"
+            );
+        }
+        assert!(
+            focus.contains("outline: 2px solid var(--accent)")
+                && focus.contains("outline-offset: 2px"),
+            "the focus ring is the shipped accent outline: {focus}"
+        );
+        assert!(
+            !focus.contains("outline: none"),
+            "the outline is not removed in favour of a 1.37:1 halo: {focus}"
+        );
+        let forced = forced_colors(css);
+        assert!(
+            forced.contains("outline: 2px solid CanvasText"),
+            "a forced-colors session keeps a visible ring: {forced}"
+        );
+        for control in ["<a ", "<select", "<summary"] {
+            assert!(
+                html.contains(control),
+                "the page draws the {control} control the ring must cover"
+            );
+        }
+        // One system: the panel's own sheet declares exactly the same ring and fallback.
+        let panel = rule(crate::panel::COMPONENTS, ":focus-visible");
+        let declarations = |block: &str| {
+            let open = block.find('{').expect("the rule opens");
+            let close = block.rfind('}').expect("the rule closes");
+            block[open + 1..close]
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        assert_eq!(
+            declarations(focus),
+            declarations(panel),
+            "the ledger and the panel draw one focus system: {focus} / {panel}"
+        );
+        assert!(
+            forced_colors(crate::panel::COMPONENTS).contains("outline: 2px solid CanvasText"),
+            "the panel keeps the same fallback"
+        );
+    }
+
     #[test]
     fn an_empty_period_renders_an_empty_ledger() {
-        let html = page(&ledger(Vec::new(), Vec::new(), vec![], None), Theme::Light).into_string();
+        let html = page(&ledger(Vec::new(), Vec::new(), vec![], None)).into_string();
 
         assert!(
             html.contains(r#"data-state="empty""#),

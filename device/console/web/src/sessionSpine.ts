@@ -482,6 +482,86 @@ export function groupHeader(group: SpineGroup): GroupHeader {
   };
 }
 
+/** What a receipt declares and what it observed, both from the receipt the device sent. */
+export type ReceiptParts = {
+  /** The state word the transaction ended on. */
+  declared: string;
+  /** The calls, failures, refusals and duration the device observed, in its own words. */
+  observed: string;
+};
+
+/**
+ * The receipt's two parts: the declaration and the observation.
+ *
+ * Both come from the receipt, never from the page's view of the window: a window that holds two of
+ * the receipt's nine calls must not pass its own count off as the transaction's total. `null` means
+ * the record retained no receipt to split.
+ */
+export function receiptParts(group: SpineGroup): ReceiptParts | null {
+  const receipt = group.receipt;
+  if (receipt === null) return null;
+  const observed = receipt.observed ?? {};
+  const parts: string[] = [];
+  if (typeof observed.calls === "number") parts.push(callCount(observed.calls));
+  if (typeof observed.failures === "number") {
+    parts.push(`${observed.failures} ${observed.failures === 1 ? "failure" : "failures"}`);
+  }
+  if (typeof observed.refusals === "number") parts.push(`${observed.refusals} refused`);
+  if (typeof observed.duration_ms === "number") {
+    const duration = durationWords(observed.duration_ms);
+    if (duration !== null) parts.push(duration);
+  }
+  return {
+    // The declaration is the receipt's own word. A receipt that carries no state does not borrow
+    // the end row's outcome: the page says the receipt did not record it.
+    declared:
+      typeof receipt.state === "string" && receipt.state !== "" ? receipt.state : "not recorded",
+    observed: parts.length > 0 ? parts.join(" · ") : "no observed counts retained"
+  };
+}
+
+/**
+ * The one drift rule: the declared ending against the calls the device observed.
+ *
+ * `null` is the normal case — a clean commit, a working transaction, an abort over a failure or a
+ * refusal, and a receipt this window no longer holds. The sentence names the ending and counts only
+ * the side that disagrees. It is arithmetic over the receipt, so it reads no purpose, no reason and
+ * no goal: those are text the author wrote, and a purpose is a claim, not evidence.
+ *
+ * This mirrors the Rust rule in `device/device/src/activity.rs` exactly; the two test suites carry
+ * the same fixtures, so a language that drifts from the other fails.
+ */
+export function drift(group: SpineGroup): string | null {
+  const receipt = group.receipt;
+  if (receipt === null) return null;
+  // The device's receipt always writes all four counters; a console row that retained only the
+  // call count omits the zeroes. An absent counter reads as the device's zero, exactly as the Rust
+  // receipt's `u64` does, so the two languages answer the same sentence for the same receipt.
+  const observed = receipt.observed ?? {};
+  const calls = observed.calls ?? 0;
+  const failures = observed.failures ?? 0;
+  const refusals = observed.refusals ?? 0;
+  if (receipt.state === "committed") {
+    if (failures > 0) return `Committed over ${callNoun(failures, "failed")}.`;
+    if (refusals > 0) return `Committed over ${callNoun(refusals, "refused")}.`;
+    if (calls === 0) return "Ended with no calls recorded.";
+    return null;
+  }
+  if (receipt.state === "aborted") {
+    if (failures === 0 && refusals === 0 && calls > 0) {
+      return `Aborted after ${callNoun(calls, "clean")} — the ending is the author's, not the record's.`;
+    }
+    if (calls === 0) return "Ended with no calls recorded.";
+    return null;
+  }
+  return null;
+}
+
+/** `1 failed call`, `2 failed calls`. */
+function callNoun(count: number, adjective: string): string {
+  return `${count} ${adjective} ${count === 1 ? "call" : "calls"}`;
+}
+
 /** How long the device observed the transaction running, in words. */
 function durationWords(ms: number): string | null {
   if (!Number.isFinite(ms) || ms < 0) return null;

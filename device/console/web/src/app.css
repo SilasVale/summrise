@@ -112,8 +112,8 @@ p { margin: var(--sp-1-5) 0; }
 /* The rail is the only navigation. The labels are always in the DOM (and are the buttons'
    accessible names); CSS decides whether a width draws them. */
 .rail {
-  /* Chrome recedes: the rail is the page's paper in the light theme, and the panel's dark shell only
-     when the OS asks for dark. Using --rail unconditionally painted a black bar on a white page. */
+  /* Chrome recedes: the rail is the page's paper, one step off the sheet. There is no second rail
+     palette to switch to. */
   --nav-bg: var(--panel);
   --nav-fg: var(--muted);
   --nav-hover-bg: var(--panel-3);
@@ -132,18 +132,6 @@ p { margin: var(--sp-1-5) 0; }
   background: var(--nav-bg); color: var(--nav-fg);
   border-right: 1px solid var(--nav-border);
   overflow-y: auto;
-}
-@media (prefers-color-scheme: dark) {
-  .rail {
-    --nav-bg: var(--rail);
-    --nav-fg: var(--rail-ink);
-    --nav-hover-bg: rgba(255, 255, 255, 0.07);
-    --nav-hover-fg: var(--rail-ink-hover);
-    --nav-current-bg: rgba(255, 255, 255, 0.06);
-    --nav-current-fg: var(--rail-ink-hover);
-    --nav-border: var(--rail-line);
-    --nav-focus: var(--rail-focus);
-  }
 }
 .rail-items { display: flex; flex-direction: column; gap: var(--sp-1); }
 .rail-btn {
@@ -2249,7 +2237,7 @@ span.files-name {
 .token-meta-label { display: none; }
 .token-actions { display: flex; justify-content: flex-end; gap: var(--sp-1); white-space: nowrap; }
 /* The row a record's Manage opened: a mark, not the only way to find it (the list is short and the
-   sheet scrolled), so the tint has to survive both schemes without becoming the focus ring. */
+   sheet scrolled), so the tint has to survive the one palette without becoming the focus ring. */
 .token-table tr.is-managed td { background: var(--accent-soft); }
 /* THE SHEET IS 600 PX WIDE EVEN AT 1280, so the token list is measured by its own scroller, not by
    the viewport. At <=639 px of that width the six columns cannot fit; the row becomes a card: name,
@@ -2549,27 +2537,17 @@ span.files-name {
   --control-bg: color-mix(in srgb, var(--ink) 6%, transparent);
   --control-hover-bg: color-mix(in srgb, var(--ink) 9.5%, transparent);
   --ease: cubic-bezier(0.32, 0.72, 0, 1);
-  /* **THE EVIDENCE OUTPUT IS A TERMINAL IN BOTH THEMES (the twenty-sixth list, item 4).** The
-     transcript a call carried is a dark surface even on the light page — that is what makes it read
-     as output rather than as prose — so this pair is deliberately NOT restated in the dark block,
-     and it is named here rather than written at the call site so the contrast test can measure what
-     the page really draws. Measured: #d6dae0 on #14161a is 12.4:1 (AA needs 4.5). */
-  --evidence-bg: #14161a;
-  --evidence-ink: #d6dae0;
+  /* **CAPTURED OUTPUT IS PAPER TOO (the light contract).** A captured transcript is still terminal
+     output, but the product has one palette now: the old near-black surface was the last dark
+     rectangle on the light page. The pair is named here rather than written at the call site so the
+     contrast test can measure what the page really draws. Measured: #2b2823 on #f2eee4 is 12.67:1
+     (AA needs 4.5). */
+  --evidence-bg: #f2eee4;
+  --evidence-ink: #2b2823;
   /* **THE THREE FAMILIES THAT LIVED HERE ARE THE SHEET'S NOW (the hundred-and-seventieth list).** They were declared in this
      block while `tokens.css` is GENERATED, so the generator could not see them and `tokens.rs` could only count their uses —
      measured 2026-11-12, six elevation families of which three were hand-written here. They moved to `device/ui/src/lib.rs`
      with the same values, and this block keeps only what is genuinely the page's (the evidence pair above). */
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --canvas: color-mix(in srgb, #000 34%, var(--panel));
-    --sidebar: color-mix(in srgb, #000 52%, var(--panel));
-    --row-hover: color-mix(in srgb, #fff 6%, transparent);
-    --row-current: color-mix(in srgb, #fff 9%, transparent);
-    --control-bg: color-mix(in srgb, #fff 8%, transparent);
-    --control-hover-bg: color-mix(in srgb, #fff 12%, transparent);
-  }
 }
 
 /* **THE BODY CARRIES NO TRACKING, AND THAT IS THE POINT (the seventy-fifth list).** This rule set
@@ -2886,6 +2864,33 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
   color: var(--ink-faint);
   font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums;
+}
+/* The GOAL bar: the session's one sentence of intent, shown as its author's claim. The row is label /
+   claim chip / sentence / author; the sentence is the document face and wraps at the card's width —
+   a client may fill the device's 200-character limit, so it is never clipped with nowrap. The chip
+   and the author stay whole. */
+.session-card-goal {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-2);
+  margin: 0;
+  min-width: 0;
+}
+.session-card-goal .session-card-label,
+.session-card-goal .chip { flex: none; }
+.session-card-goal-text {
+  flex: 1 1 14rem;
+  min-width: 0;
+  font-family: var(--font-serif);
+  line-height: var(--lh-body);
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.session-card-goal-by {
+  flex: none;
+  color: var(--ink-faint);
+  font-size: var(--fs-xs);
 }
 /* The session's screen tail: a snapshot of what the machine's terminal looks like, read without attaching. */
 .session-card-screen { margin: var(--sp-2) 0 0; }
@@ -4422,8 +4427,7 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
    beside that tab's xterm. It owns its scroll (the terminal keeps its own), so a long command list
    can be read back without moving the terminal's viewport. The column is 340 px on a desktop and
    stacks under the screen at 767 px and below; at a phone it takes the stage's full width. Every
-   colour comes from the palette tokens above, so the rail follows light/dark and keeps AA
-   contrast. */
+   colour comes from the palette tokens above, so the rail keeps AA contrast on the one paper ground. */
 .terminal-stage {
   display: flex;
   flex: 1 1 auto;
@@ -4586,6 +4590,7 @@ p.activity-card-title {
   margin: 0;
   min-width: 0;
   color: var(--ink);
+  font-family: var(--font-serif);
   font-size: var(--fs-sm);
   font-weight: var(--fw-semi);
   line-height: var(--lh-tight);
@@ -4609,6 +4614,34 @@ p.activity-card-title {
   line-height: var(--lh-tight);
 }
 .activity-group-foot.is-open { color: var(--warn); }
+/* The receipt's two labelled rows: the declaration the transaction ended on, above the counts the
+   device observed. The left rule and the two labels make the pair read as one receipt, not as two
+   unrelated facts; the counts stay mono, the state word stays the UI face. */
+.activity-group-receipt {
+  display: grid;
+  gap: var(--sp-0-5);
+  margin: 0;
+  padding-left: var(--sp-2);
+  border-left: 2px solid var(--line);
+}
+.activity-group-receipt p {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-tight);
+}
+.activity-group-receipt-label {
+  flex: none;
+  min-width: 4.5rem;
+  color: var(--ink-faint);
+  font-size: var(--fs-2xs);
+}
+/* The hint under the receipt's two parts, drawn in the warning ink because it is the page's own
+   observation of a disagreement — never the author's words. */
+.activity-group-receipt .activity-group-drift { color: var(--warn); }
 .activity-divider {
   display: flex;
   align-items: baseline;

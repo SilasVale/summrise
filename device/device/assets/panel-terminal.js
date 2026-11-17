@@ -6,14 +6,14 @@
 function panelTerminalTheme() {
   const css = getComputedStyle(document.documentElement);
   const token = (name, fallback) => (css.getPropertyValue(name).trim() || fallback);
-  const ink = token("--ink", "#18181b");
-  const canvas = token("--term-canvas", token("--surface", "#ffffff"));
+  const ink = token("--ink", "#1d1c1a");
+  const canvas = token("--term-canvas", token("--surface", "#fbf9f4"));
   return {
     background: canvas,
     foreground: ink,
-    cursor: token("--accent", "#bf3a0a"),
+    cursor: token("--accent", "#b4451f"),
     cursorAccent: canvas,
-    selectionBackground: token("--term-selection", "rgba(191,58,10,.18)"),
+    selectionBackground: token("--term-selection", "rgba(180,69,31,.18)"),
     black: ink,
     red: token("--term-red", "#b3261e"),
     green: token("--term-green", "#1d7a3c"),
@@ -21,11 +21,11 @@ function panelTerminalTheme() {
     blue: token("--term-blue", "#1f5fbf"),
     magenta: token("--term-magenta", "#8a3ffc"),
     cyan: token("--term-cyan", "#0e7490"),
-    white: token("--ink-muted", "#71717a"),
-    brightBlack: token("--ink-faint", "#a1a1aa"),
-    brightRed: token("--error", "#c02a1b"),
-    brightGreen: token("--ok", "#128a4b"),
-    brightYellow: token("--warn", "#a8620a"),
+    white: token("--ink-muted", "#6f6a61"),
+    brightBlack: token("--ink-faint", "#6b6252"),
+    brightRed: token("--error", "#a32a1f"),
+    brightGreen: token("--ok", "#2f6b45"),
+    brightYellow: token("--warn", "#7a5c12"),
     brightBlue: "#2563eb",
     brightMagenta: "#a855f7",
     brightCyan: "#0891b2",
@@ -38,8 +38,8 @@ const term = new Terminal({
     fontSize: 13,
     scrollback: 5000,
     // THE SAME CANVAS AS THE CONSOLE'S TERMINAL (the operator's point, 2026-10-28: the two surfaces
-    // are one product). Read from the page's tokens so the light theme gets the white canvas
-    // summrise-legacy uses and the dark theme gets its near-black one.
+    // are one product). Read from the page's tokens so the canvas is the sheet; the fallbacks are the
+    // light palette's values, because a page rendered without the sheet is still paper.
     theme: panelTerminalTheme(),
   });
   const fit = new FitAddon.FitAddon();

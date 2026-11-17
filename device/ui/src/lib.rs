@@ -1,42 +1,37 @@
 //! The design tokens every Summrise surface renders through.
 //!
-//! **One palette, two vocabularies.** The console (``device/console``) and the device's own panel
+//! **One palette, one vocabulary.** The console (``device/console``) and the device's own panel
 //! (``device/device/src/panel.rs``) were two stylesheets that had to be kept in step by hand, and the
 //! operator saw the result: a black terminal in a light page, on a product whose legacy panel had a
 //! white one. The colours now live here, once; the panel's older names are aliases, not a second
 //! palette.
 //!
-//! Every colour has a dark value, because the operator's desktop follows the system theme and a token
-//! with only a light value would keep its surface light in the dark. ``every_text_colour_reads_on_the
-//! _surface_it_sits_on`` in the console measures the contrast of these tokens as a browser would.
+//! **The product has one theme: light.** The dark palette and the machinery that chose it are
+//! deleted, not hidden — there is no media query, no `data-theme`, and no colour with a second
+//! value. ``every_text_pair_reads_on_the_surface_it_sits_on`` in the console measures the contrast
+//! of these tokens as a browser would.
 
 use maud::{html, Markup};
 
-/// The token block: `:root` for the light theme, with every colour and the terminal palette restated
-/// inside the dark media query. The scale (type, weights, spacing, radii, fonts) is theme-free and
-/// therefore declared once.
+/// The token block: one `:root`, one light palette, and the scale (type, weights, spacing, radii,
+/// fonts) — which was already theme-free and is declared once.
 pub const TOKENS: &str = r#":root {
-  color-scheme: light dark;
-  --bg:#fafafa; --panel:#ffffff; --panel-2:#fafafa; --panel-3:#f4f4f5;
-  --ink:#18181b; --muted:#71717a; --faint:#696a74;
-  --line:rgba(0,0,0,.08); --line-strong:rgba(0,0,0,.14); --line-soft:rgba(0,0,0,.05);
-  --accent:#bf3a0a; --accent-solid:#b03a0a; --accent-hover:#963008;
-  --accent-soft:#fff0e6; --accent-fg:#ffffff;
-  /* **THE JOB THE PANEL HAD AND THIS SHEET DID NOT (the hundred-and-twenty-fourth list).** Accent-coloured TEXT that
-     sits ON the wash is its own member: the panel declares `--accent-on-soft #9c3a0a` and measures **6.2:1**, while
-     this sheet filled the job with `--accent` and measured **4.93:1**. Both pass AA, so nothing was broken — **two
-     answers to one job** is what a palette rule forbids, and the atom's `accentFamily` recorded this side as
-     `(none)`. The same value as the panel's, because the wash is the same job. */
-  --accent-on-soft:#9c3a0a;
-  /* **`--warn` IS ONE STEP DARKER SINCE THE RECESS BECAME REAL (the hundred-and-seventeenth list).** The recess is
-     `color-mix(ink 7%, panel)` = #efefef now, and `#a05d08` on it measured **4.49:1 — 0.01 under AA**, which
-     `every_text_pair_reads_on_the_surface_it_sits_on` caught the moment the derived surface was composited instead
-     of skipped. Lightening the recess back would lose the level it just bought; the token whose job is to be
-     readable is the one that moves. `#9c5a08`: **4.71 on the recess, 5.19 on the card.** */
-  --ok:#1d7a3c; --warn:#9c5a08; --ok-soft:#e7f6ec; --warn-soft:#fff4e5;
-  --danger:#b3261e; --danger-soft:#fdecea; --focus-ring:#bf3a0a;
-  --rail:#17181c; --rail-line:rgba(255,255,255,.08); --rail-ink:#9a9ba4;
-  --rail-ink-hover:#f4f4f5; --rail-focus:#ffb86b;
+  color-scheme: light;
+  --bg:#f3f0e8; --panel:#fbf9f4; --panel-2:#f7f2e8; --panel-3:#f2ecdf;
+  --ink:#1d1c1a; --muted:#6f6a61; --faint:#6b6252;
+  --line:rgba(29,28,26,.12); --line-strong:rgba(29,28,26,.20); --line-soft:rgba(29,28,26,.07);
+  --accent:#b4451f; --accent-solid:#b4451f; --accent-hover:#9a3716;
+  --accent-soft:#f6e5d8; --accent-fg:#ffffff;
+  /* **ACCENT-COLOURED TEXT THAT SITS ON THE WASH IS ITS OWN MEMBER (the hundred-and-twenty-fourth list).**
+     The panel spelled this job once; this sheet filled it with `--accent`, which is the fill and the
+     border, not the text. The wash is the same job on both surfaces, so the member is the hover step —
+     the one that measures **5.84:1 on `#f6e5d8`**. */
+  --accent-on-soft:#9a3716;
+  /* **THE AMBER MOVED SO ITS OWN WASHES STAY READABLE (the hundred-and-seventeenth list's rule, on the paper
+     palette).** The mockup's `#8a6d1f` measured **4.34 on its own wash and 4.06 on the recess**; `#7a5c12`
+     measures **5.53 on the wash, 5.93 on the sheet and 5.17 on the recess**, and keeps the amber hue. */
+  --ok:#2f6b45; --warn:#7a5c12; --ok-soft:#e6efe6; --warn-soft:#f8f1dd;
+  --danger:#a32a1f; --danger-soft:#f8e5e1; --focus-ring:#b4451f;
   /* **THE PRODUCT'S ONE INTERACTION DURATION (the hundred-and-fourth list).** The contract's
      `motion.interactionMs` is 120; the React sheet wrote `0.12s` nine times and `0.15s` six — the
      same hover, two speeds, in one file.
@@ -61,13 +56,20 @@ pub const TOKENS: &str = r#":root {
      2026-11-12: `app.css` drew six elevation families, and three of them — the segmented control's raised sheet, the deep pane,
      and the focus ring — were declared in the page's own local block, out of reach of the generator. `tokens.rs` could only
      count their USES. They are here now, with the values they had, so the sheet answers "what may a box float on" in one place.
-     `--ring` is a refractive halo built from `--focus-ring`, so it needs no dark value; `--elev-2` does, and has one. */
+     `--ring` is a refractive halo built from `--focus-ring`; the elevation family has one set of values, because the product
+     has one theme. */
   --elev-segment:0 1px 2px rgba(0,0,0,.1);
   --elev-2:0 24px 60px -18px rgba(0,0,0,.38),0 2px 8px rgba(0,0,0,.08);
   --ring:0 0 0 4px color-mix(in srgb, var(--focus-ring) 22%, transparent);
   --radius:14px; --radius-sm:10px; --radius-sm2:8px; --radius-xs:6px;
   --radius-lg:20px; --radius-pill:999px;
   --font:-apple-system,"SF Pro Text","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Segoe UI",Roboto,sans-serif;
+  /* **THE DOCUMENT FACE IS A ROLE, NOT A NEW SIZE (the light contract).** The session goal sentence, a
+     transaction's purpose, the receipt's headline and the page's brand word are set in serif; the UI stays
+     in `--font` and every fact stays in `--font-mono`. The CJK fallbacks are deliberate: the product's copy
+     is frequently Chinese, and falling through Georgia to a sans default would break the "document" reading
+     mid-sentence. Installed faces only — an offline product downloads no webfont. */
+  --font-serif:"Iowan Old Style","Palatino Linotype",Palatino,"Noto Serif CJK SC","Songti SC",Georgia,"DejaVu Serif",serif;
   --mono:"SF Mono",ui-monospace,"JetBrains Mono",Consolas,"Cascadia Mono",monospace;
   --font-mono:var(--mono);
 
@@ -114,10 +116,10 @@ pub const TOKENS: &str = r#":root {
      A CODE SNIPPET IS EXEMPT (scanned token by token, and wrapping breaks a copy-paste). */
   --measure:66ch;
 
-  /* The terminal is a canvas that follows the page, the way summrise-legacy's does (`--term-canvas-bg`).
-     An ANSI palette tuned for a light canvas is not the dark one with the colours swapped: these are
-     the legacy's, so a `ls` or a `git status` reads the same in both products. */
-  --term-canvas:#ffffff; --term-selection:rgba(191,58,10,.18);
+  /* The terminal is a canvas on the page's sheet, the way summrise-legacy's does. An ANSI palette tuned
+     for a light canvas is not the dark one with the colours swapped: these are the legacy's, so a `ls`
+     or a `git status` reads the same in both products. */
+  --term-canvas:#fbf9f4; --term-selection:rgba(180,69,31,.18);
   --term-black:#1d1d1f; --term-white:#44403c;
   --term-red:#b3261e; --term-green:#1d7a3c; --term-yellow:#a8620a;
   --term-blue:#1f5fbf; --term-magenta:#8a3ffc; --term-cyan:#0e7490;
@@ -125,87 +127,14 @@ pub const TOKENS: &str = r#":root {
   /* The device's own panel was written against older names (`--surface`, `--ink-muted`, `--error`).
      They are aliases now rather than a second palette: a token defined twice is a token that drifts. */
   --surface:var(--panel); --surface-chip:var(--panel-3);
-  /* **A RECESS IS THE CARD'S STEP WITH THE SIGN REVERSED (the hundred-and-seventeenth list).** Measured 2026-11-11:
-     `var(--panel-2)` = `#fafafa` is **the ground, again** — a recessed block measured **1.000** against the pane, and
-     every other spelling in the light scale (`#f4f4f5`) landed at 1.027. **A usable recess needs 8 levels BELOW the
-     pane**; the scale's steps are 3–8 apart, so there is no token to pick and inventing one adds a colour.
-     The card is `color-mix(ink 3.5%, panel)`; the recess is the same mix at 7% — measured **1.074**.
-     **AND IT LIVES HERE, NOT IN THE GENERATED SHEET**: `tokens.css` is rewritten by `generate-tokens.sh`, so a token
-     added there is a token the next run deletes. */
+  /* **A RECESS IS THE CARD'S STEP WITH THE SIGN REVERSED (the hundred-and-seventeenth list).** The
+     light scale's steps sit ABOVE the pane, not below it, so there is no token to pick and inventing one
+     adds a colour: the recess is the card's mix at twice the strength, `color-mix(ink 7%, panel)`.
+     **AND IT LIVES HERE, NOT IN THE GENERATED SHEET**: `tokens.css` is rewritten by `generate-tokens.sh`,
+     so a token added there is a token the next run deletes. */
   --surface-recessed:color-mix(in srgb, var(--ink) 7%, var(--panel));
   --ink-muted:var(--muted); --ink-faint:var(--faint); --error:var(--danger);
   --error-soft:var(--danger-soft); --hover:var(--panel-2);
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-
-    --bg:#131418; --panel:#1c1d22; --panel-2:#16171b; --panel-3:#23242a;
-    /* **AND AFTER DARK THE RECESS GOES THE OTHER WAY** — the card sits BELOW the pane there, so a recess is a step
-       toward the GROUND at the same size. Restated in this block for the same reason every derived token is. */
-    --surface-recessed:color-mix(in srgb, var(--bg) 40%, var(--panel));
-    --ink:#ecedef; --muted:#a2a3ac; --faint:#8e909a;
-    --line:rgba(255,255,255,.08); --line-strong:rgba(255,255,255,.14); --line-soft:rgba(255,255,255,.05);
-    --accent:#ffa36b; --accent-solid:#b03a0a; --accent-hover:#c2410c;
-    --accent-soft:#3d2817; --accent-fg:#ffffff;
-    /* **AND AFTER DARK THE MEMBER INVERTS.** The wash is a dark brown; `#9c3a0a` on it measures **1.4:1**. The dark
-       accent `#ffa36b` measures **7.07:1** on the same wash, so that is the member here — the same JOB, the value
-       this theme's colours need. */
-    --accent-on-soft:#ffa36b;
-    --ok:#6edc8b; --warn:#e0a44a; --ok-soft:rgba(46,160,73,.16);
-    --warn-soft:#3a2a14; --danger:#ff8b84; --danger-soft:#2a1512;
-    --focus-ring:#ffa36b;
-    --rail:#0b0c0e; --rail-line:rgba(255,255,255,.07); --rail-ink:#8f9099;
-    --rail-ink-hover:#ffffff; --rail-focus:#ffb86b;
-    --shadow:0 1px 2px rgba(0,0,0,.4);
-    /* The pane after dark: a plain shadow is a colour, and the light theme's cool drop is invisible
-       on a near-black ground — the same computed-value trap this block's other shadows document. */
-    --shadow-pop:0 1px 1px rgba(0,0,0,.5),0 6px 14px -6px rgba(0,0,0,.5),0 22px 48px -28px rgba(0,0,0,.8);
-    --shadow-1:var(--shadow);
-    --shadow-2:0 8px 24px -18px rgba(0,0,0,.8);
-    /* The pane's deep drop carries its own dark value, as the console's local block did. */
-    --elev-2:0 24px 60px -18px rgba(0,0,0,.75),0 2px 8px rgba(0,0,0,.5);
-    --hover:#2a2b32;
-    --term-canvas:#0f1014; --term-selection:rgba(255,163,107,.24);
-    --term-black:#2a2c33; --term-white:#e8e9ec;
-    --term-red:#ff8b84; --term-green:#6edc8b; --term-yellow:#e0a44a;
-    --term-blue:#7fb0ff; --term-magenta:#c9a3ff; --term-cyan:#6fd3e6;
-
-  }
-}
-/* A chosen theme wins over the system: the panel and the console set data-theme on the root. */
-:root[data-theme="dark"] {
-
-    --bg:#131418; --panel:#1c1d22; --panel-2:#16171b; --panel-3:#23242a;
-    /* **AND AFTER DARK THE RECESS GOES THE OTHER WAY** — the card sits BELOW the pane there, so a recess is a step
-       toward the GROUND at the same size. Restated in this block for the same reason every derived token is. */
-    --surface-recessed:color-mix(in srgb, var(--bg) 40%, var(--panel));
-    --ink:#ecedef; --muted:#a2a3ac; --faint:#8e909a;
-    --line:rgba(255,255,255,.08); --line-strong:rgba(255,255,255,.14); --line-soft:rgba(255,255,255,.05);
-    --accent:#ffa36b; --accent-solid:#b03a0a; --accent-hover:#c2410c;
-    --accent-soft:#3d2817; --accent-fg:#ffffff;
-    /* **AND AFTER DARK THE MEMBER INVERTS.** The wash is a dark brown; `#9c3a0a` on it measures **1.4:1**. The dark
-       accent `#ffa36b` measures **7.07:1** on the same wash, so that is the member here — the same JOB, the value
-       this theme's colours need. */
-    --accent-on-soft:#ffa36b;
-    --ok:#6edc8b; --warn:#e0a44a; --ok-soft:rgba(46,160,73,.16);
-    --warn-soft:#3a2a14; --danger:#ff8b84; --danger-soft:#2a1512;
-    --focus-ring:#ffa36b;
-    --rail:#0b0c0e; --rail-line:rgba(255,255,255,.07); --rail-ink:#8f9099;
-    --rail-ink-hover:#ffffff; --rail-focus:#ffb86b;
-    --shadow:0 1px 2px rgba(0,0,0,.4);
-    /* The pane after dark: a plain shadow is a colour, and the light theme's cool drop is invisible
-       on a near-black ground — the same computed-value trap this block's other shadows document. */
-    --shadow-pop:0 1px 1px rgba(0,0,0,.5),0 6px 14px -6px rgba(0,0,0,.5),0 22px 48px -28px rgba(0,0,0,.8);
-    --shadow-1:var(--shadow);
-    --shadow-2:0 8px 24px -18px rgba(0,0,0,.8);
-    /* The pane's deep drop carries its own dark value, as the console's local block did. */
-    --elev-2:0 24px 60px -18px rgba(0,0,0,.75),0 2px 8px rgba(0,0,0,.5);
-    --hover:#2a2b32;
-    --term-canvas:#0f1014; --term-selection:rgba(255,163,107,.24);
-    --term-black:#2a2c33; --term-white:#e8e9ec;
-    --term-red:#ff8b84; --term-green:#6edc8b; --term-yellow:#e0a44a;
-    --term-blue:#7fb0ff; --term-magenta:#c9a3ff; --term-cyan:#6fd3e6;
-
 }
 "#;
 
@@ -369,15 +298,15 @@ mod tests {
         }
     }
 
-    /// A dark block exists for the tokens that only got a light value.
+    /// The sheet declares one palette and one scheme; the dark machinery is gone.
     #[test]
-    fn the_dark_block_restates_the_surfaces() {
-        let dark = TOKENS
-            .find("@media (prefers-color-scheme: dark)")
-            .expect("a dark block");
-        let block = &TOKENS[dark..];
-        for token in ["--bg:", "--panel:", "--ink:"] {
-            assert!(block.contains(token), "{token} is redarkened");
-        }
+    fn the_sheet_declares_one_palette() {
+        assert!(TOKENS
+            .lines()
+            .any(|line| line.trim() == "color-scheme: light;"));
+        assert!(!TOKENS.contains("prefers-color-scheme"));
+        assert!(!TOKENS.contains("data-theme"));
+        assert_eq!(TOKENS.matches(":root").count(), 1);
+        assert!(TOKENS.contains("--font-serif:"));
     }
 }

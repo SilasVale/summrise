@@ -40,6 +40,29 @@ function started(
   return { device_id: device, caller: "client", ...overrides };
 }
 
+/** One six-digit colour declared in app.css, lowercased, without the `#`. */
+function declaredColour(sheet: string, name: string): string {
+  const match = new RegExp(`--${name}:\\s*#([0-9a-fA-F]{6})\\s*;`).exec(sheet);
+  if (match === null) throw new Error(`--${name} is not declared in app.css`);
+  return match[1].toLowerCase();
+}
+
+/** WCAG relative luminance of an `rrggbb` colour. */
+function luminance(hex: string): number {
+  const channels = [0, 2, 4]
+    .map((offset) => parseInt(hex.slice(offset, offset + 2), 16) / 255)
+    .map((channel) =>
+      channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
+    );
+  return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+}
+
+/** WCAG contrast between two `rrggbb` colours. */
+function contrast(left: string, right: string): number {
+  const [lighter, darker] = [luminance(left), luminance(right)].sort((a, b) => b - a);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
 function renderRail(props: Partial<ComponentProps<typeof ActivityRail>> = {}) {
   return render(
     <ActivityRail
@@ -546,8 +569,11 @@ describe("ActivityRail ledger groups", () => {
     });
 
     const rail = screen.getByRole("complementary", { name: "Session activity" });
-    // The group's ending says aborted; the call it observed says failed, in its own words.
-    expect(within(rail).getByText("aborted")).toBeInTheDocument();
+    // The group's ending says aborted (in the header and in the receipt's declaration); the call it
+    // observed says failed, in its own words.
+    const receipt = rail.querySelector(".activity-group-receipt");
+    expect(receipt).not.toBeNull();
+    expect(within(receipt as HTMLElement).getByText("aborted")).toBeInTheDocument();
     expect(within(rail).getByText("failed")).toBeInTheDocument();
   });
 
@@ -584,10 +610,161 @@ describe("ActivityRail ledger groups", () => {
     });
 
     const rail = screen.getByRole("complementary", { name: "Session activity" });
-    expect(within(rail).getByText(/1 call in this window/)).toBeInTheDocument();
-    expect(within(rail).getByText(/9 calls/)).toBeInTheDocument();
-    expect(within(rail).getByText(/1 failure/)).toBeInTheDocument();
-    expect(within(rail).getByText(/2 refused/)).toBeInTheDocument();
+    const group = rail.querySelector(".activity-group") as HTMLElement;
+    // The rows in this window stay visible as rows; the receipt's own totals sit beneath them,
+    // labelled by which side they come from.
+    expect(group.querySelectorAll(".activity-group-calls .activity-card")).toHaveLength(1);
+    const parts = group.querySelectorAll(".activity-group-receipt p");
+    // Two labelled parts, plus the hint this receipt earns: it committed over a failed call.
+    expect(parts).toHaveLength(3);
+    // The label carries a separator in the text, not only in the flex gap: a screen reader hears
+    // "Declared: committed", never "Declaredcommitted".
+    expect(parts[0]).toHaveTextContent("Declared: committed");
+    expect(parts[1]).toHaveTextContent("Observed: 9 calls");
+    expect(parts[1]).toHaveTextContent(/1 failure/);
+    expect(parts[1]).toHaveTextContent(/1 failure/);
+    expect(parts[1]).toHaveTextContent(/2 refused/);
+    expect(parts[1]).toHaveTextContent(/3m 12s/);
+    expect(parts[2]).toHaveTextContent("drift Committed over 1 failed call.");
+  });
+
+  it("says where the receipt's declaration and the device's counts disagree", () => {
+    renderRail({
+      lines: [
+        scoped({
+          ts_ms: 5_000,
+          tool: "txn.commit",
+          txn: "txn-1",
+          row_kind: "txn.committed",
+          sentence: "Committed a transaction",
+          receipt: {
+            txn: "txn-1",
+            state: "committed",
+            observed: { calls: 5, failures: 1, refusals: 0, duration_ms: 60_000 }
+          }
+        }),
+        scoped({
+          ts_ms: 4_000,
+          tool: "files.write",
+          txn: "txn-1",
+          evidence: { path: "a.txt" },
+          sentence: "Wrote `a.txt`"
+        }),
+        scoped({
+          ts_ms: 3_000,
+          tool: "txn.begin",
+          txn: "txn-1",
+          purpose: "verify the suite",
+          sentence: "Began a transaction"
+        })
+      ]
+    });
+
+    const rail = screen.getByRole("complementary", { name: "Session activity" });
+    const group = rail.querySelector(".activity-group") as HTMLElement;
+    const drift = group.querySelector(".receipt-drift");
+    expect(drift, "the receipt foot carries the drift hint").not.toBeNull();
+    // The line is labelled as the hint it is, and it states the receipt's own arithmetic: the
+    // declared ending (`Committed`) over the calls the device observed (`1 failed call`).
+    expect(drift).toHaveTextContent(/^drift\s+Committed over 1 failed call\.$/);
+  });
+
+  it("draws no drift line for a clean commit", () => {
+    renderRail({
+      lines: [
+        scoped({
+          ts_ms: 5_000,
+          tool: "txn.commit",
+          txn: "txn-1",
+          row_kind: "txn.committed",
+          sentence: "Committed a transaction",
+          receipt: {
+            txn: "txn-1",
+            state: "committed",
+            observed: { calls: 5, failures: 0, refusals: 0, duration_ms: 60_000 }
+          }
+        }),
+        scoped({
+          ts_ms: 3_000,
+          tool: "txn.begin",
+          txn: "txn-1",
+          purpose: "verify the suite",
+          sentence: "Began a transaction"
+        })
+      ]
+    });
+
+    const rail = screen.getByRole("complementary", { name: "Session activity" });
+    const group = rail.querySelector(".activity-group") as HTMLElement;
+    // Declared and observed agree, so there is nothing to say; the receipt keeps its two parts.
+    expect(group.querySelector(".receipt-drift")).toBeNull();
+    expect(group.querySelector(".activity-group-receipt")).not.toBeNull();
+  });
+
+  it("renders the author's ending when an abort followed clean calls", () => {
+    renderRail({
+      lines: [
+        scoped({
+          ts_ms: 5_000,
+          tool: "txn.abort",
+          txn: "txn-a",
+          row_kind: "txn.aborted",
+          sentence: "Aborted a transaction",
+          receipt: {
+            txn: "txn-a",
+            state: "aborted",
+            observed: { calls: 2, failures: 0, refusals: 0, duration_ms: 30_000 }
+          }
+        }),
+        scoped({
+          ts_ms: 3_000,
+          tool: "txn.begin",
+          txn: "txn-a",
+          purpose: "stop before the release",
+          sentence: "Began a transaction"
+        })
+      ]
+    });
+
+    const rail = screen.getByRole("complementary", { name: "Session activity" });
+    const group = rail.querySelector(".activity-group") as HTMLElement;
+    const drift = group.querySelector(".receipt-drift");
+    expect(drift, "an abort over clean calls draws the hint").not.toBeNull();
+    expect(drift).toHaveTextContent(
+      /^drift\s+Aborted after 2 clean calls — the ending is the author's, not the record's\.$/
+    );
+  });
+
+  it("renders the no-calls sentence for an empty receipt", () => {
+    renderRail({
+      lines: [
+        scoped({
+          ts_ms: 5_000,
+          tool: "txn.commit",
+          txn: "txn-e",
+          row_kind: "txn.committed",
+          sentence: "Committed a transaction",
+          receipt: {
+            txn: "txn-e",
+            state: "committed",
+            observed: { calls: 0, failures: 0, refusals: 0, duration_ms: 0 }
+          }
+        }),
+        scoped({
+          ts_ms: 3_000,
+          tool: "txn.begin",
+          txn: "txn-e",
+          purpose: "an empty transaction",
+          sentence: "Began a transaction"
+        })
+      ]
+    });
+
+    const rail = screen.getByRole("complementary", { name: "Session activity" });
+    const group = rail.querySelector(".activity-group") as HTMLElement;
+    const drift = group.querySelector(".receipt-drift");
+    expect(drift, "an empty receipt draws the hint").not.toBeNull();
+    expect(drift).toHaveTextContent(/^drift\s+Ended with no calls recorded\.$/);
   });
 
   it("never shows a client's purpose as the operator's instruction", () => {
@@ -724,5 +901,18 @@ describe("ActivityRail ledger groups", () => {
     for (const state of ["working", "committed", "aborted", "unrecorded"]) {
       expect(sheet).toMatch(new RegExp(`\\.activity-group\\.state-${state}\\s*\\{`));
     }
+  });
+
+  it("the_captured_output_is_paper", () => {
+    const sheet = readFileSync(path.join(process.cwd(), "src", "app.css"), "utf8");
+    const bg = declaredColour(sheet, "evidence-bg");
+    const ink = declaredColour(sheet, "evidence-ink");
+    // A captured transcript is terminal output, but it is paper in a one-palette product: the old
+    // near-black surface was the last dark rectangle on the light page.
+    expect(bg, "the captured output is not the old dark terminal").not.toBe("14161a");
+    expect(
+      contrast(ink, bg),
+      `captured output: #${ink} on #${bg} measures ${contrast(ink, bg).toFixed(2)}:1 (AA needs 4.5)`
+    ).toBeGreaterThanOrEqual(4.5);
   });
 });

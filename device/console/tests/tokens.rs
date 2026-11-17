@@ -1,9 +1,9 @@
 //! The React page's visual contract, checked by Rust.
 //!
 //! `device/console/web/src/tokens.css` is GENERATED from `device/ui::TOKENS`; the first test below
-//! is the drift gate. The rest measure the values the page draws — the seven type sizes, one spacing
-//! rhythm, the radii, the dark surfaces and every text pair the React page actually renders. A token
-//! changed to a pretty value fails here, not in a screenshot someone forgets to open.
+//! is the drift gate. The rest measure the values the page draws — one palette, the seven type
+//! sizes, one spacing rhythm, the radii and every text pair the React page actually renders. A
+//! token changed to a pretty value fails here, not in a screenshot someone forgets to open.
 
 const TOKENS: &str = include_str!("../web/src/tokens.css");
 const APP: &str = include_str!("../web/src/app.css");
@@ -52,7 +52,7 @@ fn blend(sheet: &str, value: &str) -> Option<(f64, f64, f64)> {
     ))
 }
 
-/// A colour named by `var(--x)`, resolved to channels through the sheet the theme restates.
+/// A colour named by `var(--x)`, resolved to channels through the one sheet.
 fn hex_of(sheet: &str, token: &str) -> Option<(f64, f64, f64)> {
     let name = token.strip_prefix("var(--")?.strip_suffix(')')?;
     let value = declared(sheet, name).or_else(|| declared(TOKENS, name))?;
@@ -63,8 +63,7 @@ fn hex_of(sheet: &str, token: &str) -> Option<(f64, f64, f64)> {
 /// The literal behind an alias (`--surface:var(--panel)` follows to `--panel`). One hop is enough:
 /// the sheet's aliases point at real values, not at each other.
 fn follows<'a>(sheet: &'a str, name: &str) -> Option<&'a str> {
-    // The dark block restates surfaces, not aliases: an alias declared once in :root still has to be
-    // followed, and its target is the one the requested theme restates.
+    // An alias declared once in :root still has to be followed to the value it names.
     let raw = declared(sheet, name).or_else(|| declared(TOKENS, name))?;
     match raw
         .strip_prefix("var(--")
@@ -86,21 +85,6 @@ fn all_declared<'a>(css: &'a str, prefix: &str) -> Vec<&'a str> {
         rest = &after[end..];
     }
     out
-}
-
-fn block(css: &str, start: usize) -> &str {
-    &css[start..]
-}
-
-fn theme(dark: bool) -> &'static str {
-    if dark {
-        TOKENS
-            .find("@media")
-            .map(|index| block(TOKENS, index))
-            .expect("the token sheet has a dark block")
-    } else {
-        TOKENS
-    }
 }
 
 #[test]
@@ -150,29 +134,116 @@ fn one_spacing_rhythm_and_the_canonical_radii() {
     .map(|name| declared(TOKENS, name).unwrap_or_else(|| panic!("--{name} is missing")))
     .collect();
     assert_eq!(radii, ["6px", "8px", "10px", "14px", "20px"]);
-    assert_eq!(declared(TOKENS, "accent"), Some("#bf3a0a"));
-    assert_eq!(declared(TOKENS, "accent-solid"), Some("#b03a0a"));
+    assert_eq!(declared(TOKENS, "accent"), Some("#b4451f"));
+    assert_eq!(declared(TOKENS, "accent-solid"), Some("#b4451f"));
     assert_eq!(declared(TOKENS, "radius-pill"), Some("999px"));
 }
 
 #[test]
-fn the_dark_surfaces_are_restated_not_inherited() {
-    let dark = theme(true);
-    assert_eq!(declared(dark, "bg"), Some("#131418"));
-    assert_eq!(declared(dark, "panel"), Some("#1c1d22"));
-    assert_eq!(declared(dark, "ink"), Some("#ecedef"));
-    assert_eq!(declared(dark, "accent"), Some("#ffa36b"));
-    assert_eq!(declared(dark, "term-canvas"), Some("#0f1014"));
-    // The aliases are not restated; they resolve through the panel tokens that are.
-    assert_eq!(declared(dark, "surface"), None);
-    assert_eq!(follows(dark, "surface"), Some("#1c1d22"));
+fn the_sheet_declares_one_palette() {
+    assert!(
+        TOKENS
+            .lines()
+            .any(|line| line.trim() == "color-scheme: light;"),
+        "the one palette is the browser's light scheme"
+    );
+    assert_eq!(
+        TOKENS.matches("color-scheme:").count(),
+        1,
+        "the colour scheme is declared once"
+    );
+    assert!(
+        !TOKENS.contains("prefers-color-scheme"),
+        "the sheet follows no system theme"
+    );
+    assert!(
+        !TOKENS.contains("data-theme"),
+        "the sheet answers no chosen theme"
+    );
+    assert!(
+        !TOKENS.contains("@media"),
+        "the sheet has no second block to switch to"
+    );
+    assert_eq!(TOKENS.matches(":root").count(), 1, "the sheet has one root");
+    assert_eq!(
+        declared(TOKENS, "font-serif"),
+        Some(
+            r#""Iowan Old Style","Palatino Linotype",Palatino,"Noto Serif CJK SC","Songti SC",Georgia,"DejaVu Serif",serif"#
+        ),
+        "the document face is the contract's serif stack"
+    );
+    for gone in [
+        "rail",
+        "rail-line",
+        "rail-ink",
+        "rail-ink-hover",
+        "rail-focus",
+    ] {
+        assert_eq!(
+            declared(TOKENS, gone),
+            None,
+            "--{gone} belonged to the deleted dark rail"
+        );
+    }
+    // Every colour the page can paint is declared exactly once: a second declaration is a second
+    // palette, which is what this round deletes.
+    for name in [
+        "bg",
+        "panel",
+        "panel-2",
+        "panel-3",
+        "ink",
+        "muted",
+        "faint",
+        "line",
+        "line-strong",
+        "line-soft",
+        "accent",
+        "accent-solid",
+        "accent-hover",
+        "accent-soft",
+        "accent-fg",
+        "accent-on-soft",
+        "ok",
+        "ok-soft",
+        "warn",
+        "warn-soft",
+        "danger",
+        "danger-soft",
+        "focus-ring",
+        "shadow",
+        "shadow-pop",
+        "shadow-1",
+        "shadow-2",
+        "elev-segment",
+        "elev-2",
+        "ring",
+        "scrim",
+        "surface-recessed",
+        "term-canvas",
+        "term-selection",
+        "term-black",
+        "term-white",
+        "term-red",
+        "term-green",
+        "term-yellow",
+        "term-blue",
+        "term-magenta",
+        "term-cyan",
+    ] {
+        assert_eq!(
+            TOKENS.matches(&format!("--{name}:")).count(),
+            1,
+            "--{name} is declared exactly once"
+        );
+    }
 }
 
 // ── THE REACT PAGE'S OWN COLOUR PAIRS ─────────────────────────────────────────────────────────────
 //
 // The React page's sheet had no measured AA test, so `--ink-faint` shipped as #a1a1aa — 2.46:1 on
 // white, used at 11px — and nothing failed.
-// This test reads the SAME sheet Vite builds, resolves the two themes, and measures every
+// This test reads the SAME sheet Vite builds, resolves the one palette, and measures every
 // text-on-surface pair the page actually draws.
 
 /// A `#rrggbb` token as channels in 0..=1. Alpha tokens are not admitted: a pair measured against a
@@ -248,31 +319,22 @@ fn every_text_pair_reads_on_the_surface_it_sits_on() {
         // same card, not the success wash.
         ("success on a card", "ok", "surface"),
     ];
-    for dark in [false, true] {
-        let sheet = theme(dark);
-        for (use_name, ink, surface) in pairs {
-            // The dark success wash is a translucent green; it is measured by the runtime probe, not
-            // compared against a hex it is not the background of. --ok on an opaque card is still a
-            // real pair and is measured in both themes.
-            if dark && *ink == "ok" && *surface == "ok-soft" {
-                continue;
-            }
-            let ink_value = follows(sheet, ink).unwrap_or_else(|| panic!("--{ink} is missing"));
-            let surface_value =
-                follows(sheet, surface).unwrap_or_else(|| panic!("--{surface} is missing"));
-            // **A DERIVED SURFACE IS COMPOSITED, NOT SKIPPED** (the hundred-and-seventeenth list). `--warn` and
-            // `--error` sit on `--surface-recessed`, which is a `color-mix` now; skipping it would leave the pair
-            // that shipped unmeasured once already.
-            let measured = match blend(sheet, surface_value) {
-                Some(channels) => contrast_of(rgb(ink_value), channels),
-                None => contrast(ink_value, surface_value),
-            };
-            assert!(
-                measured >= 4.5,
-                "{use_name}: --{ink} {ink_value} on --{surface} {surface_value} measures {measured:.2}:1 in {} (AA needs 4.5)",
-                if dark { "dark" } else { "light" }
-            );
-        }
+    let sheet = TOKENS;
+    for (use_name, ink, surface) in pairs {
+        let ink_value = follows(sheet, ink).unwrap_or_else(|| panic!("--{ink} is missing"));
+        let surface_value =
+            follows(sheet, surface).unwrap_or_else(|| panic!("--{surface} is missing"));
+        // **A DERIVED SURFACE IS COMPOSITED, NOT SKIPPED** (the hundred-and-seventeenth list). `--warn` and
+        // `--error` sit on `--surface-recessed`, which is a `color-mix` now; skipping it would leave the pair
+        // that shipped unmeasured once already.
+        let measured = match blend(sheet, surface_value) {
+            Some(channels) => contrast_of(rgb(ink_value), channels),
+            None => contrast(ink_value, surface_value),
+        };
+        assert!(
+            measured >= 4.5,
+            "{use_name}: --{ink} {ink_value} on --{surface} {surface_value} measures {measured:.2}:1 (AA needs 4.5)"
+        );
     }
 }
 
@@ -307,29 +369,25 @@ fn the_chip_label_reads_on_its_own_wash() {
     };
     let colour = read("color:");
     let wash = read("background:");
-    for dark in [false, true] {
-        let sheet = theme(dark);
-        let ink_value = follows(sheet, &colour).unwrap_or_else(|| panic!("--{colour} is missing"));
-        let wash_value = follows(sheet, &wash).unwrap_or_else(|| panic!("--{wash} is missing"));
-        let measured = contrast(ink_value, wash_value);
-        assert!(
-            measured >= 4.5,
-            "the chip draws --{colour} {ink_value} on --{wash} {wash_value}: {measured:.2}:1 in {} (AA needs 4.5)",
-            if dark { "dark" } else { "light" }
-        );
-    }
+    let sheet = TOKENS;
+    let ink_value = follows(sheet, &colour).unwrap_or_else(|| panic!("--{colour} is missing"));
+    let wash_value = follows(sheet, &wash).unwrap_or_else(|| panic!("--{wash} is missing"));
+    let measured = contrast(ink_value, wash_value);
+    assert!(
+        measured >= 4.5,
+        "the chip draws --{colour} {ink_value} on --{wash} {wash_value}: {measured:.2}:1 (AA needs 4.5)"
+    );
 }
 
-/// The evidence output is a terminal surface drawn with two literal colours rather than a theme
-/// token: it is always dark, in both themes, because it is output and not body copy. It is still a
-/// pair the operator reads, so it is measured with the same 4.5 threshold as the token pairs.
+/// The evidence output is a terminal surface drawn with two colours of its own: it is output, not
+/// body copy. It is still a pair the operator reads, so it is measured with the same 4.5 threshold
+/// as the token pairs.
 #[test]
 fn the_evidence_output_reads_on_its_terminal_surface() {
     // **IT READS THE TOKENS NOW (the twenty-sixth list, item 4).** The pair used to be two literals
     // written at the call site and hand-copied into this test, so a palette change could not reach
     // them and neither could this assertion. `--evidence-bg`/`--evidence-ink` are declared in
-    // `app.css`'s local block (deliberately not restated in the dark theme: the transcript is a
-    // terminal on both pages) and the test follows them.
+    // `app.css`'s local block and the test follows them.
     let ink = declared(APP, "evidence-ink").expect("--evidence-ink is declared in app.css");
     let surface = declared(APP, "evidence-bg").expect("--evidence-bg is declared in app.css");
     let measured = contrast(ink, surface);

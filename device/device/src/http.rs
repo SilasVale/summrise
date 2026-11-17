@@ -536,11 +536,9 @@ async fn panel_page(
     Html(markup.into_string()).into_response()
 }
 
-/// The transcript's query string: the page's theme, and the stream's cursor and page size.
+/// The transcript's query string: the stream's cursor and page size, and the transaction it expands.
 #[derive(Deserialize)]
 struct ActivityQuery {
-    /// `dark` chooses the dark theme; anything else (or nothing) is the light theme.
-    theme: Option<String>,
     /// The cursor a poll asks after, as [`activity::cursor_string`] spells it.
     after: Option<String>,
     /// The new-begin page size, clamped to `1..=200`. Late-end updates are outside it.
@@ -564,9 +562,8 @@ async fn activity_page(
         return error_response(StatusCode::FORBIDDEN, "loopback_only", None);
     }
 
-    let theme = activity::Theme::from_query(query.theme.as_deref());
     let facts = activity_facts(&app, query.txn.as_deref());
-    Html(activity::page(&facts, theme).into_string()).into_response()
+    Html(activity::page(&facts).into_string()).into_response()
 }
 
 /// `GET /api/activity?after=<boot>.<seq>&limit=<n>`: the transcript's rows for the page's poll.
@@ -4312,24 +4309,24 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_activity_page_honors_the_theme_query() {
-        let fixture = fixture("activity-theme", None);
+    async fn the_activity_page_ignores_a_theme_query() {
+        let fixture = fixture("activity-one-palette", None);
         let client = client();
         let server = PanelServer::start(fixture.app()).await;
 
-        let (status, light) = get_text(&client, &format!("{}/activity", server.base_url)).await;
+        let (status, plain) = get_text(&client, &format!("{}/activity", server.base_url)).await;
         assert_eq!(status, StatusCode::OK);
-        assert!(
-            light.contains(r#"<html lang="en" data-theme="light">"#),
-            "the page defaults to light: {light}"
-        );
 
-        let (status, dark) =
+        let (status, asked) =
             get_text(&client, &format!("{}/activity?theme=dark", server.base_url)).await;
         assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            asked, plain,
+            "a theme query changes no byte of the page: the product has one palette"
+        );
         assert!(
-            dark.contains(r#"<html lang="en" data-theme="dark">"#),
-            "the query chooses dark: {dark}"
+            !asked.contains("data-theme"),
+            "the page declares no theme attribute"
         );
     }
 

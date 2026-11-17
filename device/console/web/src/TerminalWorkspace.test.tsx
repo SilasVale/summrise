@@ -1,5 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { shouldPollSessions, TerminalWorkspace } from "./TerminalWorkspace";
 import { api } from "./api";
 import type { LiveLine, StartedCall } from "./liveActivity";
@@ -147,9 +149,6 @@ vi.mock("./api", async (importOriginal) => {
 const callToolMock = vi.mocked(callTool);
 const GRANT: Grant = { deviceId: "device-1", envelope: {} };
 
-/// jsdom has no `matchMedia` and the workspace asks it for the terminal's theme.
-const matchMedia = Object.getOwnPropertyDescriptor(window, "matchMedia");
-
 /// jsdom has no object-URL methods; the export's download needs both, and its revoke is delayed.
 const objectUrls = {
   create: Object.getOwnPropertyDescriptor(URL, "createObjectURL"),
@@ -178,16 +177,11 @@ beforeEach(() => {
     if (name === "terminal.close") return JSON.stringify({ closed: true });
     throw new Error(`the test did not expect a ${name} call`);
   });
-  Object.defineProperty(window, "matchMedia", {
-    configurable: true,
-    value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
-  });
   Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn(() => "blob:test") });
   Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
 });
 
 afterEach(() => {
-  restoreGlobal(window, "matchMedia", matchMedia);
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -456,8 +450,8 @@ describe("TerminalWorkspace tab names", () => {
     await screen.findByRole("tab", { name: /pty · / });
 
     // jsdom loads no sheet, so the seam's fallback is what it sees; the point is that it is the
-    // WHITE canvas the canonical palette names, not the old hardcoded #10151c.
-    expect(mockedXterm.instances[0].options.theme).toMatchObject({ background: "#ffffff" });
+    // page's sheet (#fbf9f4) the canonical palette names, not the old hardcoded #10151c.
+    expect(mockedXterm.instances[0].options.theme).toMatchObject({ background: "#fbf9f4" });
   });
 
   it("keeps the session's secondary actions in one menu", async () => {
@@ -1399,8 +1393,8 @@ describe("TerminalWorkspace search", () => {
     // Without decorations the addon selects a match but draws nothing, and clearing draws nothing too.
     const next = addon.findNext.mock.calls[0][1];
     expect(next?.decorations).toMatchObject({
-      matchBackground: "rgba(191,58,10,.18)",
-      activeMatchBackground: "#fff0e6"
+      matchBackground: "rgba(180,69,31,.18)",
+      activeMatchBackground: "#f6e5d8"
     });
     expect(next?.caseSensitive).toBeUndefined();
 
@@ -1771,45 +1765,23 @@ describe("TerminalWorkspace display", () => {
     }
   });
 
-  it("follows a scheme change while the tab is open", async () => {
-    const handlers: (() => void)[] = [];
-    const media = {
+  it("the terminal canvas is the page", async () => {
+    // One palette: the terminal reads the page's tokens and nothing else, so no OS scheme is asked
+    // for and the canvas is the sheet the page draws on (#fbf9f4), not a near-black pane.
+    const media = vi.fn(() => ({
       matches: false,
-      addEventListener: vi.fn((_event: string, handler: () => void) => handlers.push(handler)),
+      addEventListener: vi.fn(),
       removeEventListener: vi.fn()
-    };
-    const matchDescriptor = Object.getOwnPropertyDescriptor(window, "matchMedia");
-    const styleDescriptor = Object.getOwnPropertyDescriptor(window, "getComputedStyle");
-    Object.defineProperty(window, "matchMedia", {
-      configurable: true,
-      value: vi.fn(() => media)
-    });
-    // jsdom has no stylesheet, and the page's palette arrives as CSS tokens: this stands one in and
-    // flips it with the scheme, so the assertion is about the terminal re-reading the page.
-    Object.defineProperty(window, "getComputedStyle", {
-      configurable: true,
-      value: vi.fn(() => ({
-        getPropertyValue: (name: string) =>
-          media.matches && name === "--term-canvas" ? "#131418" : ""
-      }))
-    });
+    }));
+    const descriptor = Object.getOwnPropertyDescriptor(window, "matchMedia");
+    Object.defineProperty(window, "matchMedia", { configurable: true, value: media });
     try {
       render(<TerminalWorkspace grant={GRANT} />);
       await startPtyTab();
-      // The xterm instance is created in an effect after the pty answers; reading it without a wait
-      // was a race that failed about one run in three.
-      await waitFor(() => expect(mockedXterm.instances[0]).toBeDefined());
-      expect(mockedXterm.instances[0].options.theme).toMatchObject({ background: "#ffffff" });
-
-      media.matches = true;
-      handlers.forEach((handler) => handler());
-
-      await waitFor(() =>
-        expect(mockedXterm.instances[0].options.theme).toMatchObject({ background: "#131418" })
-      );
+      expect(mockedXterm.instances[0].options.theme).toMatchObject({ background: "#fbf9f4" });
+      expect(media).not.toHaveBeenCalled();
     } finally {
-      restoreGlobal(window, "matchMedia", matchDescriptor);
-      restoreGlobal(window, "getComputedStyle", styleDescriptor);
+      restoreGlobal(window, "matchMedia", descriptor);
     }
   });
 
@@ -2396,5 +2368,61 @@ describe("TerminalWorkspace session goal", () => {
     const card = document.querySelector(".session-card") as HTMLElement;
     expect(within(card).getByText("No goal is set.")).toBeInTheDocument();
     expect(within(card).queryByText("not recorded")).not.toBeInTheDocument();
+  });
+
+  it("the_goal_bar_names_the_goal_in_the_document_face", async () => {
+    listOne({
+      id: "t1",
+      kind: "pty",
+      started_at_ms: 1_000,
+      holder: { kind: "install", token_id: null },
+      goal: {
+        text: "ship the spine",
+        by: { kind: "token", token_id: "token-7f4a" },
+        at_ms: 2_000
+      }
+    });
+    render(<TerminalWorkspace grant={GRANT} />);
+
+    await screen.findByRole("tab", { name: /^pty/ });
+    const text = document.querySelector(".session-card-goal-text");
+    expect(text, "the goal sentence is drawn").not.toBeNull();
+    expect(text!.textContent).toBe("ship the spine");
+    // The document face is the sheet's decision, not a computed style jsdom cannot answer: the
+    // named rule must declare the serif token.
+    const sheet = readFileSync(path.join(process.cwd(), "src", "app.css"), "utf8");
+    const rule = /\.session-card-goal-text\s*\{[^}]*\}/.exec(sheet);
+    expect(rule, "the goal sentence has a rule of its own").not.toBeNull();
+    expect(rule![0]).toMatch(/font-family:\s*var\(--font-serif\)/);
+  });
+
+  it("a_long_client_goal_wraps_in_the_card", async () => {
+    // The device caps a goal at 200 characters; a client can use all of them.
+    const longGoal = "make the installer's config readable by the host "
+      .repeat(5)
+      .slice(0, 200);
+    listOne({
+      id: "t1",
+      kind: "pty",
+      started_at_ms: 1_000,
+      holder: { kind: "install", token_id: null },
+      goal: {
+        text: longGoal,
+        by: { kind: "token", token_id: "token-7f4a" },
+        at_ms: 2_000
+      }
+    });
+    render(<TerminalWorkspace grant={GRANT} />);
+
+    await screen.findByRole("tab", { name: /^pty/ });
+    const bars = document.querySelectorAll(".session-card-goal");
+    expect(bars, "the goal is one row").toHaveLength(1);
+    expect(bars[0].textContent).toContain(longGoal);
+    // A 200-character claim must wrap inside the card; the old dark mockup clipped it with nowrap.
+    const sheet = readFileSync(path.join(process.cwd(), "src", "app.css"), "utf8");
+    const rule = /\.session-card-goal-text\s*\{[^}]*\}/.exec(sheet);
+    expect(rule, "the goal sentence is styled where it is drawn").not.toBeNull();
+    expect(rule![0]).not.toMatch(/white-space:\s*nowrap/);
+    expect(rule![0]).toMatch(/overflow-wrap:\s*anywhere/);
   });
 });

@@ -597,9 +597,12 @@ describe("the layout contract", () => {
     // the ink with `color-mix` and keeps the family at three steps — which is the shape the contract now
     // records, so the surface that had three names could not keep them.
     const tk = tokens();
-    expect(tk, "the line is the contract's").toMatch(/--line:rgba\(0,0,0,\.08\);|--line:rgba\(0, 0, 0, 0\.08\);/);
-    expect(tk, "the strong step").toContain("--line-strong:rgba(0,0,0,.14)");
-    expect(tk, "the soft step").toContain("--line-soft:rgba(0,0,0,.05)");
+    // **THE HAIRLINE IS THE INK'S, NOT NEUTRAL BLACK (the light contract).** The contract JSON still
+    // records the pre-light `rgba(0,0,0,.08)` triple; this round moved the one family onto the warm ink
+    // at .12/.20/.07, and the sheet is the thing this surface draws.
+    expect(tk, "the line is the ink's").toMatch(/--line:rgba\(29,28,26,\.12\);/);
+    expect(tk, "the strong step").toContain("--line-strong:rgba(29,28,26,.20)");
+    expect(tk, "the soft step").toContain("--line-soft:rgba(29,28,26,.07)");
     // **AND THE FOURTH NAME WAS THE DEFECT THIS TEST USED TO PIN (the hundred-and-thirty-third list).**
     // The expectation here was `/--hairline:\s*color-mix\(in srgb, var\(--ink\)/` — a test insisting on a
     // second name while the line below asserted the atom says ONE. Its reason was "derived, not restated",
@@ -647,11 +650,14 @@ describe("the layout contract", () => {
     // third was `#696a74` here and `#6f707a` on the panel — two names for a colour the eye cannot tell
     // from the other, which rule 12 refuses.
     const source = tokens();
-    // The rule: FEWER NUMBERS, so the third grey is not a fourth family waiting to appear.
-    expect(source, "the third grey is the contract's").toContain(`--faint:${contract.palette.faint};`);
-    expect(source, "the ink is the contract's").toContain(`--ink:${contract.palette.ink};`);
-    expect(source, "the second grey is the contract's").toContain(`--muted:${contract.palette.muted};`);
-    expect(source, "the accent is the contract's").toContain(`--accent:${contract.palette.accent};`);
+    // **THE LIGHT PALETTE SUPERSEDES THE CONTRACT'S GREYS THIS ROUND.** The JSON's palette atom
+    // (`#18181b` / `#71717a` / `#696a74` / `#bf3a0a`) is the pre-light console's; the light contract's
+    // values are `#1d1c1a` / `#6f6a61` / `#6b6252` / `#b4451f`. The JSON is shared byte-for-byte with
+    // the panel repo, so this task does not edit it; the sheet is what this surface draws.
+    expect(source, "the third grey").toContain("--faint:#6b6252;");
+    expect(source, "the ink").toContain("--ink:#1d1c1a;");
+    expect(source, "the second grey").toContain("--muted:#6f6a61;");
+    expect(source, "the accent").toContain("--accent:#b4451f;");
     // **AND THE PALETTE IS FIVE NAMES, NOT A SPECTRUM.** `ink`, `muted`, `faint`, one accent, and the
     // semantic four — anything else is a decision that has to be made in the open, which is what the
     // surface that added `#6f707a` had not done.
@@ -1578,14 +1584,15 @@ describe("the layout contract", () => {
     //
     // **Both pass AA, so nothing was broken** — the defect is **two answers to one job**, which is exactly what a
     // palette rule forbids, and `palette.accentFamily.names.console` recorded this surface's member as `(none)`.
-    // The sheet declares it now, both blocks, because the mix that a light value paints on a DARK wash is 1.4:1.
+    // The sheet declares it once now: the member below is the value the wash reads.
+    // **ONE MEMBER, ONE PALETTE.** The sheet has no dark half to invert in now: the member is the hover
+    // step (`#9a3716`), which measures 5.84:1 on the wash.
     const sheet = stripComments(tokens());
-    const light = sheet.slice(0, sheet.indexOf("@media"));
-    const dark = sheet.slice(sheet.indexOf("@media"));
-    expect(light, "the light block declares the member").toContain("--accent-on-soft:#9c3a0a;");
-    expect(dark, "and after dark the member INVERTS, because the wash is dark").toMatch(
-      /--accent-on-soft:#[0-9a-f]{6};/,
-    );
+    expect(sheet, "the one palette declares the member").toContain("--accent-on-soft:#9a3716;");
+    expect(
+      sheet.match(/--accent-on-soft:#[0-9a-f]{6};/g)?.length,
+      "and restates it nowhere",
+    ).toBe(1);
     // **AND NO RULE FILLS THE JOB WITH `--accent` ANY MORE.** The two sites that did (`.seg`'s pressed segment and
     // the chip-tag hover) take the member; a third would be a fourth answer.
     const rules = stripComments(css());
