@@ -89,8 +89,8 @@ const INSTALL_ROOT = (0, install_root_1.installRootFrom)(__dirname);
 // own module — fs/crypto and nothing else — so the facts it composes are testable without Electron.
 const self_check_1 = require("./self-check");
 let _tokenCache = { at: 0, tok: null };
-function agentToken() {
-    if ((0, summrise_shell_policy_1.tokenCacheFresh)(_tokenCache.at, Date.now()))
+function agentToken(fresh = false) {
+    if (!fresh && (0, summrise_shell_policy_1.tokenCacheFresh)(_tokenCache.at, Date.now()))
         return _tokenCache.tok;
     let raw;
     try {
@@ -602,14 +602,17 @@ const httpServer = http.createServer((req, res) => {
         // the origin veto above (so it inherits both) and BEFORE the policy router — the crate's table
         // has no such route, and `controlRoute("GET", SELF_CHECK_PATH)` returning "not-found" is pinned by
         // a test. A POST falls through to the router's 404; no second listener, no page server, nothing
-        // started. The document carries the token's PRESENCE as a boolean only (`agentToken() !== null`);
-        // the config body is never passed in or read here. The answer is async (hashes + health probe),
-        // so a failure is a JSON 500 rather than an exception out of the listener.
+        // started. The document carries the token's PRESENCE as a boolean only (`agentToken(true) !==
+        // null`); the config body is never passed in or read here. `fresh` is deliberate: the tray's
+        // 60 s cache can still hold a null swallowed while the config was denied, and a readable config
+        // must not answer `token_present:false` because of it. The tray keeps the cached `agentToken()`.
+        // The answer is async (hashes + health probe), so a failure is a JSON 500 rather than an
+        // exception out of the listener.
         if (req.method === self_check_1.SELF_CHECK_METHOD && pathname === self_check_1.SELF_CHECK_PATH) {
             void (0, self_check_1.collectSelfCheck)({
                 installRoot: INSTALL_ROOT,
                 configPath: path.join(INSTALL_ROOT, "etc", "config.yaml"),
-                tokenPresent: agentToken() !== null,
+                tokenPresent: agentToken(true) !== null,
                 agentBase: (0, summrise_url_policy_1.agentBase)(),
                 agentHealth: () => agentResponds(),
                 appPath: electron_1.app.getAppPath(),

@@ -87,8 +87,8 @@ const INSTALL_ROOT = installRootFrom(__dirname);
 // own module — fs/crypto and nothing else — so the facts it composes are testable without Electron.
 import { collectSelfCheck, SELF_CHECK_METHOD, SELF_CHECK_PATH } from "./self-check";
 let _tokenCache: { at: number; tok: string | null } = { at: 0, tok: null };
-function agentToken(): string | null {
-  if (tokenCacheFresh(_tokenCache.at, Date.now())) return _tokenCache.tok;
+function agentToken(fresh = false): string | null {
+  if (!fresh && tokenCacheFresh(_tokenCache.at, Date.now())) return _tokenCache.tok;
   let raw: string | undefined;
   try {
     raw = fs.readFileSync(path.join(INSTALL_ROOT, "etc", "config.yaml"), "utf8");
@@ -575,14 +575,17 @@ const httpServer = http.createServer((req, res) => {
     // the origin veto above (so it inherits both) and BEFORE the policy router — the crate's table
     // has no such route, and `controlRoute("GET", SELF_CHECK_PATH)` returning "not-found" is pinned by
     // a test. A POST falls through to the router's 404; no second listener, no page server, nothing
-    // started. The document carries the token's PRESENCE as a boolean only (`agentToken() !== null`);
-    // the config body is never passed in or read here. The answer is async (hashes + health probe),
-    // so a failure is a JSON 500 rather than an exception out of the listener.
+    // started. The document carries the token's PRESENCE as a boolean only (`agentToken(true) !==
+    // null`); the config body is never passed in or read here. `fresh` is deliberate: the tray's
+    // 60 s cache can still hold a null swallowed while the config was denied, and a readable config
+    // must not answer `token_present:false` because of it. The tray keeps the cached `agentToken()`.
+    // The answer is async (hashes + health probe), so a failure is a JSON 500 rather than an
+    // exception out of the listener.
     if (req.method === SELF_CHECK_METHOD && pathname === SELF_CHECK_PATH) {
       void collectSelfCheck({
         installRoot: INSTALL_ROOT,
         configPath: path.join(INSTALL_ROOT, "etc", "config.yaml"),
-        tokenPresent: agentToken() !== null,
+        tokenPresent: agentToken(true) !== null,
         agentBase: agentBase(),
         agentHealth: () => agentResponds(),
         appPath: app.getAppPath(),

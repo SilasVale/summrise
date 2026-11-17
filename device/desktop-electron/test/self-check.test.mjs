@@ -5,7 +5,8 @@
 //      install can produce, and the hashes of the bytes that are actually on disk.
 //   2. ABSENCE IS DATA, NOT A CRASH: a missing config, missing exe/asar/shell and an agent that never
 //      answers all produce nulls/false in the same document — the handler must be able to answer 200
-//      with an installation that is broken, and the 500 path is for the unexpected throw.
+//      with an installation that is broken, and the 500 path is for the unexpected throw. A DENIED
+//      config is not absence: it is present but unreadable, with the token unknown.
 //   3. NO TOKEN VALUE: the only token-named key is `token_present`, and it is a boolean. The config
 //      BODY is never copied into the document — the test writes a canary marker into it and asserts
 //      the serialized document does not contain it. No test fixture holds a credential.
@@ -90,7 +91,8 @@ test("the document is the pinned shape, from a temp install, with real hashes", 
   // The exact key set — a new fact is a contract change and must be deliberate.
   assert.deepEqual(Object.keys(doc).sort(),
     ["agent", "at", "config", "host", "install", "install_root", "ok", "route", "schema", "shell"]);
-  assert.deepEqual(Object.keys(doc.config).sort(), ["bytes", "exists", "path", "token_present"]);
+  assert.deepEqual(Object.keys(doc.config).sort(),
+    ["bytes", "exists", "path", "readable", "token_present"]);
   assert.deepEqual(Object.keys(doc.agent).sort(), ["base", "health"]);
   assert.deepEqual(Object.keys(doc.host).sort(),
     ["app_version", "asar", "asar_bytes", "asar_sha256", "electron", "exe", "exe_bytes", "pid"]);
@@ -106,7 +108,8 @@ test("the document is the pinned shape, from a temp install, with real hashes", 
 
   // exists/bytes come from stat only; token_present is the passed boolean, never derived here.
   assert.deepEqual(doc.config, {
-    path: p.config, exists: true, bytes: Buffer.byteLength(configBody), token_present: true,
+    path: p.config, exists: true, bytes: Buffer.byteLength(configBody), readable: true,
+    token_present: true,
   });
   assert.deepEqual(doc.agent, { base: "http://127.0.0.1:18090", health: true });
 
@@ -134,7 +137,9 @@ test("missing config/files and a dead agent answer nulls/false, and never throw"
   }));
 
   assert.equal(doc.ok, true);
-  assert.deepEqual(doc.config, { path: p.config, exists: false, bytes: null, token_present: false });
+  assert.deepEqual(doc.config, {
+    path: p.config, exists: false, bytes: null, readable: false, token_present: false,
+  });
   assert.deepEqual(doc.agent, { base: "http://127.0.0.1:18090", health: false });
   assert.equal(doc.host.exe_bytes, null);
   assert.equal(doc.host.asar_bytes, null);
@@ -142,6 +147,58 @@ test("missing config/files and a dead agent answer nulls/false, and never throw"
   assert.equal(doc.shell.bytes, null);
   assert.equal(doc.shell.sha256, null);
   assert.deepEqual(doc.install, { current: null, previous: null });
+});
+
+test("a denied config is present but unreadable, and the token is unknown", async (t) => {
+  const p = tempInstall(t);
+  const errorWith = (code) => Object.assign(new Error(`${code}: permission denied`), { code });
+
+  // Shape 1 — the stat itself is denied (Windows withholds FILE_READ_ATTRIBUTES). The file is there;
+  // the host may not ask about it. A denial must never be reported as absence.
+  const deniedStat = {
+    statSync() { throw errorWith("EACCES"); },
+    openSync() { throw new Error("a denied stat must not reach open"); },
+    closeSync() { throw new Error("nothing was opened, so nothing may be closed"); },
+  };
+  const a = await collectSelfCheck(deps(p, { tokenPresent: true, configFs: deniedStat }));
+  assert.deepEqual(a.config, {
+    path: p.config, exists: true, bytes: null, readable: false, token_present: null,
+  });
+
+  // Shape 2 — the stat succeeds but the open is denied: the size is proved, the body is not, and a
+  // token the host could read before says nothing about this file. bytes keep the stat size.
+  const body = "server:\n  port: 18090\n";
+  fs.writeFileSync(p.config, body);
+  let closes = 0;
+  const deniedOpen = {
+    statSync() { return { isFile: () => true, size: Buffer.byteLength(body) }; },
+    openSync() { throw errorWith("EACCES"); },
+    closeSync() { closes += 1; },
+  };
+  const b = await collectSelfCheck(deps(p, { tokenPresent: true, configFs: deniedOpen }));
+  assert.deepEqual(b.config, {
+    path: p.config, exists: true, bytes: Buffer.byteLength(body), readable: false,
+    token_present: null,
+  });
+  assert.equal(closes, 0);
+
+  // An injected ENOENT is absence — the one state that answers token_present:false, never null.
+  const missing = {
+    statSync() { throw errorWith("ENOENT"); },
+    openSync() { throw new Error("a missing file must not be opened"); },
+    closeSync() { throw new Error("nothing was opened, so nothing may be closed"); },
+  };
+  const c = await collectSelfCheck(deps(p, { tokenPresent: true, configFs: missing }));
+  assert.deepEqual(c.config, {
+    path: p.config, exists: false, bytes: null, readable: false, token_present: false,
+  });
+
+  // The denied cell is always the five-key state, whatever the shape.
+  for (const doc of [a, b, c]) {
+    assert.deepEqual(Object.keys(doc.config).sort(),
+      ["bytes", "exists", "path", "readable", "token_present"]);
+    assert.equal(typeof doc.config.readable, "boolean");
+  }
 });
 
 test("the running archive is read through the raw reader, never Electron's patched fs", async (t) => {

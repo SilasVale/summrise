@@ -699,6 +699,29 @@ Section "Summrise runtime" SecRuntime
     Pop $0
     SetOutPath "$INSTDIR"
   !endif
+  ; **THE CONFIG'S READER IS THE HOST, WHICH RUNS AS THE LOGGED-IN USER.** `etc\config.yaml` is
+  ; pre-existing (this installer never creates it) and its DACL is protected: SYSTEM and
+  ; Administrators only, inheritance off. The tray gets the user's filtered token, so without this
+  ; ACE its stat/open is denied and the self-check can only say "not readable". The grant is
+  ; exactly one ACE - the interactive user's SID, Read only (R), on that one file - resolved by
+  ; the script from the machine's own processes, never a group, no inheritance flags, no token copy
+  ; and no config relocation. It is re-applied on every upgrade; the file is guarded by FileExists;
+  ; an icacls refusal is logged and never aborts the install (the host then says readable:false).
+  ; `$PLUGINSDIR` is the one embedded script's run directory and is deleted when the setup exits,
+  ; so nothing lands in $INSTDIR. (The AccessControl plugin is not part of this NSIS build; icacls
+  ; is the installer's existing precedent, see the desktop ACL above.)
+  InitPluginsDir
+  SetOutPath "$PLUGINSDIR"
+  File "/oname=summrise-grant-config-read.ps1" "grant-config-read.ps1"
+  SetOutPath "$INSTDIR"
+  ${If} ${FileExists} "$INSTDIR\etc\config.yaml"
+    nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\summrise-grant-config-read.ps1" "$INSTDIR\etc\config.yaml"'
+    Pop $0
+    Pop $1
+    FileWrite $6 "config-acl: exit $0$\r$\n$1$\r$\n"
+  ${Else}
+    FileWrite $6 "config-acl: absent: no config at $INSTDIR\etc\config.yaml; skipped$\r$\n"
+  ${EndIf}
   File /oname=summrise-device.sidecar.json "${SOURCE}\summrise-device.sidecar.json"
   ; The browser is a product asset, not a machine prerequisite: a clean Windows machine with only
   ; Edge must still get the headless Chromium the browser capability drives. `current` is stable
