@@ -267,6 +267,49 @@ test("the decisions the shell asks about answer from the committed bytes", () =>
   assert.equal(policy.trayShouldWatch(false, false, true, false), false);
 });
 
+// THE DEVICE'S STATUS DOCUMENT, PARSED BY THE SHIPPED BYTES. `device/device/src/http.rs`'s
+// `/api/status` serves exactly these seven keys (its Rust test pins the key set); `main.ts:878`
+// fetches it and `main.ts:885` hands the RAW BODY to this module every `TRAY_POLL_MS` (30 s), so this
+// is the sentence an operator's tray shows. The literal must move with the route: if a field is
+// renamed, the Rust test fails first and this fixture is the reminder of what the client reads.
+test("the device's status document is a tray answer", () => {
+  const AT = 1_767_225_600_000;
+  const deviceStatus = JSON.stringify({
+    status: "ok",
+    version: "2.0.14",
+    channel: "canary",
+    pid: 48156,
+    release: "2.0.14",
+    uptime_secs: 204,
+    live_sessions: 2,
+  });
+  const poll = JSON.parse(policy.refreshTrayHealth(JSON.stringify({
+    running: true,
+    statusText: deviceStatus,
+    prev: { version: "", uptime: "", sessions: 0, cpu: null, mem: null },
+    observedAt: AT,
+    lastAnsweredAt: null,
+    tzOffsetMin: 0,
+  })));
+  assert.deepEqual(poll.facts, { version: "2.0.14", uptime: "3m 24s", sessions: 2, cpu: null, mem: null });
+  assert.equal(poll.health, "answered 00:00:00 \u00b7 v2.0.14, up 3m 24s, 2 sessions");
+  assert.equal(poll.lastAnsweredAt, AT, "a 200 with the document is an answer");
+
+  // THE WORLD BEFORE THE ROUTE: `/api/status` answered 404, `main.ts:880`'s `if (r.ok)` never read a
+  // body, and the policy still called that "answered" — with an unknown version, which is the visible
+  // defect. The route is the repair; the policy's own source is not in this repository, so its wording
+  // is pinned here rather than changed.
+  const before = JSON.parse(policy.refreshTrayHealth(JSON.stringify({
+    running: true,
+    statusText: "",
+    prev: { version: "", uptime: "", sessions: 0, cpu: null, mem: null },
+    observedAt: AT,
+    lastAnsweredAt: null,
+    tzOffsetMin: 0,
+  })));
+  assert.equal(before.health, "answered 00:00:00 \u00b7 v?");
+});
+
 test("the refusal is a real object with the SPA's shape, not a string", () => {
   const refusal = JSON.parse(policy.forbiddenFrame());
   assert.deepEqual(refusal, { ok: false, error: "forbidden frame" });

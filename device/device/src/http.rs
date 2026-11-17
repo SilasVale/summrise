@@ -20,8 +20,8 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use summrise_core::{
-    authorize, ApprovalState, Ctx, Decision, DenyReason, Goal, Holder, SessionRef, Subject,
-    ToolCall, Transport, TxnId, TxnState,
+    authorize, ApprovalState, Ctx, Decision, DenyReason, Goal, Holder, SessionRef, SessionState,
+    Subject, ToolCall, Transport, TxnId, TxnState,
 };
 
 use crate::activity;
@@ -236,6 +236,7 @@ fn router_with(
         // page, so a request from another origin cannot be made to look like the user's.
         .route("/api/enroll", post(enroll_from_panel))
         .route("/api/health", get(health))
+        .route("/api/status", get(status))
         .route("/api/state", get(current_state))
         .route("/api/authorize", post(authorize_request))
         // The per-user helper's registration: a loopback call with the token this boot wrote to
@@ -480,6 +481,58 @@ async fn health(State(app): State<AppState>) -> Response {
                 .into_response()
         }
     }
+}
+
+/// The document the tray was written against.
+///
+/// The desktop polls this path every 30 s (`device/desktop-electron/src/main.ts:878`) and hands the
+/// raw body to the shell policy's `refreshTrayHealth`, so the shape here is that policy's contract,
+/// not this file's taste: `release`, `uptime_secs` and `live_sessions` are read by its committed
+/// wasm, and the four fields `Health` already publishes are kept so one document describes the
+/// device. `cpu_pct`/`mem_pct` are deliberately absent: the legacy agent sampled them, this process
+/// has no sampler, and a number invented here would be worse than the field the policy keeps.
+///
+/// Readiness, like `/api/health`: a device that cannot read its state document cannot count its
+/// sessions or date its start, and a tray must not print a version from a refusal.
+async fn status(State(app): State<AppState>) -> Response {
+    match app.store.load() {
+        Ok(state) => Json(Status {
+            status: "ok",
+            version: app.release.version.clone(),
+            channel: app.release.channel.clone(),
+            pid: std::process::id(),
+            release: app.release.version.clone(),
+            uptime_secs: uptime_secs(&state.service.started_at),
+            live_sessions: state
+                .sessions
+                .iter()
+                .filter(|row| !matches!(row.state, SessionState::Reaped | SessionState::Closed))
+                .count(),
+        })
+        .into_response(),
+        Err(error) => {
+            eprintln!("summrise-device: /api/status is degraded: {error}");
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(DegradedHealth {
+                    status: "degraded",
+                    reason: format!("state: {error}"),
+                }),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// Seconds since `started_at` (the RFC3339 stamp `refresh_start` writes), or `None` when the
+/// document's stamp is not a time. `None` keeps the tray's last known uptime; a zero would read as
+/// "it just restarted", which is a different claim.
+fn uptime_secs(started_at: &str) -> Option<u64> {
+    let started = chrono::DateTime::parse_from_rfc3339(started_at)
+        .ok()?
+        .timestamp_millis();
+    let now = chrono::Utc::now().timestamp_millis();
+    (now >= started).then(|| ((now - started) / 1000) as u64)
 }
 
 /// `GET /`: the device-local panel, with this boot's panel token in its meta tag.
@@ -1918,6 +1971,21 @@ struct Health {
     pid: u32,
 }
 
+/// `GET /api/status`: the lifecycle facts the desktop tray's 30 s poll parses.
+#[derive(Serialize)]
+struct Status {
+    status: &'static str,
+    version: String,
+    channel: String,
+    pid: u32,
+    /// The same release under the name the tray's policy reads (`release`, the legacy body's key).
+    release: String,
+    /// Seconds since the start recorded in `state.json`, or `null` when that stamp is not a time.
+    uptime_secs: Option<u64>,
+    /// Rows the state document carries that are not `reaped` or `closed`.
+    live_sessions: usize,
+}
+
 /// The degraded health answer: the process serves, but it is not ready to do its job.
 ///
 /// `reason` always starts with the subsystem that failed (`state: …`), so a prober can branch on the
@@ -2696,6 +2764,142 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["status"], "ok");
         assert_eq!(body["version"], env!("CARGO_PKG_VERSION"));
+    }
+
+    // ── /api/status: the document the desktop tray's poll parses ────────────────────────────────────
+    //
+    // The tray (`device/desktop-electron/src/main.ts:878`) fetches this path every 30 s and hands the
+    // raw body to the shell policy's `refreshTrayHealth`. The field names are the policy's, not this
+    // file's taste: `release`, `uptime_secs`, `live_sessions` are what its committed wasm reads
+    // (`test/shell-policy-wasm.test.mjs` pins the same literal from the JavaScript side).
+
+    #[tokio::test]
+    async fn the_status_route_answers_the_lifecycle_document_the_tray_parses() {
+        let fixture = fixture("status-tray", Some(&token_hex()));
+
+        // The tray sends the install's bearer when it has one (`authHeaders()`); the route is tokenless
+        // like `/api/health`, so a bearer must not change the answer, and its absence must not either.
+        let (status, body) = send(fixture.app(), get("/api/status", Some(&token_hex()))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            send(fixture.app(), get("/api/status", None)).await.0,
+            StatusCode::OK,
+            "a tokenless loopback poll is the tray with no token configured"
+        );
+
+        assert_eq!(body["status"], "ok");
+        assert_eq!(body["version"], env!("CARGO_PKG_VERSION"));
+        assert_eq!(
+            body["release"], body["version"],
+            "the policy reads `release`"
+        );
+        assert_eq!(body["channel"], "stable");
+        assert_eq!(body["pid"].as_u64(), Some(u64::from(std::process::id())));
+        let uptime = body["uptime_secs"]
+            .as_u64()
+            .expect("a fresh process has an uptime");
+        assert!(
+            uptime <= 2,
+            "no state file means this process started now: {body}"
+        );
+        assert_eq!(body["live_sessions"], 0);
+
+        let mut keys: Vec<&str> = body
+            .as_object()
+            .expect("a JSON object")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            [
+                "channel",
+                "live_sessions",
+                "pid",
+                "release",
+                "status",
+                "uptime_secs",
+                "version"
+            ],
+            "the tray's policy reads these seven and nothing else is promised: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_status_route_reads_the_start_time_and_sessions_the_state_document_carries() {
+        let fixture = fixture("status-facts", None);
+        let mut state = fixture.store.load().expect("the fixture state loads");
+        let started = chrono::Utc::now() - chrono::Duration::seconds(204);
+        state.service.started_at = started.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        for (id, row_state) in [
+            ("session-1", SessionState::Attached),
+            ("ssh-1", SessionState::Detached),
+            ("serial-old", SessionState::Reaped),
+            ("pty-old", SessionState::Closed),
+        ] {
+            state.sessions.push(SessionRow {
+                id: id.to_owned(),
+                kind: SessionKind::Pty,
+                state: row_state,
+            });
+        }
+        fixture.store.save(&state).expect("the fixture state saves");
+
+        let (status, body) = send(fixture.app(), get("/api/status", None)).await;
+
+        assert_eq!(status, StatusCode::OK);
+        let uptime = body["uptime_secs"]
+            .as_u64()
+            .unwrap_or_else(|| panic!("the recorded start is parsed: {body}"));
+        assert!(
+            (203..=206).contains(&uptime),
+            "about 204 s since the recorded start: {body}"
+        );
+        assert_eq!(
+            body["live_sessions"], 2,
+            "a reaped or closed row is not a live session: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_status_route_refuses_when_the_state_document_is_unreadable() {
+        let fixture = fixture("status-degraded", Some(&token_hex()));
+        crate::ensure_state(&fixture.store, true, 1_794_045_000_000)
+            .expect("a clean start writes the document");
+        fs::write(fixture.store.state_path(), "{ not a document")
+            .expect("the corrupt fixture is written");
+
+        let (status, body) = send(fixture.app(), get("/api/status", None)).await;
+
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(body["status"], "degraded");
+        assert!(
+            body.get("release").is_none() && body.get("version").is_none(),
+            "a refusal must not carry a version the tray would print: {body}"
+        );
+        let reason = body["reason"].as_str().expect("the failure is named");
+        assert!(
+            reason.starts_with("state: ") && reason.contains("state file is corrupt"),
+            "{reason}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_status_route_with_an_unreadable_start_time_still_answers_the_rest() {
+        let fixture = fixture("status-no-start", None);
+        let mut state = fixture.store.load().expect("the fixture state loads");
+        state.service.started_at = "not a time".to_owned();
+        fixture.store.save(&state).expect("the fixture state saves");
+
+        let (status, body) = send(fixture.app(), get("/api/status", None)).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["version"], env!("CARGO_PKG_VERSION"));
+        assert!(
+            body["uptime_secs"].is_null(),
+            "an unreadable start time is omitted, not invented: {body}"
+        );
     }
 
     #[tokio::test]
