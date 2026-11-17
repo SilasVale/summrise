@@ -1,5 +1,5 @@
 "use strict";
-// Where the 2.0.0 device says it listens.
+// Where the device says it listens.
 //
 // The legacy agent answered `/api/status` on its own config.yaml port (18080 by default). The device
 // writes the port it actually bound to two files: `%ProgramData%\SummriseHelper\device.port` (the copy

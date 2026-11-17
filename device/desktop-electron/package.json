@@ -1,7 +1,7 @@
 {
   "name": "summrise-desktop",
   "version": "0.2.0",
-  "description": "Summrise Desktop \u2014 the legacy Electron local surface (tray, window, menu, browser sessions), vendored into the product and pointed at the 2.0.0 device.",
+  "description": "Summrise Desktop \u2014 the legacy Electron local surface (tray, window, menu, browser sessions), vendored into the product and pointed at the device.",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
