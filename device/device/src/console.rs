@@ -1419,9 +1419,49 @@ mod tests {
     use crate::capabilities::terminal;
     use crate::test_support::TempDir;
     use summrise_core::grant::{canonical_message, Grant, GrantEnvelope};
+    use summrise_core::{Holder, HolderKind};
 
     const SIGNING_SEED: [u8; 32] = [0x51; 32];
     const TOKEN: [u8; 32] = [0x6b; 32];
+
+    /// The holder a granted console frame arrives as: a grant through the console.
+    fn grant_holder() -> Holder {
+        Holder {
+            kind: HolderKind::Grant,
+            token_id: None,
+        }
+    }
+
+    /// A device-scope transaction the granted frames inherit, begun directly on the registry so
+    /// the tests measure the frame's own audit pair rather than a `txn.begin` pair.
+    fn begin_device_txn(server: &DeviceServer) {
+        server
+            .txns()
+            .begin(grant_holder(), "console test work", None, None, now_ms())
+            .expect("a device-scope transaction begins");
+    }
+
+    /// The same for a session: the frame inherits it by the session its arguments name.
+    fn begin_session_txn(server: &DeviceServer, session: &terminal::SessionId) {
+        server
+            .txns()
+            .begin(
+                grant_holder(),
+                "console test session work",
+                Some(summrise_core::SessionRef::new(session.as_str())),
+                None,
+                now_ms(),
+            )
+            .expect("a session-bound transaction begins");
+    }
+
+    /// The console's operator door, as the console channel derives it.
+    fn console_holder() -> Holder {
+        Holder {
+            kind: HolderKind::Console,
+            token_id: Some("operator".to_owned()),
+        }
+    }
 
     fn hex(bytes: &[u8]) -> String {
         bytes.iter().map(|byte| format!("{byte:02x}")).collect()
@@ -2074,6 +2114,7 @@ mod tests {
     #[tokio::test]
     async fn a_slow_call_does_not_hold_the_channel() {
         let (server, _config, _dir) = fixture("console-concurrent");
+        begin_device_txn(&server);
         let mut console = FakeConsole::start().await;
         let handle = spawn_with_key(
             endpoint(&console.url),
@@ -2224,6 +2265,8 @@ mod tests {
         let registry = server.terminal_registry();
         let session = registry
             .create(
+                console_holder(),
+                None,
                 crate::capabilities::terminal::CreateTarget::Pty { shell: None },
                 24,
                 80,
@@ -2231,6 +2274,7 @@ mod tests {
             .await
             .expect("a local shell");
         let session_id = session.as_str().to_owned();
+        begin_session_txn(&server, &session);
         let _handle = spawn_with_key(
             endpoint(&console.url),
             server.clone(),
@@ -2309,6 +2353,18 @@ mod tests {
     #[tokio::test]
     async fn a_subscription_to_an_unknown_session_is_refused() {
         let (server, _config, _dir) = fixture("console-subscribe-unknown");
+        // The gate would otherwise refuse the read for having no transaction, which is a different
+        // refusal; a synthetic session-bound transaction lets the capability answer "unknown".
+        server
+            .txns()
+            .begin(
+                grant_holder(),
+                "the session this test says does not exist",
+                Some(summrise_core::SessionRef::new("session-999")),
+                None,
+                now_ms(),
+            )
+            .expect("a transaction on a synthetic session");
         let mut console = FakeConsole::start().await;
         let _handle = spawn_with_key(
             endpoint(&console.url),
@@ -2428,7 +2484,13 @@ mod tests {
         let (server, _config, _dir) = fixture("console-follow-lag");
         let registry = server.terminal_registry();
         let session = registry
-            .create(terminal::CreateTarget::Pty { shell: None }, 24, 80)
+            .create(
+                console_holder(),
+                None,
+                terminal::CreateTarget::Pty { shell: None },
+                24,
+                80,
+            )
             .await
             .expect("a local shell");
         let session_id = session.as_str().to_owned();
@@ -2523,10 +2585,17 @@ mod tests {
         let (server, _config, _dir) = fixture("console-follow-order");
         let registry = server.terminal_registry();
         let session = registry
-            .create(terminal::CreateTarget::Pty { shell: None }, 24, 80)
+            .create(
+                console_holder(),
+                None,
+                terminal::CreateTarget::Pty { shell: None },
+                24,
+                80,
+            )
             .await
             .expect("a local shell");
         let session_id = session.as_str().to_owned();
+        begin_session_txn(&server, &session);
         let (mut console, _serve) = piped_console(&server, 1024 * 1024).await;
 
         send_frame(&mut console, subscribe_frame(61, 1, &session_id, 0)).await;
@@ -2637,10 +2706,17 @@ mod tests {
         let (server, _config, _dir) = fixture("console-follow-resume");
         let registry = server.terminal_registry();
         let session = registry
-            .create(terminal::CreateTarget::Pty { shell: None }, 24, 80)
+            .create(
+                console_holder(),
+                None,
+                terminal::CreateTarget::Pty { shell: None },
+                24,
+                80,
+            )
             .await
             .expect("a local shell");
         let session_id = session.as_str().to_owned();
+        begin_session_txn(&server, &session);
         let (mut console, _serve) = piped_console(&server, 96 * 1024).await;
 
         send_frame(&mut console, subscribe_frame(71, 1, &session_id, 0)).await;
@@ -2749,6 +2825,7 @@ mod tests {
     #[tokio::test]
     async fn a_granted_files_read_is_executed_over_the_channel() {
         let (server, config, _dir) = fixture("console-read");
+        begin_device_txn(&server);
         fs::write(
             config.files_root.join("notes.txt"),
             "hello over the channel",
@@ -2801,6 +2878,7 @@ mod tests {
     #[tokio::test]
     async fn an_answer_frame_names_the_outcome_half_s_sequence() {
         let (server, config, _dir) = fixture("console-journal-seq");
+        begin_device_txn(&server);
         fs::write(config.files_root.join("notes.txt"), "read by position")
             .expect("the fixture file is written");
         let bus = Arc::new(
@@ -2919,6 +2997,7 @@ mod tests {
     #[tokio::test]
     async fn the_same_signed_frame_twice_runs_once() {
         let (server, config, _dir) = fixture("console-replay");
+        begin_device_txn(&server);
         fs::write(config.files_root.join("notes.txt"), "read once")
             .expect("the fixture file is written");
         let mut console = FakeConsole::start().await;
@@ -3121,6 +3200,7 @@ mod tests {
     #[tokio::test]
     async fn a_grant_that_consents_to_destruction_runs_files_write() {
         let (server, config, _dir) = fixture("console-destructive-allowed");
+        begin_device_txn(&server);
         let mut console = FakeConsole::start().await;
         let handle = spawn_with_key(
             endpoint(&console.url),

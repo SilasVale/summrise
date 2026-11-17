@@ -3,6 +3,7 @@
 use serde_json::{json, Value};
 
 use crate::registry::{Capability, ToolDef};
+use crate::session::GOAL_MAX_CHARS;
 /// The largest row or column count a session accepts.
 pub const MAX_DIMENSION: u16 = 1000;
 /// The most trailing lines `terminal.screen` returns.
@@ -18,7 +19,7 @@ pub const DEFAULT_COLS: u16 = 80;
 pub const DEFAULT_SCREEN_LINES: usize = 60;
 
 /// The manual entry, rendered into the guide beside the tool list.
-pub const GUIDE: &str = "The terminal capability runs a session and moves bytes through it. terminal.create starts one: a local shell (pty), an SSH shell whose host key is pinned on first use (ssh), or an OS serial port named by the caller (serial, never enumerated). The id it returns is what every other terminal tool names. terminal.write sends UTF-8 text to the session; terminal.read returns output after a cursor and the next cursor, optionally parking up to 30 s for new output and optionally paging the retained tail. terminal.resize only reshapes the window (a serial session has none), terminal.screen returns the tail as a person would see it without moving the cursor, terminal.list names the live sessions, and terminal.close ends one and never reuses its id. At most 16 sessions are live, each retains 1 MiB of output, and a session idle for 30 minutes is closed.";
+pub const GUIDE: &str = "The terminal capability runs a session and moves bytes through it. terminal.create starts one: a local shell (pty), an SSH shell whose host key is pinned on first use (ssh), or an OS serial port named by the caller (serial, never enumerated). The id it returns is what every other terminal tool names. terminal.create may carry a goal: one sentence saying what the session is for, authored by the caller. terminal.goal sets or clears that sentence on a live session (the session's creator or an Owner door may write it), terminal.write sends UTF-8 text to the session; terminal.read returns output after a cursor and the next cursor, optionally parking up to 30 s for new output and optionally paging the retained tail. terminal.resize only reshapes the window (a serial session has none), terminal.screen returns the tail as a person would see it without moving the cursor, terminal.list names the live sessions with their holder and goal, and terminal.close ends one and never reuses its id. At most 16 sessions are live, each retains 1 MiB of output, and a session idle for 30 minutes is closed.";
 
 /// This capability's declaration: the one place its tools and their schemas are written down.
 pub const CAPABILITY: Capability = Capability {
@@ -28,7 +29,7 @@ pub const CAPABILITY: Capability = Capability {
         ToolDef {
             name: "terminal.create",
             destructive: true,
-            description: "Start a session of the requested kind; kind pty runs a local shell on a new pseudo-terminal, kind ssh opens a remote shell whose host key is pinned on first use and refused if it changes, and kind serial opens the OS port path named by port (for example COM3 or /dev/ttyUSB0) at 115200 8N1 unless baud, parity, data_bits and stop_bits say otherwise. A serial port is never enumerated or guessed. At most 16 sessions may be live, each retains 1 MiB of output, and a session idle for 30 minutes is closed.",
+            description: "Start a session of the requested kind; kind pty runs a local shell on a new pseudo-terminal, kind ssh opens a remote shell whose host key is pinned on first use and refused if it changes, and kind serial opens the OS port path named by port (for example COM3 or /dev/ttyUSB0) at 115200 8N1 unless baud, parity, data_bits and stop_bits say otherwise. A serial port is never enumerated or guessed. An optional goal is one sentence saying what the session is for; it is recorded with the caller as its author. At most 16 sessions may be live, each retains 1 MiB of output, and a session idle for 30 minutes is closed.",
             schema: Some(create_schema),
         },
         ToolDef {
@@ -58,8 +59,14 @@ pub const CAPABILITY: Capability = Capability {
         ToolDef {
             name: "terminal.list",
             destructive: false,
-            description: "List the live sessions with their kind and start time.",
+            description: "List the live sessions with their kind, start time, the door that opened each, and the goal it carries.",
             schema: Some(list_schema),
+        },
+        ToolDef {
+            name: "terminal.goal",
+            destructive: false,
+            description: "Set or clear a live session's goal: one sentence saying what the session is for, authored by the caller. action set needs goal (1..=200 characters after trimming, one line, no control characters); action clear removes it and takes no goal. Only the session's creator or an Owner door (the install door, the panel) may write it; anyone else is refused and the goal is unchanged.",
+            schema: Some(goal_schema),
         },
         ToolDef {
             name: "terminal.screen",
@@ -162,6 +169,12 @@ fn create_schema() -> Value {
                     "minimum": 1,
                     "maximum": MAX_DIMENSION,
                     "description": format!("Terminal columns (default {DEFAULT_COLS}).")
+                },
+                "goal": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": GOAL_MAX_CHARS,
+                    "description": format!("One sentence saying what the session is for: 1..={GOAL_MAX_CHARS} characters after trimming, one line, no control characters. It is recorded with the caller as its author.")
                 }
             },
             "required": ["kind"],
@@ -261,6 +274,31 @@ fn list_schema() -> Value {
     json!({
             "type": "object",
             "properties": {},
+            "additionalProperties": false
+    })
+}
+
+fn goal_schema() -> Value {
+    json!({
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "The id terminal.create returned."
+                },
+                "action": {
+                    "type": "string",
+                    "enum": ["set", "clear"],
+                    "description": "set writes the goal; clear removes it and takes no goal."
+                },
+                "goal": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": GOAL_MAX_CHARS,
+                    "description": format!("For action set: one sentence, 1..={GOAL_MAX_CHARS} characters after trimming, one line, no control characters.")
+                }
+            },
+            "required": ["id", "action"],
             "additionalProperties": false
     })
 }

@@ -2,10 +2,114 @@ import { useEffect, useRef, useState } from "react";
 import { Clock } from "./Clock";
 import type { LiveLine, StartedCall } from "./liveActivity";
 import { sessionActivity } from "./sessionActivity";
+import {
+  buildSessionSpine,
+  groupEnd,
+  groupHeader,
+  isUnknownRow,
+  type SpineGroup,
+  type SpineRow
+} from "./sessionSpine";
 import { LIVE_LIMIT } from "./useLiveActivity";
 
 /** How far the rows may scroll before the reader is treated as reading older activity. */
 const SCROLL_AWAY_PX = 8;
+
+/** One call row: the console's own card, unchanged, plus the neutral shape an unknown row takes. */
+function RowCard({
+  row,
+  neutral,
+  onJump
+}: {
+  row: SpineRow;
+  neutral: boolean;
+  onJump?: (text: string) => void;
+}) {
+  const tone = neutral ? "unknown" : (row.tone ?? (row.outcome === "failed" ? "failed" : "ok"));
+  const title = row.title ?? "Unknown event";
+  return (
+    <li className={"activity-card tone-" + tone}>
+      <div className="activity-card-meta">
+        <span className={"chip activity-actor actor-" + row.actor.kind} title={row.actor.title}>
+          {row.actor.label}
+        </span>
+        <Clock ts={row.atMs} />
+        {neutral ? (
+          // Neutral on purpose: the page cannot say what this row means, only that it is there.
+          <span className="activity-card-state state-unknown">unknown event</span>
+        ) : tone !== "ok" ? (
+          <span className={"activity-card-state state-" + tone}>{tone}</span>
+        ) : null}
+      </div>
+      {row.actor.kind === "session" ? (
+        <p className="activity-card-title">{title}</p>
+      ) : (
+        <code className="activity-card-title">{title}</code>
+      )}
+      {row.facts !== undefined && row.facts.length > 0 && (
+        <p className="activity-card-facts">{row.facts.join(" · ")}</p>
+      )}
+      {neutral && row.rowKind !== undefined && (
+        <p className="activity-card-kind">{row.rowKind}</p>
+      )}
+      {!neutral && tone !== "running" && row.jump !== undefined && onJump !== undefined && (
+        <button type="button" className="mini activity-card-jump" onClick={() => onJump(row.jump!)}>
+          Show in terminal
+        </button>
+      )}
+    </li>
+  );
+}
+
+/**
+ * One transaction, as the record describes it.
+ *
+ * The header is the purpose and its author's claim badge; the body is the rows the device observed;
+ * the foot is the receipt's totals or the fact that no end was recorded. The page never closes a
+ * working group: only the transaction's author may end it.
+ */
+function GroupBlock({
+  group,
+  onJump
+}: {
+  group: SpineGroup;
+  onJump?: (text: string) => void;
+}) {
+  const header = groupHeader(group);
+  const end = groupEnd(group);
+  return (
+    <li className={"activity-group state-" + group.state}>
+      <header className="activity-group-head">
+        <span
+          className={"chip activity-group-badge" + (header.badge === "unattributed" ? " is-unattributed" : "")}
+          title={header.claim}
+        >
+          {header.badge === "claim" ? "claim" : "no author retained"}
+        </span>
+        <h3 className="activity-group-purpose">{header.purpose}</h3>
+        {header.author !== null && (
+          <span className="activity-group-author">
+            by <span className="activity-actor-name">{header.author}</span>
+          </span>
+        )}
+        <span className={"activity-card-state state-" + header.state}>{header.state}</span>
+      </header>
+      <ul className="activity-group-calls">
+        {[...group.calls].reverse().map((row) => (
+          <RowCard
+            key={row.id}
+            row={row}
+            // The spine's own class, not a second reading of the outcome: an unplaceable row is
+            // neutral wherever it is drawn, including inside a group.
+            neutral={isUnknownRow(row)}
+            onJump={onJump}
+          />
+        ))}
+      </ul>
+      <p className={"activity-group-foot" + (end.open ? " is-open" : "")}>{end.sentence}</p>
+    </li>
+  );
+}
 
 export type ActivityRailProps = {
   /** The active tab's device session; only this session's rows are drawn. */
@@ -99,6 +203,11 @@ export function ActivityRail({
     setNewRows(0);
   };
 
+  const spine = buildSessionSpine(rows);
+  // The document is oldest first (reading order); the rail draws the newest entry first, and each
+  // group's newest call first, because the newest fact is what a person watching wants at the top.
+  const entriesNewestFirst = [...spine.entries].reverse();
+
   const note =
     state === "connecting"
       ? "Connecting to the console's live activity…"
@@ -117,6 +226,11 @@ export function ActivityRail({
         <span className="activity-rail-count">
           {rows.length} {rows.length === 1 ? "row" : "rows"}
         </span>
+        {spine.counts.unknown > 0 && (
+          // An unplaceable row is never dropped: the count is how the page admits it cannot say
+          // what those rows mean.
+          <span className="activity-rail-unknown">{spine.counts.unknown} unknown</span>
+        )}
       </header>
 
       {note !== null && (
@@ -136,39 +250,46 @@ export function ActivityRail({
         >
           {rows.length > 0 ? (
             <ul className="activity-rail-cards">
-              {rows.map((row) => (
-                <li key={row.id} className={"activity-card tone-" + row.tone}>
-                  <div className="activity-card-meta">
-                    <span
-                      className={"chip activity-actor actor-" + row.actor.kind}
-                      title={row.actor.title}
+              {entriesNewestFirst.map((entry) => {
+                if (entry.kind === "goal") {
+                  const { divider } = entry;
+                  return (
+                    <li
+                      key={"goal:" + divider.id}
+                      className="activity-divider"
+                      role="separator"
+                      aria-label={divider.goal === null ? "Goal cleared" : "Goal set"}
                     >
-                      {row.actor.label}
-                    </span>
-                    <Clock ts={row.atMs} />
-                    {row.tone !== "ok" && (
-                      <span className={"activity-card-state state-" + row.tone}>{row.tone}</span>
-                    )}
-                  </div>
-                  {row.actor.kind === "session" ? (
-                    <p className="activity-card-title">{row.title}</p>
-                  ) : (
-                    <code className="activity-card-title">{row.title}</code>
-                  )}
-                  {row.facts.length > 0 && (
-                    <p className="activity-card-facts">{row.facts.join(" · ")}</p>
-                  )}
-                  {row.tone !== "running" && row.jump !== undefined && onJump !== undefined && (
-                    <button
-                      type="button"
-                      className="mini activity-card-jump"
-                      onClick={() => onJump(row.jump!)}
-                    >
-                      Show in terminal
-                    </button>
-                  )}
-                </li>
-              ))}
+                      <span className="activity-divider-label">
+                        {divider.goal === null ? "goal cleared" : "goal set"}
+                      </span>
+                      <span className="activity-divider-text">
+                        {divider.goal?.text ?? "the session has no goal"}
+                      </span>
+                      <span className="activity-divider-by">
+                        by <span className="activity-actor-name">{divider.author.label}</span>
+                      </span>
+                    </li>
+                  );
+                }
+                if (entry.kind === "txn") {
+                  return (
+                    <GroupBlock
+                      key={"txn:" + (entry.group.txn ?? entry.group.startedAtMs)}
+                      group={entry.group}
+                      onJump={onJump}
+                    />
+                  );
+                }
+                return (
+                  <RowCard
+                    key={entry.row.id}
+                    row={entry.row}
+                    neutral={entry.neutral}
+                    onJump={onJump}
+                  />
+                );
+              })}
             </ul>
           ) : state === "live" ? (
             <p className="hint activity-rail-empty">
@@ -204,6 +325,10 @@ export function ActivityRail({
           This rail reads the console's live {LIVE_LIMIT}-line machine-wide window. It keeps no
           per-session history; a call older than the window is absent, not reconstructed, and a
           dropped line is never invented.
+        </p>
+        <p className="hint">
+          A group shows the calls this window still holds; a receipt's totals are the device's own,
+          and this page never adds to them.
         </p>
       </footer>
     </aside>

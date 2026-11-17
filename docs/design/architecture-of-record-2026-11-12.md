@@ -392,6 +392,49 @@ the legacy product's mechanism and stays there, because carrying it here would a
 does not have and would contradict `PRODUCT.md:48-49`. If it is ever wanted, it is a product change that
 starts in `PRODUCT.md`.
 
+### 4.8 Amendment 2026-11-17 — the session spine: holder, goal, transaction
+
+The product decision of 2026-11-17 adds three facts to a session and one record unit around it. It
+does **not** add a consent queue, a takeover, or a server-side loop.
+
+- **Holder.** A session records who created it — the console operator, a client token, or the panel —
+  from the authenticated `Caller`. It is attribution, not a grant: it gives and withholds nothing. The
+  panel's own sessions record `{kind: "panel"}`. The holder lives with the session (memory), not in
+  `state.json`.
+- **Goal.** A session carries one bounded sentence saying what it is for, authored and timed; an AI
+  may declare it at `terminal.create` or later through `terminal.goal`, and the operator may edit or
+  clear it. It is a **claim** shown as its author's, never the operator's instruction, and it gates
+  nothing.
+- **Transaction.** Before any call that touches a session or the machine, the caller opens a
+  transaction (`txn.begin`) and states its **purpose** — the reason this series of operations exists
+  — and every call inside it is tagged with that id; the transaction ends with `txn.commit` or
+  `txn.abort`. The purpose lives on the transaction, not on the session; a session's goal, when one
+  is set, is the optional umbrella above it, and a transaction snapshots it at start. These are **record-level** semantics: a commit or abort is the
+  caller's declaration, the observed calls stay the facts, and abort reverts nothing. The only
+  exemptions are session creation (`terminal.create`), the transaction tools themselves
+  (`txn.begin/commit/abort`), `terminal.goal` and the read-only catalogue, recorded as `txn: none`;
+  everything else requires a working transaction. A transaction is **session-bound when
+  it acts on a session** and **device-scope when it acts on the machine** (files, journal, panel);
+  the two never mix (`txn_scope_mismatch`), one caller may hold one device-scope transaction while
+  each session holds its own. The console lazily opens one `by: console` device-scope transaction for
+  its own actions, and one `by: console` session transaction when a human types; the panel does the
+  same as `by: panel`. There is no nesting, no cross-device transaction, and no compensation list.
+- **The record.** The device's activity rows gain the typed kinds `session.created`, `goal.set`,
+  `goal.cleared`, `txn.started`, `txn.committed`, `txn.aborted`, alongside the existing
+  `call.started/finished/denied`; an unknown kind renders as a visible "unknown event", never
+  dropped. Both surfaces group by session → transaction → call, and draw a divider only where the
+  record itself changes. A transaction's receipt states its label, the goal at its start, its
+  declared outcome and the observed calls, failures and refusals.
+
+**What this leaves alone.** The token is still the only consent, and there is still no approval queue
+and no pending-approval state (§4.7). Control flow stays in the AI client: the server executes one
+call at a time and records it; there is no plan, step or queue on the server. The `state.json` schema,
+the signed frame, `hub/v1` and the architecture gate are untouched.
+
+**Amendment path.** This section is the amendment that the legacy-parity sweep asked for on the goal
+half (`docs/superpowers/specs/2026-10-25-legacy-parity-sweep.md`, "Do not port"): the goal is a
+record fact now, while the `GoalBar` UI, the approval queue and the waiting chip remain unported.
+
 ## 5. Failure modes
 
 | Failure | What happens | Guarantee |

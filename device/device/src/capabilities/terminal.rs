@@ -64,7 +64,9 @@ use nix::sys::signal::{kill, killpg, Signal};
 use nix::unistd::Pid;
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serialport::{DataBits, Parity as SerialParity, SerialPort, StopBits};
-use summrise_core::{SessionKind, SessionRow, SessionState};
+use summrise_core::{
+    may_write_goal, Goal, GoalError, Holder, HolderKind, SessionKind, SessionRow, SessionState,
+};
 
 use crate::capabilities::ssh;
 use crate::store::Store;
@@ -394,6 +396,10 @@ pub struct SessionInfo {
     pub kind: Kind,
     /// When the session was created, on the device's clock.
     pub started_at_ms: u64,
+    /// The door that opened the session: attribution, never authority.
+    pub holder: Holder,
+    /// The sentence the session is for, when one was declared.
+    pub goal: Option<Goal>,
     /// The program running in it, `user@host:port` for a remote shell, or the port path for a
     /// serial line.
     pub shell: String,
@@ -558,6 +564,15 @@ pub enum PtyError {
         /// The operation that was refused.
         operation: &'static str,
     },
+    /// The caller may not write this session's goal: only the holder that created it or an Owner
+    /// door (`install`, `panel`) may. The goal is a claim, and its author is the caller.
+    NotGoalWriter {
+        /// The session whose goal was not written.
+        id: String,
+    },
+    /// The text is not one goal: empty, longer than [`summrise_core::GOAL_MAX_CHARS`], or more than
+    /// one line.
+    Goal(GoalError),
     /// The session could not be recorded in or removed from the state document.
     State(String),
     /// Writing to the session's input failed.
@@ -634,6 +649,12 @@ impl fmt::Display for PtyError {
             PtyError::UnsupportedOperation { kind, operation } => {
                 write!(f, "a {} session has no {operation}", kind.as_str())
             }
+            PtyError::NotGoalWriter { id } => write!(
+                f,
+                "not_goal_writer: session {id}'s goal is written only by the holder that created it \
+                 or an Owner door (the install door, the panel)"
+            ),
+            PtyError::Goal(error) => write!(f, "{error}"),
             PtyError::State(message) => {
                 write!(f, "could not update the state document: {message}")
             }
@@ -855,6 +876,10 @@ fn read_output(
 struct Session {
     id: SessionId,
     kind: Kind,
+    /// The door that opened the session.
+    holder: Holder,
+    /// What the session is for, when its creator declared it.
+    goal: Option<Goal>,
     /// The program the session runs: the shell of a PTY, or `user@host:port` for SSH.
     shell: String,
     /// When the session was created, on the device's clock.
@@ -1168,16 +1193,29 @@ impl PtyRegistry {
     /// updated the session is dropped (killing a PTY's child, closing an SSH connection) and the
     /// create fails, so a live session can never be invisible to `/api/state`.
     ///
+    /// `holder` is the door the call arrived through, and `goal` the optional sentence its creator
+    /// declared. The goal is validated **before** anything is opened, so a text that is not one
+    /// sentence cannot leave a shell running; its author is `holder`, never a string the caller
+    /// supplied separately.
+    ///
     /// The SSH connect is awaited before the audit/state lock is taken: a handshake that takes
     /// seconds must not stop the audit log, and the second cap check keeps a concurrent create
     /// from pushing the registry past its limit.
     pub async fn create(
         &self,
+        holder: Holder,
+        goal: Option<&str>,
         target: CreateTarget<'_>,
         rows: u16,
         cols: u16,
     ) -> Result<SessionId, PtyError> {
         validate_size(rows, cols)?;
+        let goal = match goal {
+            Some(text) => Some(
+                Goal::new(text, holder.clone(), (self.clock)() as i64).map_err(PtyError::Goal)?,
+            ),
+            None => None,
+        };
         if lock(&self.sessions).len() >= self.limits.max_sessions {
             return Err(PtyError::TooManySessions {
                 max: self.limits.max_sessions,
@@ -1186,9 +1224,17 @@ impl PtyRegistry {
 
         let kind = target.kind();
         let session = match target {
-            CreateTarget::Pty { shell } => self.spawn_pty(&resolve_shell(shell), rows, cols)?,
-            CreateTarget::Ssh(target) => self.spawn_ssh(&target, rows, cols).await?,
-            CreateTarget::Serial(target) => self.spawn_serial(&target, rows, cols).await?,
+            CreateTarget::Pty { shell } => {
+                self.spawn_pty(&resolve_shell(shell), rows, cols, &holder, goal.as_ref())?
+            }
+            CreateTarget::Ssh(target) => {
+                self.spawn_ssh(&target, rows, cols, &holder, goal.as_ref())
+                    .await?
+            }
+            CreateTarget::Serial(target) => {
+                self.spawn_serial(&target, rows, cols, &holder, goal.as_ref())
+                    .await?
+            }
         };
         let id = session.id.clone();
 
@@ -1218,6 +1264,53 @@ impl PtyRegistry {
         );
 
         Ok(id)
+    }
+
+    /// Set a session's goal to `text`, or clear it when `text` is `None`.
+    ///
+    /// `by` is the door the call arrived through: it is the goal's author, and it decides who may
+    /// write. Only the holder that created the session or an Owner door
+    /// ([`summrise_core::may_write_goal`]) may; everyone else is refused with
+    /// [`PtyError::NotGoalWriter`] and nothing changes. The text is validated by [`Goal::new`], so a
+    /// refused text also leaves the recorded goal untouched.
+    ///
+    /// Returns the goal now on the session: `Some` after a set, `None` after a clear (and after
+    /// clearing a goal that was already absent — clearing is idempotent). Setting a goal is not
+    /// activity: it does not postpone the idle sweeper.
+    pub fn set_goal(
+        &self,
+        id: &SessionId,
+        text: Option<&str>,
+        by: &Holder,
+        at_ms: i64,
+    ) -> Result<Option<Goal>, PtyError> {
+        let mut sessions = lock(&self.sessions);
+        let session = sessions.get_mut(id).ok_or_else(|| unknown(id))?;
+        if !may_write_goal(&session.holder, by) {
+            return Err(PtyError::NotGoalWriter {
+                id: id.as_str().to_owned(),
+            });
+        }
+        let goal = match text {
+            Some(text) => Some(Goal::new(text, by.clone(), at_ms).map_err(PtyError::Goal)?),
+            None => None,
+        };
+        session.goal = goal.clone();
+        Ok(goal)
+    }
+
+    /// The goal a live session carries, or `None` when it has none (or the id is not live).
+    pub fn goal_of(&self, id: &SessionId) -> Option<Goal> {
+        lock(&self.sessions)
+            .get(id)
+            .and_then(|session| session.goal.clone())
+    }
+
+    /// The door that opened a live session, or `None` when the id is not live.
+    pub fn holder_of(&self, id: &SessionId) -> Option<Holder> {
+        lock(&self.sessions)
+            .get(id)
+            .map(|session| session.holder.clone())
     }
 
     /// Write UTF-8 bytes to a session's input.
@@ -1499,6 +1592,8 @@ impl PtyRegistry {
                 id: session.id.clone(),
                 kind: session.kind,
                 started_at_ms: session.started_at_ms,
+                holder: session.holder.clone(),
+                goal: session.goal.clone(),
                 shell: session.shell.clone(),
                 rows: session.rows,
                 cols: session.cols,
@@ -1581,7 +1676,14 @@ impl PtyRegistry {
     }
 
     /// Open the PTY, spawn the shell, and start the reader thread.
-    fn spawn_pty(&self, shell: &str, rows: u16, cols: u16) -> Result<Session, PtyError> {
+    fn spawn_pty(
+        &self,
+        shell: &str,
+        rows: u16,
+        cols: u16,
+        holder: &Holder,
+        goal: Option<&Goal>,
+    ) -> Result<Session, PtyError> {
         let number = self.next_number.fetch_add(1, Ordering::SeqCst);
         let id = SessionId::mint(number);
         let started_at_ms = (self.clock)();
@@ -1662,6 +1764,8 @@ impl PtyRegistry {
         Ok(Session {
             id,
             kind: Kind::Pty,
+            holder: holder.clone(),
+            goal: goal.cloned(),
             shell: shell.to_owned(),
             started_at_ms,
             backend: Backend::Pty(PtyBackend {
@@ -1689,6 +1793,8 @@ impl PtyRegistry {
         target: &SshTarget<'_>,
         rows: u16,
         cols: u16,
+        holder: &Holder,
+        goal: Option<&Goal>,
     ) -> Result<Session, PtyError> {
         let number = self.next_number.fetch_add(1, Ordering::SeqCst);
         let id = SessionId::mint(number);
@@ -1736,6 +1842,8 @@ impl PtyRegistry {
         Ok(Session {
             id,
             kind: Kind::Ssh,
+            holder: holder.clone(),
+            goal: goal.cloned(),
             shell: label,
             started_at_ms,
             backend: Backend::Ssh(SshBackend {
@@ -1766,6 +1874,8 @@ impl PtyRegistry {
         target: &SerialTarget<'_>,
         rows: u16,
         cols: u16,
+        holder: &Holder,
+        goal: Option<&Goal>,
     ) -> Result<Session, PtyError> {
         let number = self.next_number.fetch_add(1, Ordering::SeqCst);
         let id = SessionId::mint(number);
@@ -1828,6 +1938,8 @@ impl PtyRegistry {
         Ok(Session {
             id,
             kind: Kind::Serial,
+            holder: holder.clone(),
+            goal: goal.cloned(),
             shell: target.port.to_owned(),
             started_at_ms,
             backend: Backend::Serial(SerialBackend {
@@ -2416,6 +2528,17 @@ fn system_clock() -> Clock {
     })
 }
 
+/// The wall clock a claim is stamped with, in Unix milliseconds.
+///
+/// [`PtyRegistry::set_goal`] takes its time as an argument (a claim's time is the caller's to
+/// supply, and a test supplies it); this is what the MCP dispatch supplies in production.
+fn now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis().min(i64::MAX as u128) as i64)
+        .unwrap_or(0)
+}
+
 /// Lock a mutex, recovering the data from a poisoned lock instead of panicking a second time.
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
@@ -2434,7 +2557,7 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{Duration, Instant};
 
-    use summrise_core::{SessionKind, SessionState};
+    use summrise_core::{SessionKind, SessionState, GOAL_MAX_CHARS};
 
     use crate::config::Release;
     use crate::test_support::{process_is_dead, wait_until_dead, TempDir};
@@ -2509,7 +2632,7 @@ mod tests {
 
         let id = fixture
             .registry
-            .create(CreateTarget::Pty { shell: None }, 24, 80)
+            .create(holder(), None, CreateTarget::Pty { shell: None }, 24, 80)
             .await
             .expect("the session opens");
         let mut subscription = bus.subscribe(1).expect("the journal replays");
@@ -2525,6 +2648,251 @@ mod tests {
         let closed = subscription.next().await.expect("session.closed");
         assert_eq!(closed.kind, "session.closed");
         assert_eq!(closed.payload["id"], id.as_str());
+    }
+
+    /// The default test door: the device's own, as the direct /mcp client arrives.
+    fn holder() -> Holder {
+        Holder::install()
+    }
+
+    /// One holder, written the way a door writes it.
+    fn a_holder(kind: HolderKind, token_id: Option<&str>) -> Holder {
+        Holder {
+            kind,
+            token_id: token_id.map(str::to_owned),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_session_records_the_goal_its_creator_declared() {
+        let fixture = Fixture::new("session-goal");
+        let creator = a_holder(HolderKind::Token, Some("srm_a"));
+        fixture.advance(40);
+
+        let id = fixture
+            .registry
+            .create(
+                creator.clone(),
+                Some("ship the spine"),
+                CreateTarget::Pty { shell: None },
+                24,
+                80,
+            )
+            .await
+            .expect("the session opens");
+
+        assert_eq!(
+            fixture.registry.holder_of(&id),
+            Some(creator.clone()),
+            "the session records the door that opened it"
+        );
+        let goal = fixture.registry.goal_of(&id).expect("the goal is recorded");
+        assert_eq!(goal.text(), "ship the spine");
+        assert_eq!(
+            goal.by(),
+            &creator,
+            "the goal's author is the caller that declared it"
+        );
+        assert_eq!(goal.at_ms(), 1_040, "the device's clock stamps the claim");
+
+        let listed = fixture.registry.list();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].holder, creator);
+        assert_eq!(
+            listed[0].goal.as_ref().map(Goal::text),
+            Some("ship the spine"),
+            "the list answers the goal beside its holder"
+        );
+
+        fixture
+            .registry
+            .close(&id)
+            .await
+            .expect("the session closes");
+    }
+
+    #[tokio::test]
+    async fn the_goal_is_written_by_its_creator_or_an_owner_door() {
+        let fixture = Fixture::new("session-goal-author");
+        let creator = a_holder(HolderKind::Token, Some("srm_a"));
+        let id = fixture
+            .registry
+            .create(
+                creator.clone(),
+                None,
+                CreateTarget::Pty { shell: None },
+                24,
+                80,
+            )
+            .await
+            .expect("the session opens");
+
+        let mine = fixture
+            .registry
+            .set_goal(&id, Some("keep the parser honest"), &creator, 20)
+            .expect("the creator writes its own goal")
+            .expect("a goal was set");
+        assert_eq!(mine.by(), &creator);
+
+        for owner in [
+            a_holder(HolderKind::Install, None),
+            a_holder(HolderKind::Panel, None),
+        ] {
+            let written = fixture
+                .registry
+                .set_goal(&id, Some("the owner's sentence"), &owner, 21)
+                .expect("an Owner door writes the goal")
+                .expect("a goal was set");
+            assert_eq!(written.by(), &owner, "the author is the door that wrote it");
+        }
+
+        for other in [
+            a_holder(HolderKind::Token, Some("srm_b")),
+            a_holder(HolderKind::Console, Some("operator")),
+            a_holder(HolderKind::Grant, None),
+            a_holder(HolderKind::Mesh, None),
+        ] {
+            assert!(
+                matches!(
+                    fixture.registry.set_goal(&id, Some("not mine"), &other, 22),
+                    Err(PtyError::NotGoalWriter { .. })
+                ),
+                "{:?} is neither the creator nor an Owner door",
+                other.kind
+            );
+        }
+        assert_eq!(
+            fixture
+                .registry
+                .goal_of(&id)
+                .map(|goal| goal.text().to_owned()),
+            Some("the owner's sentence".to_owned()),
+            "a refused write leaves the recorded goal untouched"
+        );
+
+        let unknown = SessionId::parse("session-99").expect("a well-formed id");
+        assert!(matches!(
+            fixture
+                .registry
+                .set_goal(&unknown, Some("nowhere"), &creator, 23),
+            Err(PtyError::UnknownSession { .. })
+        ));
+
+        fixture
+            .registry
+            .close(&id)
+            .await
+            .expect("the session closes");
+    }
+
+    #[tokio::test]
+    async fn a_goal_that_is_not_one_sentence_is_refused() {
+        let fixture = Fixture::new("session-goal-bounds");
+        let creator = a_holder(HolderKind::Token, Some("srm_a"));
+        let id = fixture
+            .registry
+            .create(
+                creator.clone(),
+                None,
+                CreateTarget::Pty { shell: None },
+                24,
+                80,
+            )
+            .await
+            .expect("the session opens");
+
+        let too_long = "x".repeat(GOAL_MAX_CHARS + 1);
+        for text in ["", "   ", "a\nb", too_long.as_str()] {
+            assert!(
+                matches!(
+                    fixture.registry.set_goal(&id, Some(text), &creator, 20),
+                    Err(PtyError::Goal(_))
+                ),
+                "{text:?} is not one sentence"
+            );
+        }
+        assert!(
+            fixture.registry.goal_of(&id).is_none(),
+            "a refused goal writes nothing"
+        );
+
+        for text in ["", "a\nb", too_long.as_str()] {
+            assert!(
+                matches!(
+                    fixture
+                        .registry
+                        .create(
+                            creator.clone(),
+                            Some(text),
+                            CreateTarget::Pty { shell: None },
+                            24,
+                            80,
+                        )
+                        .await,
+                    Err(PtyError::Goal(_))
+                ),
+                "{text:?} is refused before a session is opened"
+            );
+        }
+        assert_eq!(
+            fixture.registry.list().len(),
+            1,
+            "a refused goal opens no second session"
+        );
+
+        fixture
+            .registry
+            .close(&id)
+            .await
+            .expect("the session closes");
+    }
+
+    #[tokio::test]
+    async fn the_goal_clears_to_absence() {
+        let fixture = Fixture::new("session-goal-clear");
+        let creator = a_holder(HolderKind::Console, Some("operator"));
+        let id = fixture
+            .registry
+            .create(
+                creator.clone(),
+                Some("first sentence"),
+                CreateTarget::Pty { shell: None },
+                24,
+                80,
+            )
+            .await
+            .expect("the session opens");
+
+        let cleared = fixture
+            .registry
+            .set_goal(&id, None, &creator, 30)
+            .expect("the creator clears its own goal");
+        assert!(
+            cleared.is_none(),
+            "clearing answers absence, not a sentence"
+        );
+        assert!(fixture.registry.goal_of(&id).is_none());
+        assert!(fixture.registry.list()[0].goal.is_none());
+        assert_eq!(
+            fixture.registry.holder_of(&id),
+            Some(creator),
+            "clearing the goal does not touch the holder"
+        );
+
+        assert!(
+            fixture
+                .registry
+                .set_goal(&id, None, &a_holder(HolderKind::Panel, None), 31)
+                .expect("an Owner door may clear an absent goal")
+                .is_none(),
+            "clearing an absent goal is a successful no-op"
+        );
+
+        fixture
+            .registry
+            .close(&id)
+            .await
+            .expect("the session closes");
     }
 
     /// A pseudo-terminal pair standing in for a serial line.
@@ -2692,6 +3060,8 @@ mod tests {
         let id = fixture
             .registry
             .create(
+                holder(),
+                None,
                 CreateTarget::Pty {
                     shell: Some("/bin/sh"),
                 },
@@ -2755,6 +3125,8 @@ mod tests {
         let id = fixture
             .registry
             .create(
+                holder(),
+                None,
                 CreateTarget::Pty {
                     shell: Some("/bin/sh"),
                 },
@@ -2858,6 +3230,8 @@ mod tests {
         let id = fixture
             .registry
             .create(
+                holder(),
+                None,
                 CreateTarget::Pty {
                     shell: Some("/bin/sh"),
                 },
@@ -2942,6 +3316,8 @@ mod tests {
         let id = fixture
             .registry
             .create(
+                holder(),
+                None,
                 CreateTarget::Pty {
                     shell: Some("/bin/sh"),
                 },
@@ -3004,6 +3380,8 @@ mod tests {
         let id = fixture
             .registry
             .create(
+                holder(),
+                None,
                 CreateTarget::Pty {
                     shell: Some("/bin/sh"),
                 },
@@ -3088,6 +3466,8 @@ mod tests {
         let id = fixture
             .registry
             .create(
+                holder(),
+                None,
                 CreateTarget::Pty {
                     shell: Some("/bin/sh"),
                 },
@@ -3133,6 +3513,8 @@ mod tests {
         let second = fixture
             .registry
             .create(
+                holder(),
+                None,
                 CreateTarget::Pty {
                     shell: Some("/bin/sh"),
                 },
@@ -3159,6 +3541,8 @@ mod tests {
         let id = fixture
             .registry
             .create(
+                holder(),
+                None,
                 CreateTarget::Pty {
                     shell: Some("/bin/sh"),
                 },
@@ -3204,6 +3588,8 @@ mod tests {
         let id = fixture
             .registry
             .create(
+                holder(),
+                None,
                 CreateTarget::Pty {
                     shell: Some("/bin/sh"),
                 },
@@ -3276,7 +3662,13 @@ mod tests {
 
         let opened = fixture
             .registry
-            .create(CreateTarget::Serial(SerialTarget::new(&port)), 24, 80)
+            .create(
+                holder(),
+                None,
+                CreateTarget::Serial(SerialTarget::new(&port)),
+                24,
+                80,
+            )
             .await;
         let id = match opened {
             Ok(id) => id,
@@ -3372,7 +3764,13 @@ mod tests {
 
         let error = fixture
             .registry
-            .create(CreateTarget::Serial(SerialTarget::new(port)), 24, 80)
+            .create(
+                holder(),
+                None,
+                CreateTarget::Serial(SerialTarget::new(port)),
+                24,
+                80,
+            )
             .await
             .expect_err("there is no device at that path");
 
@@ -3417,13 +3815,25 @@ mod tests {
         let port = line.port();
         let first = fixture
             .registry
-            .create(CreateTarget::Serial(SerialTarget::new(port)), 24, 80)
+            .create(
+                holder(),
+                None,
+                CreateTarget::Serial(SerialTarget::new(port)),
+                24,
+                80,
+            )
             .await
             .expect("the first session opens the port");
 
         let refused = fixture
             .registry
-            .create(CreateTarget::Serial(SerialTarget::new(port)), 24, 80)
+            .create(
+                holder(),
+                None,
+                CreateTarget::Serial(SerialTarget::new(port)),
+                24,
+                80,
+            )
             .await
             .expect_err("the port already has a session");
         match &refused {
@@ -3474,7 +3884,13 @@ mod tests {
             .expect("the holder closes");
         let second = fixture
             .registry
-            .create(CreateTarget::Serial(SerialTarget::new(port)), 24, 80)
+            .create(
+                holder(),
+                None,
+                CreateTarget::Serial(SerialTarget::new(port)),
+                24,
+                80,
+            )
             .await
             .expect("the closed port is free again");
         assert_ne!(second, first, "the second session has its own id");
@@ -3589,7 +4005,13 @@ mod tests {
 
         let session = fixture
             .registry
-            .create(CreateTarget::Serial(SerialTarget::new(line.port())), 24, 80)
+            .create(
+                Holder::install(),
+                None,
+                CreateTarget::Serial(SerialTarget::new(line.port())),
+                24,
+                80,
+            )
             .await
             .expect("the create waits out the lock instead of refusing a free port");
         released.await.expect("the holder drops");
@@ -3618,7 +4040,13 @@ mod tests {
         let started = Instant::now();
         let error = fixture
             .registry
-            .create(CreateTarget::Serial(SerialTarget::new(line.port())), 24, 80)
+            .create(
+                Holder::install(),
+                None,
+                CreateTarget::Serial(SerialTarget::new(line.port())),
+                24,
+                80,
+            )
             .await
             .expect_err("a port another holder keeps is still refused");
         let waited = started.elapsed();
@@ -3643,7 +4071,13 @@ mod tests {
         let line = PtyLine::new();
         let id = fixture
             .registry
-            .create(CreateTarget::Serial(SerialTarget::new(line.port())), 24, 80)
+            .create(
+                Holder::install(),
+                None,
+                CreateTarget::Serial(SerialTarget::new(line.port())),
+                24,
+                80,
+            )
             .await
             .expect("a serial session opens");
 
@@ -3677,7 +4111,13 @@ mod tests {
         // The sweep released the port's claim too, not just its session row.
         let again = fixture
             .registry
-            .create(CreateTarget::Serial(SerialTarget::new(line.port())), 24, 80)
+            .create(
+                Holder::install(),
+                None,
+                CreateTarget::Serial(SerialTarget::new(line.port())),
+                24,
+                80,
+            )
             .await
             .expect("the swept port is free again");
         fixture
@@ -3695,6 +4135,8 @@ mod tests {
             let id = fixture
                 .registry
                 .create(
+                    holder(),
+                    None,
                     CreateTarget::Pty {
                         shell: Some("/bin/sh"),
                     },
@@ -3710,6 +4152,8 @@ mod tests {
         let refused = fixture
             .registry
             .create(
+                holder(),
+                None,
                 CreateTarget::Pty {
                     shell: Some("/bin/sh"),
                 },
@@ -3727,6 +4171,8 @@ mod tests {
         let refused_serial = fixture
             .registry
             .create(
+                holder(),
+                None,
                 CreateTarget::Serial(SerialTarget::new("/dev/no-such-serial-port")),
                 24,
                 80,
@@ -3761,6 +4207,8 @@ mod tests {
         let id = fixture
             .registry
             .create(
+                holder(),
+                None,
                 CreateTarget::Pty {
                     shell: Some("/bin/sh"),
                 },
@@ -3804,6 +4252,8 @@ mod tests {
         let id = fixture
             .registry
             .create(
+                holder(),
+                None,
                 CreateTarget::Pty {
                     shell: Some("/bin/sh"),
                 },
@@ -3850,6 +4300,8 @@ mod tests {
         let first = fixture
             .registry
             .create(
+                holder(),
+                None,
                 CreateTarget::Pty {
                     shell: Some("/bin/sh"),
                 },
@@ -3866,6 +4318,8 @@ mod tests {
         let second = fixture
             .registry
             .create(
+                holder(),
+                None,
                 CreateTarget::Pty {
                     shell: Some("/bin/sh"),
                 },
@@ -3926,6 +4380,8 @@ mod tests {
         let id = fixture
             .registry
             .create(
+                holder(),
+                None,
                 CreateTarget::Pty {
                     shell: Some("/bin/sh"),
                 },
@@ -3966,6 +4422,8 @@ mod tests {
         let id = fixture
             .registry
             .create(
+                holder(),
+                None,
                 CreateTarget::Pty {
                     shell: Some("/bin/sh"),
                 },
@@ -4057,6 +4515,8 @@ mod tests {
         let id = fixture
             .registry
             .create(
+                holder(),
+                None,
                 CreateTarget::Pty {
                     shell: Some("/bin/sh"),
                 },
@@ -4107,6 +4567,8 @@ mod tests {
         let id = fixture
             .registry
             .create(
+                holder(),
+                None,
                 CreateTarget::Pty {
                     shell: Some("/bin/sh"),
                 },
@@ -4437,6 +4899,8 @@ mod windows_tests {
         let id = fixture
             .registry
             .create(
+                Holder::install(),
+                None,
                 CreateTarget::Pty {
                     shell: Some("cmd.exe"),
                 },
@@ -4689,8 +5153,13 @@ pub fn names() -> impl Iterator<Item = &'static str> {
 }
 
 /// Run one of this capability's tools against the session registry.
+///
+/// `holder` is the door the call arrived through. It is derived once by the MCP path and is the
+/// author of everything this capability writes on the caller's behalf: the session's holder at
+/// create, and the goal's author whenever a goal is set.
 pub async fn call(
     terminal: &PtyRegistry,
+    holder: &Holder,
     tool: &str,
     arguments: Map<String, Value>,
 ) -> Result<String, ToolError> {
@@ -4792,12 +5261,14 @@ pub async fn call(
             let label = target.label();
             let id = terminal
                 .create(
+                    holder.clone(),
+                    arguments.goal.as_deref(),
                     target,
                     arguments.rows.unwrap_or(DEFAULT_ROWS),
                     arguments.cols.unwrap_or(DEFAULT_COLS),
                 )
                 .await
-                .map_err(|error| refused(tool, error))?;
+                .map_err(|error| goal_or_refused(tool, error))?;
             Ok(json!({
                 "id": id.as_str(),
                 "kind": kind.as_str(),
@@ -4873,10 +5344,45 @@ pub async fn call(
                         "id": session.id.as_str(),
                         "kind": session.kind.as_str(),
                         "started_at_ms": session.started_at_ms,
+                        "holder": holder_json(&session.holder),
+                        "goal": session.goal.as_ref().map(goal_json),
                     })
                 })
                 .collect();
             Ok(Value::Array(sessions).to_string())
+        }
+        "terminal.goal" => {
+            let arguments: GoalArgs = parse(arguments, tool)?;
+            let id = session_id(tool, &arguments.id)?;
+            let text = match arguments.action.as_str() {
+                "set" => Some(arguments.goal.as_deref().ok_or_else(|| {
+                    ToolError::Arguments(format!(
+                        "{tool}: goal is required when action is set; it is one sentence saying \
+                         what the session is for"
+                    ))
+                })?),
+                "clear" => {
+                    if arguments.goal.is_some() {
+                        return Err(ToolError::Arguments(format!(
+                            "{tool}: action clear takes no goal; it removes the one the session has"
+                        )));
+                    }
+                    None
+                }
+                other => {
+                    return Err(ToolError::Arguments(format!(
+                        "{tool}: action must be \"set\" or \"clear\", not {other:?}"
+                    )))
+                }
+            };
+            let goal = terminal
+                .set_goal(&id, text, holder, now_ms())
+                .map_err(|error| goal_or_refused(tool, error))?;
+            Ok(json!({
+                "id": arguments.id,
+                "goal": goal.as_ref().map(goal_json),
+            })
+            .to_string())
         }
         "terminal.screen" => {
             let arguments: ScreenArgs = parse(arguments, tool)?;
@@ -4903,6 +5409,55 @@ pub async fn call(
 
 fn refused(tool: &str, error: impl std::fmt::Display) -> ToolError {
     ToolError::Refused(format!("{tool}: {error}"))
+}
+
+/// A refusal from a goal-writing path.
+///
+/// A text that is not one sentence is the caller's argument, not a device refusal, so it is
+/// answered as `Arguments` (the same code a schema violation gets). Everything else — the writer
+/// rule, an unknown session — is the capability's refusal.
+fn goal_or_refused(tool: &str, error: PtyError) -> ToolError {
+    match error {
+        PtyError::Goal(error) => ToolError::Arguments(format!("{tool}: {error}")),
+        // I2: a writer-rule refusal is a **decline**, not an untyped capability failure. The kind
+        // is a closed name, so the audit's `error_kind` and the live event's `call.denied` reason
+        // say `not_goal_writer` rather than `refused`, and a reader can group it without prose.
+        PtyError::NotGoalWriter { .. } => ToolError::Declined {
+            kind: "not_goal_writer",
+            message: format!("{tool}: {error}"),
+            data: None,
+        },
+        other => refused(tool, other),
+    }
+}
+
+/// The wire spelling of a holder's door.
+fn holder_kind_name(kind: HolderKind) -> &'static str {
+    match kind {
+        HolderKind::Install => "install",
+        HolderKind::Panel => "panel",
+        HolderKind::Console => "console",
+        HolderKind::Token => "token",
+        HolderKind::Grant => "grant",
+        HolderKind::Mesh => "mesh",
+    }
+}
+
+/// One holder as `terminal.list` and `terminal.goal` answer it.
+pub(crate) fn holder_json(holder: &Holder) -> Value {
+    json!({
+        "kind": holder_kind_name(holder.kind),
+        "token_id": holder.token_id,
+    })
+}
+
+/// One goal as `terminal.list` and `terminal.goal` answer it: the sentence, its author, its time.
+pub(crate) fn goal_json(goal: &Goal) -> Value {
+    json!({
+        "text": goal.text(),
+        "by": holder_json(goal.by()),
+        "at_ms": goal.at_ms(),
+    })
 }
 
 fn reject_serial_framing(arguments: &PtyCreateArgs, name: &str) -> Result<(), ToolError> {
@@ -4949,6 +5504,20 @@ struct PtyCreateArgs {
     stop_bits: Option<u8>,
     rows: Option<u16>,
     cols: Option<u16>,
+    /// The sentence the creator declares the session is for; absent means no goal.
+    goal: Option<String>,
+}
+
+/// The arguments `terminal.goal` takes: the session, and what to do to its goal.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GoalArgs {
+    id: String,
+    /// `"set"` writes `goal`; `"clear"` removes the sentence and takes no `goal`.
+    action: String,
+    /// The sentence to write; required for `"set"` and forbidden for `"clear"`.
+    goal: Option<String>,
 }
 
 /// The `port` a create names: a TCP port for SSH, a path for serial.

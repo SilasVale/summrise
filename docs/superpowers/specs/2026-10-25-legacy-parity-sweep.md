@@ -219,7 +219,12 @@ What remains:
 - **`ApprovalGate` as a per-command queue, `GoalBar`, `WaitingChip`.** The device has no session goal,
   no plan and no approval queue: `authorize` returns `Ask` to the caller, and the console's answer is
   the grant's `allow_destructive`, recorded in the audit. Rebuilding the queue is a second consent model
-  and a new device protocol (L). Keep the grant.
+  and a new device protocol (L). Keep the grant. **Amended 2026-11-17**
+  (`docs/design/architecture-of-record-2026-11-12.md` §4.8): a session now carries a one-sentence goal
+  — declared by the AI at `terminal.create` or through `terminal.goal`, shown as its author's claim,
+  editable by the operator — and every call that touches a session or the machine groups under a
+  caller-opened transaction. The goal is a **record** fact; the `GoalBar` UI, the approval queue and
+  the waiting chip remain unported, and the token is still the only consent.
 - **`RunStrip`, `TrajectoryView`, `PathView`, `DetailsPanel`, `CommandCard`, `HistoryPage`'s structure.**
   They render `run_begin`/`run_end` attribution and a session command trail, both dropped from the new
   runtime. `runs.exec` history stores argv, exit and byte counts, not bodies; the audit stores the tool,

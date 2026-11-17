@@ -21,6 +21,7 @@ pub mod screen;
 pub mod state;
 pub mod system;
 pub mod terminal;
+pub mod txn;
 
 /// The capabilities whose declarations live here, in registry order.
 pub const DECLARED: &[&crate::registry::Capability] = &[
@@ -37,4 +38,5 @@ pub const DECLARED: &[&crate::registry::Capability] = &[
     &state::CAPABILITY,
     &journal::CAPABILITY,
     &plugins::CAPABILITY,
+    &txn::CAPABILITY,
 ];

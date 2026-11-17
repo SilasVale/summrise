@@ -12,7 +12,12 @@ import { renameTab, tabLabel, titleFromInput, type Tab } from "./terminalTabs";
 import { age } from "./age";
 import type { LiveLine, StartedCall } from "./liveActivity";
 import { ActivityRail } from "./ActivityRail";
-import { writeActorKey } from "./sessionActivity";
+import {
+  holderLabel,
+  writeActorKey,
+  type SessionHolder,
+  type SessionListEntry
+} from "./sessionActivity";
 import {
   earliestCursor,
   endCursor,
@@ -625,20 +630,46 @@ function SessionScreen({ grant, session }: { grant: Grant; session: string }) {
   );
 }
 
+/**
+ * The tooltip on a goal's claim badge: whose sentence it is, and what it is not.
+ *
+ * A goal is a claim by a door, never a fact the machine observed and never an instruction the page
+ * has been told to follow.
+ */
+function goalClaimTitle(
+  holder: SessionHolder | undefined,
+  names: ReadonlyMap<string, string>
+): string {
+  return `A goal is a claim by ${holderLabel(holder, names)}, not a fact the machine observed.`;
+}
+
 function SessionCard({
   machine,
   tab,
   liveLines,
   deviceId,
-  grant
+  grant,
+  sessionEntry,
+  tokenNames
 }: {
   machine: string;
   tab: Tab;
   liveLines: readonly LiveLine[];
   deviceId: string;
   grant?: Grant;
+  /**
+   * The device's row for this session, when the page has read one. `undefined` is not "no goal":
+   * it is the page not having an answer, and the card says so.
+   */
+  sessionEntry?: SessionListEntry;
+  tokenNames: ReadonlyMap<string, string>;
 }) {
   const last = lastTypedLine(liveLines, deviceId, tab.session);
+  const goal = sessionEntry?.goal;
+  const goalKnown =
+    sessionEntry !== undefined &&
+    Object.prototype.hasOwnProperty.call(sessionEntry, "goal") &&
+    (goal === null || (goal !== undefined && typeof goal.text === "string" && goal.text !== ""));
   return (
     <section className="card session-card" aria-label="Session">
       <header>
@@ -652,6 +683,27 @@ function SessionCard({
             ? `opened ${age(Date.now() - tab.startedAtMs)} ago`
             : "opened at an unknown time"}
         </span>
+      </p>
+      <p className="session-card-goal" aria-label="Session goal">
+        <span className="session-card-label">Goal</span>
+        {!goalKnown ? (
+          // An older device's list row has no `goal` key at all. The card cannot tell that from a
+          // goal it failed to read, so it names the fact it has: not recorded.
+          <span className="hint">not recorded</span>
+        ) : goal === null ? (
+          <span className="hint">No goal is set.</span>
+        ) : (
+          <>
+            {/* A goal is a claim, shown as its author's — never as the operator's instruction. */}
+            <span className="chip" title={goalClaimTitle(goal.by, tokenNames)}>
+              claim
+            </span>
+            <span className="session-card-goal-text">{goal!.text}</span>
+            <span className="session-card-goal-by">
+              set by {holderLabel(goal!.by, tokenNames)}
+            </span>
+          </>
+        )}
       </p>
       <p className="session-card-last">
         <span className="session-card-label">Last input</span>
@@ -758,9 +810,18 @@ export function TerminalWorkspace({
   const detached = useRef(new Set<string>());
   /** Every session id this page has listed, so only a genuinely new one takes the screen. */
   const known = useRef(new Set<string>());
-  const [available, setAvailable] = useState<
-    { id: string; kind: string; started_at_ms?: number }[]
-  >([]);
+  const [available, setAvailable] = useState<SessionListEntry[]>([]);
+  /**
+   * The rows the device listed, by session, kept after the tab attaches.
+   *
+   * `available` is the *unattached* list: attaching removes its entry so the picker does not offer
+   * a session twice. The session card still needs the row — its holder and goal — so the index
+   * keeps the last answer by id rather than leaving the card to say "not recorded" about a session
+   * the device just described.
+   */
+  const [sessionsById, setSessionsById] = useState<ReadonlyMap<string, SessionListEntry>>(
+    () => new Map()
+  );
   // The device's session list is read on mount now, not behind an "Attach" click. These are the two
   // states that read has: a request in flight, and the sentence when it failed.
   const [listing, setListing] = useState(true);
@@ -1965,14 +2026,13 @@ export function TerminalWorkspace({
       const answer = JSON.parse(
         await callTool(grantRef.current, "terminal.list", {}, { poll })
       );
-      const sessions: { id: string; kind: string; started_at_ms?: number }[] = Array.isArray(answer)
-        ? answer
-        : [];
+      const sessions: SessionListEntry[] = Array.isArray(answer) ? answer : [];
       // Newest first. The device lists its sessions oldest-first, and the page attaches to the head:
       // without this an operator opening the Terminal met the shell they abandoned an hour ago,
       // while the one an AI client had just started sat at the bottom of the list.
       sessions.sort((a, b) => (b.started_at_ms ?? 0) - (a.started_at_ms ?? 0));
       setAvailable(sessions);
+      setSessionsById(new Map(sessions.map((entry) => [entry.id, entry])));
       if (announce) {
         setStatus(
           sessions.length === 0
@@ -2323,6 +2383,8 @@ export function TerminalWorkspace({
           liveLines={feedLines}
           deviceId={grant.deviceId}
           grant={grant}
+          sessionEntry={sessionsById.get(activeTab.session)}
+          tokenNames={tokenNames}
         />
       )}
 

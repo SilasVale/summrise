@@ -1499,6 +1499,8 @@ mod tests {
         let auth = password("pw");
         let id = registry
             .create(
+                summrise_core::Holder::install(),
+                None,
                 CreateTarget::Ssh(SshTarget {
                     host: "127.0.0.1",
                     port: server.port(),

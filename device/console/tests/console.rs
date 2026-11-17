@@ -2886,7 +2886,13 @@ async fn next_message(socket: &mut DeviceSocket) -> WsMessage {
     }
 }
 
-async fn next_json(socket: &mut DeviceSocket) -> Value {
+/// The next frame a device side received, exactly as it crossed the socket.
+///
+/// This is the reader a test uses when it must see the console's own transaction work: the
+/// `txn.begin` probe, a commit, or a frame the console must NOT have tagged. [`next_json`] layers a
+/// 2.0.12 device's automatic answer over it, so a test about something other than transactions does
+/// not have to know that every Required call begins one.
+async fn next_json_raw(socket: &mut DeviceSocket) -> Value {
     loop {
         let text = next_message(socket)
             .await
@@ -2900,6 +2906,146 @@ async fn next_json(socket: &mut DeviceSocket) -> Value {
         }
         return frame;
     }
+}
+
+/// The next call-shaped frame, after answering any `txn.begin` the console sent to open one.
+///
+/// **A 2.0.12 DEVICE ANSWERS THE CONSOLE'S OWN TRANSACTION PROBE.** The console begins one
+/// device-scope transaction lazily and one session-bound transaction when a person uses a session,
+/// so the first Required call on a channel is preceded by a `txn.begin`. A test about a tool's
+/// behavior should not have to script that; a test about the transaction itself reads
+/// [`next_json_raw`] instead.
+async fn next_json(socket: &mut DeviceSocket) -> Value {
+    loop {
+        let frame = next_json_raw(socket).await;
+        if frame_tool(&frame) == Some("txn.begin") {
+            static NEXT: AtomicU64 = AtomicU64::new(1);
+            let n = NEXT.fetch_add(1, Ordering::Relaxed);
+            answer(
+                socket,
+                &frame,
+                tools_call_answer(
+                    frame["id"].clone(),
+                    &json!({ "txn": format!("txn-auto-{n}"), "started_at_ms": START_MS })
+                        .to_string(),
+                    false,
+                ),
+            )
+            .await;
+            continue;
+        }
+        return frame;
+    }
+}
+
+/// The tool a `tools/call` frame names, or `None` for any other request.
+fn frame_tool(frame: &Value) -> Option<&str> {
+    if frame.get("mcp")?.get("method")?.as_str()? != "tools/call" {
+        return None;
+    }
+    frame.get("mcp")?.get("params")?.get("name")?.as_str()
+}
+
+/// The arguments object of a `tools/call` frame.
+fn frame_arguments(frame: &Value) -> &Value {
+    frame
+        .get("mcp")
+        .and_then(|mcp| mcp.get("params"))
+        .and_then(|params| params.get("arguments"))
+        .unwrap_or(&Value::Null)
+}
+
+/// The transaction a call frame carries, when it carries one.
+fn frame_txn(frame: &Value) -> Option<&str> {
+    frame_arguments(frame).get("txn")?.as_str()
+}
+
+/// The next frame must be the console beginning a transaction; returns it and its purpose.
+async fn expect_begin(socket: &mut DeviceSocket) -> (Value, String) {
+    let frame = next_json_raw(socket).await;
+    assert_eq!(
+        frame_tool(&frame),
+        Some("txn.begin"),
+        "the console opens its transaction first: {frame}"
+    );
+    let purpose = frame_arguments(&frame)["purpose"]
+        .as_str()
+        .expect("a begin names its purpose")
+        .to_owned();
+    (frame, purpose)
+}
+
+/// Answer a `txn.begin` with the id the device minted.
+async fn answer_begin(socket: &mut DeviceSocket, frame: &Value, txn: &str) {
+    answer(
+        socket,
+        frame,
+        tools_call_answer(
+            frame["id"].clone(),
+            &json!({ "txn": txn, "started_at_ms": START_MS, "goal_at_start": Value::Null })
+                .to_string(),
+            false,
+        ),
+    )
+    .await;
+}
+
+/// A forwarded call's arguments without the transaction the console attached.
+///
+/// The console tags every Required call it makes on a person's behalf; a test about the tool's own
+/// arguments should assert those and leave the tag to the transaction tests.
+fn untagged_arguments(frame: &Value) -> Value {
+    let mut arguments = frame_arguments(frame).clone();
+    if let Some(object) = arguments.as_object_mut() {
+        object.remove("txn");
+    }
+    arguments
+}
+
+/// Answer a `txn.begin` with the device's already-open refusal, naming the record it kept.
+///
+/// A restart leaves the console's holder on the device; the refusal carries the open id and the
+/// purpose it declared in `structuredContent`, which is what lets a restarted console recover.
+async fn answer_already_open(socket: &mut DeviceSocket, frame: &Value, txn: &str, purpose: &str) {
+    let mut answer_body = tools_call_answer(
+        frame["id"].clone(),
+        "txn.begin: txn_already_open: a transaction is already open for that scope; commit or \
+         abort it first",
+        true,
+    );
+    answer_body["result"]["structuredContent"] = json!({ "txn": txn, "purpose": purpose });
+    answer(socket, frame, answer_body).await;
+}
+
+/// The next frame must be a `tools/call` naming `tool`.
+async fn expect_call(socket: &mut DeviceSocket, tool: &str) -> Value {
+    let frame = next_json_raw(socket).await;
+    assert_eq!(
+        frame_tool(&frame),
+        Some(tool),
+        "the device expected {tool}: {frame}"
+    );
+    frame
+}
+
+/// Answer a `tools/call` with a successful text result.
+async fn answer_tool(socket: &mut DeviceSocket, frame: &Value, body: Value) {
+    answer(
+        socket,
+        frame,
+        tools_call_answer(frame["id"].clone(), &body.to_string(), false),
+    )
+    .await;
+}
+
+/// Answer a `tools/call` with MCP's tool-level failure (`isError: true`), as a device refuses.
+async fn answer_refused(socket: &mut DeviceSocket, frame: &Value, sentence: &str) {
+    answer(
+        socket,
+        frame,
+        tools_call_answer(frame["id"].clone(), sentence, true),
+    )
+    .await;
 }
 
 async fn answer(socket: &mut DeviceSocket, frame: &Value, result: Value) {
@@ -10942,10 +11088,14 @@ async fn the_journal_read_route_relays_the_machine_s_window_field_by_field() {
         "{frame}"
     );
     assert_eq!(
-        frame["mcp"]["params"]["arguments"],
+        untagged_arguments(&frame),
         json!({ "limit": 200 }),
         "an absent limit asks for the newest page, and a read from the newest row names no before: \
          {frame}"
+    );
+    assert!(
+        frame_txn(&frame).is_some(),
+        "the window read rides the console's device transaction: {frame}"
     );
     assert!(
         frame["trace"]
@@ -11083,9 +11233,13 @@ async fn a_journal_read_before_a_sequence_pages_older_than_it() {
 
     let frame = next_json(&mut device).await;
     assert_eq!(
-        frame["mcp"]["params"]["arguments"],
+        untagged_arguments(&frame),
         json!({ "limit": 2, "before_seq": 48 }),
         "the page's page-forward is the device's before_seq: {frame}"
+    );
+    assert!(
+        frame_txn(&frame).is_some(),
+        "the read rides the console's device transaction: {frame}"
     );
     answer(
         &mut device,
@@ -11144,9 +11298,13 @@ async fn a_journal_read_defaults_to_two_hundred_rows_and_refuses_a_limit_outside
 
         let frame = next_json(&mut device).await;
         assert_eq!(
-            frame["mcp"]["params"]["arguments"],
+            untagged_arguments(&frame),
             json!({ "limit": requested }),
             "limit={limit:?}: {frame}"
+        );
+        assert!(
+            frame_txn(&frame).is_some(),
+            "limit={limit:?} rides the console's device transaction: {frame}"
         );
         answer(
             &mut device,
@@ -11266,9 +11424,13 @@ async fn the_journal_day_route_relays_the_day_it_asked_for() {
         "{frame}"
     );
     assert_eq!(
-        frame["mcp"]["params"]["arguments"],
+        untagged_arguments(&frame),
         json!({ "day_start_ms": 1000, "day_end_ms": 2000 }),
         "the two instants are relayed as whole milliseconds: {frame}"
+    );
+    assert!(
+        frame_txn(&frame).is_some(),
+        "the day read rides the console's device transaction: {frame}"
     );
     assert!(
         frame["trace"]
@@ -13441,4 +13603,1120 @@ async fn the_installer_routes_need_the_operator_session() {
 
     let (status, _, _) = send_bytes(fixture.app(), get("/installer/download", None)).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+// ---- the console's context transaction and every forwarded call (round 22, task 5) ---------------
+
+/// One page call over the operator's own `/mcp` door: no grant, so it is the console's own action.
+async fn page_call(
+    fixture: &Fixture,
+    session: &str,
+    device_id: &str,
+    request: Value,
+) -> (StatusCode, Value) {
+    send(
+        fixture.app(),
+        post_json_bearer(
+            "/mcp",
+            session,
+            json!({ "device_id": device_id, "request": request }),
+        ),
+    )
+    .await
+}
+
+fn tools_call(id: u64, name: &str, arguments: Value) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": "tools/call",
+        "params": { "name": name, "arguments": arguments },
+    })
+}
+
+/// **ONE SESSION, ONE TRANSACTION.** A person typing in a terminal: the console opens one
+/// session-bound `by: console` transaction for that session, tags every write and the close with it,
+/// and commits it when the close succeeds. The device sees exactly one begin.
+#[tokio::test]
+async fn a_console_session_gets_one_transaction() {
+    let fixture = Fixture::new("txn-one-console-session");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xa4)).await;
+    let session = fixture.authenticate().await;
+
+    let device_side = async {
+        let (begin, purpose) = expect_begin(&mut device).await;
+        assert_eq!(
+            begin["mcp"]["params"]["arguments"]["session"],
+            json!("session-1"),
+            "a session-bound transaction names its session: {begin}"
+        );
+        assert!(
+            purpose.contains("session-1"),
+            "the purpose says which session this is: {purpose}"
+        );
+        answer_begin(&mut device, &begin, "txn-1").await;
+
+        let first = expect_call(&mut device, "terminal.write").await;
+        assert_eq!(frame_txn(&first), Some("txn-1"), "{first}");
+        answer_tool(
+            &mut device,
+            &first,
+            json!({ "id": "session-1", "written": 8 }),
+        )
+        .await;
+
+        let second = expect_call(&mut device, "terminal.write").await;
+        assert_eq!(
+            frame_txn(&second),
+            Some("txn-1"),
+            "a second write rides the same transaction, never a second begin: {second}"
+        );
+        answer_tool(
+            &mut device,
+            &second,
+            json!({ "id": "session-1", "written": 8 }),
+        )
+        .await;
+
+        let close = expect_call(&mut device, "terminal.close").await;
+        assert_eq!(frame_txn(&close), Some("txn-1"), "{close}");
+        answer_tool(&mut device, &close, json!({ "id": "session-1" })).await;
+
+        let commit = expect_call(&mut device, "txn.commit").await;
+        assert_eq!(
+            frame_arguments(&commit)["txn"],
+            json!("txn-1"),
+            "closing the session commits the transaction it ran under: {commit}"
+        );
+        answer_tool(
+            &mut device,
+            &commit,
+            json!({ "txn": "txn-1", "state": "committed" }),
+        )
+        .await;
+    };
+
+    let page = async {
+        for (id, data) in [(1u64, "echo one\n"), (2, "echo two\n")] {
+            let (status, body) = page_call(
+                &fixture,
+                &session,
+                &device_id,
+                tools_call(
+                    id,
+                    "terminal.write",
+                    json!({ "id": "session-1", "data": data }),
+                ),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "write {id}: {body}");
+        }
+        let (status, body) = page_call(
+            &fixture,
+            &session,
+            &device_id,
+            tools_call(3, "terminal.close", json!({ "id": "session-1" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "close: {body}");
+    };
+
+    tokio::join!(page, device_side);
+}
+
+/// A second call on the same session never opens a second transaction: the working record is the
+/// session's, and replacing it would invent a boundary the person never made.
+#[tokio::test]
+async fn a_second_begin_is_never_sent_for_one_session() {
+    let fixture = Fixture::new("txn-no-second-begin");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xa5)).await;
+    let session = fixture.authenticate().await;
+
+    let device_side = async {
+        let (begin, _) = expect_begin(&mut device).await;
+        answer_begin(&mut device, &begin, "txn-1").await;
+        for index in 0..3 {
+            let call = expect_call(&mut device, "terminal.write").await;
+            assert_eq!(frame_txn(&call), Some("txn-1"), "write {index}: {call}");
+            answer_tool(
+                &mut device,
+                &call,
+                json!({ "id": "session-1", "written": 1 }),
+            )
+            .await;
+        }
+    };
+
+    let page = async {
+        for id in 0..3u64 {
+            let (status, body) = page_call(
+                &fixture,
+                &session,
+                &device_id,
+                tools_call(
+                    id,
+                    "terminal.write",
+                    json!({ "id": "session-1", "data": "x" }),
+                ),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "write {id}: {body}");
+        }
+    };
+
+    tokio::join!(page, device_side);
+}
+
+/// The terminal's stream is a `terminal.read` like any other: it carries the session's transaction,
+/// so the device admits the parked read the page opened before anyone typed.
+#[tokio::test]
+async fn the_terminal_stream_and_poll_carry_the_session_transaction() {
+    let fixture = Fixture::new("txn-stream-poll");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xa6)).await;
+    let session = fixture.authenticate().await;
+
+    let path = format!("/terminal/{device_id}/session-1/stream?from=0");
+    let auth = bearer(&session);
+    let stream = raw_get(&server, &path, &auth, "txn-stream");
+
+    let device_side = async {
+        let (begin, _) = expect_begin(&mut device).await;
+        assert_eq!(
+            begin["mcp"]["params"]["arguments"]["session"],
+            json!("session-1"),
+            "the stream's transaction is the session's: {begin}"
+        );
+        answer_begin(&mut device, &begin, "txn-1").await;
+        let read = expect_call(&mut device, "terminal.read").await;
+        assert_eq!(
+            frame_txn(&read),
+            Some("txn-1"),
+            "the parked read carries the session transaction: {read}"
+        );
+        answer_tool(
+            &mut device,
+            &read,
+            json!({ "data": "txn-stream", "cursor": 10, "alive": true }),
+        )
+        .await;
+        // Leave the next read parked: a quiet session is not an error.
+        let _ = tokio::time::timeout(Duration::from_secs(1), next_json_raw(&mut device)).await;
+    };
+
+    let (body, ()) = tokio::join!(stream, device_side);
+    assert!(body.contains("txn-stream"), "{body}");
+}
+
+/// The journal's join and window are reads the page makes about the record it already draws. They
+/// are machine calls, so they ride the one device-scope transaction — and one begin serves both.
+#[tokio::test]
+async fn the_journal_joins_carry_the_context_transaction() {
+    let fixture = Fixture::new("txn-journal-join");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        present_device(&fixture, &server, &signing_key(0xa7)).await;
+    let session = fixture.authenticate().await;
+    let short = &device_id[..12];
+
+    let device_side = async {
+        let (begin, purpose) = expect_begin(&mut device).await;
+        assert_eq!(
+            begin["mcp"]["params"]["arguments"].get("session"),
+            None,
+            "a journal read is device-scope: {begin}"
+        );
+        assert_eq!(
+            purpose,
+            format!("your console on {short}…"),
+            "the console names the machine it is acting on"
+        );
+        answer_begin(&mut device, &begin, "txn-1").await;
+
+        let join = expect_call(&mut device, "journal.get").await;
+        assert_eq!(frame_txn(&join), Some("txn-1"), "{join}");
+        answer_tool(
+            &mut device,
+            &join,
+            json!({
+                "traces": ["a"],
+                "missing": [],
+                "journal": true,
+                "bounded": false,
+                "oldest_seq": 1,
+                "last_seq": 2,
+            }),
+        )
+        .await;
+
+        let read = expect_call(&mut device, "journal.read").await;
+        assert_eq!(
+            frame_txn(&read),
+            Some("txn-1"),
+            "the same device transaction serves the window read: {read}"
+        );
+        answer_tool(
+            &mut device,
+            &read,
+            json!({
+                "journal": true,
+                "oldest_seq": 1,
+                "last_seq": 2,
+                "rows": [],
+                "more": false,
+            }),
+        )
+        .await;
+    };
+
+    let page = async {
+        let (status, body) = send(
+            fixture.app(),
+            get(
+                &format!("/audit/join?device={device_id}&traces=a"),
+                Some(&session),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "join: {body}");
+        assert_eq!(body["joined"], json!(["a"]), "{body}");
+
+        let (status, body) = send(
+            fixture.app(),
+            get(&format!("/journal/read?device={device_id}"), Some(&session)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "window: {body}");
+        assert_eq!(body["journal"], json!(true), "{body}");
+    };
+
+    tokio::join!(page, device_side);
+}
+
+/// A page call that names no session — Files, Browser, Monitor, Plugins, Forward — rides the one
+/// device-scope transaction the console opened for that machine. One begin, five calls.
+#[tokio::test]
+async fn a_session_less_page_call_rides_the_device_scope_transaction() {
+    let fixture = Fixture::new("txn-device-scope");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xa8)).await;
+    let session = fixture.authenticate().await;
+    let short = &device_id[..12];
+
+    let tools = [
+        (
+            "files.write",
+            json!({ "path": "notes.txt", "content": "hi" }),
+        ),
+        ("browser.open", json!({ "url": "https://example.test" })),
+        (
+            "monitor.add",
+            json!({ "host": "example.test", "port": 443, "kind": "tcp", "interval_ms": 5000 }),
+        ),
+        ("plugins.logs", json!({ "namespace": "hello" })),
+        (
+            "forward.add",
+            json!({
+                "name": "a-rule",
+                "listen": "127.0.0.1:9000",
+                "target": "127.0.0.1:9001",
+                "via": "user@example.test:22",
+                "auth": { "kind": "key", "path": "/tmp/key" },
+            }),
+        ),
+    ];
+
+    let device_side = async {
+        let (begin, purpose) = expect_begin(&mut device).await;
+        assert_eq!(
+            purpose,
+            format!("your console on {short}…"),
+            "the console names the machine it is acting on"
+        );
+        answer_begin(&mut device, &begin, "txn-1").await;
+        for (index, (tool, _)) in tools.iter().enumerate() {
+            let call = expect_call(&mut device, tool).await;
+            assert_eq!(
+                frame_txn(&call),
+                Some("txn-1"),
+                "{tool} ({index}) rides the device-scope transaction: {call}"
+            );
+            answer_tool(&mut device, &call, json!({ "ok": true })).await;
+        }
+    };
+
+    let page = async {
+        for (index, (tool, arguments)) in tools.iter().enumerate() {
+            let (status, body) = page_call(
+                &fixture,
+                &session,
+                &device_id,
+                tools_call(index as u64, tool, arguments.clone()),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{tool}: {body}");
+        }
+    };
+
+    tokio::join!(page, device_side);
+}
+
+/// **NO PTY IS CREATED TO SATISFY THE GATE.** A Files-only visit never calls `terminal.create`; the
+/// session list the page reads is the machine's own, unchanged by the console's bookkeeping.
+#[tokio::test]
+async fn no_pty_is_created_for_the_gate() {
+    let fixture = Fixture::new("txn-no-pty");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xa9)).await;
+    let session = fixture.authenticate().await;
+
+    let device_side = async {
+        // The page's session list: an exempt read, so it is never tagged and opens nothing.
+        let list = expect_call(&mut device, "terminal.list").await;
+        assert_eq!(
+            frame_arguments(&list).get("txn"),
+            None,
+            "the read-only catalogue is exempt: {list}"
+        );
+        answer_tool(&mut device, &list, json!({ "sessions": [] })).await;
+
+        // The Files write opens the device transaction on demand — not a PTY.
+        let (begin, _) = expect_begin(&mut device).await;
+        answer_begin(&mut device, &begin, "txn-1").await;
+        let write = expect_call(&mut device, "files.write").await;
+        assert_eq!(frame_txn(&write), Some("txn-1"), "{write}");
+        answer_tool(
+            &mut device,
+            &write,
+            json!({ "path": "notes.txt", "bytes": 2 }),
+        )
+        .await;
+
+        // Nothing a gate needed may look like a session: no create, no read.
+        let _ = tokio::time::timeout(Duration::from_secs(1), next_json_raw(&mut device)).await;
+    };
+
+    let page = async {
+        let (status, body) = page_call(
+            &fixture,
+            &session,
+            &device_id,
+            tools_call(1, "terminal.list", json!({})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let listed: Value = serde_json::from_str(
+            body["result"]["content"][0]["text"]
+                .as_str()
+                .expect("the device's list text"),
+        )
+        .expect("the list is JSON");
+        assert_eq!(
+            listed["sessions"],
+            json!([]),
+            "the machine's own list: {body}"
+        );
+
+        let (status, body) = page_call(
+            &fixture,
+            &session,
+            &device_id,
+            tools_call(
+                2,
+                "files.write",
+                json!({ "path": "notes.txt", "content": "hi" }),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+    };
+
+    tokio::join!(page, device_side);
+}
+
+/// A client token's call is the device's gate to meet, never the console's: the console forwards it
+/// untouched, with no begin of its own. The console holds no authority to open work for a token.
+#[tokio::test]
+async fn the_console_never_auto_opens_for_a_client_token() {
+    let fixture = Fixture::new("txn-client-token");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xb0)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(&session, &device_id, "a client", &["files.write"], false)
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let plaintext = created["token"].as_str().expect("the secret").to_owned();
+
+    let request = tools_call(
+        31,
+        "files.write",
+        json!({ "path": "token.txt", "content": "hi" }),
+    );
+    let device_side = async {
+        let frame = next_json_raw(&mut device).await;
+        assert_eq!(
+            frame_tool(&frame),
+            Some("files.write"),
+            "a token's call is never preceded by the console's begin: {frame}"
+        );
+        assert_eq!(
+            frame_arguments(&frame).get("txn"),
+            None,
+            "the console adds no transaction to a client's call: {frame}"
+        );
+        answer_tool(&mut device, &frame, json!({ "path": "token.txt" })).await;
+    };
+
+    let call = send(
+        fixture.app(),
+        post_token(&device_id, &plaintext, request.clone()),
+    );
+    let ((status, body), ()) = tokio::join!(call, device_side);
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["result"]["isError"],
+        json!(false),
+        "the device's answer crosses unchanged: {body}"
+    );
+}
+
+/// The exempt and bootstrap tools are read from the registry table, never tagged: `terminal.create`
+/// is what makes a transaction possible, and the catalogue, the goal and the transaction tools need
+/// none. No begin is sent for any of them.
+#[tokio::test]
+async fn an_exempt_or_bootstrap_tool_is_not_tagged() {
+    let fixture = Fixture::new("txn-exempt");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xb1)).await;
+    let session = fixture.authenticate().await;
+
+    let script = [
+        (
+            "terminal.create",
+            json!({ "kind": "pty" }),
+            json!({ "id": "session-1", "kind": "pty" }),
+        ),
+        ("terminal.list", json!({}), json!({ "sessions": [] })),
+        (
+            "txn.begin",
+            json!({ "purpose": "the page's own claim" }),
+            json!({ "txn": "txn-9", "started_at_ms": 1 }),
+        ),
+        (
+            "terminal.goal",
+            json!({ "id": "session-1", "action": "clear" }),
+            json!({ "id": "session-1", "goal": null }),
+        ),
+    ];
+
+    let device_side = async {
+        for (index, (tool, _, answer_body)) in script.iter().enumerate() {
+            let frame = next_json_raw(&mut device).await;
+            if frame_tool(&frame) == Some("txn.begin") && *tool != "txn.begin" {
+                panic!("{tool} must not be preceded by a begin: {frame}");
+            }
+            assert_eq!(frame_tool(&frame), Some(*tool), "{tool}: {frame}");
+            assert_eq!(
+                frame_arguments(&frame).get("txn"),
+                None,
+                "{tool} ({index}) is not tagged: {frame}"
+            );
+            answer_tool(&mut device, &frame, answer_body.clone()).await;
+        }
+    };
+
+    let page = async {
+        for (index, (tool, arguments, _)) in script.iter().enumerate() {
+            let (status, body) = page_call(
+                &fixture,
+                &session,
+                &device_id,
+                tools_call(index as u64, tool, arguments.clone()),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{tool}: {body}");
+        }
+    };
+
+    tokio::join!(page, device_side);
+}
+
+/// A device older than the transaction tools gets no tag and is never called a liar for it: the
+/// console asks once, reads the device's own "no such tool", and forwards the call untouched. The
+/// page's record says nothing rather than inventing a transaction — "not recorded", not a fiction.
+#[tokio::test]
+async fn a_device_without_txn_tools_gets_no_tag_and_says_not_recorded() {
+    let fixture = Fixture::new("txn-old-device");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xb2)).await;
+    let session = fixture.authenticate().await;
+
+    let device_side = async {
+        // The one probe: an old build does not offer `txn.begin`, and says so as an unknown tool.
+        let probe = next_json_raw(&mut device).await;
+        assert_eq!(frame_tool(&probe), Some("txn.begin"), "{probe}");
+        answer_error(
+            &mut device,
+            &probe,
+            json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "error": { "code": -32602, "message": "unknown tool: txn.begin" },
+            }),
+        )
+        .await;
+
+        let first = expect_call(&mut device, "files.write").await;
+        assert_eq!(
+            frame_arguments(&first).get("txn"),
+            None,
+            "an old device is forwarded untagged: {first}"
+        );
+        answer_tool(&mut device, &first, json!({ "path": "notes.txt" })).await;
+
+        // The device said it once; the console does not ask again.
+        let second = expect_call(&mut device, "files.write").await;
+        assert_eq!(
+            frame_arguments(&second).get("txn"),
+            None,
+            "no second probe, no invented tag: {second}"
+        );
+        answer_tool(&mut device, &second, json!({ "path": "notes.txt" })).await;
+    };
+
+    let page = async {
+        for id in [1u64, 2] {
+            let (status, body) = page_call(
+                &fixture,
+                &session,
+                &device_id,
+                tools_call(
+                    id,
+                    "files.write",
+                    json!({ "path": "notes.txt", "content": "hi" }),
+                ),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+        }
+    };
+
+    tokio::join!(page, device_side);
+
+    // The console's own record does not claim a transaction it never had.
+    let lines = audit_lines(&fixture);
+    let calls: Vec<&Value> = lines
+        .iter()
+        .filter(|line| line["tool"] == json!("files.write"))
+        .collect();
+    assert_eq!(calls.len(), 2, "{lines:?}");
+    for line in calls {
+        assert!(
+            line.get("txn").is_none(),
+            "a device that records no transaction leaves the console's row unrecorded: {line}"
+        );
+    }
+}
+
+/// A cached transaction the device no longer holds is re-begun **once** and the call retried once;
+/// if the retry is refused too, the device's own sentence is what the caller reads.
+#[tokio::test]
+async fn a_refused_cached_txn_re_begins_once() {
+    let fixture = Fixture::new("txn-rebegin-once");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xb3)).await;
+    let session = fixture.authenticate().await;
+
+    let device_side = async {
+        // First call: the console opens txn-1 and the call succeeds.
+        let (begin, _) = expect_begin(&mut device).await;
+        answer_begin(&mut device, &begin, "txn-1").await;
+        let first = expect_call(&mut device, "files.write").await;
+        assert_eq!(frame_txn(&first), Some("txn-1"), "{first}");
+        answer_tool(&mut device, &first, json!({ "path": "one.txt" })).await;
+
+        // Second call: the device restarted and no longer holds txn-1.
+        let stale = expect_call(&mut device, "files.write").await;
+        assert_eq!(frame_txn(&stale), Some("txn-1"), "{stale}");
+        answer_refused(
+            &mut device,
+            &stale,
+            "files.write: txn_unknown: no transaction with that id is open on this device",
+        )
+        .await;
+
+        // Exactly one re-begin, then the same call retried under the new id.
+        let (rebegun, _) = expect_begin(&mut device).await;
+        assert_eq!(
+            rebegun["mcp"]["params"]["arguments"].get("session"),
+            None,
+            "the replacement is the same scope: {rebegun}"
+        );
+        answer_begin(&mut device, &rebegun, "txn-2").await;
+        let retried = expect_call(&mut device, "files.write").await;
+        assert_eq!(
+            frame_txn(&retried),
+            Some("txn-2"),
+            "the retry rides the transaction the device just minted: {retried}"
+        );
+        answer_tool(&mut device, &retried, json!({ "path": "two.txt" })).await;
+
+        // Third call: the device is gone again, and refuses the retry too. The console stops after
+        // one re-begin and hands the device's sentence to the caller.
+        let stale_again = expect_call(&mut device, "files.write").await;
+        assert_eq!(frame_txn(&stale_again), Some("txn-2"), "{stale_again}");
+        answer_refused(
+            &mut device,
+            &stale_again,
+            "files.write: txn_unknown: no transaction with that id is open on this device",
+        )
+        .await;
+        let (last_begin, _) = expect_begin(&mut device).await;
+        answer_begin(&mut device, &last_begin, "txn-3").await;
+        let last = expect_call(&mut device, "files.write").await;
+        assert_eq!(frame_txn(&last), Some("txn-3"), "{last}");
+        answer_refused(
+            &mut device,
+            &last,
+            "files.write: txn_unknown: no transaction with that id is open on this device",
+        )
+        .await;
+
+        // No fourth begin: the refusal is surfaced, not retried forever.
+        let extra = tokio::time::timeout(Duration::from_secs(1), next_json_raw(&mut device)).await;
+        assert!(
+            extra.is_err(),
+            "the console re-begins once and then stops: {extra:?}"
+        );
+    };
+
+    let page = async {
+        for id in [1u64, 2] {
+            let (status, body) = page_call(
+                &fixture,
+                &session,
+                &device_id,
+                tools_call(
+                    id,
+                    "files.write",
+                    json!({ "path": "one.txt", "content": "hi" }),
+                ),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "call {id}: {body}");
+        }
+
+        let (status, body) = page_call(
+            &fixture,
+            &session,
+            &device_id,
+            tools_call(
+                3,
+                "files.write",
+                json!({ "path": "two.txt", "content": "hi" }),
+            ),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "the device's refusal is the answer: {body}"
+        );
+        assert_eq!(body["result"]["isError"], json!(true), "{body}");
+        let text = body["result"]["content"][0]["text"]
+            .as_str()
+            .expect("the device's sentence");
+        assert!(
+            text.contains("txn_unknown"),
+            "the sentence is the device's: {text}"
+        );
+    };
+
+    tokio::join!(page, device_side);
+}
+
+/// A transaction's own row carries what only its answer knows: the begin's minted id, and the end's
+/// receipt. Without them a begin is an orphan row and the calls under it have no purpose.
+#[tokio::test]
+async fn a_proxied_transaction_begin_carries_its_id_and_a_commit_its_receipt() {
+    let fixture = Fixture::new("txn-row-fields");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xb4)).await;
+    let session = fixture.authenticate().await;
+
+    let mut socket = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut socket, &mut seen, "event: snapshot").await;
+
+    let begin = tokio::spawn({
+        let app = fixture.app();
+        let session = session.clone();
+        let device_id = device_id.clone();
+        async move {
+            send(
+                app,
+                post_json_bearer(
+                    "/mcp",
+                    &session,
+                    json!({
+                        "device_id": device_id,
+                        "request": tools_call(1, "txn.begin", json!({ "purpose": "verify the suite" })),
+                    }),
+                ),
+            )
+            .await
+        }
+    });
+    let frame = expect_call(&mut device, "txn.begin").await;
+    assert_eq!(
+        frame_arguments(&frame).get("txn"),
+        None,
+        "the begin is the record's own tool, never tagged: {frame}"
+    );
+    answer_tool(
+        &mut device,
+        &frame,
+        json!({ "txn": "txn-7", "started_at_ms": 1, "goal_at_start": Value::Null }),
+    )
+    .await;
+    let (status, body) = begin.await.expect("the begin finished");
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    // The begin's row carries the id its answer minted — not an unknown, purpose-less row.
+    let from = seen.len();
+    read_until_after(&mut socket, &mut seen, "txn.begin", from).await;
+    assert!(
+        seen.contains("\"txn\":\"txn-7\""),
+        "the begin row carries its own id: {seen}"
+    );
+    assert!(
+        seen.contains("\"purpose\":\"verify the suite\""),
+        "the begin row carries its purpose: {seen}"
+    );
+
+    let commit = tokio::spawn({
+        let app = fixture.app();
+        let session = session.clone();
+        let device_id = device_id.clone();
+        async move {
+            send(
+                app,
+                post_json_bearer(
+                    "/mcp",
+                    &session,
+                    json!({
+                        "device_id": device_id,
+                        "request": tools_call(2, "txn.commit", json!({ "txn": "txn-7" })),
+                    }),
+                ),
+            )
+            .await
+        }
+    });
+    let frame = expect_call(&mut device, "txn.commit").await;
+    answer_tool(
+        &mut device,
+        &frame,
+        json!({
+            "txn": "txn-7",
+            "state": "committed",
+            "purpose": "verify the suite",
+            "observed": { "calls": 1, "failures": 0, "refusals": 0, "duration_ms": 5 },
+        }),
+    )
+    .await;
+    let (status, body) = commit.await.expect("the commit finished");
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let from = seen.len();
+    read_until_after(&mut socket, &mut seen, "receipt", from).await;
+    assert!(
+        seen.contains("\"state\":\"committed\""),
+        "the end row carries the device's receipt: {seen}"
+    );
+
+    let lines = audit_lines(&fixture);
+    let begin_line = lines
+        .iter()
+        .find(|line| line["tool"] == json!("txn.begin"))
+        .expect("the begin's audit line");
+    assert_eq!(
+        begin_line["txn"],
+        json!("txn-7"),
+        "the console's row joins the transaction its answer minted: {begin_line}"
+    );
+    let commit_line = lines
+        .iter()
+        .find(|line| line["tool"] == json!("txn.commit"))
+        .expect("the commit's audit line");
+    assert_eq!(
+        commit_line["txn"],
+        json!("txn-7"),
+        "the end row names the record it ends: {commit_line}"
+    );
+}
+
+/// **A RESTARTED CONSOLE RECOVERS THE SLOT IT LEFT OPEN.** The device keeps the working device-scope
+/// record of `console·operator` and names it in the refusal; when the purpose is the console's own,
+/// the console adopts it and the calls continue the record instead of being locked out.
+#[tokio::test]
+async fn a_console_restart_adopts_the_open_context_transaction() {
+    let fixture = Fixture::new("txn-restart-adopts");
+    let (device_id, device_token) = fixture.register(&signing_key(0xb5)).await;
+    let session = fixture.authenticate().await;
+
+    let server = TestServer::start(&fixture.console).await;
+    let mut device = open_channel(&server, &device_id, &device_token)
+        .await
+        .expect("the first console's channel");
+    let purpose = format!("your console on {}…", &device_id[..12]);
+
+    let first = page_call(
+        &fixture,
+        &session,
+        &device_id,
+        tools_call(
+            1,
+            "files.write",
+            json!({ "path": "one.txt", "content": "hi" }),
+        ),
+    );
+    let device_side = async {
+        let (begin, seen) = expect_begin(&mut device).await;
+        assert_eq!(seen, purpose, "the first console names its own context");
+        answer_begin(&mut device, &begin, "txn-1").await;
+        let call = expect_call(&mut device, "files.write").await;
+        assert_eq!(frame_txn(&call), Some("txn-1"), "{call}");
+        answer_tool(&mut device, &call, json!({ "path": "one.txt" })).await;
+    };
+    let ((status, body), ()) = tokio::join!(first, device_side);
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    // The console process is gone; the device kept `txn-1` working for the same holder.
+    drop(server);
+    drop(device);
+    let restarted = fixture.restart();
+    let server = TestServer::start(&restarted).await;
+    let mut device = open_channel(&server, &device_id, &device_token)
+        .await
+        .expect("the restarted console's channel");
+
+    let call = send(
+        restarted.router(),
+        post_json_bearer(
+            "/mcp",
+            &session,
+            json!({
+                "device_id": device_id,
+                "request": tools_call(2, "files.write", json!({ "path": "two.txt", "content": "hi" })),
+            }),
+        ),
+    );
+    let device_side = async {
+        let (begin, seen) = expect_begin(&mut device).await;
+        assert_eq!(
+            seen, purpose,
+            "the restarted console asks for the same context"
+        );
+        answer_already_open(&mut device, &begin, "txn-1", &purpose).await;
+
+        let call = expect_call(&mut device, "files.write").await;
+        assert_eq!(
+            frame_txn(&call),
+            Some("txn-1"),
+            "the restarted console adopts the record the device named: {call}"
+        );
+        answer_tool(&mut device, &call, json!({ "path": "two.txt" })).await;
+
+        let extra = tokio::time::timeout(Duration::from_secs(1), next_json_raw(&mut device)).await;
+        assert!(
+            extra.is_err(),
+            "an adopted record is not aborted or begun again: {extra:?}"
+        );
+    };
+    let ((status, body), ()) = tokio::join!(call, device_side);
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
+/// A record left open with another purpose is ended once and replaced once: the console never
+/// aborts in a loop and never claims a context it does not recognise.
+#[tokio::test]
+async fn a_console_restart_aborts_a_foreign_open_context_and_begins_once() {
+    let fixture = Fixture::new("txn-restart-aborts");
+    let (device_id, device_token) = fixture.register(&signing_key(0xb6)).await;
+    let session = fixture.authenticate().await;
+
+    let server = TestServer::start(&fixture.console).await;
+    let mut device = open_channel(&server, &device_id, &device_token)
+        .await
+        .expect("the first console's channel");
+    let purpose = format!("your console on {}…", &device_id[..12]);
+
+    let first = page_call(
+        &fixture,
+        &session,
+        &device_id,
+        tools_call(
+            1,
+            "files.write",
+            json!({ "path": "one.txt", "content": "hi" }),
+        ),
+    );
+    let device_side = async {
+        let (begin, _) = expect_begin(&mut device).await;
+        answer_begin(&mut device, &begin, "txn-1").await;
+        let call = expect_call(&mut device, "files.write").await;
+        answer_tool(&mut device, &call, json!({ "path": "one.txt" })).await;
+    };
+    let ((status, body), ()) = tokio::join!(first, device_side);
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    drop(server);
+    drop(device);
+    let restarted = fixture.restart();
+    let server = TestServer::start(&restarted).await;
+    let mut device = open_channel(&server, &device_id, &device_token)
+        .await
+        .expect("the restarted console's channel");
+
+    let call = send(
+        restarted.router(),
+        post_json_bearer(
+            "/mcp",
+            &session,
+            json!({
+                "device_id": device_id,
+                "request": tools_call(2, "files.write", json!({ "path": "two.txt", "content": "hi" })),
+            }),
+        ),
+    );
+    let device_side = async {
+        let (begin, seen) = expect_begin(&mut device).await;
+        assert_eq!(seen, purpose);
+        answer_already_open(
+            &mut device,
+            &begin,
+            "txn-9",
+            "a record from another context",
+        )
+        .await;
+
+        let abort = expect_call(&mut device, "txn.abort").await;
+        assert_eq!(
+            frame_arguments(&abort)["txn"],
+            json!("txn-9"),
+            "the foreign record is ended by id: {abort}"
+        );
+        answer_tool(
+            &mut device,
+            &abort,
+            json!({ "txn": "txn-9", "state": "aborted" }),
+        )
+        .await;
+
+        let (begin, _) = expect_begin(&mut device).await;
+        answer_begin(&mut device, &begin, "txn-10").await;
+        let call = expect_call(&mut device, "files.write").await;
+        assert_eq!(
+            frame_txn(&call),
+            Some("txn-10"),
+            "the calls ride the record just begun: {call}"
+        );
+        answer_tool(&mut device, &call, json!({ "path": "two.txt" })).await;
+
+        let extra = tokio::time::timeout(Duration::from_secs(1), next_json_raw(&mut device)).await;
+        assert!(
+            extra.is_err(),
+            "one abort and one more begin, then the device's answer: {extra:?}"
+        );
+    };
+    let ((status, body), ()) = tokio::join!(call, device_side);
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
+/// **ONE MACHINE'S SLOWNESS IS NOT ANOTHER MACHINE'S STALL.** The transaction book is per device:
+/// the slow device holds its own begin unanswered, and the other device's forward still completes.
+/// The test asserts order, not timing — the quick page returns and only then is the slow begin
+/// answered; a global book would never reach that point.
+#[tokio::test]
+async fn a_slow_device_does_not_block_another_devices_forwarding() {
+    let fixture = Fixture::new("txn-per-device-lock");
+    let server = TestServer::start(&fixture.console).await;
+    let (slow_id, slow_token) = fixture.register(&signing_key(0xb7)).await;
+    let (quick_id, quick_token) = fixture.register(&signing_key(0xb8)).await;
+    let session = fixture.authenticate().await;
+    let mut slow = open_channel(&server, &slow_id, &slow_token)
+        .await
+        .expect("the slow device's channel");
+    let mut quick = open_channel(&server, &quick_id, &quick_token)
+        .await
+        .expect("the quick device's channel");
+
+    let (quick_page_done, wait_for_quick_page) = tokio::sync::oneshot::channel::<()>();
+
+    let slow_side = async move {
+        // The begin is read but deliberately left unanswered: this device is the one that is slow.
+        let (begin, _) = expect_begin(&mut slow).await;
+        wait_for_quick_page
+            .await
+            .expect("the other machine's page returns first");
+        answer_begin(&mut slow, &begin, "txn-slow").await;
+        let call = expect_call(&mut slow, "files.write").await;
+        assert_eq!(frame_txn(&call), Some("txn-slow"), "{call}");
+        answer_tool(&mut slow, &call, json!({ "path": "slow.txt" })).await;
+    };
+
+    let quick_side = async move {
+        let (begin, _) = expect_begin(&mut quick).await;
+        answer_begin(&mut quick, &begin, "txn-quick").await;
+        let call = expect_call(&mut quick, "files.write").await;
+        assert_eq!(frame_txn(&call), Some("txn-quick"), "{call}");
+        answer_tool(&mut quick, &call, json!({ "path": "quick.txt" })).await;
+    };
+
+    let slow_page = page_call(
+        &fixture,
+        &session,
+        &slow_id,
+        tools_call(
+            1,
+            "files.write",
+            json!({ "path": "slow.txt", "content": "hi" }),
+        ),
+    );
+    let quick_page = async {
+        let answer = page_call(
+            &fixture,
+            &session,
+            &quick_id,
+            tools_call(
+                2,
+                "files.write",
+                json!({ "path": "quick.txt", "content": "hi" }),
+            ),
+        )
+        .await;
+        // Only after the quick machine's whole forward returned may the slow begin be answered;
+        // a book that serialised the two would deadlock before this send.
+        let _ = quick_page_done.send(());
+        answer
+    };
+
+    let (slow_answer, quick_answer, (), ()) =
+        tokio::join!(slow_page, quick_page, slow_side, quick_side);
+    assert_eq!(quick_answer.0, StatusCode::OK, "{}", quick_answer.1);
+    assert_eq!(slow_answer.0, StatusCode::OK, "{}", slow_answer.1);
 }

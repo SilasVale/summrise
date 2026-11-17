@@ -17,6 +17,50 @@
  * This module keeps that number; filling the hole is the caller's job.
  */
 
+/**
+ * A door as a row names it: the holder that opened a session or declared a goal.
+ *
+ * It is attribution, not identity, and never proof of a person or a model. The shape is the
+ * device's own (`{kind, token_id}`); the page prints a label for it and never treats it as an
+ * instruction.
+ */
+export type HolderRef = {
+  kind?: string;
+  token_id?: string | null;
+};
+
+/** A goal sentence and who claimed it; the device's `goal` shape when a row carries one. */
+export type GoalClaim = {
+  text: string;
+  by?: HolderRef;
+  at_ms?: number;
+};
+
+/**
+ * The device's receipt for one transaction, as its own answer carries it.
+ *
+ * The counts are the device's observation, never the page's count of the rows it can see: a page
+ * that shows them says so, and one without them says the receipt was not retained.
+ */
+export type TxnReceipt = {
+  txn?: string;
+  session?: string | null;
+  purpose?: string;
+  by?: HolderRef;
+  state?: string;
+  reason?: string | null;
+  started_at_ms?: number;
+  ended_at_ms?: number | null;
+  observed?: {
+    calls?: number;
+    failures?: number;
+    refusals?: number;
+    duration_ms?: number;
+  };
+  goal_at_start?: GoalClaim | null;
+  goal_at_end?: GoalClaim | null;
+};
+
 /** One activity line, as `/events` sends it. */
 export type LiveLine = {
   /** The console's clock for the action, in Unix milliseconds. */
@@ -71,6 +115,20 @@ export type LiveLine = {
   machine_seq?: number;
   /** What the row shows when it is opened: the call's own arguments, bounded. */
   evidence?: Record<string, unknown>;
+  /**
+   * The record's own class of this row (`txn.started`, `goal.set`, `call.denied`, …), when the
+   * console or the device publishes one. A renderer groups by these values and never parses a
+   * call's arguments for meaning; an unrecognised value is shown neutrally and counted.
+   */
+  row_kind?: string;
+  /** The transaction this row belongs to, from the row itself. */
+  txn?: string;
+  /** A transaction's declared purpose, on its begin or end row. */
+  purpose?: string;
+  /** A goal this row records: a set sentence, or `null` when it cleared the goal. */
+  goal?: GoalClaim | null;
+  /** The device's receipt, on a transaction's end row. */
+  receipt?: TxnReceipt;
 };
 
 /**
@@ -102,6 +160,8 @@ export type StartedCall = {
    * the rail names the token rather than guessing an audience.
    */
   token_id?: string;
+  /** The transaction the call names, when its bounded evidence carries one. */
+  txn?: string;
 };
 
 /**
@@ -122,6 +182,18 @@ export type DevicePayload = {
   ok?: boolean;
   /** Why a call was refused, as a machine-readable code (`denied`, `approval_required`, …). */
   reason?: string;
+  /** The closed set's answer for this row (`txn.started`, `call`, `goal.cleared`, …). */
+  row_kind?: string;
+  /** The transaction the row belongs to, when it names one. */
+  txn?: string;
+  /** The transaction's declared purpose, on a begin row. */
+  purpose?: string;
+  /** A goal sentence the row records, when the device publishes one. */
+  goal?: GoalClaim | null;
+  /** The device's receipt, on a transaction's end row. */
+  receipt?: TxnReceipt;
+  /** The door the call arrived through, as the device spells it. */
+  door?: string;
 };
 
 /**
@@ -256,6 +328,11 @@ export function deviceLine(device: string, event: DeviceEvent): LiveLine | null 
       device_id: device,
       tool,
       ...(event.trace?.call !== undefined ? { trace: event.trace.call } : {}),
+      ...(event.payload.row_kind !== undefined ? { row_kind: event.payload.row_kind } : {}),
+      ...(event.payload.txn !== undefined ? { txn: event.payload.txn } : {}),
+      ...(event.payload.purpose !== undefined ? { purpose: event.payload.purpose } : {}),
+      ...(event.payload.goal !== undefined ? { goal: event.payload.goal } : {}),
+      ...(event.payload.receipt !== undefined ? { receipt: event.payload.receipt } : {}),
       live: true,
       sentence: callSentence(device, event.type, tool, event.payload.reason)
     };
@@ -268,6 +345,7 @@ export function deviceLine(device: string, event: DeviceEvent): LiveLine | null 
     ok: true,
     device_id: device,
     ...(sessionId !== undefined && sessionId !== "" ? { session: sessionId } : {}),
+    ...(event.payload.row_kind !== undefined ? { row_kind: event.payload.row_kind } : {}),
     live: true,
     sentence: deviceSentence(device, event)
   };
@@ -438,6 +516,19 @@ function asLine(value: unknown): LiveLine | null {
   const ts = typeof frame.ts_ms === "number" ? frame.ts_ms : null;
   const sentence = typeof frame.sentence === "string" ? frame.sentence : null;
   if (ts === null || !sentence) return null;
+  const evidence = isRecord(frame.evidence) ? frame.evidence : undefined;
+  // The row fields the console copies into the call's bounded evidence are lifted to the row, so a
+  // renderer groups by the record's own fields rather than reading a call's arguments.
+  const rowKind = textOf(frame.row_kind) ?? textOf(evidence?.row_kind);
+  const txn = textOf(frame.txn) ?? textOf(evidence?.txn);
+  const purpose = textOf(frame.purpose) ?? textOf(evidence?.purpose);
+  const goal =
+    "goal" in frame
+      ? goalOf(frame.goal)
+      : evidence !== undefined && hasOwn(evidence, "goal")
+        ? goalOf(evidence.goal)
+        : undefined;
+  const receipt = receiptOf(frame.receipt) ?? receiptOf(evidence?.receipt);
   return {
     ts_ms: ts,
     kind: typeof frame.kind === "string" ? frame.kind : "mcp",
@@ -458,12 +549,55 @@ function asLine(value: unknown): LiveLine | null {
       ? { token_id: frame.token_id }
       : {}),
     ...(typeof frame.ms === "number" ? { ms: frame.ms } : {}),
-    ...(frame.evidence && typeof frame.evidence === "object"
-      ? { evidence: frame.evidence as Record<string, unknown> }
-      : {}),
+    ...(evidence !== undefined ? { evidence } : {}),
     ...(typeof frame.trace === "string" && frame.trace !== "" ? { trace: frame.trace } : {}),
-    ...(typeof frame.machine_seq === "number" ? { machine_seq: frame.machine_seq } : {})
+    ...(typeof frame.machine_seq === "number" ? { machine_seq: frame.machine_seq } : {}),
+    ...(rowKind !== undefined ? { row_kind: rowKind } : {}),
+    ...(txn !== undefined ? { txn } : {}),
+    ...(purpose !== undefined ? { purpose } : {}),
+    ...(goal !== undefined ? { goal } : {}),
+    ...(receipt !== undefined ? { receipt } : {})
   };
+}
+
+/** Whether `value` is a plain record, the only shape the row fields are read from. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Whether the record carries the key at all, so `null` is told apart from absent. */
+function hasOwn(value: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+/** A non-empty string, or `undefined` when the field is absent or not one. */
+function textOf(value: unknown): string | undefined {
+  return typeof value === "string" && value !== "" ? value : undefined;
+}
+
+/**
+ * A goal claim, or `null` for a clear.
+ *
+ * A string is the sentence a console row's evidence carries; the device's own shape is
+ * `{text, by, at_ms}`. Anything else is not a goal the page can print, so it is `undefined` — an
+ * absent fact rather than an invented sentence.
+ */
+function goalOf(value: unknown): GoalClaim | null | undefined {
+  if (value === null) return null;
+  if (typeof value === "string") return value === "" ? undefined : { text: value };
+  if (!isRecord(value)) return undefined;
+  const text = textOf(value.text);
+  if (text === undefined) return undefined;
+  return {
+    text,
+    ...(isRecord(value.by) ? { by: value.by as HolderRef } : {}),
+    ...(typeof value.at_ms === "number" ? { at_ms: value.at_ms } : {})
+  };
+}
+
+/** A transaction's receipt, when the row carries an object one. Its counts are the device's. */
+function receiptOf(value: unknown): TxnReceipt | undefined {
+  return isRecord(value) ? (value as TxnReceipt) : undefined;
 }
 
 /**
@@ -486,17 +620,18 @@ function asStarted(value: unknown, caller: unknown): StartedCall | null {
       : frame.caller === "console" || frame.caller === "client"
         ? frame.caller
         : undefined;
+  const evidence = isRecord(frame.evidence) ? frame.evidence : undefined;
+  const txn = textOf(frame.txn) ?? textOf(evidence?.txn);
   return {
     id,
     tool,
     at_ms: at,
     ...(typeof frame.device_id === "string" ? { device_id: frame.device_id } : {}),
-    ...(frame.evidence && typeof frame.evidence === "object" && !Array.isArray(frame.evidence)
-      ? { evidence: frame.evidence as Record<string, unknown> }
-      : {}),
+    ...(evidence !== undefined ? { evidence } : {}),
     ...(typeof frame.token_id === "string" && frame.token_id !== ""
       ? { token_id: frame.token_id }
       : {}),
+    ...(txn !== undefined ? { txn } : {}),
     ...(audience ? { caller: audience } : {})
   };
 }
@@ -564,14 +699,23 @@ function asDeviceTrace(value: unknown): { call?: string } | null {
 
 /** The payload's facts the page reads. Every other field belongs to the event kind, not to this page. */
 function asDevicePayload(value: unknown): DevicePayload {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-  const raw = value as Record<string, unknown>;
+  if (!isRecord(value)) return {};
+  const goal = hasOwn(value, "goal") ? goalOf(value.goal) : undefined;
+  const receipt = receiptOf(value.receipt);
   return {
-    ...(typeof raw.id === "string" ? { id: raw.id } : {}),
-    ...(typeof raw.kind === "string" ? { kind: raw.kind } : {}),
-    ...(typeof raw.tool === "string" && raw.tool !== "" ? { tool: raw.tool } : {}),
-    ...(typeof raw.ok === "boolean" ? { ok: raw.ok } : {}),
-    ...(typeof raw.reason === "string" && raw.reason !== "" ? { reason: raw.reason } : {})
+    ...(typeof value.id === "string" ? { id: value.id } : {}),
+    ...(typeof value.kind === "string" ? { kind: value.kind } : {}),
+    ...(typeof value.tool === "string" && value.tool !== "" ? { tool: value.tool } : {}),
+    ...(typeof value.ok === "boolean" ? { ok: value.ok } : {}),
+    ...(typeof value.reason === "string" && value.reason !== ""
+      ? { reason: value.reason }
+      : {}),
+    ...(textOf(value.row_kind) !== undefined ? { row_kind: textOf(value.row_kind)! } : {}),
+    ...(textOf(value.txn) !== undefined ? { txn: textOf(value.txn)! } : {}),
+    ...(textOf(value.purpose) !== undefined ? { purpose: textOf(value.purpose)! } : {}),
+    ...(goal !== undefined ? { goal } : {}),
+    ...(receipt !== undefined ? { receipt } : {}),
+    ...(textOf(value.door) !== undefined ? { door: textOf(value.door)! } : {})
   };
 }
 

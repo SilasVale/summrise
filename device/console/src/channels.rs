@@ -986,6 +986,7 @@ impl ChannelRegistry {
                 token_id: None,
                 caller: Some(Caller::Console),
                 trace: None,
+                txn: None,
                 machine_seq: None,
             })
             .await;

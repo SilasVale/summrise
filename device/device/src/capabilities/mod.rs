@@ -21,6 +21,7 @@ pub mod ssh;
 pub mod state;
 pub mod system;
 pub mod terminal;
+pub mod txn;
 
 /// The `destructive` question, answered by the registry and not by this crate.
 ///
@@ -30,6 +31,9 @@ pub use summrise_core::registry::is_destructive as destructive;
 /// The context a migrated capability's tools need. A capability takes exactly what it reads, so a
 /// module cannot reach for the device's config, its audit or another capability.
 pub struct Ctx<'a> {
+    /// The door the call arrived through: the author of anything the capability writes on the
+    /// caller's behalf (a session's holder, a goal's author). Attribution only; it gates nothing.
+    pub holder: summrise_core::Holder,
     /// The `workspace` root `files` is sandboxed to.
     pub files_root: &'a std::path::Path,
     /// The optional `shared` root.
@@ -38,6 +42,8 @@ pub struct Ctx<'a> {
     pub memory: &'a memory::Memory,
     /// The live sessions, one registry per device.
     pub terminal: &'a terminal::PtyRegistry,
+    /// The declared units of work, one registry per process.
+    pub txns: &'a crate::txns::TxnRegistry,
     /// The one headless browser this machine starts lazily.
     pub browser: &'a browser::BrowserRegistry,
     /// The reachability watches.
@@ -66,6 +72,7 @@ pub fn owns(tool: &str) -> bool {
     files::owns(tool)
         || memory::owns(tool)
         || terminal::owns(tool)
+        || txn::owns(tool)
         || browser::owns(tool)
         || monitor::owns(tool)
         || runs::owns(tool)
@@ -84,6 +91,7 @@ pub fn names() -> impl Iterator<Item = &'static str> {
     files::names()
         .chain(memory::names())
         .chain(terminal::names())
+        .chain(txn::names())
         .chain(browser::names())
         .chain(monitor::names())
         .chain(runs::names())
@@ -109,7 +117,10 @@ pub async fn call(
         return memory::call(ctx.memory, tool, arguments);
     }
     if terminal::owns(tool) {
-        return terminal::call(ctx.terminal, tool, arguments).await;
+        return terminal::call(ctx.terminal, &ctx.holder, tool, arguments).await;
+    }
+    if txn::owns(tool) {
+        return txn::call(tool, arguments, ctx);
     }
     if browser::owns(tool) {
         return browser::call(ctx.browser, tool, arguments).await;

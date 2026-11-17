@@ -1,5 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import type { ComponentProps } from "react";
 import { ActivityRail } from "./ActivityRail";
 import type { LiveLine, StartedCall } from "./liveActivity";
@@ -390,5 +392,337 @@ describe("ActivityRail", () => {
     expect(within(rail).getAllByRole("button").map((button) => button.textContent)).toEqual([
       "Show in terminal"
     ]);
+  });
+});
+
+describe("ActivityRail ledger groups", () => {
+  /** One row that names the active session, so the rail can place it. */
+  function scoped(overrides: Partial<LiveLine> & { ts_ms: number; sentence: string }): LiveLine {
+    return line({ ...overrides, evidence: { session, ...overrides.evidence } });
+  }
+
+  it("renders a transaction group with its purpose, claim badge and author", () => {
+    renderRail({
+      lines: [
+        scoped({
+          ts_ms: 3_000,
+          tool: "txn.begin",
+          txn: "txn-9c07",
+          purpose: "verify the suite",
+          caller: "client",
+          token_id: "token-known",
+          sentence: "Began a transaction"
+        }),
+        scoped({
+          ts_ms: 4_000,
+          tool: "runs.exec",
+          txn: "txn-9c07",
+          caller: "client",
+          token_id: "token-known",
+          evidence: { command: "npm", args: ["test"] },
+          sentence: "Ran `npm test`"
+        })
+      ]
+    });
+
+    const rail = screen.getByRole("complementary", { name: "Session activity" });
+    const group = rail.querySelector(".activity-group");
+    expect(group).not.toBeNull();
+    expect(within(group as HTMLElement).getByText("verify the suite")).toBeInTheDocument();
+    // The purpose is a claim, so the header carries the author's name beside the badge.
+    expect(within(group as HTMLElement).getByText("claim")).toBeInTheDocument();
+    const head = group?.querySelector(".activity-group-head");
+    expect(head).not.toBeNull();
+    expect(within(head as HTMLElement).getByText("gate-laptop")).toBeInTheDocument();
+    expect(within(group as HTMLElement).getByText("npm test")).toBeInTheDocument();
+  });
+
+  it("says an open group has no end recorded, and never closes it", () => {
+    renderRail({
+      lines: [
+        scoped({
+          ts_ms: 5_000,
+          tool: "txn.begin",
+          txn: "txn-1",
+          purpose: "fix the parser",
+          sentence: "Began a transaction"
+        }),
+        scoped({
+          ts_ms: 4_000,
+          tool: "files.write",
+          txn: "txn-1",
+          evidence: { path: "src/parse.rs" },
+          sentence: "Wrote `src/parse.rs`"
+        })
+      ]
+    });
+
+    const rail = screen.getByRole("complementary", { name: "Session activity" });
+    expect(within(rail).getByText(/no end recorded/i)).toBeInTheDocument();
+    expect(within(rail).getByText("working")).toBeInTheDocument();
+  });
+
+  it("puts a goal divider where the record changed, with the goal's own author", () => {
+    renderRail({
+      lines: [
+        scoped({
+          ts_ms: 3_000,
+          tool: "terminal.goal",
+          goal: { text: "ship the spine" },
+          caller: "client",
+          token_id: "token-known",
+          sentence: "Set the session's goal"
+        }),
+        scoped({
+          ts_ms: 1_000,
+          tool: "terminal.goal",
+          goal: { text: "read the installer's config" },
+          sentence: "Set the session's goal"
+        })
+      ]
+    });
+
+    const rail = screen.getByRole("complementary", { name: "Session activity" });
+    expect(within(rail).getAllByText("goal set")).toHaveLength(2);
+    expect(within(rail).getByText("ship the spine")).toBeInTheDocument();
+    expect(within(rail).getByText("read the installer's config")).toBeInTheDocument();
+    expect(within(rail).getByText("gate-laptop")).toBeInTheDocument();
+  });
+
+  it("renders an unknown event neutrally and counts it", () => {
+    renderRail({
+      lines: [
+        scoped({
+          ts_ms: 1_000,
+          row_kind: "future.thing",
+          caller: "client",
+          token_id: "token-known",
+          sentence: "future.thing on device-1"
+        })
+      ]
+    });
+
+    const rail = screen.getByRole("complementary", { name: "Session activity" });
+    expect(within(rail).getByText(/1 unknown/i)).toBeInTheDocument();
+    expect(within(rail).getByText(/unknown event/i)).toBeInTheDocument();
+    // Neutral: it is not painted as a failure and carries no invented meaning.
+    expect(rail.querySelector(".activity-card.tone-unknown")).not.toBeNull();
+    expect(rail.querySelector(".activity-card.tone-failed")).toBeNull();
+  });
+
+  it("keeps a declared abort from relabelling the failure the device observed", () => {
+    renderRail({
+      lines: [
+        scoped({
+          ts_ms: 5_000,
+          tool: "txn.abort",
+          txn: "txn-1",
+          row_kind: "txn.aborted",
+          sentence: "Aborted a transaction",
+          receipt: {
+            txn: "txn-1",
+            state: "aborted",
+            reason: "the build was red",
+            observed: { calls: 1, failures: 1, refusals: 0, duration_ms: 1_200 }
+          }
+        }),
+        scoped({
+          ts_ms: 4_000,
+          tool: "runs.exec",
+          txn: "txn-1",
+          ok: false,
+          status: 500,
+          evidence: { command: "cargo", args: ["test"] },
+          sentence: "`runs.exec` failed"
+        }),
+        scoped({
+          ts_ms: 3_000,
+          tool: "txn.begin",
+          txn: "txn-1",
+          purpose: "fix the parser",
+          sentence: "Began a transaction"
+        })
+      ]
+    });
+
+    const rail = screen.getByRole("complementary", { name: "Session activity" });
+    // The group's ending says aborted; the call it observed says failed, in its own words.
+    expect(within(rail).getByText("aborted")).toBeInTheDocument();
+    expect(within(rail).getByText("failed")).toBeInTheDocument();
+  });
+
+  it("shows the receipt's own totals beside the rows in this window, never instead of them", () => {
+    renderRail({
+      lines: [
+        scoped({
+          ts_ms: 5_000,
+          tool: "txn.commit",
+          txn: "txn-1",
+          row_kind: "txn.committed",
+          sentence: "Committed a transaction",
+          receipt: {
+            txn: "txn-1",
+            state: "committed",
+            observed: { calls: 9, failures: 1, refusals: 2, duration_ms: 192_000 }
+          }
+        }),
+        scoped({
+          ts_ms: 4_000,
+          tool: "files.write",
+          txn: "txn-1",
+          evidence: { path: "a.txt" },
+          sentence: "Wrote `a.txt`"
+        }),
+        scoped({
+          ts_ms: 3_000,
+          tool: "txn.begin",
+          txn: "txn-1",
+          purpose: "verify the suite",
+          sentence: "Began a transaction"
+        })
+      ]
+    });
+
+    const rail = screen.getByRole("complementary", { name: "Session activity" });
+    expect(within(rail).getByText(/1 call in this window/)).toBeInTheDocument();
+    expect(within(rail).getByText(/9 calls/)).toBeInTheDocument();
+    expect(within(rail).getByText(/1 failure/)).toBeInTheDocument();
+    expect(within(rail).getByText(/2 refused/)).toBeInTheDocument();
+  });
+
+  it("never shows a client's purpose as the operator's instruction", () => {
+    renderRail({
+      lines: [
+        scoped({
+          ts_ms: 2_000,
+          tool: "txn.begin",
+          txn: "txn-1",
+          purpose: "deploy the client's build",
+          caller: "client",
+          token_id: "token-known",
+          sentence: "Began a transaction"
+        })
+      ]
+    });
+
+    const rail = screen.getByRole("complementary", { name: "Session activity" });
+    expect(within(rail).getByText("deploy the client's build")).toBeInTheDocument();
+    expect(within(rail).getByText("gate-laptop")).toBeInTheDocument();
+    expect(rail.textContent).not.toMatch(/instruction/i);
+  });
+
+  it("draws a refused begin as a refusal, not as a working group", () => {
+    renderRail({
+      lines: [
+        scoped({
+          ts_ms: 1_000,
+          tool: "txn.begin",
+          purpose: "deploy the client's build",
+          ok: false,
+          status: 403,
+          caller: "client",
+          token_id: "token-known",
+          sentence: "txn.begin was refused on device-1 (tool_not_permitted)"
+        })
+      ]
+    });
+
+    const rail = screen.getByRole("complementary", { name: "Session activity" });
+    // The evidence for a refused begin still carries its purpose; classed as a begin it would draw
+    // a header and a working state for a call the machine never ran.
+    expect(rail.querySelector(".activity-group")).toBeNull();
+    expect(within(rail).queryByText("claim")).not.toBeInTheDocument();
+    expect(within(rail).queryByText("working")).not.toBeInTheDocument();
+    expect(within(rail).getByText("failed")).toBeInTheDocument();
+  });
+
+  it("draws an unknown row inside a group with the spine's class, never as an ok card", () => {
+    renderRail({
+      lines: [
+        scoped({
+          ts_ms: 2_000,
+          tool: "txn.begin",
+          txn: "txn-1",
+          purpose: "verify the suite",
+          sentence: "Began a transaction"
+        }),
+        // `goal.set` with no goal is a row the spine cannot place even though its status is 200.
+        scoped({
+          ts_ms: 3_000,
+          tool: "files.read",
+          row_kind: "goal.set",
+          txn: "txn-1",
+          sentence: "files.read ran on device-1"
+        })
+      ]
+    });
+
+    const rail = screen.getByRole("complementary", { name: "Session activity" });
+    const group = rail.querySelector(".activity-group");
+    expect(group).not.toBeNull();
+    expect(group!.querySelector(".activity-card.tone-unknown")).not.toBeNull();
+    expect(group!.querySelector(".activity-card.tone-ok")).toBeNull();
+    expect(within(group as HTMLElement).getByText(/unknown event/i)).toBeInTheDocument();
+  });
+
+  it("draws the group as a boxed container over a bulletless call list, and a goal as a divider", () => {
+    renderRail({
+      lines: [
+        scoped({
+          ts_ms: 1_000,
+          tool: "terminal.goal",
+          goal: { text: "ship the spine" },
+          sentence: "Set the session's goal"
+        }),
+        scoped({
+          ts_ms: 2_000,
+          tool: "txn.begin",
+          txn: "txn-1",
+          purpose: "verify the suite",
+          sentence: "Began a transaction"
+        }),
+        scoped({
+          ts_ms: 3_000,
+          tool: "files.read",
+          txn: "txn-1",
+          evidence: { path: "a.txt" },
+          sentence: "Read a file"
+        })
+      ]
+    });
+
+    const rail = screen.getByRole("complementary", { name: "Session activity" });
+    const group = rail.querySelector("li.activity-group");
+    expect(group).not.toBeNull();
+    expect(group!.querySelector(".activity-group-head")).not.toBeNull();
+    expect(group!.querySelector(".activity-group-foot")).not.toBeNull();
+    const calls = group!.querySelector(".activity-group-calls");
+    expect(calls).not.toBeNull();
+    expect(calls!.tagName).toBe("UL");
+    // The body is a plain list of cards; its bullets are removed by the group's own selector, not
+    // by an inline style or by making the cards something other than list items.
+    for (const child of Array.from(calls!.children)) {
+      expect(child.tagName).toBe("LI");
+      expect(child).toHaveClass("activity-card");
+    }
+    const divider = rail.querySelector("li.activity-divider");
+    expect(divider).not.toBeNull();
+    expect(divider).toHaveAttribute("role", "separator");
+    expect(divider!.querySelector(".activity-divider-label")).not.toBeNull();
+    expect(divider!.querySelector(".activity-divider-text")).not.toBeNull();
+    expect(divider!.querySelector(".activity-divider-by")).not.toBeNull();
+
+    // The classes the rail renders are styled in the shipped sheet, and the nested list declares
+    // its own bulletless shape.
+    const sheet = readFileSync(path.join(process.cwd(), "src", "app.css"), "utf8");
+    expect(sheet).toMatch(/\.activity-group\s*\{[^}]*border: 1px solid var\(--line\)/);
+    expect(sheet).toMatch(/\.activity-group-calls\s*\{[^}]*list-style: none/);
+    expect(sheet).toMatch(/\.activity-divider\s*\{/);
+    expect(sheet).toMatch(/\.activity-rail-unknown\s*\{/);
+    expect(sheet).toMatch(/\.activity-card-kind\s*\{/);
+    expect(sheet).toMatch(/\.activity-card\.tone-unknown\s*\{/);
+    for (const state of ["working", "committed", "aborted", "unrecorded"]) {
+      expect(sheet).toMatch(new RegExp(`\\.activity-group\\.state-${state}\\s*\\{`));
+    }
   });
 });

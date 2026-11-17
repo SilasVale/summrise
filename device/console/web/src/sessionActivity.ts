@@ -18,7 +18,8 @@
  * output, so the only running fact is that it is running; a finished call's rows come from its
  * bounded evidence and the sentence the console wrote.
  */
-import type { LiveLine, StartedCall } from "./liveActivity";
+import type { LiveLine, StartedCall, TxnReceipt } from "./liveActivity";
+import type { SpineOutcome } from "./sessionSpine";
 import { typedText, WRITE_BURST_MS } from "./terminalInput";
 import { tokenLabel } from "./tokenFact";
 
@@ -47,6 +48,21 @@ export type SessionRow = {
   facts: string[];
   /** The text to search the active xterm for; only a finished write with typed input has one. */
   jump?: string;
+  /**
+   * The record's own class of the row, when it published one. The spine reads it first; the fields
+   * below are the fallback an older console row carries.
+   */
+  rowKind?: string;
+  /** The transaction the row belongs to, from the row itself. */
+  txn?: string | null;
+  /** The transaction's declared purpose, on a begin row. */
+  purpose?: string | null;
+  /** A goal this row records: the sentence, or `null` when it cleared the goal. */
+  goal?: { text: string } | null;
+  /** The device's receipt, on a transaction's end row. */
+  receipt?: TxnReceipt | null;
+  /** What the row says happened, in the spine's closed vocabulary. */
+  outcome: SpineOutcome;
 };
 
 const YOU: Actor = {
@@ -196,6 +212,58 @@ function toneOf(line: LiveLine): SessionRow["tone"] {
 }
 
 /**
+ * What a row says happened, in the spine's closed vocabulary.
+ *
+ * The published row kind wins. An older console row carries no kind, so the tool it names is the
+ * one fact left: the transaction's own tools answer their declaration, and everything else is the
+ * call's own outcome. A kind this build cannot place is `unknown`, which the rail draws neutrally
+ * and counts.
+ */
+export function outcomeOf(line: LiveLine): SpineOutcome {
+  if (line.kind === "session") return "session";
+  const kind = line.row_kind;
+  if (kind !== undefined) {
+    switch (kind) {
+      case "txn.started":
+        return "working";
+      case "txn.committed":
+        return "committed";
+      case "txn.aborted":
+        return "aborted";
+      case "call.denied":
+        return "refused";
+      case "goal.set":
+      case "goal.cleared":
+      case "call":
+      case "call.started":
+      case "call.finished":
+      case "session.opened":
+      case "session.closed":
+        return line.ok === false || line.status >= 400 ? "failed" : "ok";
+      default:
+        return "unknown";
+    }
+  }
+  switch (line.tool) {
+    case "txn.begin":
+      return "working";
+    case "txn.commit":
+      return "committed";
+    case "txn.abort":
+      return "aborted";
+    default:
+      return line.ok === false || line.status >= 400 ? "failed" : "ok";
+  }
+}
+
+/** The goal a row records, when the row carries one: a set sentence, or `null` for a clear. */
+function goalOfLine(line: LiveLine): { text: string } | null | undefined {
+  if (line.goal === undefined) return undefined;
+  if (line.goal === null) return null;
+  return line.goal.text !== "" ? { text: line.goal.text } : undefined;
+}
+
+/**
  * The actor identity two writes must share to be one typed line.
  *
  * Only proven identities coalesce: the console has one actor, and a client is its token. A row with
@@ -228,6 +296,7 @@ function rowFromLine(
   // A control-only write is the terminal's own traffic (a focus report, an arrow key), not a
   // command. It keeps its session for scoping but earns no card.
   if (line.tool === "terminal.write" && typed === null) return null;
+  const goal = goalOfLine(line);
   return {
     id,
     atMs: line.ts_ms,
@@ -235,7 +304,15 @@ function rowFromLine(
     tone: toneOf(line),
     title: titleOf(line, typed),
     facts: factsOf(line),
-    ...(typed !== null ? { jump: typed } : {})
+    ...(typed !== null ? { jump: typed } : {}),
+    ...(line.row_kind !== undefined ? { rowKind: line.row_kind } : {}),
+    ...(typeof line.txn === "string" && line.txn !== "" ? { txn: line.txn } : {}),
+    ...(typeof line.purpose === "string" && line.purpose !== ""
+      ? { purpose: line.purpose }
+      : {}),
+    ...(goal !== undefined ? { goal } : {}),
+    ...(line.receipt !== undefined ? { receipt: line.receipt } : {}),
+    outcome: outcomeOf(line)
   };
 }
 
@@ -259,7 +336,9 @@ function rowFromRunning(call: StartedCall, names: ReadonlyMap<string, string>): 
     title,
     // The title is the tool when the evidence names nothing else; repeating it as a fact would draw
     // the same word twice. The fact earns its place only when the title is something else.
-    facts: title === call.tool ? [] : [call.tool]
+    facts: title === call.tool ? [] : [call.tool],
+    ...(typeof call.txn === "string" && call.txn !== "" ? { txn: call.txn } : {}),
+    outcome: "working"
   };
 }
 
@@ -367,4 +446,70 @@ export function sessionActivity(
   );
   visible.sort((left, right) => right.row.atMs - left.row.atMs);
   return { rows: visible.map((entry) => entry.row), withheld };
+}
+
+/**
+ * A door as `terminal.list` names it: the holder that opened the session, or wrote its goal.
+ *
+ * It is attribution, not identity. The device writes `{kind, token_id}`; this page prints a label
+ * and never treats the label as a person or a model.
+ */
+export type SessionHolder = {
+  kind?: string;
+  token_id?: string | null;
+};
+
+/** A session's goal, as `terminal.list` answers it. */
+export type SessionGoal = {
+  text: string;
+  by?: SessionHolder;
+  at_ms?: number;
+};
+
+/**
+ * One row of `terminal.list`, reduced to the fields the session card reads.
+ *
+ * `goal` is optional **and the key's presence is the fact**: an absent key is a device that does not
+ * answer a goal, an explicit `null` is a device that says the session has none. The page must not
+ * turn one into the other.
+ */
+export type SessionListEntry = {
+  id: string;
+  kind: string;
+  started_at_ms?: number;
+  holder?: SessionHolder;
+  goal?: SessionGoal | null;
+};
+
+/**
+ * A door in words a person reads beside a goal, never proof of a person or a model.
+ *
+ * `names` is the operator's own naming of token ids, so a client's goal is attributed to the token
+ * the operator knows rather than to a guess.
+ */
+export function holderLabel(
+  holder: SessionHolder | undefined,
+  names: ReadonlyMap<string, string>
+): string {
+  if (!holder || typeof holder.kind !== "string" || holder.kind === "") {
+    return "an unrecorded author";
+  }
+  const id = typeof holder.token_id === "string" && holder.token_id !== "" ? holder.token_id : null;
+  switch (holder.kind) {
+    case "console":
+      // The console's own operator session is the one caller the page can name as the reader.
+      return id === null || id === "operator" ? "you" : tokenLabel(id, names);
+    case "token":
+      return id === null ? "a client" : tokenLabel(id, names);
+    case "install":
+      return "the install door";
+    case "panel":
+      return "the panel";
+    case "grant":
+      return "a grant";
+    case "mesh":
+      return "a paired machine";
+    default:
+      return "an unrecorded author";
+  }
 }

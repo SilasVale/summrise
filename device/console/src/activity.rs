@@ -104,6 +104,17 @@ pub(crate) fn describe(tool: &str, arguments: &Value) -> String {
         "terminal.resize" => "Resized a terminal".to_owned(),
         "terminal.close" => "Closed a terminal session".to_owned(),
         "terminal.list" => "Listed the terminal sessions".to_owned(),
+        // The goal itself is a claim and renders with its author elsewhere; this sentence is the
+        // record line's verb, not a restatement of what the client said about itself.
+        "terminal.goal" => match quoted("action", arguments).as_deref() {
+            Some("clear") => "Cleared the session's goal".to_owned(),
+            _ => "Set the session's goal".to_owned(),
+        },
+        // The purpose is a claim and renders as the group's header, not in the call's verb; the
+        // sentence says only that the unit of work opened (or ended), never restating the client.
+        "txn.begin" => "Began a transaction".to_owned(),
+        "txn.commit" => "Committed a transaction".to_owned(),
+        "txn.abort" => "Aborted a transaction".to_owned(),
         "terminal.screen" => match number("lines", arguments) {
             Some(lines) if lines > 0 => format!("Read the last {lines} lines of a terminal"),
             _ => "Read the end of a terminal's output".to_owned(),
@@ -367,6 +378,16 @@ pub(crate) fn detail(tool: &str, arguments: &Value) -> Option<Value> {
                 out.insert("session".to_owned(), json!(id));
             }
         }
+        "terminal.goal" => {
+            if let Some(id) = text("id") {
+                out.insert("session".to_owned(), json!(id));
+            }
+        }
+        "txn.begin" => {
+            if let Some(session) = text("session") {
+                out.insert("session".to_owned(), json!(session));
+            }
+        }
         "browser.open" | "browser.navigate" => {
             if let Some(url) = text("url") {
                 out.insert("url".to_owned(), json!(url));
@@ -383,6 +404,32 @@ pub(crate) fn detail(tool: &str, arguments: &Value) -> Option<Value> {
             }
         }
         _ => {}
+    }
+    // **THE ROW'S OWN FIELDS, NOT THE TOOL'S ARGUMENTS.** The console copies the fields the ledger
+    // groups by onto the row it publishes, so the page never parses a command line or a request body
+    // to decide what a row belongs to. Its class is not copied here: the device's live feed carries
+    // the closed set's answer (`row_kind`), and an older console row is classified from the fields
+    // it does carry rather than from a kind this build would have to guess.
+    let action = arguments.get("action").and_then(Value::as_str);
+    if let Some(txn) = text("txn") {
+        out.insert("txn".to_owned(), json!(txn));
+    }
+    if tool == "txn.begin" {
+        if let Some(purpose) = text("purpose") {
+            out.insert("purpose".to_owned(), json!(purpose));
+        }
+    }
+    let goal = match tool {
+        "terminal.goal" => match action {
+            Some("set") => text("goal").map(|goal| json!(goal)),
+            Some("clear") => Some(Value::Null),
+            _ => None,
+        },
+        "txn.begin" => text("goal").map(|goal| json!(goal)),
+        _ => None,
+    };
+    if let Some(goal) = goal {
+        out.insert("goal".to_owned(), goal);
     }
     if out.is_empty() {
         None
@@ -735,5 +782,69 @@ mod detail_tests {
     #[test]
     fn a_tool_with_nothing_to_show_has_no_evidence() {
         assert!(detail("tools/list", &json!({})).is_none());
+    }
+
+    /// **THE PAGE GROUPS BY THE ROW, NOT BY THE CALL'S ARGUMENTS.** The evidence carries the row's
+    /// own fields — its class, its transaction, its purpose, its goal — so the ledger's grouping
+    /// never has to parse a command line or trust a request body.
+    #[test]
+    fn a_transaction_begin_carries_the_row_fields_the_page_groups_by() {
+        let detail = detail(
+            "txn.begin",
+            &json!({
+                "session": "session-1",
+                "purpose": "verify the suite",
+                "goal": "ship the spine"
+            }),
+        )
+        .expect("a transaction begin has row fields");
+        assert_eq!(detail["session"], json!("session-1"));
+        assert_eq!(detail["purpose"], json!("verify the suite"));
+        assert_eq!(detail["goal"], json!("ship the spine"));
+    }
+
+    /// A goal row carries the sentence it set or the plain fact that it cleared one. `null` is the
+    /// clear, not an empty string, so the page can draw the divider where the record changed.
+    #[test]
+    fn a_goal_row_carries_the_goal_or_the_clear() {
+        let set = detail(
+            "terminal.goal",
+            &json!({ "id": "session-1", "action": "set", "goal": "ship the spine" }),
+        )
+        .expect("a set goal is a row field");
+        assert_eq!(set["session"], json!("session-1"));
+        assert_eq!(set["goal"], json!("ship the spine"));
+
+        let clear = detail(
+            "terminal.goal",
+            &json!({ "id": "session-1", "action": "clear" }),
+        )
+        .expect("a cleared goal is a row field");
+        assert_eq!(clear["goal"], Value::Null);
+    }
+
+    #[test]
+    fn an_explicit_transaction_reaches_the_row() {
+        let detail = detail(
+            "files.write",
+            &json!({ "path": "a.txt", "content": "hi", "txn": "txn-3" }),
+        )
+        .expect("the path is evidence");
+        assert_eq!(detail["txn"], json!("txn-3"));
+    }
+
+    #[test]
+    fn an_ending_row_carries_the_transaction_it_ends() {
+        let detail = detail("txn.commit", &json!({ "txn": "txn-3" }))
+            .expect("the transaction is the row's evidence");
+        assert_eq!(detail["txn"], json!("txn-3"));
+    }
+
+    /// A tool with nothing to show still has no evidence: copying row fields did not turn every
+    /// call into an empty panel the page would have to draw.
+    #[test]
+    fn a_tool_with_no_row_field_still_has_no_evidence() {
+        assert!(detail("tools/list", &json!({})).is_none());
+        assert!(detail("plugins.install", &json!({})).is_none());
     }
 }

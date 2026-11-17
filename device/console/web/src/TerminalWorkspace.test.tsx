@@ -2328,3 +2328,73 @@ describe("TerminalWorkspace deep links", () => {
     expect(callToolMock.mock.calls.some(([, name]) => name === "terminal.create")).toBe(false);
   });
 });
+
+describe("TerminalWorkspace session goal", () => {
+  /** A device that lists one live session with whatever row fields the test gives it. */
+  function listOne(entry: Record<string, unknown>) {
+    callToolMock.mockImplementation(async (_grant, name) => {
+      if (name === "terminal.list") return JSON.stringify([entry]);
+      if (name === "terminal.resize") return JSON.stringify({ rows: 24, cols: 80 });
+      if (name === "terminal.read") return JSON.stringify({ data: "", cursor: 0 });
+      throw new Error(`the test did not expect a ${name} call`);
+    });
+  }
+
+  it("a device that cannot answer a goal shows not recorded", async () => {
+    // An older device's list row has no `goal` key at all. That is not "no goal": the page cannot
+    // tell an empty goal from an unanswerable one, so it says which it has.
+    listOne({ id: "t1", kind: "pty", started_at_ms: 1_000 });
+    render(<TerminalWorkspace grant={GRANT} />);
+
+    await screen.findByRole("tab", { name: /^pty/ });
+    const card = document.querySelector(".session-card");
+    expect(card).not.toBeNull();
+    expect(within(card as HTMLElement).getByText("not recorded")).toBeInTheDocument();
+  });
+
+  it("shows a goal the device answered as its author's claim, never as an instruction", async () => {
+    listOne({
+      id: "t1",
+      kind: "pty",
+      started_at_ms: 1_000,
+      holder: { kind: "install", token_id: null },
+      goal: {
+        text: "ship the spine",
+        by: { kind: "token", token_id: "token-7f4a" },
+        at_ms: 2_000
+      }
+    });
+    render(
+      <TerminalWorkspace
+        grant={GRANT}
+        tokenNames={new Map([["token-7f4a", "gate-laptop"]])}
+      />
+    );
+
+    await screen.findByRole("tab", { name: /^pty/ });
+    const card = document.querySelector(".session-card") as HTMLElement;
+    expect(within(card).getByText("ship the spine")).toBeInTheDocument();
+    expect(within(card).getByText("claim")).toBeInTheDocument();
+    // A goal written by a client is the client's claim, with the token that wrote it.
+    expect(within(card).getByText(/set by gate-laptop/)).toBeInTheDocument();
+    expect(card.textContent).not.toMatch(/instruction/i);
+    // A goal the device answered is not "not recorded".
+    expect(within(card).queryByText("not recorded")).not.toBeInTheDocument();
+  });
+
+  it("says no goal is set when the device answers an explicit null", async () => {
+    listOne({
+      id: "t1",
+      kind: "pty",
+      started_at_ms: 1_000,
+      holder: { kind: "install", token_id: null },
+      goal: null
+    });
+    render(<TerminalWorkspace grant={GRANT} />);
+
+    await screen.findByRole("tab", { name: /^pty/ });
+    const card = document.querySelector(".session-card") as HTMLElement;
+    expect(within(card).getByText("No goal is set.")).toBeInTheDocument();
+    expect(within(card).queryByText("not recorded")).not.toBeInTheDocument();
+  });
+});

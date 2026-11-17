@@ -4554,6 +4554,93 @@ p.activity-card-title {
   line-height: var(--lh-tight);
   overflow-wrap: anywhere;
 }
+/* **THE DOCUMENT'S TWO SHAPES.** A transaction is one boxed group: a header carrying the purpose
+   and whoever claimed it, the calls the device observed, and a foot that says how (or whether) it
+   ended. A goal is a divider — a rule with a sentence — because it changes the record's context
+   rather than describing work. Both are drawn from the same palette as the cards they contain, so
+   the group reads as their container and not as a second kind of surface. */
+.activity-group {
+  display: grid;
+  gap: var(--sp-1-5);
+  padding: var(--sp-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  background: var(--surface);
+}
+.activity-group.state-working { border-color: color-mix(in srgb, var(--warn) 35%, var(--line)); }
+.activity-group.state-committed { border-color: color-mix(in srgb, var(--ok) 35%, var(--line)); }
+.activity-group.state-aborted { border-color: color-mix(in srgb, var(--error) 35%, var(--line)); }
+.activity-group.state-unrecorded { border-style: dashed; background: transparent; }
+.activity-group-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--sp-1-5);
+  min-width: 0;
+}
+.activity-group-badge { flex: none; }
+/* An orphan group has no declaration to attribute, so its badge says so rather than naming a
+   caller who merely happened to make the first call the window retained. */
+.activity-group-badge.is-unattributed { background: var(--warn-soft); color: var(--warn); }
+.activity-group-purpose {
+  margin: 0;
+  min-width: 0;
+  color: var(--ink);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semi);
+  line-height: var(--lh-tight);
+  overflow-wrap: anywhere;
+}
+.activity-group-author { color: var(--ink-muted); font-size: var(--fs-xs); }
+.activity-group-head .activity-card-state { margin-left: auto; }
+/* The group's body is a list of cards, not a list: no bullet and no indent of its own. */
+.activity-group-calls {
+  display: grid;
+  gap: var(--sp-1-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.activity-group-calls > .activity-card { background: var(--canvas); }
+.activity-group-foot {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-tight);
+}
+.activity-group-foot.is-open { color: var(--warn); }
+.activity-divider {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--sp-1-5);
+  padding: var(--sp-1-5) var(--sp-2);
+  border-top: 1px dashed var(--line);
+  color: var(--ink-muted);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-tight);
+}
+.activity-divider-label {
+  color: var(--ink-muted);
+  font-weight: var(--fw-semi);
+  letter-spacing: var(--tracking-label);
+}
+.activity-divider-text { min-width: 0; color: var(--ink); overflow-wrap: anywhere; }
+.activity-divider-by { margin-left: auto; }
+.activity-rail-unknown { color: var(--warn); font-size: var(--fs-xs); white-space: nowrap; }
+/* A row the spine cannot place keeps its kind visible as a fact, not as a meaning. */
+.activity-card-kind {
+  margin: 0;
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  overflow-wrap: anywhere;
+}
+.activity-card.tone-unknown { border-style: dashed; }
+.activity-card-state.state-working { color: var(--warn); }
+.activity-card-state.state-committed { color: var(--ok); }
+.activity-card-state.state-aborted { color: var(--error); }
+.activity-card-state.state-unrecorded { color: var(--ink-faint); }
 .activity-card-jump { justify-self: start; }
 .activity-rail-empty { margin: 0; }
 .activity-rail-new {

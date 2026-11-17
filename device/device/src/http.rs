@@ -20,7 +20,8 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use summrise_core::{
-    authorize, ApprovalState, Ctx, Decision, DenyReason, Subject, ToolCall, Transport,
+    authorize, ApprovalState, Ctx, Decision, DenyReason, Goal, Holder, SessionRef, Subject,
+    ToolCall, Transport, TxnId, TxnState,
 };
 
 use crate::activity;
@@ -47,6 +48,7 @@ pub(crate) fn router(config: &Config, store: Store) -> Router {
         Arc::new(PluginHost::load(&config.data)),
         None,
         None,
+        "test",
     )
     .0
 }
@@ -70,6 +72,7 @@ pub(crate) fn router_with_limits(
         Arc::new(PluginHost::load(&config.data)),
         None,
         None,
+        "test",
     )
     .0
 }
@@ -93,14 +96,19 @@ fn router_with(
     plugins: Arc<PluginHost>,
     update_check: Option<Arc<crate::update_check::UpdateChecker>>,
     bus: Option<Arc<summrise_bus::Bus>>,
-) -> (Router, Arc<browser::BrowserRegistry>) {
+    txn_boot: &str,
+) -> (
+    Router,
+    Arc<browser::BrowserRegistry>,
+    Arc<crate::txns::TxnRegistry>,
+) {
     // The MCP service and the panel share one terminal registry, so a session an MCP client opened
     // is the session the panel lists. `/mcp` is the same secret as `/api/state`: the gate runs before
     // the MCP service sees the request, so an unauthenticated caller cannot even start a handshake.
     // One audit for the process: the MCP service writes it, and the panel shares it so a session
     // opened from the device's own page is in the same file as a call an AI client made.
     let audit = std::sync::Arc::new(crate::mcp::Audit::new(&config.data));
-    let (mcp_service, terminal, browser) = crate::mcp::service_with_terminal(
+    let (mcp_service, terminal, browser, txns) = crate::mcp::service_with_terminal(
         config,
         limits,
         audit.clone(),
@@ -110,6 +118,7 @@ fn router_with(
         plugins,
         update_check,
         bus.clone(),
+        txn_boot,
     );
     if let Some(bus) = &bus {
         let _ = bus.publish("device.started", serde_json::json!({ "port": config.port }));
@@ -129,6 +138,7 @@ fn router_with(
         supervised: config.supervised,
         restart,
         terminal,
+        txns: Arc::clone(&txns),
         bus,
     };
 
@@ -234,7 +244,7 @@ fn router_with(
         .merge(mcp)
         .with_state(state);
 
-    (app, browser)
+    (app, browser, txns)
 }
 
 /// The `/mcp` token gate: the same bearer check as the JSON routes, before any MCP handling.
@@ -264,12 +274,13 @@ pub async fn serve(
     plugins: Arc<PluginHost>,
     update_check: Option<Arc<crate::update_check::UpdateChecker>>,
     bus: Option<Arc<summrise_bus::Bus>>,
+    txn_boot: String,
 ) -> io::Result<()> {
     // A supervised app restarts through the launcher after the answer reaches the page or the MCP
     // client; a standalone process has no supervisor to bring it back, so its handlers never call
     // this hook. One closure serves both the enrollment and `host.restart`.
     let restart = restart::exit_soon();
-    let (app, browser) = router_with(
+    let (app, browser, _txns) = router_with(
         &config,
         store,
         terminal::Limits::default(),
@@ -280,6 +291,7 @@ pub async fn serve(
         plugins,
         update_check,
         bus,
+        txn_boot.as_str(),
     );
     let listener = bind(&config).await?;
     let address = listener.local_addr()?;
@@ -388,6 +400,9 @@ struct AppState {
     /// The live terminal sessions, shared with the MCP service: the panel lists the same sessions an
     /// MCP client created, because they are the same machine's terminals.
     terminal: Arc<terminal::PtyRegistry>,
+    /// The process's transactions, shared with the MCP service: a panel operation is grouped under
+    /// the same record a client's call would be.
+    txns: Arc<crate::txns::TxnRegistry>,
     /// The process's event journal, when one opened. A panel operation is a call like any other, so
     /// its pair of `call.*` events goes here too: without it the person standing at the machine
     /// would be the one actor whose work the journal cannot show.
@@ -530,6 +545,9 @@ struct ActivityQuery {
     after: Option<String>,
     /// The new-begin page size, clamped to `1..=200`. Late-end updates are outside it.
     limit: Option<u64>,
+    /// The transaction the ledger expands. An id this window does not hold expands nothing and is
+    /// named as missing; it never falls back to another transaction.
+    txn: Option<String>,
 }
 
 /// `GET /activity`: the transcript's first paint.
@@ -547,7 +565,8 @@ async fn activity_page(
     }
 
     let theme = activity::Theme::from_query(query.theme.as_deref());
-    Html(activity::page(&activity_facts(&app), theme).into_string()).into_response()
+    let facts = activity_facts(&app, query.txn.as_deref());
+    Html(activity::page(&facts, theme).into_string()).into_response()
 }
 
 /// `GET /api/activity?after=<boot>.<seq>&limit=<n>`: the transcript's rows for the page's poll.
@@ -573,7 +592,7 @@ async fn activity_api(
         return error_response(StatusCode::FORBIDDEN, "unauthorized", None);
     }
 
-    let facts = activity_facts(&app);
+    let facts = activity_facts(&app, None);
     let rows = facts
         .audit
         .as_deref()
@@ -601,7 +620,7 @@ async fn activity_api(
 
 /// The transcript's facts: the panel's bounded audit tail, read once per request, plus this boot's
 /// token and id and the instant a running call's duration is measured to.
-fn activity_facts(app: &AppState) -> activity::ActivityFacts {
+fn activity_facts(app: &AppState, selected_txn: Option<&str>) -> activity::ActivityFacts {
     let (audit, truncated) =
         match read_audit_tail(&app.data.join("events.jsonl"), panel::TIMELINE_LINES) {
             Ok(tail) => (Some(tail.lines), tail.truncated),
@@ -614,12 +633,228 @@ fn activity_facts(app: &AppState) -> activity::ActivityFacts {
         .unwrap_or(0);
 
     activity::ActivityFacts {
+        txns: txn_facts(app, audit.as_deref(), now_ms),
+        sessions: session_facts(app, audit.as_deref()),
+        selected_txn: selected_txn.map(str::to_owned),
         audit,
         truncated,
         now_ms,
         boot: app.boot,
         panel_token: app.panel_token.clone(),
     }
+}
+
+/// The live sessions as the pages show them: the registry's holder and goal, the working
+/// transaction, and the newest call the bounded record carries for that session.
+fn session_facts(app: &AppState, audit: Option<&[serde_json::Value]>) -> Vec<panel::SessionFacts> {
+    app.terminal
+        .list()
+        .into_iter()
+        .map(|session| {
+            let id = session.id.as_str();
+            let open = app
+                .txns
+                .working_on(&SessionRef::new(id))
+                .and_then(|id| app.txns.get(&id));
+            let last = audit.and_then(|lines| {
+                lines.iter().rev().find_map(|line| {
+                    let tool = line.get("tool").and_then(serde_json::Value::as_str)?;
+                    if row_session(app, line).as_deref() != Some(id) {
+                        return None;
+                    }
+                    let at_ms = line
+                        .get("ts_ms")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0);
+                    Some((tool.to_owned(), at_ms))
+                })
+            });
+            panel::SessionFacts {
+                kind: session.kind.as_str().to_owned(),
+                shell: session.shell,
+                id: id.to_owned(),
+                holder: panel::holder_label(&session.holder),
+                goal: session.goal.as_ref().map(|goal| goal.text().to_owned()),
+                goal_by: session
+                    .goal
+                    .as_ref()
+                    .map(|goal| panel::holder_label(goal.by())),
+                open_txn: open.as_ref().map(|txn| txn.id().as_str().to_owned()),
+                open_purpose: open.as_ref().map(|txn| txn.purpose().to_owned()),
+                last_call: last.as_ref().map(|(tool, _)| tool.clone()),
+                last_call_at_ms: last.as_ref().map(|(_, at_ms)| *at_ms),
+                alive: session.alive,
+            }
+        })
+        .collect()
+}
+
+/// The session an audit row worked on, from the row's own fields.
+///
+/// An MCP `terminal.*` call's flattened arguments carry `session=<id>`. A panel operation audits
+/// `args: None`, so its row is placed by its `txn`: the registry's record for that transaction knows
+/// the session it works on. A tool name alone is never enough to attribute a row.
+fn row_session(app: &AppState, line: &serde_json::Value) -> Option<String> {
+    let tool = line.get("tool").and_then(serde_json::Value::as_str)?;
+    if !tool.starts_with("terminal.") {
+        return None;
+    }
+    if let Some(session) = line
+        .get("args")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|args| {
+            args.split_whitespace()
+                .find_map(|part| part.strip_prefix("session="))
+                .filter(|session| !session.is_empty())
+        })
+    {
+        return Some(session.to_owned());
+    }
+    let txn = line
+        .get("txn")
+        .and_then(serde_json::Value::as_str)
+        .filter(|txn| !txn.is_empty())?;
+    app.txns
+        .get(&TxnId::new(txn))
+        .and_then(|txn| txn.session().map(|session| session.as_str().to_owned()))
+}
+
+/// The door a row names, as a person reads it: the author of a claim the tail still carries.
+fn row_author(line: &serde_json::Value) -> String {
+    let transport = line
+        .get("transport")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("");
+    let token = line.get("token_id").and_then(serde_json::Value::as_str);
+    match transport {
+        "loopback" => "the install door".to_owned(),
+        "panel" => "the panel".to_owned(),
+        "console" => match token {
+            Some("operator") => "the console operator".to_owned(),
+            Some(id) => format!("token {id}"),
+            None => "the console".to_owned(),
+        },
+        "mesh" => "a mesh peer".to_owned(),
+        _ => "not recorded".to_owned(),
+    }
+}
+
+/// Every transaction the audit names, with the receipt this process still holds.
+///
+/// A transaction's group is its row's `txn` field. When the registry has the record, its counters
+/// are the device's totals and `retained` is true. When it does not (a restart, or eviction past the
+/// retention window), the group survives from the audit with `retained: false`: its counters and its
+/// declared ending lived in the receipt and are not invented, but the claim the transaction's own
+/// `txn.begin` row still carries in this tail — the purpose and the door — is reported. When that
+/// begin row is outside the bounded tail, the purpose falls back to "(purpose not retained)".
+fn txn_facts(
+    app: &AppState,
+    audit: Option<&[serde_json::Value]>,
+    now_ms: u64,
+) -> Vec<panel::TxnFact> {
+    use std::collections::HashMap;
+
+    let lines = audit.unwrap_or(&[]);
+    let mut ids: Vec<String> = Vec::new();
+    // The declaration's own row, by the call id its ending shares: the purpose and the author of a
+    // registry-less transaction are still in the tail when that row is.
+    let mut claim_by_call: HashMap<u64, (String, String)> = HashMap::new();
+    for line in lines {
+        if let Some(txn) = line
+            .get("txn")
+            .and_then(serde_json::Value::as_str)
+            .filter(|txn| !txn.is_empty())
+        {
+            if !ids.iter().any(|seen| seen == txn) {
+                ids.push(txn.to_owned());
+            }
+        }
+        let is_begin = line.get("event").and_then(serde_json::Value::as_str) == Some("begin");
+        let is_txn_begin =
+            line.get("tool").and_then(serde_json::Value::as_str) == Some("txn.begin");
+        if is_begin && is_txn_begin {
+            if let (Some(call), Some(purpose)) = (
+                line.get("id").and_then(serde_json::Value::as_u64),
+                line.get("args")
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(|args| args.strip_prefix("purpose="))
+                    .filter(|purpose| !purpose.is_empty()),
+            ) {
+                claim_by_call.insert(call, (purpose.to_owned(), row_author(line)));
+            }
+        }
+    }
+
+    let mut facts: Vec<panel::TxnFact> = Vec::with_capacity(ids.len());
+    for id in &ids {
+        if let Some(txn) = app.txns.get(&TxnId::new(id)) {
+            let started = txn.started_at_ms().max(0) as u64;
+            let ended = txn.ended_at_ms().map(|ended| ended.max(0) as u64);
+            let duration = ended
+                .map(|ended| ended.saturating_sub(started))
+                .unwrap_or_else(|| now_ms.saturating_sub(started));
+            facts.push(panel::TxnFact {
+                id: id.clone(),
+                purpose: txn.purpose().to_owned(),
+                author: panel::holder_label(txn.by()),
+                session: txn.session().map(|session| session.as_str().to_owned()),
+                state: crate::txns::state_name(txn.state()).to_owned(),
+                reason: txn.reason().map(str::to_owned),
+                started_at_ms: started,
+                ended_at_ms: ended,
+                calls: txn.calls(),
+                failures: txn.failures(),
+                refusals: txn.refusals(),
+                duration_ms: duration,
+                retained: true,
+            });
+            continue;
+        }
+
+        // The audit keeps the work and the claim its declaration row wrote; the receipt, its counts
+        // and its ending are this process's, and they died with it. A declaration whose begin row is
+        // outside the bounded tail leaves the claim unretained too.
+        let mut started: Option<u64> = None;
+        let mut claim: Option<(String, String)> = None;
+        for line in lines
+            .iter()
+            .filter(|line| line.get("txn").and_then(serde_json::Value::as_str) == Some(id.as_str()))
+        {
+            if let Some(at) = line.get("ts_ms").and_then(serde_json::Value::as_u64) {
+                started = Some(started.map_or(at, |seen| seen.min(at)));
+            }
+            if claim.is_none() {
+                claim = line
+                    .get("id")
+                    .and_then(serde_json::Value::as_u64)
+                    .and_then(|call| claim_by_call.get(&call))
+                    .cloned();
+            }
+        }
+        let Some(started) = started else {
+            continue;
+        };
+        let (purpose, author) = claim.unwrap_or_default();
+        facts.push(panel::TxnFact {
+            id: id.clone(),
+            purpose,
+            author,
+            session: None,
+            state: "unknown".to_owned(),
+            reason: None,
+            started_at_ms: started,
+            ended_at_ms: None,
+            calls: 0,
+            failures: 0,
+            refusals: 0,
+            duration_ms: 0,
+            retained: false,
+        });
+    }
+
+    // Stable newest-first, so the ledger and the timeline cannot disagree about order.
+    facts.sort_by_key(|fact| std::cmp::Reverse(fact.started_at_ms));
+    facts
 }
 
 /// The newest `limit` lines of the audit file, and whether older lines exist beyond them.
@@ -715,16 +950,7 @@ fn panel_facts(app: &AppState) -> panel::PanelFacts {
             }
             Err(_) => (Vec::new(), None, false),
         };
-    let sessions = app
-        .terminal
-        .list()
-        .into_iter()
-        .map(|session| panel::SessionFacts {
-            kind: session.kind.as_str().to_owned(),
-            shell: session.shell,
-            id: session.id.as_str().to_owned(),
-        })
-        .collect();
+    let sessions = session_facts(app, audit.as_deref());
     let data_dir = app.data.display().to_string();
     let (token_file, token_command) = panel::token_facts(&data_dir);
     let console_url = std::fs::read_to_string(app.data.join("console.json"))
@@ -742,6 +968,7 @@ fn panel_facts(app: &AppState) -> panel::PanelFacts {
         .map(|elapsed| elapsed.as_millis().min(u128::from(u64::MAX)) as u64)
         .unwrap_or(0);
 
+    let txns = txn_facts(app, audit.as_deref(), rendered_at_ms);
     panel::PanelFacts {
         version: app.release.version.clone(),
         channel: app.release.channel.clone(),
@@ -759,6 +986,7 @@ fn panel_facts(app: &AppState) -> panel::PanelFacts {
         console_attempt: crate::console::last_attempt(),
         console_url,
         sessions,
+        txns,
         panel_token: app.panel_token.clone(),
     }
 }
@@ -865,6 +1093,8 @@ async fn panel_terminal(
                 "kind": session.kind.as_str(),
                 "shell": session.shell,
                 "started_at_ms": session.started_at_ms,
+                "holder": terminal::holder_json(&session.holder),
+                "goal": session.goal.as_ref().map(terminal::goal_json),
             })
         })
         .collect();
@@ -912,6 +1142,12 @@ struct PanelCall {
     id: u64,
     trace: String,
     tool: &'static str,
+    /// The transaction the operation rode. `None` only for the one Bootstrap call: creating a
+    /// session is what makes its transaction possible.
+    txn: Option<TxnId>,
+    /// Whether the panel began it and must therefore end it. A transaction another author opened
+    /// is reused for the row but never ended by the panel.
+    owns_txn: bool,
 }
 
 /// Begin an audited panel operation; `None` means its authorization line could not be written and
@@ -920,14 +1156,22 @@ struct PanelCall {
 /// A panel operation is a call in §4.2's sense, so it is a journal pair too: this publishes the
 /// started half under the same `trace.call` the end publishes, and a crash between the two leaves
 /// the started half as the honest record.
-async fn panel_call_begin(app: &AppState, tool: &'static str) -> Option<PanelCall> {
+async fn panel_call_begin(
+    app: &AppState,
+    tool: &'static str,
+    session: Option<&terminal::SessionId>,
+) -> Option<PanelCall> {
     let id = app.audit.next_id();
+    let txn = session.and_then(|session| panel_transaction(app, session));
     let call = PanelCall {
         id,
         trace: format!("call-{id}"),
         tool,
+        txn: txn.as_ref().map(|txn| txn.id.clone()),
+        owns_txn: txn.is_some_and(|txn| txn.owned),
     };
-    app.audit
+    let audited = app
+        .audit
         .begin(
             id,
             now_ms(),
@@ -937,17 +1181,89 @@ async fn panel_call_begin(app: &AppState, tool: &'static str) -> Option<PanelCal
             None,
             None,
             None,
+            call.txn.as_ref().map(TxnId::as_str),
+            tool == "terminal.create",
         )
-        .await
-        .then(|| {
-            publish_panel_call(
-                app,
-                "call.started",
-                &call.trace,
-                serde_json::json!({ "tool": tool, "door": "panel" }),
-            );
-            call
-        })
+        .await;
+    if !audited {
+        // The record was begun before the authorization line could be written. The call will not
+        // run, so nothing may keep the record working: abort it here, before the route answers
+        // `panel_not_audited`. The audit cannot carry this ending by definition (its write is what
+        // failed), so the registry is the record that says why.
+        if call.owns_txn {
+            if let Some(txn) = &call.txn {
+                let _ = app.txns.end(
+                    txn,
+                    &Holder::panel(),
+                    TxnState::Aborted,
+                    Some("the panel's authorization line could not be written"),
+                    panel_goal_now(app, txn),
+                    now_ms(),
+                );
+            }
+        }
+        return None;
+    }
+    publish_panel_call(
+        app,
+        "call.started",
+        &call.trace,
+        serde_json::json!({
+            "tool": tool,
+            "door": "panel",
+            "txn": call.txn.as_ref().map(TxnId::as_str),
+        }),
+    );
+    Some(call)
+}
+
+/// One panel transaction: the record, and whether this request began it.
+struct PanelTxn {
+    id: TxnId,
+    owned: bool,
+}
+
+/// The transaction a panel operation on `session` rides.
+///
+/// Ruling 2: the panel reuses the session's working transaction when there is one, and otherwise
+/// begins its own `by: panel` transaction (`your panel on <session>`, the session's goal
+/// snapshotted). **A live session is required before anything is begun:** a stale id that parses
+/// but names no session would otherwise leave a working record that nothing can end, and enough of
+/// them would meet `too_many_txns`. A closed session yields the capability's own refusal, never a
+/// silent untagged call and never a leaked record.
+fn panel_transaction(app: &AppState, session: &terminal::SessionId) -> Option<PanelTxn> {
+    if app.terminal.holder_of(session).is_none() {
+        return None;
+    }
+    let reference = SessionRef::new(session.as_str());
+    if let Some(open) = app.txns.working_on(&reference) {
+        return Some(PanelTxn {
+            owned: app
+                .txns
+                .get(&open)
+                .is_some_and(|txn| txn.by() == &Holder::panel()),
+            id: open,
+        });
+    }
+    let goal = app.terminal.goal_of(session);
+    let purpose = format!("your panel on {}", session.as_str());
+    match app.txns.begin(
+        Holder::panel(),
+        &purpose,
+        Some(reference.clone()),
+        goal,
+        now_ms(),
+    ) {
+        Ok(txn) => Some(PanelTxn {
+            id: txn.id().clone(),
+            owned: true,
+        }),
+        // Lost a race to another begin on the same session: reuse the winner rather than leak.
+        Err(_) => app
+            .txns
+            .working_on(&reference)
+            .map(|id| PanelTxn { owned: false, id }),
+    }
 }
 
 /// Record how a panel operation ended. `error_kind` is a closed set of names, never a message.
@@ -963,22 +1279,120 @@ async fn panel_call_end(app: &AppState, call: &PanelCall, error_kind: Option<&'s
             None,
             None,
             None,
+            call.txn.as_ref().map(TxnId::as_str),
         )
         .await;
+    if let Some(txn) = &call.txn {
+        match error_kind {
+            None => app.txns.record_call(txn),
+            Some(_) => app.txns.record_failure(txn),
+        }
+    }
     match error_kind {
         None => publish_panel_call(
             app,
             "call.finished",
             &call.trace,
-            serde_json::json!({ "tool": call.tool, "ok": true }),
+            serde_json::json!({
+                "tool": call.tool,
+                "door": "panel",
+                "ok": true,
+                "txn": call.txn.as_ref().map(TxnId::as_str),
+            }),
         ),
         Some(kind) => publish_panel_call(
             app,
             "call.denied",
             &call.trace,
-            serde_json::json!({ "tool": call.tool, "ok": false, "reason": kind }),
+            serde_json::json!({
+                "tool": call.tool,
+                "door": "panel",
+                "ok": false,
+                "reason": kind,
+                "txn": call.txn.as_ref().map(TxnId::as_str),
+            }),
         ),
     }
+    // No panel-owned record outlives its request: success commits, a failure aborts, and the
+    // declaration is audited so the transaction is not an orphan after a restart.
+    if call.owns_txn {
+        if let Some(txn) = &call.txn {
+            let state = match error_kind {
+                None => TxnState::Committed,
+                Some(_) => TxnState::Aborted,
+            };
+            let reason = error_kind.map(|_| "the panel operation failed");
+            let purpose = app
+                .txns
+                .get(txn)
+                .map(|record| record.purpose().to_owned())
+                .unwrap_or_default();
+            let goal_now = panel_goal_now(app, txn);
+            if app
+                .txns
+                .end(txn, &Holder::panel(), state, reason, goal_now, now_ms())
+                .is_ok()
+            {
+                panel_txn_audit(app, txn, state, &purpose).await;
+            }
+        }
+    }
+}
+
+/// The session's goal at the end of a panel operation: the snapshot when the session is gone, so a
+/// close-then-commit does not look like a clear (the same rule as `txn.commit`'s `goal_now`).
+fn panel_goal_now(app: &AppState, id: &TxnId) -> Option<Goal> {
+    let txn = app.txns.get(id)?;
+    let Some(session) = txn
+        .session()
+        .and_then(|session| terminal::SessionId::parse(session.as_str()))
+    else {
+        return txn.goal_at_start().cloned();
+    };
+    if app.terminal.holder_of(&session).is_none() {
+        return txn.goal_at_start().cloned();
+    }
+    app.terminal.goal_of(&session)
+}
+
+/// The durable half of a panel transaction's ending: one begin/end pair the audit can pair, with
+/// the purpose on the begin row and the declared state on the end row.
+async fn panel_txn_audit(app: &AppState, txn: &TxnId, state: TxnState, purpose: &str) {
+    let id = app.audit.next_id();
+    let (tool, outcome) = match state {
+        TxnState::Committed => ("txn.commit", "committed"),
+        TxnState::Aborted => ("txn.abort", "aborted"),
+        TxnState::Working => return,
+    };
+    let args = format!("purpose={purpose}");
+    app.audit
+        .begin(
+            id,
+            now_ms(),
+            tool,
+            "allow",
+            crate::mcp::Arrival::Panel,
+            None,
+            None,
+            Some(&args),
+            Some(txn.as_str()),
+            false,
+        )
+        .await;
+    app.audit
+        .end(
+            id,
+            now_ms(),
+            true,
+            None,
+            crate::mcp::Arrival::Panel,
+            None,
+            None,
+            Some(outcome),
+            None,
+            Some(txn.as_str()),
+        )
+        .await;
 }
 
 /// Publish one half of a panel call's journal pair, when this process has a journal.
@@ -1051,10 +1465,14 @@ async fn panel_terminal_create(
             )
         }
     };
-    let Some(call) = panel_call_begin(&app, "terminal.create").await else {
+    let Some(call) = panel_call_begin(&app, "terminal.create", None).await else {
         return panel_not_audited();
     };
-    match app.terminal.create(target, 24, 80).await {
+    match app
+        .terminal
+        .create(Holder::panel(), None, target, 24, 80)
+        .await
+    {
         Ok(id) => {
             panel_call_end(&app, &call, None).await;
             Json(serde_json::json!({
@@ -1087,7 +1505,7 @@ async fn panel_terminal_write(
     let Some(id) = terminal::SessionId::parse(&id) else {
         return error_response(StatusCode::BAD_REQUEST, "invalid_session", None);
     };
-    let Some(call) = panel_call_begin(&app, "terminal.write").await else {
+    let Some(call) = panel_call_begin(&app, "terminal.write", Some(&id)).await else {
         return panel_not_audited();
     };
     match app.terminal.write(&id, body.data.as_bytes()).await {
@@ -1120,7 +1538,7 @@ async fn panel_terminal_resize(
     let Some(id) = terminal::SessionId::parse(&id) else {
         return error_response(StatusCode::BAD_REQUEST, "invalid_session", None);
     };
-    let Some(call) = panel_call_begin(&app, "terminal.resize").await else {
+    let Some(call) = panel_call_begin(&app, "terminal.resize", Some(&id)).await else {
         return panel_not_audited();
     };
     match app.terminal.resize(&id, body.rows, body.cols).await {
@@ -1168,7 +1586,7 @@ async fn panel_terminal_read(
     let Some(id) = terminal::SessionId::parse(&id) else {
         return error_response(StatusCode::BAD_REQUEST, "invalid_session", None);
     };
-    let Some(call) = panel_call_begin(&app, "terminal.read").await else {
+    let Some(call) = panel_call_begin(&app, "terminal.read", Some(&id)).await else {
         return panel_not_audited();
     };
     let wait = Duration::from_millis(query.wait_ms.unwrap_or(0).min(30_000));
@@ -1204,11 +1622,13 @@ async fn panel_terminal_close(
     let Some(id) = terminal::SessionId::parse(&id) else {
         return error_response(StatusCode::BAD_REQUEST, "invalid_session", None);
     };
-    let Some(call) = panel_call_begin(&app, "terminal.close").await else {
+    let Some(call) = panel_call_begin(&app, "terminal.close", Some(&id)).await else {
         return panel_not_audited();
     };
     match app.terminal.close(&id).await {
         Ok(()) => {
+            // The transaction ends here too: the close is this request's operation, and
+            // `panel_goal_now` already answers with the snapshot when the session is gone.
             panel_call_end(&app, &call, None).await;
             Json(serde_json::json!({ "closed": true })).into_response()
         }
@@ -1809,8 +2229,28 @@ mod tests {
                 Arc::new(PluginHost::load(&self.config.data)),
                 None,
                 bus,
+                "test",
             )
             .0
+        }
+
+        /// The router and the transaction registry it shares with its MCP service, for the test
+        /// that reads a panel transaction's record after the page's calls.
+        fn app_and_txns(&self) -> (Router, Arc<crate::txns::TxnRegistry>) {
+            let (app, _browser, txns) = router_with(
+                &self.config,
+                self.store.clone(),
+                terminal::Limits::default(),
+                None,
+                None,
+                None,
+                restart::none(),
+                Arc::new(PluginHost::load(&self.config.data)),
+                None,
+                None,
+                "test",
+            );
+            (app, txns)
         }
 
         /// The same router with a helper identity, for the registration test.
@@ -1840,6 +2280,7 @@ mod tests {
                 Arc::new(PluginHost::load(&self.config.data)),
                 None,
                 None,
+                "test",
             )
             .0
         }
@@ -2644,6 +3085,187 @@ mod tests {
         assert_eq!(list["sessions"], serde_json::json!([]));
     }
 
+    /// The panel's Timeline is built from `panel_facts`, and an orphan there is a `retained: false`
+    /// fact: the page must say the receipt is gone and print none of the zero counters it carries.
+    #[tokio::test]
+    async fn the_panel_timeline_says_an_orphan_receipt_is_not_retained() {
+        let fixture = fixture("panel-orphan-receipt", None);
+        write_audit(&fixture, &orphan_audit());
+        let client = client();
+        let server = PanelServer::start(fixture.app()).await;
+
+        let (status, html) = get_text(&client, &format!("{}/panel", server.base_url)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            html.contains("fix the parser"),
+            "the claim from the audit's begin row is still in the tail: {html}"
+        );
+        assert!(
+            html.contains("receipt not retained"),
+            "the production fact for an orphan says its receipt is gone: {html}"
+        );
+        assert!(
+            !html.contains("0 calls · 0 failures · 0 refused"),
+            "the unretained fact's zero counters are not printed as a receipt: {html}"
+        );
+    }
+
+    /// The ledger is built from the same facts: an orphan keeps the claim its `txn.begin` row
+    /// carries in this tail, while its receipt (counts and declared ending) is not retained.
+    #[tokio::test]
+    async fn the_activity_ledger_shows_an_orphans_claim_but_not_its_receipt() {
+        let fixture = fixture("activity-orphan-purpose", None);
+        write_audit(&fixture, &orphan_audit());
+        let client = client();
+        let server = PanelServer::start(fixture.app()).await;
+
+        let (status, html) = get_text(&client, &format!("{}/activity", server.base_url)).await;
+        assert_eq!(status, StatusCode::OK);
+        let start = html.find(r#"id="ledger""#).expect("the ledger is drawn");
+        let end = html
+            .find(r#"class="transcript""#)
+            .expect("the call list follows the ledger");
+        let ledger = &html[start..end];
+
+        assert!(
+            ledger.contains("fix the parser") && !ledger.contains("(purpose not retained)"),
+            "the claim from the audit's own begin row survives the restart: {ledger}"
+        );
+        assert!(
+            ledger.contains("receipt not retained")
+                && !ledger.contains("Committed.")
+                && !ledger.contains("Aborted."),
+            "a missing receipt declares no ending: {ledger}"
+        );
+        assert!(
+            ledger.contains(r#"data-group="unscoped""#)
+                && !ledger.contains(r#"data-group="machine""#),
+            "an orphan's scope is unknown, so it is not placed by guess: {ledger}"
+        );
+    }
+
+    /// When the `txn.begin` row has left the bounded tail, nothing here can report the claim: the
+    /// ledger says the purpose is not retained, and still invents no receipt.
+    #[tokio::test]
+    async fn an_orphan_whose_begin_left_the_tail_says_its_purpose_is_not_retained() {
+        let fixture = fixture("activity-orphan-begin-gone", None);
+        let at = 1_761_566_400_000u64;
+        // The id arrives on a call row; its `txn.begin` row is older than this tail.
+        write_audit(
+            &fixture,
+            &[
+                json!({
+                    "id": 2, "ts_ms": at + 1_000, "event": "begin", "tool": "files.read",
+                    "decision": "allow", "transport": "panel", "txn": "txn-gone"
+                }),
+                json!({
+                    "id": 2, "ts_ms": at + 1_100, "event": "end", "ok": true,
+                    "transport": "panel", "txn": "txn-gone"
+                }),
+            ],
+        );
+        let client = client();
+        let server = PanelServer::start(fixture.app()).await;
+
+        let (status, html) = get_text(&client, &format!("{}/activity", server.base_url)).await;
+        assert_eq!(status, StatusCode::OK);
+        let start = html.find(r#"id="ledger""#).expect("the ledger is drawn");
+        let end = html
+            .find(r#"class="transcript""#)
+            .expect("the call list follows the ledger");
+        let ledger = &html[start..end];
+
+        assert!(
+            ledger.contains("(purpose not retained)"),
+            "a claim outside the tail is not invented: {ledger}"
+        );
+        assert!(
+            ledger.contains("receipt not retained"),
+            "the receipt is still not retained when the claim is gone: {ledger}"
+        );
+        assert!(
+            !ledger.contains("Committed.") && !ledger.contains("Aborted."),
+            "a missing receipt declares no ending: {ledger}"
+        );
+    }
+
+    /// A panel operation audits `args: None`, so the session card's "last call" cannot come from a
+    /// `session=` argument. It is attributed by the row's `txn` to the registry's session.
+    #[tokio::test]
+    async fn the_session_card_finds_a_call_the_panel_wrote() {
+        let fixture = fixture("panel-session-last-call", None);
+        let client = client();
+        let server = PanelServer::start(fixture.app()).await;
+        let token = served_token(&client, &server).await;
+
+        let response = client
+            .post(format!("{}/api/terminal/create", server.base_url))
+            .header("x-summrise-panel", &token)
+            .header("content-type", "application/json")
+            .body(json!({ "kind": "pty" }).to_string())
+            .send()
+            .await
+            .expect("the device answers");
+        assert_eq!(response.status(), StatusCode::OK);
+        let created: Value =
+            serde_json::from_str(&response.text().await.expect("the create answer is text"))
+                .expect("the create answer is JSON");
+        let id = created["id"].as_str().expect("a session id").to_owned();
+
+        let response = client
+            .post(format!("{}/api/terminal/{id}/write", server.base_url))
+            .header("x-summrise-panel", &token)
+            .header("content-type", "application/json")
+            .body(json!({ "data": "echo panel\n" }).to_string())
+            .send()
+            .await
+            .expect("the device answers");
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let (status, html) = get_text(&client, &format!("{}/panel", server.base_url)).await;
+        assert_eq!(status, StatusCode::OK);
+        let marker = format!(r#"class="session-card" data-session="{id}""#);
+        let start = html.find(&marker).expect("the panel lists the session");
+        let end = start
+            + html[start..]
+                .find("</article>")
+                .expect("the session card closes");
+        let card = &html[start..end];
+
+        assert!(
+            card.contains("Last call") && card.contains("terminal.write"),
+            "the panel's own write is the session's last call: {card}"
+        );
+        assert!(
+            !card.contains("No call recorded in this window."),
+            "the card no longer claims the window holds no call: {card}"
+        );
+    }
+
+    /// One orphan transaction as the audit writes it: a `txn.begin` row whose end mints the id, then
+    /// a call that rides it. No registry record exists, so `txn_facts` answers `retained: false`.
+    fn orphan_audit() -> Vec<Value> {
+        let at = 1_761_566_400_000u64;
+        vec![
+            json!({
+                "id": 1, "ts_ms": at, "event": "begin", "tool": "txn.begin",
+                "decision": "allow", "transport": "panel", "args": "purpose=fix the parser"
+            }),
+            json!({
+                "id": 1, "ts_ms": at + 5, "event": "end", "ok": true,
+                "outcome": "started", "transport": "panel", "txn": "txn-gone"
+            }),
+            json!({
+                "id": 2, "ts_ms": at + 1_000, "event": "begin", "tool": "files.read",
+                "decision": "allow", "transport": "panel", "txn": "txn-gone"
+            }),
+            json!({
+                "id": 2, "ts_ms": at + 1_100, "event": "end", "ok": true,
+                "transport": "panel", "txn": "txn-gone"
+            }),
+        ]
+    }
+
     #[tokio::test]
     async fn the_panel_terminal_operations_need_the_panel_token_and_work() {
         let fixture = fixture("panel-terminal-ops", None);
@@ -2674,6 +3296,24 @@ mod tests {
         let text = response.text().await.expect("the create answer");
         let created: Value = serde_json::from_str(&text).expect("the create answer is JSON");
         let id = created["id"].as_str().expect("a session id").to_owned();
+
+        // The panel is a door of its own: the session says so, and the panel's own list answers it.
+        let (status, body) = get_text(&client, &format!("{}/api/terminal", server.base_url)).await;
+        assert_eq!(status, StatusCode::OK);
+        let list: Value = serde_json::from_str(&body).expect("the terminal list is JSON");
+        let session = list["sessions"]
+            .as_array()
+            .and_then(|sessions| sessions.iter().find(|session| session["id"] == id.as_str()))
+            .unwrap_or_else(|| panic!("the panel lists the session it opened: {list}"));
+        assert_eq!(
+            session["holder"],
+            json!({ "kind": "panel", "token_id": null }),
+            "a session opened at the panel is held by the panel door: {session}"
+        );
+        assert!(
+            session["goal"].is_null(),
+            "the panel declares no goal when it opens a session: {session}"
+        );
 
         for (method, path, body) in [
             (
@@ -2717,12 +3357,55 @@ mod tests {
             .collect();
         let panel_ops: Vec<&Value> = lines
             .iter()
-            .filter(|line| line["transport"] == "panel" && line["decision"] == "allow")
+            .filter(|line| {
+                line["transport"] == "panel"
+                    && line["decision"] == "allow"
+                    && line["tool"]
+                        .as_str()
+                        .is_some_and(|tool| tool.starts_with("terminal."))
+            })
             .collect();
         assert_eq!(
             panel_ops.len(),
             4,
             "create, write, read and close each wrote their authorization line: {lines:?}"
+        );
+        // Creating the session is the Bootstrap call: it has no transaction because it is what
+        // makes one possible. Every other panel operation opens a transaction of its own, and the
+        // request that opened it ends it before answering.
+        assert!(
+            panel_ops[0]["txn"].is_null() && panel_ops[0]["bootstrap"] == true,
+            "the create is the Bootstrap call: {lines:?}"
+        );
+        let mut endings = 0;
+        for line in &panel_ops[1..] {
+            let txn = line["txn"]
+                .as_str()
+                .unwrap_or_else(|| panic!("a panel operation names its transaction: {lines:?}"));
+            let ending = lines
+                .iter()
+                .find(|other| {
+                    other["tool"] == "txn.commit"
+                        && other["txn"] == json!(txn)
+                        && other["event"] == "begin"
+                })
+                .and_then(|begin| {
+                    lines
+                        .iter()
+                        .find(|end| end["event"] == "end" && end["id"] == begin["id"])
+                })
+                .unwrap_or_else(|| {
+                    panic!("the request that opened {txn} also recorded its ending: {lines:?}")
+                });
+            assert_eq!(
+                ending["outcome"], "committed",
+                "the panel's ending declares the state: {ending}"
+            );
+            endings += 1;
+        }
+        assert_eq!(
+            endings, 3,
+            "write, read and close each ended their own record"
         );
         assert_eq!(panel_ops[0]["tool"], "terminal.create", "{lines:?}");
         assert_eq!(panel_ops[1]["tool"], "terminal.write", "{lines:?}");
@@ -2731,6 +3414,308 @@ mod tests {
         assert!(
             lines.iter().all(|line| line["token_id"].is_null()),
             "a panel call carries no token id: {lines:?}"
+        );
+    }
+
+    /// **THE PANEL'S TRANSACTION IS ITS OWN.** A panel operation is gated like any other machine
+    /// call, and the panel must not borrow a client's record: it begins `by: panel` for the session
+    /// it acts on, writes the id into every audit row, and commits it when it closes the session.
+    ///
+    /// Ruling 2 makes that transaction **session-bound**, not device-scope: every panel operation
+    /// after the create acts on a session, and the gate refuses a device-scope transaction on a
+    /// session call (`txn_scope_mismatch`). "Of its own" is the property this test pins: the author
+    /// is the panel door, not the caller that opened the session.
+    #[tokio::test]
+    async fn the_panel_uses_a_session_bound_transaction_of_its_own() {
+        let fixture = fixture("panel-txn", None);
+        let (app, txns) = fixture.app_and_txns();
+        let client = client();
+        let server = PanelServer::start(app).await;
+        let token = served_token(&client, &server).await;
+
+        let response = client
+            .post(format!("{}/api/terminal/create", server.base_url))
+            .header("x-summrise-panel", &token)
+            .header("content-type", "application/json")
+            .body(json!({ "kind": "pty" }).to_string())
+            .send()
+            .await
+            .expect("the device answers");
+        assert_eq!(response.status(), StatusCode::OK);
+        let created: Value = serde_json::from_str(&response.text().await.unwrap())
+            .expect("the create answer is JSON");
+        let id = created["id"].as_str().expect("a session id").to_owned();
+
+        for (method, path, body) in [
+            (
+                "write",
+                format!("/api/terminal/{id}/write"),
+                Some(json!({ "data": "echo panel\n" })),
+            ),
+            ("read", format!("/api/terminal/{id}/read?cursor=0"), None),
+            (
+                "close",
+                format!("/api/terminal/{id}/close"),
+                Some(json!({})),
+            ),
+        ] {
+            let request = if method == "read" {
+                client.get(format!("{}{path}", server.base_url))
+            } else {
+                client.post(format!("{}{path}", server.base_url))
+            };
+            let request = match body {
+                Some(body) => request
+                    .header("content-type", "application/json")
+                    .body(body.to_string()),
+                None => request,
+            };
+            let response = request
+                .header("x-summrise-panel", &token)
+                .send()
+                .await
+                .expect("the device answers");
+            assert_eq!(response.status(), StatusCode::OK, "{method} {path}");
+        }
+
+        let lines: Vec<Value> = std::fs::read_to_string(fixture.config.data.join("events.jsonl"))
+            .unwrap_or_default()
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("an audit line is JSON"))
+            .collect();
+        let panel_ops: Vec<&Value> = lines
+            .iter()
+            .filter(|line| {
+                line["transport"] == "panel"
+                    && line["decision"] == "allow"
+                    && line["tool"]
+                        .as_str()
+                        .is_some_and(|tool| tool.starts_with("terminal."))
+            })
+            .collect();
+        assert_eq!(panel_ops.len(), 4, "{lines:?}");
+        assert!(
+            panel_ops[0]["txn"].is_null(),
+            "the create is Bootstrap and rides no transaction: {lines:?}"
+        );
+        for line in &panel_ops[1..] {
+            let txn_id = line["txn"]
+                .as_str()
+                .unwrap_or_else(|| panic!("each panel operation names its transaction: {lines:?}"));
+            let record = txns
+                .get(&TxnId::new(txn_id))
+                .unwrap_or_else(|| panic!("the transaction is in the shared registry: {txn_id}"));
+            assert_eq!(
+                record.by(),
+                &Holder::panel(),
+                "the author is the panel door, not the client"
+            );
+            assert_eq!(
+                record.session().map(SessionRef::as_str),
+                Some(id.as_str()),
+                "the transaction is bound to the session it acted on"
+            );
+            assert!(
+                record.purpose().starts_with("your panel on"),
+                "the purpose is the panel's own: {}",
+                record.purpose()
+            );
+            assert_eq!(
+                record.state(),
+                TxnState::Committed,
+                "the request committed the record it opened"
+            );
+            assert_eq!(
+                record.calls(),
+                1,
+                "each panel request is one call in its own unit"
+            );
+        }
+    }
+
+    /// **AN UNAUDITED PANEL CALL LEAVES NO WORKING RECORD.** `panel_call_begin` opens the record
+    /// before it writes the authorization line; when that line cannot be written the call must not
+    /// run, so the record must not stay working either. There is no audit row to pair (the write is
+    /// what failed), so the registry is the evidence: nothing working, and the record that was
+    /// opened is aborted with the reason.
+    #[tokio::test]
+    async fn an_unwritable_panel_audit_leaves_no_working_transaction() {
+        let fixture = fixture("panel-audit-unwritable", None);
+        let (app, txns) = fixture.app_and_txns();
+        let client = client();
+        let server = PanelServer::start(app).await;
+        let token = served_token(&client, &server).await;
+
+        let response = client
+            .post(format!("{}/api/terminal/create", server.base_url))
+            .header("x-summrise-panel", &token)
+            .header("content-type", "application/json")
+            .body(json!({ "kind": "pty" }).to_string())
+            .send()
+            .await
+            .expect("the device answers");
+        assert_eq!(response.status(), StatusCode::OK);
+        let created: Value = serde_json::from_str(&response.text().await.unwrap())
+            .expect("the create answer is JSON");
+        let id = created["id"].as_str().expect("a session id").to_owned();
+
+        // Make the log unwritable the way an occupied path makes it: `events.jsonl` becomes a
+        // directory, so the next append fails and the panel must refuse the call it was opening.
+        let audit = fixture.config.data.join("events.jsonl");
+        std::fs::remove_file(&audit).expect("the create wrote the audit file");
+        std::fs::create_dir(&audit).expect("the audit path is now unwritable");
+
+        let response = client
+            .post(format!("{}/api/terminal/{id}/write", server.base_url))
+            .header("x-summrise-panel", &token)
+            .header("content-type", "application/json")
+            .body(json!({ "data": "must not run\n" }).to_string())
+            .send()
+            .await
+            .expect("the device answers");
+        assert_eq!(
+            response.status(),
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "an unaudited operation is refused"
+        );
+        let body = response.text().await.expect("the refusal is readable");
+        assert!(
+            body.contains("audit_unwritable") || body.contains("could not be written"),
+            "the refusal names the audit: {body}"
+        );
+
+        assert_eq!(
+            txns.working_count(),
+            0,
+            "the record begun before the failed write was aborted, not left working"
+        );
+        let opened = txns
+            .get(&TxnId::new("txn-test-1"))
+            .expect("the panel's first record is retained");
+        assert_eq!(opened.state(), TxnState::Aborted, "it was aborted");
+        assert!(
+            opened
+                .reason()
+                .is_some_and(|reason| reason.contains("authorization line")),
+            "the reason names what failed: {:?}",
+            opened.reason()
+        );
+        assert!(
+            std::fs::read_dir(&audit)
+                .expect("the unwritable path is a directory")
+                .next()
+                .is_none(),
+            "no audit row was fabricated where the log could not be written"
+        );
+    }
+
+    /// **NO PANEL TRANSACTION OUTLIVES ITS REQUEST, AND A STALE ID BEGINS NONE.** A transaction
+    /// on a session that has gone would be a working record nothing can end; a refused operation
+    /// would leave the record it opened working. The first is refused before a record exists, the
+    /// second aborts the record it opened, and either way the registry has nothing left working.
+    #[tokio::test]
+    async fn a_closed_and_a_refused_panel_session_leave_no_open_transaction() {
+        let fixture = fixture("panel-txn-no-leak", None);
+        let (app, txns) = fixture.app_and_txns();
+        let client = client();
+        let server = PanelServer::start(app).await;
+        let token = served_token(&client, &server).await;
+
+        let create = |kind: &'static str| {
+            let client = client.clone();
+            let server = &server;
+            let token = token.clone();
+            async move {
+                let response = client
+                    .post(format!("{}/api/terminal/create", server.base_url))
+                    .header("x-summrise-panel", &token)
+                    .header("content-type", "application/json")
+                    .body(json!({ "kind": kind }).to_string())
+                    .send()
+                    .await
+                    .expect("the device answers");
+                assert_eq!(response.status(), StatusCode::OK);
+                let created: Value = serde_json::from_str(&response.text().await.unwrap())
+                    .expect("the create answer is JSON");
+                created["id"].as_str().expect("a session id").to_owned()
+            }
+        };
+
+        // A live session that is closed first: a write afterwards names no live session, so the
+        // panel begins no transaction at all (the capability's own refusal is the answer).
+        let closed = create("pty").await;
+        let response = client
+            .post(format!("{}/api/terminal/{closed}/close", server.base_url))
+            .header("x-summrise-panel", &token)
+            .header("content-type", "application/json")
+            .body(json!({}).to_string())
+            .send()
+            .await
+            .expect("the device answers");
+        assert_eq!(response.status(), StatusCode::OK);
+        let response = client
+            .post(format!("{}/api/terminal/{closed}/write", server.base_url))
+            .header("x-summrise-panel", &token)
+            .header("content-type", "application/json")
+            .body(json!({ "data": "too late\n" }).to_string())
+            .send()
+            .await
+            .expect("the device answers");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            txns.working_count(),
+            0,
+            "a stale session begins no record to leak"
+        );
+
+        // A live session whose operation is refused: the record the request opened is aborted and
+        // its ending is on the audit, so the group is closed rather than orphaned.
+        let live = create("pty").await;
+        let response = client
+            .post(format!("{}/api/terminal/{live}/resize", server.base_url))
+            .header("x-summrise-panel", &token)
+            .header("content-type", "application/json")
+            .body(json!({ "rows": 0, "cols": 0 }).to_string())
+            .send()
+            .await
+            .expect("the device answers");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            txns.working_count(),
+            0,
+            "a refused operation aborts the record it opened"
+        );
+
+        let lines: Vec<Value> = std::fs::read_to_string(fixture.config.data.join("events.jsonl"))
+            .unwrap_or_default()
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("an audit line is JSON"))
+            .collect();
+        let resize = lines
+            .iter()
+            .find(|line| line["tool"] == "terminal.resize" && line["event"] == "begin")
+            .expect("the refused resize was authorized first");
+        let txn = resize["txn"]
+            .as_str()
+            .expect("the resize rode a transaction");
+        let abort = lines
+            .iter()
+            .find(|line| line["tool"] == "txn.abort" && line["txn"] == json!(txn))
+            .expect("the abort is on the audit");
+        assert_eq!(abort["event"], "begin", "{abort}");
+        assert_eq!(
+            abort["args"], "purpose=your panel on session-2",
+            "the purpose names the panel's own unit: {abort}"
+        );
+        let abort_end = lines
+            .iter()
+            .find(|line| line["event"] == "end" && line["id"] == abort["id"])
+            .expect("the abort has an end line");
+        assert_eq!(abort_end["outcome"], "aborted", "{abort_end}");
+        assert_eq!(
+            txns.get(&TxnId::new(txn)).map(|record| record.state()),
+            Some(TxnState::Aborted),
+            "the receipt is aborted, not left working"
         );
     }
 
@@ -2799,6 +3784,11 @@ mod tests {
             "a second call has its own trace, not the first's"
         );
         assert_eq!(calls[0].payload["door"], "panel");
+        assert_eq!(
+            calls[3].payload["door"], "panel",
+            "the finished half of the close names the door too: {:?}",
+            calls[3].payload
+        );
     }
 
     #[tokio::test]
@@ -3254,6 +4244,70 @@ mod tests {
         assert!(
             !text.contains(&token),
             "the page token never travels in the body: {text}"
+        );
+    }
+
+    /// `?txn=<id>` names the expanded entry; without it, the newest entry is the default (no
+    /// working record exists on this fixture).
+    #[tokio::test]
+    async fn the_activity_page_expands_the_transaction_the_query_names() {
+        let fixture = fixture("activity-txn", None);
+        let at = 1_761_566_400_000u64;
+        let lines = vec![
+            json!({
+                "id": 1, "ts_ms": at, "event": "begin", "tool": "txn.begin",
+                "decision": "allow", "transport": "loopback", "args": "purpose=fix the parser"
+            }),
+            json!({
+                "id": 1, "ts_ms": at + 5, "event": "end", "ok": true,
+                "outcome": "started", "transport": "loopback", "txn": "txn-1"
+            }),
+            json!({
+                "id": 2, "ts_ms": at + 1_000, "event": "begin", "tool": "files.read",
+                "decision": "allow", "transport": "loopback", "txn": "txn-1"
+            }),
+            json!({
+                "id": 2, "ts_ms": at + 1_100, "event": "end", "ok": true,
+                "transport": "loopback", "txn": "txn-1"
+            }),
+            json!({
+                "id": 3, "ts_ms": at + 30_000, "event": "begin", "tool": "txn.begin",
+                "decision": "allow", "transport": "loopback", "args": "purpose=verify the suite"
+            }),
+            json!({
+                "id": 3, "ts_ms": at + 30_005, "event": "end", "ok": true,
+                "outcome": "started", "transport": "loopback", "txn": "txn-2"
+            }),
+            json!({
+                "id": 4, "ts_ms": at + 31_000, "event": "begin", "tool": "files.list",
+                "decision": "allow", "transport": "loopback", "txn": "txn-2"
+            }),
+            json!({
+                "id": 4, "ts_ms": at + 31_100, "event": "end", "ok": true,
+                "transport": "loopback", "txn": "txn-2"
+            }),
+        ];
+        write_audit(&fixture, &lines);
+        let client = client();
+        let server = PanelServer::start(fixture.app()).await;
+
+        let (status, default) = get_text(&client, &format!("{}/activity", server.base_url)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            default.contains(r#"data-txn="txn-2" data-expanded="true""#),
+            "the newest entry is the default: {default}"
+        );
+
+        let (status, selected) =
+            get_text(&client, &format!("{}/activity?txn=txn-1", server.base_url)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            selected.contains(r#"data-txn="txn-1" data-expanded="true""#),
+            "the query chooses the expanded transaction: {selected}"
+        );
+        assert!(
+            !selected.contains(r#"data-txn="txn-2" data-expanded="true""#),
+            "only one entry is expanded: {selected}"
         );
     }
 

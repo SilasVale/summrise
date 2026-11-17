@@ -18,7 +18,10 @@
 //! boundary (`device.joined` / `device.left`): the arguments are the operator's data and never reach
 //! this file. `token_id` is the permanent token *record's* id when a token authenticated an MCP call
 //! — never the `srm_` secret; the grant path, the operator's own `/mcp` route and every non-token
-//! action write no field.
+//! action write no field. `txn` is the transaction the console attached to a call it made on a
+//! person's behalf; it is the row field both surfaces group by, and it is absent where there is no
+//! transaction to name — an exempt tool, a client token's call the console only forwarded, or a
+//! device that records none ("not recorded", never an invented id).
 //!
 //! `caller` is the **audience** of a proxied call, and it is not `token_id`: the operator session on
 //! `/mcp` and the terminal stream are the console's own reads, `/mcp/:id` and `/mcp/all` are an AI
@@ -120,6 +123,12 @@ pub(crate) struct Entry<'a> {
     /// `device.joined`). The name is an authorization fact; the arguments are a body.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) tool: Option<&'a str>,
+    /// The transaction the call rode, when the console attached one. It is the row field the page
+    /// groups by, and it joins this line to the device's own `txn.begin`/`call.*` rows. Absent on an
+    /// exempt tool, on a client token's call the console only forwarded, and on an older device that
+    /// records no transactions — the page reads both as "not recorded", never as a transaction.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) txn: Option<&'a str>,
     /// The permanent token record that authenticated this call, by id — never the secret.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) token_id: Option<&'a str>,
@@ -945,6 +954,7 @@ mod tests {
                         token_id: None,
                         caller: None,
                         trace,
+                        txn: None,
                         machine_seq: None,
                     })
                     .await

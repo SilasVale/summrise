@@ -107,6 +107,32 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
   .timeline-status.failed { color: var(--error); }
   .timeline-caller { font-size: var(--fs-sm); color: var(--ink-faint); }
   .timeline-error { grid-column: 1 / -1; font-size: var(--fs-sm); color: var(--error); }
+  /* A transaction is the Timeline's paragraph: its declaration, its calls, then its receipt. */
+  .timeline-txn { padding: var(--sp-1-5) 0 var(--sp-2); }
+  .timeline-txn + .timeline-txn { border-top: 1px solid var(--line); }
+  .timeline-txn-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-2); margin: 0 0 var(--sp-1); }
+  .timeline-txn-purpose { font-weight: 600; font-size: var(--fs-base); }
+  .timeline-txn-receipt { color: var(--ink-muted); font-size: var(--fs-sm); }
+  .timeline-txn-by { color: var(--ink-faint); font-size: var(--fs-sm); }
+  /* The session card: holder, goal (a badged claim), open transaction, last call. */
+  .session-card { padding: var(--sp-2) 0; border-bottom: 1px dotted var(--line); }
+  .session-card:last-child { border-bottom: 0; }
+  .session-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-1-5); }
+  .session-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); display: inline-block; }
+  .session-dot.live { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 16%, transparent); }
+  .session-kind { font-weight: 600; }
+  .session-id { color: var(--ink-muted); }
+  .session-holder { margin-left: auto; color: var(--ink-faint); font-size: var(--fs-sm); }
+  .session-shell { margin: var(--sp-0-5) 0 0; color: var(--ink-muted); }
+  .session-goal, .session-txn, .session-call { margin: var(--sp-1) 0 0; font-size: var(--fs-base); }
+  .session-goal-by { color: var(--ink-faint); font-size: var(--fs-sm); }
+  .session-card .none { color: var(--ink-faint); }
+  .claim-badge {
+    display: inline-flex; align-items: center; height: 18px; padding: 0 var(--sp-1);
+    border: 1px solid var(--accent); border-radius: var(--radius-xs);
+    color: var(--accent); font-size: var(--fs-2xs); font-weight: 600;
+    letter-spacing: var(--tracking-label); text-transform: uppercase;
+  }
 
   /* **THE RECORD FOLDS AFTER THE NEWEST ROWS.** The card holds the machine's newest 200 audit lines;
      drawn whole it buried Build, Updates and Connect. The disclosure is the browser's own, so the
@@ -352,6 +378,59 @@ pub(crate) struct SessionFacts {
     pub(crate) shell: String,
     /// The session id, `session-<number>`.
     pub(crate) id: String,
+    /// The door that opened the session, as a person reads it (`token srm_7f`, `the panel`).
+    pub(crate) holder: String,
+    /// The session's umbrella goal: a claim with its author, never an instruction.
+    pub(crate) goal: Option<String>,
+    pub(crate) goal_by: Option<String>,
+    /// The transaction that is working on this session now, and the purpose it claims.
+    pub(crate) open_txn: Option<String>,
+    pub(crate) open_purpose: Option<String>,
+    /// The newest call the bounded audit tail records for this session.
+    pub(crate) last_call: Option<String>,
+    pub(crate) last_call_at_ms: Option<u64>,
+    /// Whether the far end is still producing: the registry's own fact.
+    pub(crate) alive: bool,
+}
+
+/// One transaction as both Rust pages show it: the declaration, the device's observation, and
+/// whether the process still holds the record.
+///
+/// `retained` is the honest answer to "does a receipt exist here?": a group read only from the
+/// audit survives a restart, but its receipt does not. The counters are the device's totals (the
+/// registry's own), never a count of the rows a bounded window happens to carry.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct TxnFact {
+    pub(crate) id: String,
+    pub(crate) purpose: String,
+    pub(crate) author: String,
+    pub(crate) session: Option<String>,
+    pub(crate) state: String,
+    pub(crate) reason: Option<String>,
+    pub(crate) started_at_ms: u64,
+    pub(crate) ended_at_ms: Option<u64>,
+    pub(crate) calls: u64,
+    pub(crate) failures: u64,
+    pub(crate) refusals: u64,
+    pub(crate) duration_ms: u64,
+    pub(crate) retained: bool,
+}
+
+/// A holder as the pages name it. Attribution only: no rank, no person, no permission.
+pub(crate) fn holder_label(holder: &summrise_core::Holder) -> String {
+    use summrise_core::HolderKind;
+
+    match holder.kind {
+        HolderKind::Install => "the install door".to_owned(),
+        HolderKind::Panel => "the panel".to_owned(),
+        HolderKind::Console => "the console operator".to_owned(),
+        HolderKind::Token => match &holder.token_id {
+            Some(id) => format!("token {id}"),
+            None => "a client token".to_owned(),
+        },
+        HolderKind::Grant => "a console grant".to_owned(),
+        HolderKind::Mesh => "a mesh peer".to_owned(),
+    }
 }
 
 /// Everything the panel shows, read from the same sources `/api/panel` reads.
@@ -383,6 +462,10 @@ pub(crate) struct PanelFacts {
     /// The console this machine is linked to, when `console.json` names one.
     pub(crate) console_url: Option<String>,
     pub(crate) sessions: Vec<SessionFacts>,
+    /// The transactions the audit names: this process's records (working and retained endings, the
+    /// receipts the timeline shows) and, with `retained: false`, a group read only from the audit —
+    /// present so the page can say the receipt is gone, never as a receipt with zero counts.
+    pub(crate) txns: Vec<TxnFact>,
     /// This boot's panel token: the page carries it in its meta tag and its form.
     pub(crate) panel_token: String,
 }
@@ -416,6 +499,64 @@ pub(crate) fn token_facts(data_dir: &str) -> (String, String) {
 /// The panel with no enrollment result: a plain read of the machine.
 pub(crate) fn page(facts: &PanelFacts) -> Markup {
     render(facts, None)
+}
+
+/// One live session, as the panel's own card: the holder, the umbrella goal (a claim), the open
+/// transaction and the newest call the bounded record carries.
+///
+/// Nothing here is inferred. A session with no goal says so; a session with no working transaction
+/// says so; a session the window has no call for says its last call is not in this window.
+fn session_card(session: &SessionFacts) -> Markup {
+    let last_call = match (&session.last_call, session.last_call_at_ms) {
+        (Some(tool), Some(at_ms)) => match local_at(at_ms) {
+            Some(at) => format!("{tool} · {}", at.format("%H:%M")),
+            None => tool.clone(),
+        },
+        (Some(tool), None) => tool.clone(),
+        _ => String::new(),
+    };
+    html! {
+        article class="session-card" data-session=(session.id) {
+            div class="session-head" {
+                span
+                    class=(if session.alive { "session-dot live" } else { "session-dot" })
+                    aria-hidden="true"
+                {}
+                span class="session-kind" { (session.kind) }
+                span class="session-id mono" { (session.id) }
+                span class="session-holder" { (session.holder) }
+            }
+            p class="session-shell mono" { (session.shell) }
+            @if let Some(goal) = &session.goal {
+                p class="session-goal" {
+                    span class="claim-badge" { "CLAIM" }
+                    " " (goal)
+                    @if let Some(by) = &session.goal_by {
+                        span class="session-goal-by" { " · set by " (by) }
+                    }
+                }
+            } @else {
+                p class="session-goal none" { "No goal set." }
+            }
+            @if let Some(id) = &session.open_txn {
+                p class="session-txn" {
+                    "Open transaction " span class="mono" { (id) }
+                    @if let Some(purpose) = &session.open_purpose {
+                        " · " (purpose)
+                    }
+                }
+            } @else {
+                p class="session-txn none" { "No transaction is working on this session." }
+            }
+            @if last_call.is_empty() {
+                p class="session-call none" { "No call recorded in this window." }
+            } @else {
+                p class="session-call" {
+                    "Last call " span class="mono" { (last_call) }
+                }
+            }
+        }
+    }
 }
 
 /// The same page with the enrollment form's outcome at the top of its own section.
@@ -486,6 +627,18 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
             TIMELINE_VISIBLE_ROWS,
         )
     });
+    // Rows this build cannot classify are counted, like the ledger counts its unattributed rows.
+    let unknown_rows = timeline
+        .as_ref()
+        .map(|fold| {
+            fold.visible
+                .iter()
+                .chain(fold.rest.iter())
+                .flat_map(|day| day.rows.iter())
+                .filter(|row| row.unknown)
+                .count()
+        })
+        .unwrap_or(0);
     let config = local_config(facts);
 
     html! {
@@ -691,7 +844,14 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                         // facts behind a 200-line wall.
                         @if let Some(fold) = &timeline {
                             p class="hint" {
-                                "The calls this machine recorded, newest first, in this machine's local time."
+                                "The calls this machine recorded, newest first, in this machine's local time. A transaction group's counts are the device's totals for that transaction; the rows beneath are the rows in this window."
+                            }
+                            @if unknown_rows > 0 {
+                                p class="hint" id="timeline-unknown" data-unknown=(unknown_rows) {
+                                    (unknown_rows) " "
+                                    @if unknown_rows == 1 { "row" } @else { "rows" }
+                                    " this build cannot classify are drawn as unknown and counted, never dropped."
+                                }
                             }
                             @if facts.audit_truncated {
                                 p class="hint" id="timeline-bound" {
@@ -704,7 +864,7 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                                 }
                             } @else {
                                 @for day in &fold.visible {
-                                    (timeline_day(day))
+                                    (timeline_day(day, &facts.txns))
                                 }
                                 @if fold.rest_rows > 0 {
                                     details class="timeline-rest" {
@@ -714,7 +874,7 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                                         }
                                         div class="timeline-rest-body" {
                                             @for day in &fold.rest {
-                                                (timeline_day(day))
+                                                (timeline_day(day, &facts.txns))
                                             }
                                         }
                                     }
@@ -763,11 +923,8 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                             @if facts.sessions.is_empty() {
                                 "No live session on this machine."
                             } @else {
-                                dl {
-                                    @for session in &facts.sessions {
-                                        dt { (session.kind) }
-                                        dd { (format!("{} · {}", session.shell, session.id)) }
-                                    }
+                                @for session in &facts.sessions {
+                                    (session_card(session))
                                 }
                             }
                         }
@@ -1068,6 +1225,11 @@ pub(crate) struct TimelineRow {
     caller: String,
     /// The `end` line's `error_kind`, when the call failed.
     error: Option<String>,
+    /// The transaction the call rode, from the row's own `txn` field (never from its arguments).
+    txn: Option<String>,
+    /// The row's class from `RowKind::of_row`: a row this build cannot classify is marked unknown,
+    /// drawn and counted, never dropped.
+    unknown: bool,
 }
 
 /// One local day of calls, newest first.
@@ -1203,35 +1365,125 @@ fn fold_timeline(days: Vec<TimelineDay>, visible_rows: usize) -> TimelineFold {
     }
 }
 
-/// One local day of the Timeline, drawn the same way on either side of the fold.
-fn timeline_day(day: &TimelineDay) -> Markup {
+/// One local day of the Timeline: its calls grouped by the transaction they rode.
+///
+/// The day grouping is the reader's local calendar; inside it, a transaction is the paragraph.
+/// The rows keep the record's newest-first order, and a receipt (or the honest absence of one) sits
+/// after the calls of its group. A row with no `txn` field is not folded into a transaction it never
+/// named: it is a group of its own that says so.
+fn timeline_day(day: &TimelineDay, txns: &[TxnFact]) -> Markup {
     html! {
         section class="timeline-day" {
             h2 class="timeline-day-label" { (day.label) }
-            ol class="timeline-rows" {
-                @for row in &day.rows {
-                    li class="timeline-row" {
-                        time
-                            class="timeline-time"
-                            datetime=(crate::store::format_utc(row.at_ms / 1_000))
-                            title=(crate::store::format_utc(row.at_ms / 1_000))
-                        { (row.time) }
-                        span class="timeline-tool" { (row.tool) }
-                        @if row.failed {
-                            span class="chip fail" { (row.status) }
-                        } @else {
-                            span class="chip ok" { (row.status) }
+            @for (txn, rows) in timeline_groups(&day.rows) {
+                section class="timeline-txn" data-txn=(txn) {
+                    @if txn.is_empty() {
+                        p class="timeline-txn-head" {
+                            span class="timeline-txn-purpose" { "Rows with no transaction" }
                         }
-                        @if !row.caller.is_empty() {
-                            span class="timeline-caller" { (row.caller) }
+                        p class="hint" {
+                            "This call rode no transaction; no receipt is owed for it."
                         }
-                        @if let Some(error) = &row.error {
-                            span class="timeline-error" { (error) }
+                    } @else if let Some(fact) = txn_fact(txns, txn) {
+                        p class="timeline-txn-head" {
+                            span class="timeline-txn-purpose" {
+                                @if fact.purpose.is_empty() {
+                                    "(purpose not retained)"
+                                } @else {
+                                    (fact.purpose)
+                                }
+                            }
+                            @if !fact.author.is_empty() {
+                                span class="timeline-txn-by" { (fact.author) }
+                            }
+                            @if fact.retained {
+                                span class="chip" { (fact.state) }
+                                span class="timeline-txn-receipt" {
+                                    (fact.calls) " calls · "
+                                    (count_noun(fact.failures, "failure")) " · "
+                                    (fact.refusals) " refused · "
+                                    (crate::activity::duration_text(fact.duration_ms))
+                                }
+                            } @else {
+                                span class="timeline-txn-receipt" { "receipt not retained" }
+                            }
+                        }
+                        @if !fact.retained {
+                            p class="hint" {
+                                "The audit still records this transaction's calls, but this process holds no receipt for it."
+                            }
+                        }
+                    } @else {
+                        p class="timeline-txn-head" {
+                            span class="timeline-txn-purpose" { "transaction " (txn) }
+                            span class="timeline-txn-receipt" { "receipt not retained" }
+                        }
+                        p class="hint" {
+                            "The audit still records this transaction's calls, but this process holds no receipt for it."
+                        }
+                    }
+                    ol class="timeline-rows" {
+                        @for row in rows {
+                            li
+                                class="timeline-row"
+                                data-kind=(if row.unknown { "unknown" } else { "fact" })
+                                data-status=(row.status)
+                            {
+                                time
+                                    class="timeline-time"
+                                    datetime=(crate::store::format_utc(row.at_ms / 1_000))
+                                    title=(crate::store::format_utc(row.at_ms / 1_000))
+                                { (row.time) }
+                                span class="timeline-tool" { (row.tool) }
+                                @if row.failed {
+                                    span class="chip fail" { (row.status) }
+                                } @else {
+                                    span class="chip ok" { (row.status) }
+                                }
+                                @if !row.caller.is_empty() {
+                                    span class="timeline-caller" { (row.caller) }
+                                }
+                                @if let Some(error) = &row.error {
+                                    span class="timeline-error" { (error) }
+                                }
+                            }
                         }
                     }
                 }
             }
         }
+    }
+}
+
+/// The day's rows in transaction groups, newest group first: the order the rows already hold.
+fn timeline_groups<'a>(rows: &'a [TimelineRow]) -> Vec<(&'a str, Vec<&'a TimelineRow>)> {
+    let mut groups: Vec<(&'a str, Vec<&'a TimelineRow>)> = Vec::new();
+    for row in rows {
+        let key = row.txn.as_deref().unwrap_or("");
+        match groups.iter_mut().find(|(seen, _)| *seen == key) {
+            Some((_, members)) => members.push(row),
+            None => groups.push((key, vec![row])),
+        }
+    }
+    groups
+}
+
+/// The fact for one transaction, by identity. `retained` decides which head is drawn: a fact the
+/// process does not hold shows its claim (when the tail kept it) and "receipt not retained", never
+/// the zero counters it carries.
+fn txn_fact<'a>(txns: &'a [TxnFact], id: &str) -> Option<&'a TxnFact> {
+    if id.is_empty() {
+        return None;
+    }
+    txns.iter().find(|txn| txn.id == id)
+}
+
+/// `1 failure`, `2 failures`.
+fn count_noun(count: u64, noun: &str) -> String {
+    if count == 1 {
+        format!("{count} {noun}")
+    } else {
+        format!("{count} {noun}s")
     }
 }
 
@@ -1277,6 +1529,26 @@ fn timeline_row(
             .unwrap_or("")
             .to_owned(),
         error,
+        txn: begin
+            .get("txn")
+            .or_else(|| end.and_then(|end| end.get("txn")))
+            .and_then(serde_json::Value::as_str)
+            .filter(|txn| !txn.is_empty())
+            .map(str::to_owned),
+        unknown: {
+            let args = begin
+                .get("args")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
+            let action = args
+                .split_whitespace()
+                .find_map(|part| part.strip_prefix("action="));
+            let event = begin
+                .get("event")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("begin");
+            summrise_core::RowKind::of_row(tool, action, event) == summrise_core::RowKind::Unknown
+        },
     })
 }
 
@@ -1497,7 +1769,16 @@ mod tests {
                 kind: "pty".to_owned(),
                 shell: "bash".to_owned(),
                 id: "session-1".to_owned(),
+                holder: "the panel".to_owned(),
+                goal: None,
+                goal_by: None,
+                open_txn: None,
+                open_purpose: None,
+                last_call: None,
+                last_call_at_ms: None,
+                alive: true,
             }],
+            txns: Vec::new(),
             panel_token: "a".repeat(64),
         }
     }
@@ -2067,7 +2348,7 @@ mod tests {
         let html = page(&facts).into_string();
 
         assert_eq!(
-            html.matches(r#"<li class="timeline-row">"#).count(),
+            html.matches(r#"<li class="timeline-row""#).count(),
             30,
             "every call is drawn exactly once: {html}"
         );
@@ -2080,12 +2361,12 @@ mod tests {
         let details = &folded[..details_end];
 
         assert_eq!(
-            visible.matches(r#"<li class="timeline-row">"#).count(),
+            visible.matches(r#"<li class="timeline-row""#).count(),
             TIMELINE_VISIBLE_ROWS,
             "the newest 20 rows stay out of the fold"
         );
         assert_eq!(
-            details.matches(r#"<li class="timeline-row">"#).count(),
+            details.matches(r#"<li class="timeline-row""#).count(),
             10,
             "the other 10 are behind it"
         );
@@ -2136,7 +2417,7 @@ mod tests {
             "the visible rows are drawn whole, with no empty fold: {html}"
         );
         assert_eq!(
-            html.matches(r#"<li class="timeline-row">"#).count(),
+            html.matches(r#"<li class="timeline-row""#).count(),
             TIMELINE_VISIBLE_ROWS
         );
 
@@ -2198,7 +2479,7 @@ mod tests {
             "the panel's reading order: the machine, its facts, its record, its tools"
         );
         let first_row = html
-            .find(r#"<li class="timeline-row">"#)
+            .find(r#"<li class="timeline-row""#)
             .expect("the fixture records two calls");
         for fact in [
             "<h2>Build</h2>",
@@ -2344,6 +2625,224 @@ mod tests {
         assert!(
             !rules.contains("letter-spacing:.07em"),
             "a label's spacing is the token's on every surface that reads this sheet"
+        );
+    }
+
+    #[test]
+    fn the_session_card_names_holder_goal_and_open_transaction() {
+        let mut facts = facts();
+        facts.sessions = vec![SessionFacts {
+            kind: "pty".to_owned(),
+            shell: "bash".to_owned(),
+            id: "session-1".to_owned(),
+            holder: "token srm_7f".to_owned(),
+            goal: Some("ship the installer".to_owned()),
+            goal_by: Some("token srm_7f".to_owned()),
+            open_txn: Some("txn-9".to_owned()),
+            open_purpose: Some("verify the suite".to_owned()),
+            last_call: Some("terminal.write".to_owned()),
+            last_call_at_ms: Some(1_761_566_403_000),
+            alive: true,
+        }];
+        facts.txns = vec![TxnFact {
+            id: "txn-9".to_owned(),
+            purpose: "verify the suite".to_owned(),
+            author: "token srm_7f".to_owned(),
+            session: Some("session-1".to_owned()),
+            state: "working".to_owned(),
+            reason: None,
+            started_at_ms: 1_761_566_402_000,
+            ended_at_ms: None,
+            calls: 3,
+            failures: 0,
+            refusals: 0,
+            duration_ms: 0,
+            retained: true,
+        }];
+        let html = page(&facts).into_string();
+        let start = html
+            .find(r#"class="session-card""#)
+            .expect("the live session is a card");
+        let end = html[start..]
+            .find("</article>")
+            .map(|offset| start + offset)
+            .expect("the card closes");
+        let card = &html[start..end];
+
+        assert!(
+            card.contains("session-1") && card.contains("token srm_7f"),
+            "the card names the session and its holder: {card}"
+        );
+        assert!(
+            card.contains("ship the installer") && card.contains("CLAIM"),
+            "the goal is a badged claim, never an instruction: {card}"
+        );
+        assert!(
+            card.contains("txn-9") && card.contains("verify the suite"),
+            "the card names the open transaction and its purpose: {card}"
+        );
+        assert!(
+            card.contains("terminal.write"),
+            "the card names the last call: {card}"
+        );
+    }
+
+    #[test]
+    fn the_timeline_groups_calls_by_transaction_with_the_receipt() {
+        let mut facts = facts();
+        let at = 1_761_566_400_000u64;
+        let mut begin = begin(1, at, "files.read", "loopback");
+        begin["txn"] = json!("txn-1");
+        let mut end = end(1, at + 1_000, true, None, "loopback");
+        end["txn"] = json!("txn-1");
+        facts.audit = Some(vec![begin, end]);
+        facts.txns = vec![TxnFact {
+            id: "txn-1".to_owned(),
+            purpose: "read the installer's config".to_owned(),
+            author: "install".to_owned(),
+            session: None,
+            state: "committed".to_owned(),
+            reason: None,
+            started_at_ms: at,
+            ended_at_ms: Some(at + 1_000),
+            calls: 7,
+            failures: 1,
+            refusals: 0,
+            duration_ms: 1_000,
+            retained: true,
+        }];
+
+        let html = page(&facts).into_string();
+        let group = html
+            .find(r#"class="timeline-txn""#)
+            .expect("the timeline groups calls by transaction");
+        let group = &html[group..];
+        assert!(
+            group.contains("read the installer's config"),
+            "the group names the purpose: {group}"
+        );
+        assert!(
+            group.contains("7 calls") && group.contains("1 failure"),
+            "the receipt shows the device's totals, not the window's: {group}"
+        );
+    }
+
+    /// The production shape of an orphan: `http::txn_facts` enumerates the audit's ids and marks a
+    /// registry-less transaction `retained: false` with no counts. The page must not print those
+    /// totals beside real rows; it says the receipt is not retained.
+    #[test]
+    fn an_orphan_timeline_row_says_receipt_not_retained() {
+        let mut facts = facts();
+        let at = 1_761_566_400_000u64;
+        let mut begin = begin(1, at, "files.read", "loopback");
+        begin["txn"] = json!("txn-gone");
+        let mut end = end(1, at + 1_000, true, None, "loopback");
+        end["txn"] = json!("txn-gone");
+        facts.audit = Some(vec![begin, end]);
+        // The production shape: the tail still holds the `txn.begin` row, so the claim survives
+        // while the receipt does not.
+        facts.txns = vec![TxnFact {
+            id: "txn-gone".to_owned(),
+            purpose: "read the installer's config".to_owned(),
+            author: "the panel".to_owned(),
+            session: None,
+            state: "unknown".to_owned(),
+            reason: None,
+            started_at_ms: at,
+            ended_at_ms: None,
+            calls: 0,
+            failures: 0,
+            refusals: 0,
+            duration_ms: 0,
+            retained: false,
+        }];
+
+        let html = page(&facts).into_string();
+        assert!(
+            html.contains("read the installer's config") && html.contains("the panel"),
+            "the claim from the audit keeps the group's head: {html}"
+        );
+        assert!(
+            html.contains("receipt not retained"),
+            "an orphan group is honest about its missing receipt: {html}"
+        );
+        assert!(
+            !html.contains("0 calls · 0 failures · 0 refused"),
+            "a receipt the process does not hold prints no totals: {html}"
+        );
+    }
+
+    /// The day's rows carry the ledger's `data-kind`, so a row this build cannot classify is marked
+    /// unknown; the Timeline counts them instead of showing them as facts.
+    #[test]
+    fn the_panel_timeline_marks_and_counts_an_unknown_row() {
+        let mut facts = facts();
+        let at = 1_761_566_402_500u64;
+        facts.audit = Some(vec![
+            begin(1, at, "mystery.tool", "loopback"),
+            end(1, at + 100, true, None, "loopback"),
+        ]);
+
+        let html = page(&facts).into_string();
+
+        assert!(
+            html.contains(r#"<li class="timeline-row" data-kind="unknown" data-status="ok">"#),
+            "an unclassifiable row is drawn as unknown: {html}"
+        );
+        assert!(
+            html.contains(r#"data-unknown="1""#),
+            "the Timeline counts the unknown row: {html}"
+        );
+    }
+
+    /// The group head carries the receipt's own vocabulary: the claim's author, its duration, and
+    /// the note that the counts are the device's totals while the rows are this window's.
+    #[test]
+    fn the_timeline_group_names_the_author_and_duration_and_scopes_the_counts() {
+        let mut facts = facts();
+        let at = 1_761_566_400_000u64;
+        let mut begin = begin(1, at, "files.read", "loopback");
+        begin["txn"] = json!("txn-1");
+        let mut end = end(1, at + 1_000, true, None, "loopback");
+        end["txn"] = json!("txn-1");
+        facts.audit = Some(vec![begin, end]);
+        facts.txns = vec![TxnFact {
+            id: "txn-1".to_owned(),
+            purpose: "read the installer's config".to_owned(),
+            author: "the install door".to_owned(),
+            session: None,
+            state: "committed".to_owned(),
+            reason: None,
+            started_at_ms: at,
+            ended_at_ms: Some(at + 1_000),
+            calls: 7,
+            failures: 1,
+            refusals: 0,
+            duration_ms: 1_000,
+            retained: true,
+        }];
+
+        let html = page(&facts).into_string();
+        let group = html
+            .find(r#"class="timeline-txn""#)
+            .expect("the timeline groups calls by transaction");
+        let group = &html[group..];
+
+        assert!(
+            group.contains("the install door"),
+            "the group names the claim's author: {group}"
+        );
+        assert!(
+            group.contains("7 calls · 1 failure") && !group.contains("1 1 failure"),
+            "the receipt states its failures once, beside the calls: {group}"
+        );
+        assert!(
+            group.contains("1.0s"),
+            "the receipt carries its duration beside the counts: {group}"
+        );
+        assert!(
+            html.contains("the device's totals") && html.contains("the rows beneath"),
+            "the page says the counts are the device's totals and the rows are this window's: {html}"
         );
     }
 }

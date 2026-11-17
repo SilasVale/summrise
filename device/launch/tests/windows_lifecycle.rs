@@ -557,10 +557,25 @@ fn mcp_files_round_trip(fixture: &Fixture) {
             "the installed app advertises the registry's tools"
         );
 
+        // Every machine call needs a working transaction. The direct `/mcp` door is `install`,
+        // which has no device-scope slot, so the client begins one and names it on each call.
+        let begun = client
+            .call_tool(
+                CallToolRequestParams::new("txn.begin")
+                    .with_arguments(call_arguments(json!({ "purpose": "the files round trip" }))),
+            )
+            .await
+            .expect("txn.begin is answered");
+        assert_eq!(begun.is_error, Some(false), "txn.begin opened: {begun:?}");
+        let txn = tool_json(&begun)["txn"]
+            .as_str()
+            .expect("a txn id")
+            .to_owned();
+
         let made = client
             .call_tool(
                 CallToolRequestParams::new("files.mkdir").with_arguments(
-                    json!({ "path": "notes" })
+                    json!({ "path": "notes", "txn": txn })
                         .as_object()
                         .expect("the mkdir arguments are an object")
                         .clone(),
@@ -582,7 +597,7 @@ fn mcp_files_round_trip(fixture: &Fixture) {
         let written = client
             .call_tool(
                 CallToolRequestParams::new("files.write").with_arguments(
-                    json!({ "path": "notes/lane.txt", "content": content })
+                    json!({ "path": "notes/lane.txt", "content": content, "txn": txn })
                         .as_object()
                         .expect("the write arguments are an object")
                         .clone(),
@@ -599,7 +614,7 @@ fn mcp_files_round_trip(fixture: &Fixture) {
         let read = client
             .call_tool(
                 CallToolRequestParams::new("files.read").with_arguments(
-                    json!({ "path": "notes/lane.txt" })
+                    json!({ "path": "notes/lane.txt", "txn": txn })
                         .as_object()
                         .expect("the read arguments are an object")
                         .clone(),
@@ -626,17 +641,19 @@ fn mcp_files_round_trip(fixture: &Fixture) {
     });
 
     // Two lines per call: the `begin` line is written before the capability runs, the `end` line
-    // after it. Three calls (mkdir, write, read) leave six lines whose ids pair in call order.
+    // after it. Four calls (txn.begin, mkdir, write, read) leave eight lines whose ids pair in call
+    // order.
     let audit = fs::read_to_string(fixture.data.join("events.jsonl"))
         .expect("the MCP calls appended to the audit file");
     let lines: Vec<Value> = audit
         .lines()
         .map(|line| serde_json::from_str(line).expect("an audit line is JSON"))
         .collect();
-    assert_eq!(lines.len(), 6, "three calls, two lines each: {lines:?}");
-    for (pair, tool) in lines
-        .chunks(2)
-        .zip(["files.mkdir", "files.write", "files.read"])
+    assert_eq!(lines.len(), 8, "four calls, two lines each: {lines:?}");
+    for (pair, tool) in
+        lines
+            .chunks(2)
+            .zip(["txn.begin", "files.mkdir", "files.write", "files.read"])
     {
         let (begin, end) = (&pair[0], &pair[1]);
         assert_eq!(begin["event"], "begin", "{lines:?}");
@@ -799,6 +816,22 @@ fn mcp_conpty_round_trip(fixture: &Fixture) {
             created["shell"].as_str(),
             Some(shell.as_str()),
             "the create reports the program it started: {created}"
+        );
+
+        // A session-bound transaction for the rest of the round trip: write, read, resize and close
+        // inherit it from the id their arguments name.
+        let begun = client
+            .call_tool(
+                CallToolRequestParams::new("txn.begin").with_arguments(call_arguments(
+                    json!({ "session": id, "purpose": "the ConPTY round trip" }),
+                )),
+            )
+            .await
+            .expect("txn.begin is answered");
+        assert_eq!(
+            begun.is_error,
+            Some(false),
+            "the session's transaction opened: {begun:?}"
         );
 
         // `create` writes the row before it returns, so a reader of the state document must see it
@@ -1137,6 +1170,27 @@ fn mcp_browser_round_trip(fixture: &Fixture) {
             .await
             .expect("rmcp's client completes the MCP handshake with the installed app");
 
+        // Every browser verb except `list` is a `Required` machine call, so the fixture begins one
+        // device-scope transaction and names it on each: `browser.open` creates a page, which is a
+        // side effect the record must be able to answer for. `browser.list` is exempt.
+        let begun = client
+            .call_tool(
+                CallToolRequestParams::new("txn.begin").with_arguments(call_arguments(
+                    json!({ "purpose": "the browser round trip" }),
+                )),
+            )
+            .await
+            .expect("txn.begin is answered");
+        assert_eq!(
+            begun.is_error,
+            Some(false),
+            "the browser txn opened: {begun:?}"
+        );
+        let txn = tool_json(&begun)["txn"]
+            .as_str()
+            .expect("a txn id")
+            .to_owned();
+
         // A fresh headless Chrome has one page target. Chrome may also list component background
         // pages; those are not tabs and the tab count ignores them.
         let listed = client
@@ -1165,7 +1219,7 @@ fn mcp_browser_round_trip(fixture: &Fixture) {
         let opened = client
             .call_tool(
                 CallToolRequestParams::new("browser.open")
-                    .with_arguments(call_arguments(json!({ "url": url }))),
+                    .with_arguments(call_arguments(json!({ "url": url, "txn": txn }))),
             )
             .await
             .expect("browser.open is answered");
@@ -1216,6 +1270,7 @@ fn mcp_browser_round_trip(fixture: &Fixture) {
                 CallToolRequestParams::new("browser.eval").with_arguments(call_arguments(json!({
                     "target": target,
                     "expression": "document.title",
+                    "txn": txn,
                 }))),
             )
             .await
@@ -1236,7 +1291,7 @@ fn mcp_browser_round_trip(fixture: &Fixture) {
         let navigated = client
             .call_tool(
                 CallToolRequestParams::new("browser.navigate").with_arguments(call_arguments(
-                    json!({ "target": target, "url": "about:blank" }),
+                    json!({ "target": target, "url": "about:blank", "txn": txn }),
                 )),
             )
             .await
@@ -1259,6 +1314,7 @@ fn mcp_browser_round_trip(fixture: &Fixture) {
                 CallToolRequestParams::new("browser.eval").with_arguments(call_arguments(json!({
                     "target": target,
                     "expression": "location.href",
+                    "txn": txn,
                 }))),
             )
             .await
@@ -1278,7 +1334,7 @@ fn mcp_browser_round_trip(fixture: &Fixture) {
         let captured = client
             .call_tool(
                 CallToolRequestParams::new("browser.screenshot")
-                    .with_arguments(call_arguments(json!({ "target": target }))),
+                    .with_arguments(call_arguments(json!({ "target": target, "txn": txn }))),
             )
             .await
             .expect("browser.screenshot is answered");
@@ -1307,7 +1363,7 @@ fn mcp_browser_round_trip(fixture: &Fixture) {
         let closed = client
             .call_tool(
                 CallToolRequestParams::new("browser.close")
-                    .with_arguments(call_arguments(json!({ "target": target }))),
+                    .with_arguments(call_arguments(json!({ "target": target, "txn": txn }))),
             )
             .await
             .expect("browser.close is answered");
@@ -1358,7 +1414,10 @@ fn mcp_browser_round_trip(fixture: &Fixture) {
         );
 
         let stopped = client
-            .call_tool(CallToolRequestParams::new("browser.shutdown"))
+            .call_tool(
+                CallToolRequestParams::new("browser.shutdown")
+                    .with_arguments(call_arguments(json!({ "txn": txn }))),
+            )
             .await
             .expect("browser.shutdown is answered");
         assert_eq!(
@@ -1370,6 +1429,20 @@ fn mcp_browser_round_trip(fixture: &Fixture) {
             tool_json(&stopped)["stopped"],
             true,
             "shutdown reports it stopped a running browser"
+        );
+
+        // The fixture ends the unit it declared; the commit is the declaration, not a side effect.
+        let committed = client
+            .call_tool(
+                CallToolRequestParams::new("txn.commit")
+                    .with_arguments(call_arguments(json!({ "txn": txn }))),
+            )
+            .await
+            .expect("txn.commit is answered");
+        assert_eq!(
+            committed.is_error,
+            Some(false),
+            "the browser txn committed: {committed:?}"
         );
 
         client
@@ -1395,6 +1468,7 @@ fn mcp_browser_round_trip(fixture: &Fixture) {
         )
     });
     for tool in [
+        "txn.begin",
         "browser.list",
         "browser.open",
         "browser.eval",
@@ -1402,6 +1476,7 @@ fn mcp_browser_round_trip(fixture: &Fixture) {
         "browser.screenshot",
         "browser.close",
         "browser.shutdown",
+        "txn.commit",
     ] {
         assert_audited(added, tool);
     }

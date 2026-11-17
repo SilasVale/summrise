@@ -137,6 +137,112 @@ pub(crate) const STYLES: &str = r##"  * { box-sizing: border-box; }
     border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 0 5px;
     font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink-muted); background: var(--panel-2);
   }
+  /* The work ledger: a machine group, then a group per session; the rail is the page's margin. */
+  .terminal-link { color: var(--ink-muted); text-decoration: none; border-bottom: 1px solid var(--line-strong); padding-bottom: 1px; }
+  .terminal-link:hover { color: var(--accent); border-color: var(--accent); }
+  .ledger-layout {
+    display: grid; grid-template-columns: 17rem minmax(0, 1fr); gap: var(--sp-5);
+    max-width: 70rem; margin: 0 auto; padding: var(--sp-4) var(--sp-4) var(--sp-2);
+  }
+  .ledger { min-width: 0; }
+  .ledger-group-head {
+    display: flex; align-items: baseline; gap: var(--sp-2); margin: var(--sp-3) 0 var(--sp-1);
+    font-size: var(--fs-xs); font-weight: 600; letter-spacing: var(--tracking-label);
+    text-transform: uppercase; color: var(--ink-faint);
+  }
+  .ledger-group-head::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+  .ledger-group-note { color: var(--ink-faint); font-size: var(--fs-2xs); letter-spacing: var(--tracking-label); text-transform: none; }
+  .ledger-entry { padding: var(--sp-2) 0; border-bottom: 1px solid var(--line); }
+  .ledger-entry:first-of-type { border-top: 1px solid var(--line); }
+  .ledger-line { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--sp-2); }
+  .ledger-time { flex: none; width: 3.2rem; font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--ink-faint); }
+  .ledger-purpose { min-width: 0; font-size: var(--fs-md); font-weight: 500; overflow-wrap: anywhere; }
+  .ledger-chip { flex: none; }
+  .ledger-chip.state-working { color: var(--warn); background: var(--warn-soft); }
+  .ledger-chip.state-committed { color: var(--ok); background: var(--ok-soft); }
+  .ledger-chip.state-aborted { color: var(--error); background: var(--error-soft); }
+  .ledger-chip.state-unknown { color: var(--muted); background: var(--panel-2); border: 1px solid var(--line); }
+  .ledger-spark { display: inline-flex; gap: 3px; align-items: center; }
+  .ledger-spark i { width: 5px; height: 5px; border-radius: 50%; background: var(--ok); display: block; }
+  .ledger-spark i.bad { background: var(--error); }
+  .ledger-spark i.work { background: var(--warn); }
+  .ledger-meta { margin-left: auto; color: var(--ink-faint); font-family: var(--font-mono); font-size: var(--fs-xs); }
+  .ledger-receipt-link { color: var(--ink-muted); text-decoration: none; border-bottom: 1px solid var(--line-strong); }
+  .ledger-receipt-link:hover { color: var(--accent); border-color: var(--accent); }
+  .ledger-spread {
+    display: grid; grid-template-columns: 1fr 1.35fr 1fr; gap: var(--sp-4);
+    margin: var(--sp-2) 0 var(--sp-1) 3.2rem; align-items: start;
+  }
+  .ledger-col-label {
+    margin: 0 0 var(--sp-1); font-size: var(--fs-2xs); font-weight: 600;
+    letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--ink-faint);
+  }
+  .said, .did, .left { min-width: 0; }
+  .claim-text { margin: 0; font-size: var(--fs-md); line-height: 1.55; }
+  .claim-by { margin: var(--sp-1) 0 0; color: var(--ink-muted); font-size: var(--fs-sm); }
+  .claim-note { margin: var(--sp-1) 0 0; color: var(--ink-faint); font-size: var(--fs-xs); font-style: italic; }
+  .claim-badge {
+    display: inline-flex; align-items: center; height: 18px; padding: 0 var(--sp-1);
+    border: 1px solid var(--accent); border-radius: var(--radius-xs);
+    color: var(--accent); font-size: var(--fs-2xs); font-weight: 600;
+    letter-spacing: var(--tracking-label); text-transform: uppercase;
+  }
+  .ledger-steps { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
+  .step {
+    min-width: 8rem; max-width: 16rem; padding: var(--sp-1); border: 1px solid var(--line);
+    border-radius: var(--radius-xs); background: var(--surface);
+  }
+  .step[data-status="failed"] { border-color: var(--error); background: var(--error-soft); }
+  .step[data-status="running"] { border-color: var(--warn); background: var(--warn-soft); }
+  .step[data-kind="unknown"] { border-style: dashed; }
+  .step-tool { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink); overflow-wrap: anywhere; }
+  .step-args { margin-top: 2px; color: var(--ink-faint); font-family: var(--font-mono); font-size: var(--fs-2xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .step-outcome { margin-top: var(--sp-0-5); color: var(--ink-muted); font-size: var(--fs-2xs); }
+  .effects { margin: var(--sp-2) 0 0; color: var(--ink-muted); font-size: var(--fs-xs); }
+  .receipt { border-left: 2px solid var(--line-strong); padding-left: var(--sp-2); font-size: var(--fs-sm); color: var(--ink-muted); }
+  .receipt-big { font-size: var(--fs-base); font-weight: 600; color: var(--ink); }
+  .receipt-dim { margin: var(--sp-1) 0 0; color: var(--ink-faint); font-size: var(--fs-xs); }
+  .receipt-pending { margin: var(--sp-1) 0 0; color: var(--warn); font-size: var(--fs-xs); }
+  .receipt-summary { margin: var(--sp-1) 0 0; color: var(--ink); font-size: var(--fs-sm); }
+  .receipt-reason { margin: var(--sp-1) 0 0; }
+  .receipt-counts { display: grid; grid-template-columns: auto 1fr; gap: var(--sp-0-5) var(--sp-2); margin: var(--sp-1) 0 0; }
+  .receipt-counts dt { color: var(--ink-faint); font-size: var(--fs-xs); }
+  .receipt-counts dd { margin: 0; font-family: var(--font-mono); font-size: var(--fs-sm); }
+  .ledger-none, .ledger-note, .ledger-missing, .ledger-empty { color: var(--ink-muted); font-size: var(--fs-sm); }
+  .ledger-empty { padding: var(--sp-4) 0; }
+  .ledger-empty b { display: block; color: var(--ink); font-size: var(--fs-md); }
+  .ledger-unknown-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-2); padding: var(--sp-1) 0; border-bottom: 1px dotted var(--line); }
+  .ledger-unknown-row[data-kind="unknown"] { border-left: 2px dashed var(--line-strong); padding-left: var(--sp-2); }
+  .ledger-tool { font-family: var(--font-mono); font-size: var(--fs-sm); }
+  .ledger-args { color: var(--ink-faint); font-family: var(--font-mono); font-size: var(--fs-xs); }
+  .ledger-outcome { margin-left: auto; color: var(--ink-muted); font-size: var(--fs-xs); }
+  .ledger-rail {
+    align-self: start; padding: var(--sp-3); border: 1px solid var(--line);
+    border-radius: var(--radius); background: var(--panel); font-size: var(--fs-sm);
+  }
+  .rail-label { margin: var(--sp-2) 0 var(--sp-1); font-size: var(--fs-2xs); font-weight: 600; letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--ink-faint); }
+  .rail-label:first-child { margin-top: 0; }
+  .rail-session { display: flex; align-items: baseline; gap: var(--sp-1-5); padding: var(--sp-1) 0; border-bottom: 1px dotted var(--line); }
+  .rail-session:last-child { border-bottom: 0; }
+  .session-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); display: inline-block; flex: none; }
+  .session-dot.live { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 16%, transparent); }
+  .rail-session-name { font-weight: 600; overflow-wrap: anywhere; }
+  .rail-holder { margin-left: auto; color: var(--ink-faint); font-size: var(--fs-xs); text-align: right; }
+  .rail-rule { margin: var(--sp-3) 0; border-top: 1px solid var(--line); }
+  .rail-legend { display: flex; align-items: baseline; gap: var(--sp-1-5); margin: 0 0 var(--sp-1); color: var(--ink-muted); font-size: var(--fs-xs); }
+  .legend-swatch { width: 8px; height: 8px; border-radius: 2px; display: inline-block; flex: none; }
+  .legend-swatch.claim { background: var(--accent); }
+  .legend-swatch.fact { background: var(--ok); }
+  .rail-note, .rail-none { margin: var(--sp-1) 0 0; color: var(--ink-faint); font-size: var(--fs-xs); line-height: 1.6; }
+  .rail-record { margin: 0; color: var(--ink-muted); font-size: var(--fs-xs); }
+  .rail-record b { color: var(--ink); }
+  details.transcript { max-width: 60rem; margin: var(--sp-4) auto 0; padding: 0 var(--sp-4); }
+  details.transcript summary { cursor: pointer; color: var(--ink-muted); font-size: var(--fs-sm); font-weight: 600; }
+  @media (max-width: 60rem) {
+    .ledger-layout { grid-template-columns: 1fr; }
+    .ledger-spread { grid-template-columns: 1fr; }
+    .ledger-rail { order: -1; }
+  }
   @media (max-width: 40rem) {
     .activity-head { padding: var(--sp-2) var(--sp-3); }
     .activity-count { display: none; }
@@ -548,6 +654,13 @@ pub(crate) struct ActivityFacts {
     pub(crate) boot: u64,
     /// This boot's panel token; the page carries it only in its meta tag.
     pub(crate) panel_token: String,
+    /// The transactions the audit names: this process's records and, with `retained: false`, a group
+    /// whose receipt is gone. Both pages read the same list, so they cannot disagree.
+    pub(crate) txns: Vec<panel::TxnFact>,
+    /// The live terminal sessions, with their holders and goals, for the rail.
+    pub(crate) sessions: Vec<panel::SessionFacts>,
+    /// The transaction `?txn=<id>` names, when the query carried one.
+    pub(crate) selected_txn: Option<String>,
 }
 
 /// One transcribed call: the row the server draws and the JSON `/api/activity` streams.
@@ -1036,6 +1149,505 @@ pub(crate) fn parse_cursor(text: &str) -> Option<(u64, u64)> {
     Some((boot.parse().ok()?, seq.parse().ok()?))
 }
 
+/// One observed call inside a ledger entry. It is the row the page draws, never a summary.
+#[derive(Clone, Debug)]
+struct LedgerStep {
+    tool: String,
+    args: String,
+    outcome: String,
+    status: String,
+    duration_ms: u64,
+    at_ms: u64,
+    time: String,
+    /// The end line's `error_kind` was `refused`: the call was turned away, not attempted.
+    refused: bool,
+    unknown: bool,
+}
+
+impl LedgerStep {
+    fn spark_class(&self) -> &'static str {
+        match self.status.as_str() {
+            "failed" => "bad",
+            "running" => "work",
+            _ => "ok",
+        }
+    }
+}
+
+/// One transaction, as the record can answer it: the claim (purpose and author), the calls the
+/// bounded window observed, and the receipt the device still holds.
+#[derive(Clone, Debug)]
+struct LedgerGroup {
+    id: String,
+    purpose: String,
+    author: String,
+    session: Option<String>,
+    state: String,
+    reason: Option<String>,
+    retained: bool,
+    started_at_ms: u64,
+    duration_ms: u64,
+    calls: u64,
+    failures: u64,
+    refusals: u64,
+    steps: Vec<LedgerStep>,
+    window_calls: usize,
+    window_failures: usize,
+    window_refusals: usize,
+}
+
+impl LedgerGroup {
+    fn purpose_or_unknown(&self) -> &str {
+        if self.purpose.is_empty() {
+            "(purpose not retained)"
+        } else {
+            &self.purpose
+        }
+    }
+
+    fn start_time(&self) -> String {
+        panel::local_at(self.started_at_ms)
+            .map(|at| at.format("%H:%M").to_string())
+            .unwrap_or_default()
+    }
+
+    fn started_utc(&self) -> String {
+        crate::store::format_utc(self.started_at_ms / 1_000)
+    }
+
+    fn duration_text(&self) -> String {
+        duration_text(self.duration_ms)
+    }
+
+    fn is_working(&self) -> bool {
+        self.state == "working"
+    }
+}
+
+/// The ledger's answer from one read: the transaction groups, the rows that rode no transaction,
+/// and how many rows this build could not classify (visible and counted, never dropped).
+struct Ledger {
+    groups: Vec<LedgerGroup>,
+    loose: Vec<LedgerStep>,
+    unknown: usize,
+}
+
+/// Build the ledger from the registry's transactions and the audit's rows.
+///
+/// **The receipt is the registry's record, and the row's `txn` field is the only grouping.** A
+/// transaction the registry still holds carries its counts and its declared ending; one it does not
+/// (a restart, or eviction past the retention window) is still drawn from the audit, but the page
+/// says its receipt is not retained and invents neither counts nor an outcome. Its claim is the one
+/// `http::txn_facts` joined from the transaction's own `txn.begin` row in this tail, so a purpose is
+/// shown only when the record still holds it — an absent one says so. A call whose row carries no
+/// txn is not guessed into a transaction: it is drawn under "Rows with no transaction".
+fn ledger(facts: &ActivityFacts) -> Ledger {
+    use std::collections::BTreeMap;
+
+    let audit = facts.audit.as_deref().unwrap_or(&[]);
+    let mut groups: BTreeMap<String, LedgerGroup> = BTreeMap::new();
+    for fact in &facts.txns {
+        groups.insert(
+            fact.id.clone(),
+            LedgerGroup {
+                id: fact.id.clone(),
+                purpose: fact.purpose.clone(),
+                author: fact.author.clone(),
+                session: fact.session.clone(),
+                state: fact.state.clone(),
+                reason: fact.reason.clone(),
+                retained: fact.retained,
+                started_at_ms: fact.started_at_ms,
+                duration_ms: fact.duration_ms,
+                calls: fact.calls,
+                failures: fact.failures,
+                refusals: fact.refusals,
+                steps: Vec::new(),
+                window_calls: 0,
+                window_failures: 0,
+                window_refusals: 0,
+            },
+        );
+    }
+
+    let mut loose = Vec::new();
+    for (begin, end) in panel::call_pairs(audit) {
+        let tool = begin
+            .get("tool")
+            .and_then(Value::as_str)
+            .filter(|tool| !tool.is_empty())
+            .unwrap_or("unknown");
+        let row_txn = begin
+            .get("txn")
+            .or_else(|| end.and_then(|end| end.get("txn")))
+            .and_then(Value::as_str)
+            .filter(|txn| !txn.is_empty());
+        let step = ledger_step(tool, begin, end, facts.now_ms);
+        // The declaration itself is not a step of the work; its call rows still carry the txn.
+        if tool.starts_with("txn.") {
+            continue;
+        }
+        match row_txn.and_then(|id| groups.get_mut(id)) {
+            Some(group) => {
+                if step.status == "failed" {
+                    group.window_failures += 1;
+                    if step.refused {
+                        group.window_refusals += 1;
+                    }
+                }
+                group.window_calls += 1;
+                group.steps.push(step);
+            }
+            None => loose.push(step),
+        }
+    }
+
+    let unknown = loose.iter().filter(|step| step.unknown).count()
+        + groups
+            .values()
+            .flat_map(|group| group.steps.iter())
+            .filter(|step| step.unknown)
+            .count();
+
+    let mut groups: Vec<LedgerGroup> = groups.into_values().collect();
+    groups.sort_by(|left, right| {
+        right
+            .started_at_ms
+            .cmp(&left.started_at_ms)
+            .then_with(|| right.id.cmp(&left.id))
+    });
+
+    Ledger {
+        groups,
+        loose,
+        unknown,
+    }
+}
+
+/// One call pair as a ledger step, with the audit's own outcome and duration.
+fn ledger_step(tool: &str, begin: &Value, end: Option<&Value>, now_ms: u64) -> LedgerStep {
+    let at_ms = begin.get("ts_ms").and_then(Value::as_u64).unwrap_or(0);
+    let (status, duration_ms, outcome, refused) = match end {
+        Some(end) => {
+            let ok = end.get("ok").and_then(Value::as_bool).unwrap_or(false);
+            let end_ms = end.get("ts_ms").and_then(Value::as_u64).unwrap_or(at_ms);
+            (
+                if ok { "ok" } else { "failed" },
+                end_ms.saturating_sub(at_ms),
+                text(end, "outcome"),
+                !ok && text(end, "error_kind") == "refused",
+            )
+        }
+        None => (
+            "running",
+            now_ms.saturating_sub(at_ms),
+            String::new(),
+            false,
+        ),
+    };
+    let action = text(begin, "args");
+    let action = action
+        .split_whitespace()
+        .find_map(|part| part.strip_prefix("action="))
+        .unwrap_or("");
+    let event = begin
+        .get("event")
+        .and_then(Value::as_str)
+        .unwrap_or("begin");
+    let kind = summrise_core::RowKind::of_row(tool, Some(action), event);
+
+    LedgerStep {
+        tool: tool.to_owned(),
+        args: text(begin, "args"),
+        outcome,
+        status: status.to_owned(),
+        duration_ms,
+        at_ms,
+        time: panel::local_at(at_ms)
+            .map(|at| at.format("%H:%M:%S").to_string())
+            .unwrap_or_default(),
+        refused,
+        unknown: kind == summrise_core::RowKind::Unknown,
+    }
+}
+
+/// The ledger's one expanded entry: `?txn` when the window holds it, else the working transaction,
+/// else the newest. A `?txn` the window does not hold expands nothing: a stale link must not show
+/// another transaction as if it were the named one.
+fn expanded_id(facts: &ActivityFacts, groups: &[LedgerGroup]) -> Option<String> {
+    if let Some(selected) = &facts.selected_txn {
+        return groups
+            .iter()
+            .any(|group| &group.id == selected)
+            .then(|| selected.clone());
+    }
+    groups
+        .iter()
+        .find(|group| group.is_working())
+        .or_else(|| groups.first())
+        .map(|group| group.id.clone())
+}
+
+/// The state word the ledger's chip carries. A transaction without a retained receipt may not know
+/// its ending: the word lived in the receipt, so the chip says `unknown`.
+fn ledger_state(group: &LedgerGroup) -> &str {
+    if !group.retained || group.state.is_empty() {
+        "unknown"
+    } else {
+        &group.state
+    }
+}
+
+/// One transaction's line, and its three-column spread when it is the expanded entry.
+fn ledger_entry(group: &LedgerGroup, expanded: bool) -> Markup {
+    let state = ledger_state(group);
+    let state_class = format!("chip ledger-chip state-{state}");
+    html! {
+        article
+            class="ledger-entry"
+            data-txn=(group.id)
+            data-expanded=(if expanded { "true" } else { "false" })
+            data-state=(state)
+            data-retained=(if group.retained { "true" } else { "false" })
+        {
+            div class="ledger-line" {
+                time
+                    class="ledger-time"
+                    datetime=(group.started_utc())
+                    title=(group.started_utc())
+                { (group.start_time()) }
+                span class="ledger-purpose" { (group.purpose_or_unknown()) }
+                span class=(state_class) { (state) }
+                span class="ledger-spark" aria-hidden="true" {
+                    @for step in &group.steps {
+                        i class=(step.spark_class()) {}
+                    }
+                }
+                span class="ledger-meta" {
+                    @if group.retained {
+                        (group.duration_text()) " · " (group.calls) " calls · "
+                        a class="ledger-receipt-link" href=(format!("?txn={}", group.id)) {
+                            "receipt →"
+                        }
+                    } @else {
+                        (group.window_calls) " calls in this window · receipt not retained"
+                    }
+                }
+            }
+            @if expanded {
+                (ledger_spread(group))
+            }
+        }
+    }
+}
+
+/// The expanded entry: Said (the claim), Did (the observed rows), Left (the receipt or its absence).
+fn ledger_spread(group: &LedgerGroup) -> Markup {
+    html! {
+        div class="ledger-spread" {
+            section class="said" {
+                h3 class="ledger-col-label" { "Said" }
+                p class="claim-text" { "“" (group.purpose_or_unknown()) "”" }
+                p class="claim-by" {
+                    span class="claim-badge" { "CLAIM" }
+                    " "
+                    @if group.author.is_empty() {
+                        "author not retained"
+                    } @else {
+                        (group.author)
+                    }
+                    " · "
+                    time datetime=(group.started_utc()) title=(group.started_utc()) {
+                        (group.start_time())
+                    }
+                }
+                p class="claim-note" { "a claim, shown as its author's" }
+            }
+            section class="did" {
+                h3 class="ledger-col-label" { "Did" }
+                @if group.steps.is_empty() {
+                    p class="ledger-none" { "No call in this window is tagged with this transaction." }
+                } @else {
+                    div class="ledger-steps" {
+                        @for step in &group.steps {
+                            div
+                                class="step"
+                                data-kind=(if step.unknown { "unknown" } else { "fact" })
+                                data-status=(step.status)
+                            {
+                                div class="step-tool" { (step.tool) }
+                                @if !step.args.is_empty() {
+                                    div class="step-args" { (step.args) }
+                                }
+                                div class="step-outcome" {
+                                    @if step.status == "running" {
+                                        "running"
+                                    } @else if step.outcome.is_empty() {
+                                        (step.status)
+                                    } @else {
+                                        (step.status) " · " (step.outcome)
+                                    }
+                                    " · " (duration_text(step.duration_ms))
+                                }
+                            }
+                        }
+                    }
+                }
+                p class="effects" {
+                    "Observed in this window: " (group.window_calls) " calls · "
+                    (group.window_failures) " " (failure_noun(group.window_failures as u64))
+                    " · " (group.window_refusals) " refused"
+                }
+            }
+            section class="left" {
+                h3 class="ledger-col-label" { "Left" }
+                @if !group.retained {
+                    div class="receipt" {
+                        div class="receipt-big" { "receipt not retained" }
+                        p class="receipt-dim" {
+                            "This transaction's calls are still in the audit, but this process holds no receipt for it (it ended before a restart, or the receipt was evicted)."
+                        }
+                        @if group.window_calls > 0 {
+                            p class="receipt-pending" {
+                                (group.window_calls) " calls in this window · "
+                                (group.window_failures) " " (failure_noun(group.window_failures as u64))
+                            }
+                        }
+                    }
+                } @else if group.is_working() {
+                    div class="receipt" {
+                        div class="receipt-big" { "No receipt yet." }
+                        p class="receipt-dim" {
+                            "The transaction is still working. Nothing is closed on the page until the AI commits or aborts."
+                        }
+                        p class="receipt-pending" {
+                            (group.failures) " " (failure_noun(group.failures))
+                            " so far · " (group.refusals) " refused"
+                        }
+                    }
+                } @else {
+                    div class="receipt" data-state=(state_name_for_receipt(group)) {
+                        div class="receipt-big" {
+                            @if group.state == "committed" { "Committed." } @else { "Aborted." }
+                        }
+                        @if let Some(reason) = &group.reason {
+                            p class="receipt-reason" { "Reason: " (reason) }
+                        }
+                        p class="receipt-summary" {
+                            (group.calls) " calls · " (group.failures) " "
+                            (failure_noun(group.failures)) " · "
+                            (group.refusals) " refused · " (group.duration_text())
+                        }
+                        dl class="receipt-counts" {
+                            dt { "calls" }
+                            dd { (group.calls) }
+                            dt { "failures" }
+                            dd { (group.failures) }
+                            dt { "refused" }
+                            dd { (group.refusals) }
+                            dt { "duration" }
+                            dd { (group.duration_text()) }
+                        }
+                        p class="receipt-dim" {
+                            "The counts are the device's totals for the transaction; the steps beside them are the rows in this window."
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The receipt's data attribute: the declared ending, never a verdict.
+fn state_name_for_receipt(group: &LedgerGroup) -> &'static str {
+    if group.state == "committed" {
+        "committed"
+    } else if group.state == "aborted" {
+        "aborted"
+    } else {
+        "unknown"
+    }
+}
+
+/// `1 failure`, `2 failures`.
+fn failure_noun(count: u64) -> &'static str {
+    if count == 1 {
+        "failure"
+    } else {
+        "failures"
+    }
+}
+
+/// One row that rode no transaction: shown, and counted as unknown when this build cannot place it.
+fn loose_row(step: &LedgerStep) -> Markup {
+    html! {
+        div
+            class="ledger-unknown-row"
+            data-kind=(if step.unknown { "unknown" } else { "fact" })
+            data-status=(step.status)
+        {
+            time class="ledger-time" datetime=(crate::store::format_utc(step.at_ms / 1_000)) {
+                (step.time)
+            }
+            span class="ledger-tool" { (step.tool) }
+            @if !step.args.is_empty() {
+                span class="ledger-args" { (step.args) }
+            }
+            span class="ledger-outcome" { (step.status) }
+        }
+    }
+}
+
+/// The side rail: the live sessions with their holders, the claim/fact legend, and the record's
+/// bound. It says what the page is drawing from, not a total it does not have.
+fn ledger_rail(facts: &ActivityFacts) -> Markup {
+    let rows = facts.audit.as_ref().map(Vec::len).unwrap_or(0);
+    html! {
+        aside class="ledger-rail" {
+            h2 class="rail-label" { "Sessions" }
+            @if facts.sessions.is_empty() {
+                p class="rail-none" { "No live session on this machine." }
+            } @else {
+                @for session in &facts.sessions {
+                    div class="rail-session" data-session=(session.id) {
+                        span
+                            class=(if session.alive { "session-dot live" } else { "session-dot" })
+                            aria-hidden="true"
+                        {}
+                        span class="rail-session-name" { (session.kind) " " (session.id) }
+                        span class="rail-holder" { (session.holder) }
+                    }
+                }
+            }
+            div class="rail-rule" {}
+            h2 class="rail-label" { "How to read this" }
+            p class="rail-legend" {
+                span class="legend-swatch claim" aria-hidden="true" {}
+                "claim — what the AI says it is doing"
+            }
+            p class="rail-legend" {
+                span class="legend-swatch fact" aria-hidden="true" {}
+                "fact — what the device observed"
+            }
+            p class="rail-note" {
+                "A transaction is one piece of work. Its receipt compares the claim with the facts; it never rewrites them."
+            }
+            div class="rail-rule" {}
+            h2 class="rail-label" { "The record" }
+            p class="rail-record" data-record-rows=(rows) {
+                b { (rows) } " rows in this bounded tail"
+            }
+            p class="rail-note" {
+                "The newest " (AUDIT_LINES) " audit lines. Older rows are not retained on this page."
+                @if facts.truncated { " The tail is cut; older rows exist." }
+            }
+            p class="rail-note" {
+                "Nothing on this page is the AI's narration: a purpose is a badged claim, and every step is a row the device wrote."
+            }
+        }
+    }
+}
+
 /// `GET /activity`: the transcript's first paint, server-rendered from the audited facts.
 pub(crate) fn page(facts: &ActivityFacts, theme: Theme) -> Markup {
     let rows = facts
@@ -1052,6 +1664,46 @@ pub(crate) fn page(facts: &ActivityFacts, theme: Theme) -> Markup {
     let counts = &page.counts;
     let turns = turns(&page.rows);
     let next = cursor_string(page.boot, page.next);
+    let ledger = ledger(facts);
+    let expanded = expanded_id(facts, &ledger.groups);
+    // A `?txn` the window does not hold is named, not silently replaced by another transaction.
+    let missing_txn = facts
+        .selected_txn
+        .as_ref()
+        .filter(|id| !ledger.groups.iter().any(|group| &group.id == *id));
+    // The section's own count: the rows it lists, not the window's total.
+    let loose_unknown = ledger.loose.iter().filter(|step| step.unknown).count();
+    // Device-scope records this process still holds are the machine's work. An orphan read only
+    // from the audit may have been session-scoped, so it is not guessed into the machine group.
+    let machine: Vec<&LedgerGroup> = ledger
+        .groups
+        .iter()
+        .filter(|group| group.session.is_none() && group.retained)
+        .collect();
+    let unscoped: Vec<&LedgerGroup> = ledger
+        .groups
+        .iter()
+        .filter(|group| group.session.is_none() && !group.retained)
+        .collect();
+    // The rail's order first (the live sessions), then any session the audit still names.
+    let mut session_ids: Vec<String> = facts
+        .sessions
+        .iter()
+        .map(|session| session.id.clone())
+        .collect();
+    for group in &ledger.groups {
+        if let Some(session) = &group.session {
+            if !session_ids.contains(session) {
+                session_ids.push(session.clone());
+            }
+        }
+    }
+    let groups_empty = ledger.groups.is_empty() && ledger.loose.is_empty();
+    let ledger_state = match (&facts.audit, groups_empty) {
+        (None, _) => "unreadable",
+        (Some(_), true) => "empty",
+        (Some(_), false) => "rows",
+    };
     let theme_name = theme.as_str();
     let theme_glyph = match theme {
         Theme::Light => "\u{263e}",
@@ -1121,6 +1773,7 @@ pub(crate) fn page(facts: &ActivityFacts, theme: Theme) -> Markup {
                         option value="files" { "Files" }
                         option value="other" { "Other" }
                     }
+                    a class="terminal-link" href="/panel#terminal" { "terminal ↗" }
                     button
                         id="activity-theme"
                         class="activity-theme"
@@ -1131,8 +1784,104 @@ pub(crate) fn page(facts: &ActivityFacts, theme: Theme) -> Markup {
                     }
                 }
                 main id="main" class="activity-main" {
-                    div
-                        id="feed"
+                    div class="ledger-layout" {
+                        (ledger_rail(facts))
+                        section
+                            id="ledger"
+                            class="ledger"
+                            data-state=(ledger_state)
+                            data-transactions=(ledger.groups.len())
+                            data-unknown=(ledger.unknown)
+                        {
+                            @if let Some(missing) = missing_txn {
+                                p class="ledger-missing" data-missing-txn=(missing) {
+                                    b { "That transaction is not in this window." }
+                                    " No retained receipt, working record or audit row here names "
+                                    span class="mono" { (missing) }
+                                    ". It may have ended before this record's bound."
+                                }
+                            }
+                            @if ledger_state == "unreadable" {
+                                p class="ledger-empty" {
+                                    b { "The record is unreadable." }
+                                    " The device's audit could not be read, so this page cannot say what the machine did."
+                                }
+                            } @else if groups_empty {
+                                p class="ledger-empty" {
+                                    b { "No transaction has been recorded." }
+                                    " No line in this period names a unit of work."
+                                }
+                            } @else {
+                                @if !machine.is_empty() {
+                                    section class="ledger-machine" data-group="machine" {
+                                        h2 class="ledger-group-head" {
+                                            "Machine"
+                                            span class="ledger-group-note" { "device-scope transactions" }
+                                        }
+                                        @for group in &machine {
+                                            (ledger_entry(group, expanded.as_deref() == Some(group.id.as_str())))
+                                        }
+                                    }
+                                }
+                                @if !unscoped.is_empty() {
+                                    section class="ledger-unscoped" data-group="unscoped" {
+                                        h2 class="ledger-group-head" {
+                                            "No session recorded"
+                                            span class="ledger-group-note" { "the audit kept the work, not its scope" }
+                                        }
+                                        p class="ledger-note" {
+                                            "These transactions cannot say whether they worked on a session or on the machine: the receipt that carried the scope is not retained."
+                                        }
+                                        @for group in &unscoped {
+                                            (ledger_entry(group, expanded.as_deref() == Some(group.id.as_str())))
+                                        }
+                                    }
+                                }
+                                @for session_id in &session_ids {
+                                    @let members: Vec<&LedgerGroup> = ledger
+                                        .groups
+                                        .iter()
+                                        .filter(|group| group.session.as_deref() == Some(session_id.as_str()))
+                                        .collect();
+                                    @if !members.is_empty() {
+                                        section class="ledger-session" data-group="session" data-session=(session_id) {
+                                            h2 class="ledger-group-head" {
+                                                "Session " span class="mono" { (session_id) }
+                                                @if let Some(session) = facts.sessions.iter().find(|session| &session.id == session_id) {
+                                                    span class="ledger-group-note" { (session.holder) }
+                                                }
+                                            }
+                                            @for group in members {
+                                                (ledger_entry(group, expanded.as_deref() == Some(group.id.as_str())))
+                                            }
+                                        }
+                                    }
+                                }
+                                @if !ledger.loose.is_empty() {
+                                    section class="ledger-unattributed" data-unknown=(loose_unknown) {
+                                        h2 class="ledger-group-head" {
+                                            "Rows with no transaction"
+                                            span class="ledger-group-note" { (ledger.loose.len()) " row(s) in this window" }
+                                        }
+                                        p class="ledger-note" {
+                                            "A row whose record carries no `txn` is not guessed into a transaction. An unclassifiable row is drawn as unknown and counted, never dropped."
+                                        }
+                                        @for step in &ledger.loose {
+                                            (loose_row(step))
+                                        }
+                                    }
+                                } @else if ledger.unknown > 0 {
+                                    p class="ledger-note" {
+                                        (ledger.unknown) " unknown row(s) in this window; they are shown where their transaction is."
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    details class="transcript" {
+                        summary { "The record, call by call" }
+                        div
+                            id="feed"
                         class="activity-feed"
                         data-state=(state)
                         data-boot=(page.boot)
@@ -1166,10 +1915,14 @@ pub(crate) fn page(facts: &ActivityFacts, theme: Theme) -> Markup {
                                 }
                             }
                         }
+                        }
                     }
                 }
                 footer class="activity-foot" {
-                    span { "polls every second" }
+                    span { "the ledger is a fresh read · the call list polls every second" }
+                    span class="ledger-window-note" {
+                        "A line and its steps are the rows in this bounded window; a receipt's counts are the device's totals for that transaction."
+                    }
                     span class="spacer" {}
                     span { kbd { "f" } " follow" }
                     span { "loopback only" }
@@ -1264,8 +2017,8 @@ fn row_markup(row: &ActivityRow) -> Markup {
     }
 }
 
-/// A duration the way the transcript prints it: milliseconds under a second, else seconds.
-fn duration_text(duration_ms: u64) -> String {
+/// A duration the way both Rust pages print it: milliseconds under a second, else seconds.
+pub(crate) fn duration_text(duration_ms: u64) -> String {
     if duration_ms < 1_000 {
         format!("{duration_ms}ms")
     } else {
@@ -1288,6 +2041,9 @@ mod tests {
             now_ms: now,
             boot: BOOT,
             panel_token: "0123456789abcdef".repeat(4),
+            txns: Vec::new(),
+            sessions: Vec::new(),
+            selected_txn: None,
         }
     }
 
@@ -1313,6 +2069,118 @@ mod tests {
             "transport": "loopback",
             "run_id": run_id,
         })
+    }
+
+    /// A transaction as the registry answers it, for a ledger that has a live record.
+    fn txn(
+        id: &str,
+        purpose: &str,
+        session: Option<&str>,
+        state: &str,
+        started: u64,
+    ) -> panel::TxnFact {
+        panel::TxnFact {
+            id: id.to_owned(),
+            purpose: purpose.to_owned(),
+            author: "the install door".to_owned(),
+            session: session.map(str::to_owned),
+            state: state.to_owned(),
+            reason: None,
+            started_at_ms: started,
+            ended_at_ms: (state != "working").then_some(started + 60_000),
+            calls: 2,
+            failures: 0,
+            refusals: 0,
+            duration_ms: 60_000,
+            retained: true,
+        }
+    }
+
+    fn session_facts(id: &str, holder: &str, alive: bool) -> panel::SessionFacts {
+        panel::SessionFacts {
+            kind: "pty".to_owned(),
+            shell: "bash".to_owned(),
+            id: id.to_owned(),
+            holder: holder.to_owned(),
+            goal: None,
+            goal_by: None,
+            open_txn: None,
+            open_purpose: None,
+            last_call: None,
+            last_call_at_ms: None,
+            alive,
+        }
+    }
+
+    /// Facts for the ledger: the audit tail, the registry's transactions, the live sessions and
+    /// the transaction `?txn` selected.
+    fn ledger(
+        audit: Vec<Value>,
+        txns: Vec<panel::TxnFact>,
+        sessions: Vec<panel::SessionFacts>,
+        selected: Option<&str>,
+    ) -> ActivityFacts {
+        ActivityFacts {
+            audit: Some(audit),
+            truncated: false,
+            now_ms: NOW,
+            boot: BOOT,
+            panel_token: "0123456789abcdef".repeat(4),
+            txns,
+            sessions,
+            selected_txn: selected.map(str::to_owned),
+        }
+    }
+
+    /// A begin line tagged with its transaction, as the device writes it for a call.
+    fn tagged_begin(id: u64, at: u64, tool: &str, args: Option<&str>, txn: &str) -> Value {
+        json!({
+            "id": id,
+            "ts_ms": at,
+            "event": "begin",
+            "tool": tool,
+            "decision": "allow",
+            "transport": "loopback",
+            "args": args,
+            "txn": txn,
+        })
+    }
+
+    /// An end line tagged with its transaction.
+    fn tagged_end(id: u64, at: u64, ok: bool, txn: &str) -> Value {
+        json!({
+            "id": id,
+            "ts_ms": at,
+            "event": "end",
+            "ok": ok,
+            "error_kind": if ok { None } else { Some("refused") },
+            "transport": "loopback",
+            "txn": txn,
+        })
+    }
+
+    /// The `txn.begin` pair: its begin line carries the purpose, its end line the minted id.
+    fn txn_begin(id: u64, at: u64, purpose: &str, txn: &str) -> [Value; 2] {
+        [
+            json!({
+                "id": id,
+                "ts_ms": at,
+                "event": "begin",
+                "tool": "txn.begin",
+                "decision": "allow",
+                "transport": "loopback",
+                "args": format!("purpose={purpose}"),
+            }),
+            json!({
+                "id": id,
+                "ts_ms": at + 5,
+                "event": "end",
+                "ok": true,
+                "outcome": "started",
+                "transport": "loopback",
+                "txn": txn,
+            }),
+        ]
     }
 
     /// One `<article>` row, for assertions about its own attributes.
@@ -1631,6 +2499,516 @@ mod tests {
         assert!(
             html.contains("These counts cover the newest 200 audit lines"),
             "the title explains the window: {html}"
+        );
+    }
+
+    /// The ledger's one line per transaction, newest first, with the working one expanded.
+    #[test]
+    fn the_ledger_lists_one_line_per_transaction() {
+        let at = BOOT + 10_000;
+        let mut audit = Vec::new();
+        audit.extend(txn_begin(10, at, "fix the parser", "txn-1"));
+        audit.push(tagged_begin(
+            11,
+            at + 1_000,
+            "terminal.run",
+            Some("session=session-1"),
+            "txn-1",
+        ));
+        audit.push(tagged_end(11, at + 2_000, true, "txn-1"));
+        audit.extend(txn_begin(20, at + 30_000, "verify the suite", "txn-2"));
+        audit.push(tagged_begin(21, at + 31_000, "files.list", None, "txn-2"));
+        audit.push(tagged_end(21, at + 31_100, true, "txn-2"));
+        let txns = vec![
+            txn("txn-2", "verify the suite", None, "committed", at + 30_000),
+            txn("txn-1", "fix the parser", Some("session-1"), "working", at),
+        ];
+        let html = page(&ledger(audit, txns, vec![], None), Theme::Light).into_string();
+
+        assert_eq!(
+            html.matches(r#"class="ledger-entry""#).count(),
+            2,
+            "one line per transaction: {html}"
+        );
+        assert!(
+            html.contains("fix the parser") && html.contains("verify the suite"),
+            "each line names its transaction's purpose: {html}"
+        );
+        assert!(
+            html.contains(r#"href="?txn=txn-2""#),
+            "a collapsed line links to its receipt: {html}"
+        );
+        assert_eq!(
+            html.matches(r#"class="ledger-spread""#).count(),
+            1,
+            "one entry is expanded: {html}"
+        );
+    }
+
+    #[test]
+    fn a_device_scope_transaction_sits_in_a_machine_group_above_the_sessions() {
+        let html = {
+            let at = BOOT + 10_000;
+            let mut audit = Vec::new();
+            audit.extend(txn_begin(10, at, "bump the release pointer", "txn-1"));
+            audit.extend(txn_begin(20, at + 30_000, "verify the suite", "txn-2"));
+            let txns = vec![
+                txn("txn-1", "bump the release pointer", None, "working", at),
+                txn(
+                    "txn-2",
+                    "verify the suite",
+                    Some("session-1"),
+                    "working",
+                    at + 30_000,
+                ),
+            ];
+            page(
+                &ledger(
+                    audit,
+                    txns,
+                    vec![session_facts("session-1", "the operator", true)],
+                    None,
+                ),
+                Theme::Light,
+            )
+            .into_string()
+        };
+
+        let machine = html
+            .find(r#"class="ledger-machine""#)
+            .expect("a machine group exists");
+        let session = html
+            .find(r#"class="ledger-session""#)
+            .expect("a session group exists");
+        let rail = html
+            .find(r#"class="ledger-rail""#)
+            .expect("the side rail exists");
+        assert!(
+            machine < session,
+            "the machine group is above the session groups: {html}"
+        );
+        assert!(
+            rail < machine,
+            "the rail is drawn first, on the left of the ledger: {html}"
+        );
+        assert!(
+            html[machine..session].contains("bump the release pointer"),
+            "the device-scope transaction is in the machine group: {html}"
+        );
+    }
+
+    #[test]
+    fn the_working_transaction_is_the_expanded_entry() {
+        let at = BOOT + 10_000;
+        let audit = Vec::new();
+        // The working record is older; the committed one is newer. Recency must not win.
+        let txns = vec![
+            txn("txn-2", "verify the suite", None, "committed", at + 30_000),
+            txn("txn-1", "fix the parser", None, "working", at),
+        ];
+        let html = page(&ledger(audit, txns, vec![], None), Theme::Light).into_string();
+
+        assert!(
+            html.contains(r#"data-txn="txn-1" data-expanded="true""#),
+            "the working transaction is expanded: {html}"
+        );
+        assert!(
+            !html.contains(r#"data-txn="txn-2" data-expanded="true""#),
+            "a committed transaction is not the default entry: {html}"
+        );
+    }
+
+    #[test]
+    fn a_query_transaction_selects_another_expanded_entry() {
+        let at = BOOT + 10_000;
+        let txns = vec![
+            txn("txn-2", "verify the suite", None, "committed", at + 30_000),
+            txn("txn-1", "fix the parser", None, "working", at),
+        ];
+        let html = page(
+            &ledger(Vec::new(), txns, vec![], Some("txn-2")),
+            Theme::Light,
+        )
+        .into_string();
+
+        assert!(
+            html.contains(r#"data-txn="txn-2" data-expanded="true""#),
+            "?txn=txn-2 expands the named entry: {html}"
+        );
+        assert!(
+            !html.contains(r#"data-txn="txn-1" data-expanded="true""#),
+            "the working default yields to the query: {html}"
+        );
+    }
+
+    #[test]
+    fn an_expanded_entry_has_said_did_and_left() {
+        let at = BOOT + 10_000;
+        let mut audit = Vec::new();
+        audit.extend(txn_begin(10, at, "fix the parser", "txn-1"));
+        audit.push(tagged_begin(
+            11,
+            at + 1_000,
+            "terminal.run",
+            Some("session=session-1"),
+            "txn-1",
+        ));
+        audit.push(tagged_end(11, at + 1_500, false, "txn-1"));
+        let mut txns = vec![txn(
+            "txn-1",
+            "fix the parser",
+            Some("session-1"),
+            "working",
+            at,
+        )];
+        txns[0].failures = 1;
+        let html = page(&ledger(audit, txns, vec![], None), Theme::Light).into_string();
+
+        assert!(html.contains(r#"class="said""#), "the claim column: {html}");
+        assert!(
+            html.contains(r#"class="claim-badge">CLAIM"#),
+            "the purpose is badged as a claim: {html}"
+        );
+        assert!(
+            html.contains("the install door"),
+            "the claim names its author: {html}"
+        );
+        assert!(
+            html.contains(r#"class="did""#),
+            "the observed-steps column: {html}"
+        );
+        assert!(
+            html.contains(r#"class="step""#) && html.contains("terminal.run"),
+            "the steps are the audit's rows: {html}"
+        );
+        assert!(
+            html.contains(r#"class="left""#),
+            "the receipt column: {html}"
+        );
+        assert!(
+            html.contains("No receipt yet") && html.contains("1 failure so far"),
+            "a working transaction has no receipt, and its failure count is the window's: {html}"
+        );
+    }
+
+    #[test]
+    fn a_committed_receipt_does_not_hide_a_failure() {
+        let at = BOOT + 10_000;
+        let mut txns = vec![txn("txn-1", "publish the release", None, "committed", at)];
+        txns[0].calls = 5;
+        txns[0].failures = 1;
+        txns[0].refusals = 2;
+        let html = page(&ledger(Vec::new(), txns, vec![], None), Theme::Light).into_string();
+
+        assert!(
+            html.contains(">committed<"),
+            "the ending is the declared state: {html}"
+        );
+        assert!(
+            html.contains("1 failure") && html.contains("2 refused"),
+            "the receipt reports the device's failures and refusals: {html}"
+        );
+        assert!(
+            !html.contains("No receipt yet"),
+            "a committed transaction has a receipt: {html}"
+        );
+    }
+
+    #[test]
+    fn the_terminal_is_a_link_not_a_pane() {
+        let html = page(&ledger(Vec::new(), Vec::new(), vec![], None), Theme::Light).into_string();
+
+        assert!(
+            html.contains(r#"<a class="terminal-link" href="/panel#terminal">terminal ↗</a>"#),
+            "the header links to the terminal's own page: {html}"
+        );
+        assert!(
+            !html.contains("term-host") && !html.contains("xterm"),
+            "the activity page embeds no terminal pane: {html}"
+        );
+    }
+
+    #[test]
+    fn the_side_rail_names_sessions_holders_and_the_legend() {
+        let mut session = session_facts("session-1", "the operator", true);
+        session.open_txn = Some("txn-1".to_owned());
+        let html = page(
+            &ledger(Vec::new(), Vec::new(), vec![session], None),
+            Theme::Light,
+        )
+        .into_string();
+
+        assert!(html.contains(r#"class="ledger-rail""#), "the rail: {html}");
+        assert!(
+            html.contains("session-1") && html.contains("the operator"),
+            "the rail names the session and its holder: {html}"
+        );
+        assert!(
+            html.contains(r#"class="session-dot live""#),
+            "a live session carries the live dot: {html}"
+        );
+        assert!(
+            html.contains("claim — what the AI says it is doing")
+                && html.contains("fact — what the device observed"),
+            "the rail's legend tells claims from facts: {html}"
+        );
+        assert!(
+            html.contains(r#"data-record-rows=""#) && html.contains("bounded tail"),
+            "the rail states the record's bound: {html}"
+        );
+    }
+
+    #[test]
+    fn an_unknown_row_is_visible_and_counted() {
+        let at = BOOT + 10_000;
+        let audit = vec![
+            begin(1, at, "mystery.tool", None),
+            end(1, at + 100, true, None),
+        ];
+        let html = page(&ledger(audit, vec![], vec![], None), Theme::Light).into_string();
+
+        assert!(
+            html.contains(r#"data-unknown="1""#),
+            "the unknown row is counted: {html}"
+        );
+        assert!(
+            html.contains(r#"class="ledger-unknown-row""#) && html.contains("mystery.tool"),
+            "the unknown row stays visible: {html}"
+        );
+        assert!(
+            html.contains("Rows with no transaction"),
+            "the page says where an ungrouped row sits: {html}"
+        );
+    }
+
+    /// The production shape of an orphan: `http::txn_facts` enumerates the audit's transaction ids
+    /// and marks a registry-less one `retained: false`, with no counts and no purpose. The page must
+    /// carry that flag instead of fabricating a receipt with zero calls, and must not guess the
+    /// transaction's scope from a call's `session=` argument.
+    #[test]
+    fn an_orphan_group_says_receipt_not_retained() {
+        let at = BOOT + 10_000;
+        let mut audit = Vec::new();
+        audit.extend(txn_begin(10, at, "read the installer's config", "txn-9"));
+        audit.push(tagged_begin(
+            11,
+            at + 1_000,
+            "terminal.run",
+            Some("session=session-1"),
+            "txn-9",
+        ));
+        audit.push(tagged_end(11, at + 1_100, true, "txn-9"));
+        // The production shape: `txn_facts` joins the txn id to its `txn.begin` row in the same
+        // tail, so the claim survives while the receipt does not.
+        let mut orphan = txn("txn-9", "read the installer's config", None, "unknown", at);
+        orphan.retained = false;
+        orphan.calls = 0;
+        orphan.failures = 0;
+        orphan.refusals = 0;
+        orphan.duration_ms = 0;
+        let html = page(
+            &ledger(
+                audit,
+                vec![orphan],
+                vec![session_facts("session-1", "the operator", true)],
+                None,
+            ),
+            Theme::Light,
+        )
+        .into_string();
+
+        assert!(
+            html.contains(r#"data-txn="txn-9""#) && html.contains(r#"data-retained="false""#),
+            "the orphan group is drawn from the audit: {html}"
+        );
+        assert!(
+            html.contains("receipt not retained"),
+            "the orphan says its receipt is gone: {html}"
+        );
+        assert!(
+            !html.contains("Committed.") && !html.contains("Aborted."),
+            "a receipt the process does not hold declares no outcome: {html}"
+        );
+        assert!(
+            !html.contains("0 calls · 0 failures"),
+            "no count is invented for a missing receipt: {html}"
+        );
+        // The claim is retained in the tail even when the receipt is not: the purpose and its
+        // author are shown, and only the receipt is missing.
+        let ledger_start = html.find(r#"id="ledger""#).expect("the ledger is drawn");
+        let ledger_end = html
+            .find(r#"class="transcript""#)
+            .expect("the call list follows the ledger");
+        let ledger_html = &html[ledger_start..ledger_end];
+        assert!(
+            ledger_html.contains("read the installer's config")
+                && ledger_html.contains("the install door")
+                && !ledger_html.contains("(purpose not retained)"),
+            "the claim from the audit's begin row keeps the header: {ledger_html}"
+        );
+        assert!(
+            !html.contains(r#"data-group="machine""#) && html.contains(r#"data-group="unscoped""#),
+            "an orphan's scope is unknown, so it is not guessed into Machine: {html}"
+        );
+    }
+
+    /// A refused ending (`error_kind = "refused"`) is a failure the page says it observed; a printed
+    /// "0 refused" beside it was a number nothing derived.
+    #[test]
+    fn a_refused_end_is_counted_in_the_window() {
+        let at = BOOT + 10_000;
+        let audit = vec![
+            tagged_begin(
+                11,
+                at + 1_000,
+                "terminal.run",
+                Some("session=session-1"),
+                "txn-1",
+            ),
+            tagged_end(11, at + 1_500, false, "txn-1"),
+        ];
+        let txns = vec![txn(
+            "txn-1",
+            "fix the parser",
+            Some("session-1"),
+            "working",
+            at,
+        )];
+        let html = page(&ledger(audit, txns, vec![], None), Theme::Light).into_string();
+
+        assert!(
+            html.contains("Observed in this window: 1 calls · 1 failure · 1 refused"),
+            "the refused end is counted where the page prints the window: {html}"
+        );
+    }
+
+    /// A transaction's session is the registry record's own fact. A step's `session=` argument is the
+    /// caller's flattened input, and it never moves a device-scope transaction into a session group.
+    #[test]
+    fn a_transactions_session_is_the_records_not_an_argument() {
+        let at = BOOT + 10_000;
+        let audit = vec![
+            tagged_begin(
+                11,
+                at + 1_000,
+                "terminal.run",
+                Some("session=session-1"),
+                "txn-1",
+            ),
+            tagged_end(11, at + 1_500, true, "txn-1"),
+        ];
+        let txns = vec![txn(
+            "txn-1",
+            "bump the release pointer",
+            None,
+            "working",
+            at,
+        )];
+        let html = page(
+            &ledger(
+                audit,
+                txns,
+                vec![session_facts("session-1", "the operator", true)],
+                None,
+            ),
+            Theme::Light,
+        )
+        .into_string();
+
+        assert!(
+            !html.contains(r#"data-group="session""#),
+            "the argument does not place the transaction on the session: {html}"
+        );
+        assert!(
+            html.contains(r#"class="ledger-machine""#),
+            "the record's device scope wins: {html}"
+        );
+    }
+
+    /// The design and the brief put the rail on the left, so it is emitted before the ledger and the
+    /// grid draws it there.
+    #[test]
+    fn the_rail_is_drawn_once_on_the_left_of_the_ledger() {
+        let html = page(&ledger(Vec::new(), Vec::new(), vec![], None), Theme::Light).into_string();
+        assert_eq!(
+            html.matches(r#"class="ledger-rail""#).count(),
+            1,
+            "the sessions, legend and record are drawn once, never duplicated beneath the ledger: {html}"
+        );
+        let rail = html
+            .find(r#"class="ledger-rail""#)
+            .expect("the rail is drawn");
+        let ledger = html.find(r#"id="ledger""#).expect("the ledger is drawn");
+
+        assert!(
+            rail < ledger,
+            "the rail precedes the ledger in the grid, which is what puts it on the left: {html}"
+        );
+    }
+
+    /// A stale `?txn` link used to expand another transaction. The page says the named transaction is
+    /// not in this window, and expands nothing.
+    #[test]
+    fn a_stale_query_transaction_says_it_is_not_in_this_window() {
+        let at = BOOT + 10_000;
+        let txns = vec![txn("txn-1", "fix the parser", None, "working", at)];
+        let html = page(
+            &ledger(Vec::new(), txns, vec![], Some("txn-gone")),
+            Theme::Light,
+        )
+        .into_string();
+
+        assert!(
+            html.contains("txn-gone") && html.contains("is not in this window"),
+            "the page names the missing transaction instead of falling back: {html}"
+        );
+        assert!(
+            !html.contains(r#"data-expanded="true""#),
+            "a stale link must not expand the working or newest transaction: {html}"
+        );
+    }
+
+    /// The unattributed section's `data-unknown` is the count of the rows it lists, not the window's
+    /// total (which `#ledger` carries).
+    #[test]
+    fn the_unattributed_count_is_the_rows_it_lists() {
+        let at = BOOT + 10_000;
+        let audit = vec![
+            tagged_begin(11, at + 1_000, "mystery.tool", None, "txn-1"),
+            tagged_end(11, at + 1_100, true, "txn-1"),
+            begin(21, at + 2_000, "mystery.loose", None),
+            end(21, at + 2_100, true, None),
+            begin(22, at + 3_000, "files.list", None),
+            end(22, at + 3_100, true, None),
+        ];
+        let txns = vec![txn("txn-1", "fix the parser", None, "working", at)];
+        let html = page(&ledger(audit, txns, vec![], None), Theme::Light).into_string();
+
+        assert!(
+            html.contains(r#"data-transactions="1" data-unknown="2""#),
+            "the window's total counts both unknown rows: {html}"
+        );
+        assert!(
+            html.contains(r#"class="ledger-unattributed" data-unknown="1""#),
+            "the unattributed section counts only its own row: {html}"
+        );
+    }
+
+    #[test]
+    fn an_empty_period_renders_an_empty_ledger() {
+        let html = page(&ledger(Vec::new(), Vec::new(), vec![], None), Theme::Light).into_string();
+
+        assert!(
+            html.contains(r#"data-state="empty""#),
+            "an audit with no lines is empty: {html}"
+        );
+        assert!(
+            html.contains("No transaction has been recorded"),
+            "the empty ledger says so: {html}"
+        );
+        assert!(
+            !html.contains(r#"class="ledger-entry""#) && !html.contains("No receipt yet"),
+            "an empty period invents no entry: {html}"
         );
     }
 }

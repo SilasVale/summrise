@@ -39,7 +39,8 @@ use serde::Serialize;
 use serde_json::{json, Map, Value};
 use summrise_core::grant::{Grant as ConsoleGrant, CLOCK_SKEW_MS};
 use summrise_core::{
-    authorize, registry, ApprovalState, Ctx, Decision, Subject, ToolCall, ToolDef, Transport,
+    authorize, registry, ApprovalState, Ctx, Decision, Holder, HolderKind, RowKind, SessionRef,
+    Subject, ToolCall, ToolDef, Transport, TxnId, TxnPolicy, WORKING_TXN_ARG,
 };
 use tokio::io::AsyncWriteExt;
 
@@ -48,6 +49,7 @@ use crate::config::{Config, Release};
 use crate::plugins::host::PluginHost;
 use crate::restart;
 use crate::store::Store;
+use crate::txns::TxnRegistry;
 
 /// The base64 engine the file tools use: the standard alphabet, padded, as every client library emits.
 pub(crate) const BASE64: base64::engine::general_purpose::GeneralPurpose =
@@ -91,6 +93,7 @@ pub(crate) struct DeviceServer {
     forwards: Arc<forward::ForwardRegistry>,
     runs: Arc<runs::Runs>,
     audit: Arc<Audit>,
+    txns: Arc<TxnRegistry>,
     nonces: crate::remote::NonceLog,
     supervised: bool,
     restart: restart::Hook,
@@ -108,6 +111,21 @@ pub(crate) struct Call<'a> {
     pub tool: &'a str,
     pub arguments: Map<String, Value>,
     pub caller: Caller<'a>,
+}
+
+/// The transaction a call would ride, as the gate resolved it before `authorize`.
+///
+/// `policy` decides whether the gate even looks; `session` is the session the call names (from the
+/// tool → argument map, never from a renderer's parse); `candidate` is what resolution found, and
+/// `counted` is the same candidate when a refusal should be counted against it (only a `Required`
+/// call). `carried` is what the audit and the live event name: for a Required call it is the
+/// candidate, and for `txn.commit`/`txn.abort` it is the record the call ends.
+struct TxnResolution {
+    policy: TxnPolicy,
+    session: Option<SessionRef>,
+    candidate: Option<TxnId>,
+    counted: Option<TxnId>,
+    carried: Option<TxnId>,
 }
 
 /// What the dispatch path answered, and the journal row the answer belongs to.
@@ -170,6 +188,39 @@ impl Arrival {
 }
 
 impl<'a> Caller<'a> {
+    /// The door this call arrived through, derived once and carried through the whole call.
+    ///
+    /// It is attribution only (decision §3.1): no rule asks it for permission. The direct `/mcp`
+    /// door is [`Caller::Owner`], so a client that presents the install token is `install`, not a
+    /// token id the wire never carried; the console's own name for the operator is the `console`
+    /// door, and every other console identity is the token whose record id it carries. A grant's
+    /// arrival is the door (`grant` through the console, `mesh` from a peer).
+    fn holder(self) -> Holder {
+        match self {
+            Caller::Owner => Holder::install(),
+            Caller::Granted { arrival, .. } => Holder {
+                kind: match arrival {
+                    Arrival::Mesh => HolderKind::Mesh,
+                    Arrival::Loopback | Arrival::Panel | Arrival::Console => HolderKind::Grant,
+                },
+                token_id: None,
+            },
+            Caller::Console { token_id, .. } => {
+                if token_id == "operator" {
+                    Holder {
+                        kind: HolderKind::Console,
+                        token_id: Some("operator".to_owned()),
+                    }
+                } else {
+                    Holder {
+                        kind: HolderKind::Token,
+                        token_id: Some(token_id.to_owned()),
+                    }
+                }
+            }
+        }
+    }
+
     /// How this caller's call arrived.
     fn arrival(self) -> Arrival {
         match self {
@@ -210,6 +261,31 @@ impl<'a> Caller<'a> {
     }
 }
 
+/// The record id of the permanent token that authenticated this call, when one did.
+fn token_id_of(caller: Caller<'_>) -> Option<&str> {
+    match caller {
+        Caller::Console { token_id, .. } => Some(token_id),
+        Caller::Owner | Caller::Granted { .. } => None,
+    }
+}
+
+/// The wire spelling of a classified row, so the live feed carries the closed set's answer instead
+/// of making a renderer parse arguments for meaning.
+fn row_kind_name(kind: RowKind) -> &'static str {
+    match kind {
+        RowKind::SessionOpened => "session.opened",
+        RowKind::SessionClosed => "session.closed",
+        RowKind::GoalSet => "goal.set",
+        RowKind::GoalCleared => "goal.cleared",
+        RowKind::TxnStarted => "txn.started",
+        RowKind::TxnCommitted => "txn.committed",
+        RowKind::TxnAborted => "txn.aborted",
+        RowKind::Call => "call",
+        RowKind::CallDenied => "call.denied",
+        RowKind::Unknown => "unknown",
+    }
+}
+
 /// The MCP service the HTTP router mounts at `/mcp`.
 ///
 /// Stateful sessions and SSE responses: the standard streamable-HTTP shape, which an rmcp client
@@ -232,18 +308,22 @@ pub(crate) fn service_with_terminal(
     plugins: Arc<PluginHost>,
     update_check: Option<Arc<crate::update_check::UpdateChecker>>,
     bus: Option<Arc<summrise_bus::Bus>>,
+    boot: &str,
 ) -> (
     StreamableHttpService<DeviceServer, LocalSessionManager>,
     Arc<terminal::PtyRegistry>,
     Arc<browser::BrowserRegistry>,
+    Arc<TxnRegistry>,
 ) {
     let server = DeviceServer::new_with_plugins(config, limits, plugins)
+        .with_txn_boot(boot)
         .with_restart(restart)
         .with_audit(audit)
         .with_update_check(update_check)
         .with_bus(bus.clone());
     let terminal = Arc::clone(&server.terminal);
     let browser = Arc::clone(&server.browser);
+    let txns = Arc::clone(&server.txns);
     if let Some(bus) = &bus {
         terminal.attach_bus(Arc::clone(bus));
         server.plugins.attach_bus(Arc::clone(bus));
@@ -275,6 +355,7 @@ pub(crate) fn service_with_terminal(
         ),
         terminal,
         browser,
+        txns,
     )
 }
 
@@ -318,6 +399,13 @@ impl DeviceServer {
         Arc::clone(&self.terminal)
     }
 
+    /// The process's transaction registry, shared with the panel so a human's operations and a
+    /// client's calls are records in the same store.
+    #[cfg(test)]
+    pub(crate) fn txns(&self) -> &Arc<TxnRegistry> {
+        &self.txns
+    }
+
     /// A server over a host loaded from `config.data`. Production builds its host once at boot and
     /// uses [`DeviceServer::new_with_plugins`]; tests use this constructor and keep the host private.
     #[cfg(test)]
@@ -350,6 +438,7 @@ impl DeviceServer {
             forwards: Arc::new(forward::ForwardRegistry::new(&config.data)),
             runs: Arc::new(runs::Runs::new(&config.data, &config.files_root)),
             audit,
+            txns: Arc::new(TxnRegistry::new("test")),
             nonces: crate::remote::NonceLog::new(),
             supervised: config.supervised,
             restart: restart::none(),
@@ -357,6 +446,16 @@ impl DeviceServer {
             plugins,
             bus: None,
         }
+    }
+
+    /// Scope this process's transaction ids to the boot nonce minted at startup.
+    ///
+    /// [`DeviceServer::new_with_plugins`] builds a `test`-scoped registry so a bare test server has
+    /// a deterministic id; the process passes the real nonce here before anything is served, so an
+    /// id minted after a restart can never equal one a previous boot left in the audit tail.
+    pub(crate) fn with_txn_boot(mut self, boot: &str) -> DeviceServer {
+        self.txns = Arc::new(TxnRegistry::new(boot));
+        self
     }
 
     /// Replace the plugin host with a scripted one. Tests only: boot passes the shared host through
@@ -426,9 +525,22 @@ impl DeviceServer {
         peer: Option<&str>,
         token_id: Option<&str>,
         args: Option<&str>,
+        txn: Option<&TxnId>,
+        bootstrap: bool,
     ) -> bool {
         self.audit
-            .begin(id, ts_ms, tool, decision, arrival, peer, token_id, args)
+            .begin(
+                id,
+                ts_ms,
+                tool,
+                decision,
+                arrival,
+                peer,
+                token_id,
+                args,
+                txn.map(TxnId::as_str),
+                bootstrap,
+            )
             .await
     }
 
@@ -471,6 +583,7 @@ impl DeviceServer {
         token_id: Option<&str>,
         outcome: Option<&str>,
         run_id: Option<&str>,
+        txn: Option<&TxnId>,
     ) {
         self.audit
             .end(
@@ -483,6 +596,7 @@ impl DeviceServer {
                 token_id,
                 outcome,
                 run_id,
+                txn.map(TxnId::as_str),
             )
             .await;
     }
@@ -500,10 +614,22 @@ impl DeviceServer {
     ) {
         let id = self.next_call_id();
         let now_ms = crate::http::now_ms();
-        self.audit_begin(id, now_ms, tool, "deny", arrival, peer, None, None)
-            .await;
-        self.audit_end(id, false, Some(error_kind), arrival, peer, None, None, None)
-            .await;
+        self.audit_begin(
+            id, now_ms, tool, "deny", arrival, peer, None, None, None, false,
+        )
+        .await;
+        self.audit_end(
+            id,
+            false,
+            Some(error_kind),
+            arrival,
+            peer,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await;
     }
 
     /// One tool call, after the door has parsed whatever carried it.
@@ -601,8 +727,22 @@ impl DeviceServer {
                         ),
                     },
                     // A capability refusal is MCP's tool-level error, not a protocol failure.
+                    // A refusal that names facts carries them in `structuredContent`, beside the
+                    // sentence a person reads.
                     Err(CallFailure::Refused(message)) => {
                         let result = CallToolResult::error(vec![ContentBlock::text(message)]);
+                        match serde_json::to_value(&result) {
+                            Ok(result) => jsonrpc_result(id, result),
+                            Err(error) => jsonrpc_error(
+                                id,
+                                ErrorCode::INTERNAL_ERROR.0,
+                                &format!("the tool refusal could not be serialized: {error}"),
+                            ),
+                        }
+                    }
+                    Err(CallFailure::RefusedNamed(message, data)) => {
+                        let mut result = CallToolResult::error(vec![ContentBlock::text(message)]);
+                        result.structured_content = Some(data);
                         match serde_json::to_value(&result) {
                             Ok(result) => jsonrpc_result(id, result),
                             Err(error) => jsonrpc_error(
@@ -629,24 +769,73 @@ impl DeviceServer {
     async fn execute_call(
         &self,
         name: &str,
-        arguments: Map<String, Value>,
+        mut arguments: Map<String, Value>,
         caller: Caller<'_>,
     ) -> (Result<CallToolResult, CallFailure>, Option<u64>) {
         let now_ms = crate::http::now_ms();
         let id = self.next_call_id();
         let arrival = caller.arrival();
+        // Derived once per call, from the authenticated caller: the session it opens and any claim
+        // it writes carry this door, and no later step can substitute another.
+        let holder = caller.holder();
         let peer = caller.peer();
+        let args_summary = summarize_args(name, &arguments);
+        let args_summary = args_summary.as_deref();
+        let action = arguments
+            .get("action")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
         // The trace the journal's pair carries: the console's own when its frame named one, so the
         // device journal and the console's audit line join on it — otherwise this device's, unique
         // per call and per process. It is minted before the first event, so a lost second half
         // still leaves a started event a reader can name.
-        let args_summary = summarize_args(name, &arguments);
-        let args_summary = args_summary.as_deref();
         let trace = match caller.trace() {
             Some(trace) if !trace.is_empty() => trace.to_owned(),
             _ => format!("call-{id}"),
         };
         let subject = caller.subject();
+        // **RESOLUTION COMES BEFORE `authorize`.** The explicit argument, the named session's
+        // working transaction and the caller's device-scope transaction are looked up first, so a
+        // call the grant denies, a call the gate refuses and a call that never reaches a capability
+        // all carry the same transaction on their audit row and count as a refusal of it. A lookup
+        // refuses nothing yet; the policy gate below decides.
+        let resolution = match self.resolve_txn(name, &arguments, &holder) {
+            Ok(resolution) => resolution,
+            Err((kind, message)) => {
+                let _started = self.publish_call_event(
+                    "call.started",
+                    &trace,
+                    subject.clone(),
+                    json!({
+                        "tool": name,
+                        "door": arrival.as_str(),
+                        "txn": Value::Null,
+                        "row_kind": row_kind_name(RowKind::of_row(name, action.as_deref(), "call.started")),
+                    }),
+                );
+                let seq = self
+                    .audit_denial(
+                        id,
+                        name,
+                        "deny",
+                        kind,
+                        arrival,
+                        peer,
+                        token_id_of(caller),
+                        args_summary,
+                        None,
+                        None,
+                        &trace,
+                        subject,
+                    )
+                    .await;
+                return (Err(CallFailure::Refused(message)), seq);
+            }
+        };
+        // The record id of the permanent token that authenticated this call, when one did. It is
+        // what an operator revokes and what the console's own audit names; without it a token call
+        // is indistinguishable from a console-signed grant in the device's log.
+        let token_id = token_id_of(caller);
         // §4.2: every call is a pair, and the started half is written before anything can have a
         // side effect. A crash between the halves leaves a started event with no outcome, which is
         // the honest record of a call whose answer was never written.
@@ -654,15 +843,14 @@ impl DeviceServer {
             "call.started",
             &trace,
             subject.clone(),
-            json!({ "tool": name, "door": arrival.as_str() }),
+            json!({
+                "tool": name,
+                "door": arrival.as_str(),
+                "txn": resolution.carried.as_ref().map(TxnId::as_str),
+                "row_kind": row_kind_name(RowKind::of_row(name, action.as_deref(), "call.started")),
+            }),
         );
-        // The record id of the permanent token that authenticated this call, when one did. It is
-        // what an operator revokes and what the console's own audit names; without it a token call
-        // is indistinguishable from a console-signed grant in the device's log.
-        let token_id = match &caller {
-            Caller::Console { token_id, .. } => Some(*token_id),
-            Caller::Owner | Caller::Granted { .. } => None,
-        };
+
         // A built-in's flag is the registry's; a plugin tool's is the one its running plugin
         // advertises. `None` from both is a name the device does not offer, and a name it does not
         // offer is denied before any capability runs.
@@ -671,29 +859,24 @@ impl DeviceServer {
             None => match self.plugins.destructive(name) {
                 Some(destructive) => destructive,
                 None => {
-                    self.audit_begin(
-                        id,
-                        now_ms,
-                        name,
-                        "deny",
-                        arrival,
-                        peer,
-                        token_id,
-                        args_summary,
-                    )
-                    .await;
-                    self.audit_end(id, false, Some("unknown_tool"), arrival, peer, token_id, None, None)
+                    let message = format!("unknown tool: {name}");
+                    let seq = self
+                        .audit_denial(
+                            id,
+                            name,
+                            "deny",
+                            "unknown_tool",
+                            arrival,
+                            peer,
+                            token_id,
+                            args_summary,
+                            resolution.counted.as_ref(),
+                            resolution.carried.as_ref(),
+                            &trace,
+                            subject,
+                        )
                         .await;
-                    let seq = self.publish_call_event(
-                        "call.denied",
-                        &trace,
-                        subject,
-                        json!({ "tool": name, "ok": false, "reason": "unknown_tool" }),
-                    );
-                    return (
-                        Err(CallFailure::Arguments(format!("unknown tool: {name}"))),
-                        seq,
-                    );
+                    return (Err(CallFailure::Arguments(message)), seq);
                 }
             },
         };
@@ -756,56 +939,41 @@ impl DeviceServer {
             Decision::Allow => {}
             Decision::Deny { reason } => {
                 let detail = reason.to_string();
-                self.audit_begin(
-                    id,
-                    now_ms,
-                    name,
-                    "deny",
-                    arrival,
-                    peer,
-                    token_id,
-                    args_summary,
-                )
-                .await;
-                self.audit_end(id, false, Some("denied"), arrival, peer, token_id, None, None)
+                let seq = self
+                    .audit_denial(
+                        id,
+                        name,
+                        "deny",
+                        "denied",
+                        arrival,
+                        peer,
+                        token_id,
+                        args_summary,
+                        resolution.counted.as_ref(),
+                        resolution.carried.as_ref(),
+                        &trace,
+                        subject,
+                    )
                     .await;
-                let seq = self.publish_call_event(
-                    "call.denied",
-                    &trace,
-                    subject,
-                    json!({ "tool": name, "ok": false, "reason": "denied" }),
-                );
                 return (Err(CallFailure::Denied(detail)), seq);
             }
             Decision::Ask { prompt } => {
-                self.audit_begin(
-                    id,
-                    now_ms,
-                    name,
-                    "ask",
-                    arrival,
-                    peer,
-                    token_id,
-                    args_summary,
-                )
-                .await;
-                self.audit_end(
-                    id,
-                    false,
-                    Some("approval_required"),
-                    arrival,
-                    peer,
-                    token_id,
-                    None,
-                    None,
-                )
-                .await;
-                let seq = self.publish_call_event(
-                    "call.denied",
-                    &trace,
-                    subject,
-                    json!({ "tool": name, "ok": false, "reason": "approval_required" }),
-                );
+                let seq = self
+                    .audit_denial(
+                        id,
+                        name,
+                        "ask",
+                        "approval_required",
+                        arrival,
+                        peer,
+                        token_id,
+                        args_summary,
+                        resolution.counted.as_ref(),
+                        resolution.carried.as_ref(),
+                        &trace,
+                        subject,
+                    )
+                    .await;
                 // Through the console there is no interactive approval yet, so the only way to
                 // consent is the signature. Say that in the refusal rather than leaving the
                 // operator with a prompt no surface can answer.
@@ -824,6 +992,47 @@ impl DeviceServer {
             }
         }
 
+        // The policy gate: a Required tool needs a working transaction of the right scope. The
+        // refusal carries the resolved candidate and counts against it, exactly like an
+        // authorization denial, so a call refused for its transaction is still in the receipt.
+        let admitted = match self.admit_txn(name, &resolution) {
+            Ok(admitted) => admitted,
+            Err((kind, message)) => {
+                let seq = self
+                    .audit_denial(
+                        id,
+                        name,
+                        "deny",
+                        kind,
+                        arrival,
+                        peer,
+                        token_id,
+                        args_summary,
+                        resolution.counted.as_ref(),
+                        resolution.carried.as_ref(),
+                        &trace,
+                        subject,
+                    )
+                    .await;
+                return (Err(CallFailure::Refused(message)), seq);
+            }
+        };
+        // The gate's argument is not the tool's: the capability's parser never sees it. Only a
+        // Required call treats `txn` this way — `txn.commit`/`txn.abort` name their own record.
+        if resolution.policy == TxnPolicy::Required {
+            arguments.remove(WORKING_TXN_ARG);
+        }
+        // The purpose `txn.begin`'s live event carries is the caller's claim; the capability's
+        // answer holds the id and the snapshot, not the purpose. Capture it before dispatch.
+        let purpose = (name == "txn.begin")
+            .then(|| {
+                arguments
+                    .get("purpose")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            })
+            .flatten();
+
         // I1: the authorization line is on disk before the capability can touch anything. If the
         // session is closed or the process stops between here and the `end` line, the begin line is
         // what the audit keeps; it says the call was allowed, not that it failed. An unwritable log
@@ -838,14 +1047,26 @@ impl DeviceServer {
                 peer,
                 token_id,
                 args_summary,
+                resolution.carried.as_ref(),
+                resolution.policy == TxnPolicy::Bootstrap,
             )
             .await
         {
+            if let Some(txn) = &admitted {
+                self.txns.record_refusal(txn);
+            }
             let seq = self.publish_call_event(
                 "call.denied",
                 &trace,
                 subject,
-                json!({ "tool": name, "ok": false, "reason": "audit_unwritable" }),
+                json!({
+                    "tool": name,
+                    "door": arrival.as_str(),
+                    "ok": false,
+                    "reason": "audit_unwritable",
+                    "txn": resolution.carried.as_ref().map(TxnId::as_str),
+                    "row_kind": row_kind_name(RowKind::of_row(name, action.as_deref(), "call.denied")),
+                }),
             );
             return (
                 Err(CallFailure::Internal(
@@ -854,11 +1075,25 @@ impl DeviceServer {
                 seq,
             );
         }
+        if let Some(txn) = &admitted {
+            self.txns.record_call(txn);
+        }
 
-        match self.invoke(name, arguments).await {
+        match self.invoke(name, arguments, &holder).await {
             Ok(text) => {
                 let outcome = summarize_outcome(name, &text);
                 let run_id = run_id_of(name, &text);
+                // A `txn.begin` mints its id during dispatch: its end line is the first row that
+                // can carry it. Every other call already knows its transaction.
+                let ended_txn = if name == "txn.begin" {
+                    serde_json::from_str::<Value>(&text)
+                        .ok()
+                        .and_then(|answer| {
+                            answer.get("txn").and_then(Value::as_str).map(TxnId::new)
+                        })
+                } else {
+                    resolution.carried.clone()
+                };
                 self.audit_end(
                     id,
                     true,
@@ -868,66 +1103,318 @@ impl DeviceServer {
                     token_id,
                     outcome.as_deref(),
                     run_id.as_deref(),
+                    ended_txn.as_ref(),
                 )
                 .await;
-                let seq = self.publish_call_event(
-                    "call.finished",
-                    &trace,
-                    subject,
-                    json!({ "tool": name, "ok": true }),
-                );
+                let mut payload = json!({
+                    "tool": name,
+                    "door": arrival.as_str(),
+                    "ok": true,
+                    "txn": ended_txn.as_ref().map(TxnId::as_str),
+                    "row_kind": row_kind_name(RowKind::of_row(name, action.as_deref(), "call.finished")),
+                });
+                if let Some(purpose) = purpose {
+                    payload["purpose"] = json!(purpose);
+                }
+                if matches!(name, "txn.commit" | "txn.abort") {
+                    if let Ok(receipt) = serde_json::from_str::<Value>(&text) {
+                        payload["receipt"] = receipt;
+                    }
+                }
+                let seq = self.publish_call_event("call.finished", &trace, subject, payload);
                 (
                     Ok(CallToolResult::success(vec![ContentBlock::text(text)])),
                     seq,
                 )
             }
-            Err(ToolError::Arguments(message)) => {
-                self.audit_end(id, false, Some("arguments"), arrival, peer, token_id, None, None)
-                    .await;
+            Err(ToolError::Declined {
+                kind,
+                message,
+                data,
+            }) => {
+                if let Some(txn) = &admitted {
+                    self.txns.record_failure(txn);
+                }
+                self.audit_end(
+                    id,
+                    false,
+                    Some(kind),
+                    arrival,
+                    peer,
+                    token_id,
+                    None,
+                    None,
+                    resolution.carried.as_ref(),
+                )
+                .await;
                 let seq = self.publish_call_event(
                     "call.denied",
                     &trace,
                     subject,
-                    json!({ "tool": name, "ok": false, "reason": "arguments" }),
+                    json!({
+                        "tool": name,
+                        "door": arrival.as_str(),
+                        "ok": false,
+                        "reason": kind,
+                        "txn": resolution.carried.as_ref().map(TxnId::as_str),
+                        "row_kind": row_kind_name(RowKind::of_row(name, action.as_deref(), "call.denied")),
+                    }),
                 );
-                (Err(CallFailure::Arguments(message)), seq)
+                let failure = match data {
+                    Some(data) => CallFailure::RefusedNamed(message, data),
+                    None => CallFailure::Refused(message),
+                };
+                (Err(failure), seq)
             }
-            Err(ToolError::Refused(message)) => {
-                self.audit_end(id, false, Some("refused"), arrival, peer, token_id, None, None)
-                    .await;
+            Err(error) => {
+                let (kind, message, failure): (&'static str, String, fn(String) -> CallFailure) =
+                    match error {
+                        ToolError::Arguments(message) => {
+                            ("arguments", message, CallFailure::Arguments)
+                        }
+                        ToolError::Refused(message) => ("refused", message, CallFailure::Refused),
+                        ToolError::Internal(message) => {
+                            ("internal", message, CallFailure::Internal)
+                        }
+                        ToolError::Declined { .. } => unreachable!("handled above"),
+                    };
+                if let Some(txn) = &admitted {
+                    self.txns.record_failure(txn);
+                }
+                self.audit_end(
+                    id,
+                    false,
+                    Some(kind),
+                    arrival,
+                    peer,
+                    token_id,
+                    None,
+                    None,
+                    resolution.carried.as_ref(),
+                )
+                .await;
                 let seq = self.publish_call_event(
                     "call.denied",
                     &trace,
                     subject,
-                    json!({ "tool": name, "ok": false, "reason": "refused" }),
+                    json!({
+                        "tool": name,
+                        "door": arrival.as_str(),
+                        "ok": false,
+                        "reason": kind,
+                        "txn": resolution.carried.as_ref().map(TxnId::as_str),
+                        "row_kind": row_kind_name(RowKind::of_row(name, action.as_deref(), "call.denied")),
+                    }),
                 );
-                (Err(CallFailure::Refused(message)), seq)
-            }
-            Err(ToolError::Internal(message)) => {
-                self.audit_end(id, false, Some("internal"), arrival, peer, token_id, None, None)
-                    .await;
-                let seq = self.publish_call_event(
-                    "call.denied",
-                    &trace,
-                    subject,
-                    json!({ "tool": name, "ok": false, "reason": "internal" }),
-                );
-                (Err(CallFailure::Internal(message)), seq)
+                (Err(failure(message)), seq)
             }
         }
     }
 
-    async fn invoke(&self, name: &str, arguments: Map<String, Value>) -> Result<String, ToolError> {
+    /// The transaction a call would ride, resolved before `authorize` decides anything.
+    ///
+    /// This is a lookup, not a gate: `policy != Required` answers no transaction (except that
+    /// `txn.commit`/`txn.abort` carry the record they name), and a Required call answers the
+    /// explicit `txn` if it has one, else the named session's working transaction, else the
+    /// caller's working device-scope transaction. Whether that candidate is usable is
+    /// [`DeviceServer::admit_txn`]'s question.
+    fn resolve_txn(
+        &self,
+        name: &str,
+        arguments: &Map<String, Value>,
+        holder: &Holder,
+    ) -> Result<TxnResolution, (&'static str, String)> {
+        let policy = registry::txn_policy(name).unwrap_or(TxnPolicy::Required);
+        let session = registry::session_arg(name)
+            .and_then(|argument| arguments.get(argument))
+            .and_then(Value::as_str)
+            .map(SessionRef::new);
+        if policy != TxnPolicy::Required {
+            // `txn.commit`/`txn.abort` name the record they end; the row is grouped under it even
+            // though the call itself needs no transaction (or it could not end the one it ends).
+            let carried = match name {
+                "txn.commit" | "txn.abort" => arguments
+                    .get(WORKING_TXN_ARG)
+                    .and_then(Value::as_str)
+                    .map(TxnId::new),
+                _ => None,
+            };
+            return Ok(TxnResolution {
+                policy,
+                session,
+                candidate: None,
+                counted: None,
+                carried,
+            });
+        }
+        let explicit = match arguments.get(WORKING_TXN_ARG) {
+            None | Some(Value::Null) => None,
+            Some(Value::String(txn)) if !txn.is_empty() => Some(TxnId::new(txn)),
+            Some(_) => {
+                return Err((
+                    "txn_unknown",
+                    format!(
+                        "{name}: txn_unknown: the `txn` argument must be a transaction id string"
+                    ),
+                ))
+            }
+        };
+        let candidate = match explicit {
+            Some(txn) => Some(txn),
+            None => match &session {
+                Some(session) => self
+                    .txns
+                    .working_on(session)
+                    .or_else(|| self.txns.working_device_scope(holder)),
+                None => self.txns.working_device_scope(holder),
+            },
+        };
+        Ok(TxnResolution {
+            policy,
+            session,
+            candidate: candidate.clone(),
+            counted: candidate.clone(),
+            carried: candidate,
+        })
+    }
+
+    /// The policy gate: is the resolved candidate a working transaction of the right scope?
+    ///
+    /// A missing transaction is `txn_required` with the sentence that says how to fix it; an id
+    /// the device does not hold is `txn_unknown`; an ended one `txn_ended`; a transaction of
+    /// another session `txn_session_mismatch`; a device-scope one naming a session (or the reverse)
+    /// `txn_scope_mismatch`.
+    fn admit_txn(
+        &self,
+        name: &str,
+        resolution: &TxnResolution,
+    ) -> Result<Option<TxnId>, (&'static str, String)> {
+        if resolution.policy != TxnPolicy::Required {
+            return Ok(None);
+        }
+        let Some(id) = &resolution.candidate else {
+            return Err((
+                "txn_required",
+                format!(
+                    "{name}: txn_required: this machine call needs a working transaction: \
+                     `txn.begin {{session, purpose}}` for work on a session, `txn.begin {{purpose}}` \
+                     for work on the machine, then run the call or pass `txn`"
+                ),
+            ));
+        };
+        let Some(txn) = self.txns.get(id) else {
+            return Err((
+                "txn_unknown",
+                format!("{name}: txn_unknown: no transaction with that id is open on this device"),
+            ));
+        };
+        if !txn.is_working() {
+            return Err((
+                "txn_ended",
+                format!("{name}: txn_ended: that transaction has ended; begin a new one"),
+            ));
+        }
+        match txn.admits(resolution.session.as_ref()) {
+            Ok(()) => Ok(Some(id.clone())),
+            Err(summrise_core::TxnError::SessionMismatch) => Err((
+                "txn_session_mismatch",
+                format!(
+                    "{name}: txn_session_mismatch: that transaction belongs to another session"
+                ),
+            )),
+            Err(summrise_core::TxnError::ScopeMismatch) => Err((
+                "txn_scope_mismatch",
+                format!(
+                    "{name}: txn_scope_mismatch: a session-bound call needs a session-bound \
+                     transaction, and a machine call needs a device-scope one"
+                ),
+            )),
+            Err(other) => Err((
+                "txn_scope_mismatch",
+                format!("{name}: txn_scope_mismatch: {other}"),
+            )),
+        }
+    }
+
+    /// Write the refusal pair, count it against the resolved transaction, and publish the denied
+    /// half. One path for every denial before dispatch, so no branch can lose the transaction.
+    #[allow(clippy::too_many_arguments)]
+    async fn audit_denial(
+        &self,
+        id: u64,
+        tool: &str,
+        decision: &str,
+        kind: &'static str,
+        arrival: Arrival,
+        peer: Option<&str>,
+        token_id: Option<&str>,
+        args: Option<&str>,
+        counted: Option<&TxnId>,
+        audit_txn: Option<&TxnId>,
+        trace: &str,
+        subject: Option<Value>,
+    ) -> Option<u64> {
+        if let Some(txn) = counted {
+            self.txns.record_refusal(txn);
+        }
+        self.audit_begin(
+            id,
+            crate::http::now_ms(),
+            tool,
+            decision,
+            arrival,
+            peer,
+            token_id,
+            args,
+            audit_txn,
+            false,
+        )
+        .await;
+        self.audit_end(
+            id,
+            false,
+            Some(kind),
+            arrival,
+            peer,
+            token_id,
+            None,
+            None,
+            audit_txn,
+        )
+        .await;
+        self.publish_call_event(
+            "call.denied",
+            trace,
+            subject,
+            json!({
+                "tool": tool,
+                "door": arrival.as_str(),
+                "ok": false,
+                "reason": kind,
+                "txn": audit_txn.map(TxnId::as_str),
+                "row_kind": row_kind_name(RowKind::of_row(tool, None, "call.denied")),
+            }),
+        )
+    }
+
+    async fn invoke(
+        &self,
+        name: &str,
+        arguments: Map<String, Value>,
+        holder: &Holder,
+    ) -> Result<String, ToolError> {
         // **A CAPABILITY THAT DECLARES ITSELF IS ROUTED BY ITS MODULE (round 15).** The
         // declaration in `summrise_core::capabilities` is the one list; a capability that migrated
         // is dispatched here, before the legacy table, so its tools leave that table as they move.
         if crate::capabilities::owns(name) {
             let bus = self.bus();
             let ctx = crate::capabilities::Ctx {
+                holder: holder.clone(),
                 files_root: &self.files_root,
                 files_shared_root: self.files_shared_root.as_deref(),
                 memory: self.memory.as_ref(),
                 terminal: self.terminal.as_ref(),
+                txns: self.txns.as_ref(),
                 browser: self.browser.as_ref(),
                 monitor: &self.monitor,
                 runs: &self.runs,
@@ -975,6 +1462,8 @@ impl DeviceServer {
 pub(crate) enum CallFailure {
     Arguments(String),
     Refused(String),
+    /// A refusal that also names structured facts in the result's `structuredContent`.
+    RefusedNamed(String, Value),
     Internal(String),
     Denied(String),
     Approval(String),
@@ -988,7 +1477,7 @@ impl CallFailure {
             CallFailure::Internal(_) => ErrorCode::INTERNAL_ERROR.0,
             CallFailure::Denied(_) => -32001,
             CallFailure::Approval(_) => -32002,
-            CallFailure::Refused(_) => ErrorCode::INTERNAL_ERROR.0,
+            CallFailure::Refused(_) | CallFailure::RefusedNamed(..) => ErrorCode::INTERNAL_ERROR.0,
         }
     }
 
@@ -996,6 +1485,7 @@ impl CallFailure {
         match self {
             CallFailure::Arguments(message)
             | CallFailure::Refused(message)
+            | CallFailure::RefusedNamed(message, _)
             | CallFailure::Internal(message)
             | CallFailure::Denied(message)
             | CallFailure::Approval(message) => message,
@@ -1013,7 +1503,9 @@ impl CallFailure {
                 format!("approval required: {prompt}"),
                 None,
             ),
-            CallFailure::Refused(message) => McpError::internal_error(message, None),
+            CallFailure::Refused(message) | CallFailure::RefusedNamed(message, _) => {
+                McpError::internal_error(message, None)
+            }
         }
     }
 }
@@ -1076,6 +1568,11 @@ impl ServerHandler for DeviceServer {
             (Err(CallFailure::Refused(message)), _) => {
                 Ok(CallToolResult::error(vec![ContentBlock::text(message)]))
             }
+            (Err(CallFailure::RefusedNamed(message, data)), _) => {
+                let mut result = CallToolResult::error(vec![ContentBlock::text(message)]);
+                result.structured_content = Some(data);
+                Ok(result)
+            }
             (Err(failure), _) => Err(failure.into_mcp_error()),
         }
     }
@@ -1126,8 +1623,22 @@ impl DeviceServer {
             tool.name = view.name.into();
             tool.title = view.title;
             tool.description = view.description.map(Into::into);
-            tool.input_schema =
-                Arc::new(view.input_schema.as_object().cloned().unwrap_or_default());
+            // A plugin tool is `Required` too (no registry policy row means the gate's default),
+            // so its advertised schema names the override the gate accepts and strips.
+            let mut plugin_schema = view.input_schema.as_object().cloned().unwrap_or_default();
+            if let Some(properties) = plugin_schema
+                .get_mut("properties")
+                .and_then(Value::as_object_mut)
+            {
+                properties.insert(
+                    WORKING_TXN_ARG.to_owned(),
+                    json!({
+                        "type": "string",
+                        "description": "The transaction this call rides, overriding the caller's device-scope transaction. Begin one with txn.begin."
+                    }),
+                );
+            }
+            tool.input_schema = Arc::new(plugin_schema);
             let mut annotations = ToolAnnotations::default();
             annotations.read_only_hint = view.read_only;
             annotations.destructive_hint = view.destructive_hint;
@@ -1140,20 +1651,58 @@ impl DeviceServer {
     }
 }
 
-/// The input schema for one registry tool.
+/// The input schema for one registry tool, as the wire advertises it.
 ///
 /// Keyed by the registry's name and never by a list of its own: a tool the registry does not declare
 /// is never asked for a schema, and a declared tool with no entry gets the empty object schema
 /// rather than disappearing from the list.
 fn input_schema(definition: &ToolDef) -> Value {
-    (definition
-        .schema
-        .expect("every declared tool has a schema beside it"))()
+    with_working_txn_arg(
+        definition.name,
+        (definition
+            .schema
+            .expect("every declared tool has a schema beside it"))(),
+    )
+}
+
+/// The transaction override every `Required` tool's advertised schema names.
+///
+/// The gate reads `txn` from the arguments and strips it before the capability's parser, but the
+/// schema said `additionalProperties: false` and never listed it: a client validating its own
+/// arguments against the advertised schema would not learn that it may override inheritance. The
+/// property is the surface's, not any capability's declaration, so it is added here — and it is
+/// deliberately not `required`: an inherited transaction needs no argument.
+fn with_working_txn_arg(name: &str, mut schema: Value) -> Value {
+    if registry::txn_policy(name) != Some(TxnPolicy::Required) {
+        return schema;
+    }
+    if let Some(properties) = schema.get_mut("properties").and_then(Value::as_object_mut) {
+        properties.insert(
+            WORKING_TXN_ARG.to_owned(),
+            json!({
+                "type": "string",
+                "description": "The transaction this call rides, overriding the session's or the caller's. It must be a working transaction of the right scope; begin one with txn.begin."
+            }),
+        );
+    }
+    schema
 }
 
 pub(crate) enum ToolError {
     Arguments(String),
     Refused(String),
+    /// A typed refusal: the kind is a closed name the audit row and the live event both carry, so a
+    /// reader groups a decline without parsing the sentence. The transaction gate uses it for
+    /// `txn_required`/`txn_unknown`/…; a capability uses it for a rule of its own
+    /// (`not_goal_writer`, `txn_already_open`, `txn_unknown` on a commit).
+    Declined {
+        kind: &'static str,
+        message: String,
+        /// Structured facts the refusal names, when the client needs them to act: a taken
+        /// transaction slot names the open record (`{"txn", "purpose"}`), so a console that
+        /// restarted can adopt or end it instead of being locked out by an id it cannot learn.
+        data: Option<Value>,
+    },
     Internal(String),
 }
 
@@ -1308,6 +1857,14 @@ struct AuditBegin<'a> {
     /// is built, and the journal is a file an operator reads, not a place to keep secrets.
     #[serde(skip_serializing_if = "Option::is_none")]
     args: Option<&'a str>,
+    /// The transaction this call rides; absent when it rides none. A reader groups on this field,
+    /// never on an argument.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    txn: Option<&'a str>,
+    /// `Some(true)` on the one call that makes a transaction possible (`terminal.create`), so a
+    /// reader can tell an exemption from a missing id.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    bootstrap: Option<bool>,
 }
 
 /// One `end` line: the call returned. `error_kind` is a closed set of names, never a message and
@@ -1334,6 +1891,10 @@ struct AuditEnd<'a> {
     /// argument values.
     #[serde(skip_serializing_if = "Option::is_none")]
     run_id: Option<&'a str>,
+    /// The transaction this call rode, when it rode one. Spelled on the `end` line too, so a
+    /// reader never has to pair the halves to learn it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    txn: Option<&'a str>,
 }
 
 /// The append-only event log at `<data>/events.jsonl`.
@@ -1398,6 +1959,8 @@ impl Audit {
         peer: Option<&str>,
         token_id: Option<&str>,
         args: Option<&str>,
+        txn: Option<&str>,
+        bootstrap: bool,
     ) -> bool {
         self.append_line(&AuditBegin {
             id,
@@ -1409,6 +1972,8 @@ impl Audit {
             peer,
             token_id,
             args,
+            txn,
+            bootstrap: bootstrap.then_some(true),
         })
         .await
     }
@@ -1425,6 +1990,7 @@ impl Audit {
         token_id: Option<&str>,
         outcome: Option<&str>,
         run_id: Option<&str>,
+        txn: Option<&str>,
     ) {
         let _written = self
             .append_line(&AuditEnd {
@@ -1438,6 +2004,7 @@ impl Audit {
                 peer,
                 token_id,
                 outcome,
+                txn,
             })
             .await;
     }
@@ -1533,6 +2100,32 @@ fn summarize_args(tool: &str, args: &serde_json::Map<String, serde_json::Value>)
     // line of `runs.exec`, because a transcript that says "ran a command" and not which command
     // answers nothing. Every other tool keeps the old silence — their arguments are payload
     // (memory text, file bodies), not an operation an operator can read at a glance.
+    // **A GOAL'S ACTION IS PART OF THE FACT; ITS TEXT IS NOT.** Task 4's divider needs to know
+    // whether the claim was set or cleared, and the row must never carry the sentence a client
+    // wrote about itself. `terminal.goal` is the one terminal tool whose summary is more than the
+    // session id.
+    if tool == "terminal.goal" {
+        let session = args.get("id").and_then(|value| value.as_str())?;
+        let action = args
+            .get("action")
+            .and_then(|value| value.as_str())
+            .unwrap_or("unknown");
+        return Some(cap_chars(
+            &format!("session={session} action={action}"),
+            ARGS_SUMMARY_MAX,
+        ));
+    }
+    // The purpose is the transaction's claim, and the audit is the only record that survives a
+    // restart or a reap: an orphan group that cannot show what the work was for is a blank block.
+    if tool == "txn.begin" {
+        let purpose = args.get("purpose").and_then(|value| value.as_str())?;
+        return Some(cap_chars(&format!("purpose={purpose}"), ARGS_SUMMARY_MAX));
+    }
+    // An abort's reason is the same kind of claim, recorded under the id the row carries.
+    if tool == "txn.abort" {
+        let reason = args.get("reason").and_then(|value| value.as_str())?;
+        return Some(cap_chars(&format!("reason={reason}"), ARGS_SUMMARY_MAX));
+    }
     if tool.starts_with("terminal.") {
         let session = args
             .get("session_id")
@@ -1544,7 +2137,10 @@ fn summarize_args(tool: &str, args: &serde_json::Map<String, serde_json::Value>)
         return None;
     }
     let command = args.get("command").and_then(|value| value.as_str())?;
-    Some(cap_chars(&format!("command={}", scrub_command(command)), ARGS_SUMMARY_MAX))
+    Some(cap_chars(
+        &format!("command={}", scrub_command(command)),
+        ARGS_SUMMARY_MAX,
+    ))
 }
 
 /// Remove the shapes a credential takes inside a command line. Key-name scrubbing does not reach
@@ -1560,7 +2156,10 @@ fn scrub_command(command: &str) -> String {
             hide_next = false;
             continue;
         }
-        if ["srm_", "sk-", "ghp_", "xoxb-", "akia"].iter().any(|prefix| lower.starts_with(prefix)) {
+        if ["srm_", "sk-", "ghp_", "xoxb-", "akia"]
+            .iter()
+            .any(|prefix| lower.starts_with(prefix))
+        {
             out.push("***".to_owned());
             continue;
         }
@@ -1571,9 +2170,17 @@ fn scrub_command(command: &str) -> String {
         }
         if let Some((name, _value)) = word.split_once('=') {
             let name = name.to_ascii_lowercase();
-            if ["token", "secret", "password", "passwd", "apikey", "api_key", "authorization"]
-                .iter()
-                .any(|needle| name.contains(needle))
+            if [
+                "token",
+                "secret",
+                "password",
+                "passwd",
+                "apikey",
+                "api_key",
+                "authorization",
+            ]
+            .iter()
+            .any(|needle| name.contains(needle))
             {
                 out.push(format!("{name}=***"));
                 continue;
@@ -1591,9 +2198,19 @@ fn scrub_command(command: &str) -> String {
 
 fn looks_secret_key(key: &str) -> bool {
     let key = key.to_ascii_lowercase();
-    ["token", "secret", "password", "passwd", "credential", "authorization", "api_key", "apikey", "private_key"]
-        .iter()
-        .any(|needle| key.contains(needle))
+    [
+        "token",
+        "secret",
+        "password",
+        "passwd",
+        "credential",
+        "authorization",
+        "api_key",
+        "apikey",
+        "private_key",
+    ]
+    .iter()
+    .any(|needle| key.contains(needle))
 }
 
 fn looks_secret_value(value: &str) -> bool {
@@ -1616,6 +2233,20 @@ fn run_id_of(tool: &str, text: &str) -> Option<String> {
 }
 
 fn summarize_outcome(tool: &str, text: &str) -> Option<String> {
+    // A transaction's declaration is what the end line must carry for an orphan group: `started`
+    // when it began, `committed`/`aborted` when it ended (the receipt's own state, not a word the
+    // caller asks us to write).
+    if tool.starts_with("txn.") {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(text) {
+            if let Some(state) = value.get("state").and_then(|state| state.as_str()) {
+                return Some(cap_chars(state, OUTCOME_SUMMARY_MAX));
+            }
+            if value.get("txn").is_some() {
+                return Some("started".to_owned());
+            }
+        }
+        return None;
+    }
     // THE END LINE IS AS SENSITIVE AS THE BEGIN LINE. Only `runs.exec` reports an outcome here: its
     // answer is a run record (exit code, state). Every other tool's answer can be payload — a file's
     // text, a memory entry — and copying its first line into the audit would put that payload back
@@ -1699,7 +2330,10 @@ mod tests {
     use crate::store::Store;
     use crate::test_support::TempDir;
 
-    use super::{forward_list_keys, input_schema, registry_tools, MAX_BODY_BYTES, MAX_FILE_BYTES};
+    use super::{
+        forward_list_keys, input_schema, registry_tools, with_working_txn_arg, MAX_BODY_BYTES,
+        MAX_FILE_BYTES, WORKING_TXN_ARG,
+    };
     use crate::capabilities::forward::ForwardState;
 
     const TOKEN: [u8; 32] = [0x6b; 32];
@@ -1785,6 +2419,14 @@ mod tests {
 
     /// The smallest streamable-HTTP MCP client this test needs: one JSON-RPC message per POST,
     /// the session id from `initialize`, SSE framing read as the server sends it.
+    ///
+    /// **A CLIENT THAT FOLLOWS THE CONTRACT.** Every `Required` call needs a working transaction,
+    /// so [`Client::call`] mints the one a real client must mint: a session-bound transaction the
+    /// first time a call names a session, and a device-scope one the first time a call names none.
+    /// Both are begun through the tool surface, so both are audit rows, and the id is passed
+    /// explicitly (the direct `/mcp` door is `install`, which has no device-scope slot). A test that
+    /// exercises a refusal uses [`Client::call_raw`], which sends exactly the arguments it was
+    /// given — the device is the thing under test there.
     struct Client {
         http: reqwest::Client,
         url: String,
@@ -1792,6 +2434,10 @@ mod tests {
         session: Option<String>,
         protocol_version: Option<String>,
         next_id: u64,
+        /// The session-bound transactions this client has begun, by session id.
+        session_txns: std::collections::HashMap<String, String>,
+        /// The device-scope transaction this client has begun, when it needed one.
+        device_txn: Option<String>,
     }
 
     impl Client {
@@ -1803,6 +2449,8 @@ mod tests {
                 session: None,
                 protocol_version: None,
                 next_id: 1,
+                session_txns: std::collections::HashMap::new(),
+                device_txn: None,
             }
         }
 
@@ -1884,7 +2532,56 @@ mod tests {
             .await
         }
 
-        async fn call(&mut self, name: &str, arguments: Value) -> Value {
+        /// One tool call as a client that follows the transaction contract.
+        ///
+        /// A `Required` tool gets a working transaction of the scope its arguments name: a
+        /// session-bound one for a call that names a session, a device-scope one for a call that
+        /// names none. The transaction is begun through the tool surface the first time it is
+        /// needed, so the audit holds its `txn.begin` row, and its id is passed explicitly.
+        async fn call(&mut self, name: &str, mut arguments: Value) -> Value {
+            let policy = summrise_core::registry::txn_policy(name);
+            if policy == Some(summrise_core::TxnPolicy::Required) {
+                let session = summrise_core::registry::session_arg(name)
+                    .and_then(|argument| arguments.get(argument))
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
+                let txn = match session {
+                    Some(session) => match self.session_txns.get(&session).cloned() {
+                        Some(txn) => txn,
+                        None => {
+                            let opened = self
+                                .call_raw(
+                                    "txn.begin",
+                                    json!({ "session": session, "purpose": "test harness work" }),
+                                )
+                                .await;
+                            let txn = txn_id_of(&opened);
+                            self.session_txns.insert(session, txn.clone());
+                            txn
+                        }
+                    },
+                    None => match self.device_txn.clone() {
+                        Some(txn) => txn,
+                        None => {
+                            let opened = self
+                                .call_raw(
+                                    "txn.begin",
+                                    json!({ "purpose": "test harness machine work" }),
+                                )
+                                .await;
+                            let txn = txn_id_of(&opened);
+                            self.device_txn = Some(txn.clone());
+                            txn
+                        }
+                    },
+                };
+                arguments["txn"] = json!(txn);
+            }
+            self.call_raw(name, arguments).await
+        }
+
+        /// One tool call with exactly the arguments given: the raw client a refusal test uses.
+        async fn call_raw(&mut self, name: &str, arguments: Value) -> Value {
             let response = self
                 .request(
                     "tools/call",
@@ -1917,6 +2614,23 @@ mod tests {
         message["result"]["content"][0]["text"]
             .as_str()
             .unwrap_or_else(|| panic!("a text result: {message}"))
+    }
+
+    /// The transaction id a successful `txn.begin` answered.
+    fn txn_id_of(message: &Value) -> String {
+        assert_eq!(message["result"]["isError"], false, "{message}");
+        let answer: Value = serde_json::from_str(text_of(message)).expect("begin answers JSON");
+        answer["txn"]
+            .as_str()
+            .unwrap_or_else(|| panic!("txn.begin answers an id: {answer}"))
+            .to_owned()
+    }
+
+    /// The JSON body a successful tool call answered.
+    fn json_of(message: &Value) -> Value {
+        serde_json::from_str(text_of(message)).unwrap_or_else(|error| {
+            panic!("the tool's text is JSON ({error}): {:?}", text_of(message))
+        })
     }
 
     /// The audit lines written under one config's data directory.
@@ -2011,8 +2725,8 @@ mod tests {
         assert!(
             restart_schema["properties"]
                 .as_object()
-                .is_some_and(|properties| properties.is_empty()),
-            "a restart names no arguments: {restart_schema:?}"
+                .is_some_and(|properties| properties.keys().all(|name| name == WORKING_TXN_ARG)),
+            "a restart's only advertised argument is the surface's transaction override: {restart_schema:?}"
         );
         assert_eq!(schema("memory.append")["required"], json!(["text"]));
         assert_eq!(
@@ -2082,6 +2796,11 @@ mod tests {
             "string"
         );
         assert_eq!(
+            schema("terminal.create")["properties"]["goal"]["type"],
+            "string",
+            "a create may declare what the session is for"
+        );
+        assert_eq!(
             schema("terminal.create")["properties"]["port"]["oneOf"],
             json!([
                 {
@@ -2145,6 +2864,45 @@ mod tests {
             "a list has no arguments"
         );
         assert_eq!(
+            schema("terminal.goal")["required"],
+            json!(["id", "action"]),
+            "a goal call names the session and what to do"
+        );
+        assert_eq!(
+            schema("terminal.goal")["properties"]["action"]["enum"],
+            json!(["set", "clear"]),
+            "the goal has exactly two actions"
+        );
+        assert_eq!(
+            schema("terminal.goal")["properties"]["goal"]["type"],
+            "string",
+            "set names the sentence it writes"
+        );
+        assert_eq!(
+            schema("txn.begin")["required"],
+            json!(["purpose"]),
+            "a transaction names what it is for"
+        );
+        assert_eq!(
+            schema("txn.begin")["properties"]["session"]["type"],
+            json!("string"),
+            "a begin binds to a session, or names none for the machine"
+        );
+        assert_eq!(
+            schema("txn.begin")["properties"]["goal"]["type"],
+            json!("string"),
+            "a session-bound begin may write the session's goal"
+        );
+        assert_eq!(
+            schema("txn.commit")["required"],
+            json!(["txn"]),
+            "an ending names the record it ends"
+        );
+        assert_eq!(
+            schema("txn.abort")["properties"]["reason"]["type"],
+            json!("string")
+        );
+        assert_eq!(
             schema("browser.open")["required"],
             json!(["url"]),
             "an open names the URL it loads"
@@ -2165,10 +2923,11 @@ mod tests {
             json!({}),
             "a list has no arguments"
         );
-        assert_eq!(
-            schema("browser.shutdown")["properties"],
-            json!({}),
-            "a shutdown has no arguments"
+        assert!(
+            schema("browser.shutdown")["properties"]
+                .as_object()
+                .is_some_and(|properties| properties.keys().all(|name| name == WORKING_TXN_ARG)),
+            "a shutdown's only advertised argument is the surface's transaction override"
         );
         assert_eq!(
             schema("monitor.add")["required"],
@@ -2373,6 +3132,7 @@ mod tests {
                 "terminal.resize",
                 "terminal.close",
                 "terminal.list",
+                "terminal.goal",
                 "terminal.screen",
                 "browser.list",
                 "browser.open",
@@ -2409,6 +3169,9 @@ mod tests {
                 "plugins.remove",
                 "plugins.restart",
                 "plugins.logs",
+                "txn.begin",
+                "txn.commit",
+                "txn.abort",
             ],
             "the wire surface is the registry's surface"
         );
@@ -3764,10 +4527,15 @@ mod tests {
         );
         assert_eq!(
             session.as_object().expect("a list row is an object").len(),
-            3,
-            "the list row is exactly {{id, kind, started_at_ms}}: {session}"
+            5,
+            "the list row is exactly {{id, kind, started_at_ms, holder, goal}}: {session}"
         );
-
+        assert_eq!(
+            session["holder"],
+            json!({ "kind": "install", "token_id": null }),
+            "the install door opened this session: {session}"
+        );
+        assert!(session["goal"].is_null(), "no goal was declared: {session}");
         let closed = client.call("terminal.close", json!({ "id": id })).await;
         assert_eq!(closed["result"]["isError"], false, "{closed}");
 
@@ -3794,6 +4562,202 @@ mod tests {
             text_of(&after).contains("unknown or has been closed"),
             "a closed id is a typed refusal: {after}"
         );
+    }
+
+    /// One tools/call as a named door, for the tests that exercise attribution rather than HTTP.
+    async fn call_as(
+        server: &super::DeviceServer,
+        caller: super::Caller<'_>,
+        name: &str,
+        arguments: Value,
+    ) -> Value {
+        server
+            .handle(
+                &json!({
+                    "jsonrpc": "2.0",
+                    "id": 5,
+                    "method": "tools/call",
+                    "params": { "name": name, "arguments": arguments }
+                }),
+                caller,
+            )
+            .await
+    }
+
+    #[tokio::test]
+    async fn a_session_records_the_door_that_opened_it() {
+        let (server, _config, _dir) = console_server("mcp-session-holder-doors");
+        let scopes = vec![
+            "terminal.create".to_owned(),
+            "terminal.list".to_owned(),
+            "terminal.close".to_owned(),
+            "txn.begin".to_owned(),
+        ];
+        let grant = summrise_core::grant::Grant {
+            device_id: "ab".repeat(32),
+            tools: scopes.clone(),
+            expires_at_ms: (crate::http::now_ms() + 60_000) as u64,
+            allow_destructive: true,
+            nonce: String::new(),
+        };
+        let console = super::Caller::Console {
+            token_id: "operator",
+            scopes: &scopes,
+            allow_destructive: true,
+            arrival: super::Arrival::Console,
+            trace: None,
+        };
+        let token = super::Caller::Console {
+            token_id: "tok-7f",
+            scopes: &scopes,
+            allow_destructive: true,
+            arrival: super::Arrival::Console,
+            trace: None,
+        };
+        let grant_door = super::Caller::Granted {
+            grant: &grant,
+            arrival: super::Arrival::Console,
+            peer: None,
+            trace: None,
+        };
+        let mesh = super::Caller::Granted {
+            grant: &grant,
+            arrival: super::Arrival::Mesh,
+            peer: None,
+            trace: None,
+        };
+
+        let doors: [(&str, super::Caller<'_>, &str, Option<&str>); 5] = [
+            ("install", super::Caller::Owner, "install", None),
+            ("console", console, "console", Some("operator")),
+            ("token", token, "token", Some("tok-7f")),
+            ("grant", grant_door, "grant", None),
+            ("mesh", mesh, "mesh", None),
+        ];
+        for (door, caller, kind, token_id) in doors {
+            let created =
+                call_as(&server, caller, "terminal.create", json!({ "kind": "pty" })).await;
+            assert_eq!(created["result"]["isError"], false, "{door}: {created}");
+            let created: Value = serde_json::from_str(text_of(&created)).expect("create is JSON");
+            let id = created["id"].as_str().expect("a session id").to_owned();
+
+            let listed = call_as(&server, caller, "terminal.list", json!({})).await;
+            assert_eq!(listed["result"]["isError"], false, "{door}: {listed}");
+            let sessions: Value = serde_json::from_str(text_of(&listed)).expect("list is JSON");
+            let session = sessions
+                .as_array()
+                .and_then(|sessions| sessions.iter().find(|session| session["id"] == id.as_str()))
+                .unwrap_or_else(|| panic!("{door}: the new session is listed: {sessions}"));
+            assert_eq!(session["holder"]["kind"], kind, "{door}: {session}");
+            assert_eq!(
+                session["holder"]["token_id"],
+                json!(token_id),
+                "{door}: {session}"
+            );
+
+            let begun = call_as(
+                &server,
+                caller,
+                "txn.begin",
+                json!({ "session": id.as_str(), "purpose": "close the session this test opened" }),
+            )
+            .await;
+            assert_eq!(begun["result"]["isError"], false, "{door}: {begun}");
+
+            let closed = call_as(
+                &server,
+                caller,
+                "terminal.close",
+                json!({ "id": id.as_str() }),
+            )
+            .await;
+            assert_eq!(closed["result"]["isError"], false, "{door}: {closed}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_goal_round_trips_and_clears_through_the_goal_tool() {
+        let (server, _config, _dir) = console_server("mcp-goal-tool");
+        let created = tools_call(&server, "terminal.create", json!({ "kind": "pty" })).await;
+        assert_eq!(created["result"]["isError"], false, "{created}");
+        let created: Value = serde_json::from_str(text_of(&created)).expect("create is JSON");
+        let id = created["id"].as_str().expect("a session id").to_owned();
+
+        let set = tools_call(
+            &server,
+            "terminal.goal",
+            json!({ "id": id, "action": "set", "goal": "  ship the spine  " }),
+        )
+        .await;
+        assert_eq!(set["result"]["isError"], false, "{set}");
+        let answer: Value = serde_json::from_str(text_of(&set)).expect("goal is JSON");
+        assert_eq!(answer["id"], id);
+        assert_eq!(
+            answer["goal"]["text"], "ship the spine",
+            "the answer holds the sentence as stored: {answer}"
+        );
+        assert_eq!(
+            answer["goal"]["by"],
+            json!({ "kind": "install", "token_id": null }),
+            "the caller that wrote it is its author: {answer}"
+        );
+        assert!(
+            answer["goal"]["at_ms"].as_i64().is_some_and(|at| at > 0),
+            "the goal carries when it was written: {answer}"
+        );
+
+        let listed = tools_call(&server, "terminal.list", json!({})).await;
+        let sessions: Value = serde_json::from_str(text_of(&listed)).expect("list is JSON");
+        assert_eq!(
+            sessions[0]["goal"]["text"], "ship the spine",
+            "the list answers the recorded goal: {sessions}"
+        );
+
+        let cleared = tools_call(
+            &server,
+            "terminal.goal",
+            json!({ "id": id, "action": "clear" }),
+        )
+        .await;
+        assert_eq!(cleared["result"]["isError"], false, "{cleared}");
+        let answer: Value = serde_json::from_str(text_of(&cleared)).expect("goal is JSON");
+        assert!(
+            answer["goal"].is_null(),
+            "clearing answers absence: {answer}"
+        );
+
+        let listed = tools_call(&server, "terminal.list", json!({})).await;
+        let sessions: Value = serde_json::from_str(text_of(&listed)).expect("list is JSON");
+        assert!(
+            sessions[0]["goal"].is_null(),
+            "the cleared goal is gone from the list: {sessions}"
+        );
+
+        let bad = tools_call(
+            &server,
+            "terminal.goal",
+            json!({ "id": id, "action": "set", "goal": "a\nb" }),
+        )
+        .await;
+        assert_eq!(
+            bad["error"]["code"],
+            json!(-32602),
+            "a goal that is not one sentence is an argument error: {bad}"
+        );
+        let clear_with_goal = tools_call(
+            &server,
+            "terminal.goal",
+            json!({ "id": id, "action": "clear", "goal": "still here" }),
+        )
+        .await;
+        assert_eq!(
+            clear_with_goal["error"]["code"],
+            json!(-32602),
+            "clear takes no goal: {clear_with_goal}"
+        );
+
+        let closed = tools_call(&server, "terminal.close", json!({ "id": id })).await;
+        assert_eq!(closed["result"]["isError"], false, "{closed}");
     }
 
     #[tokio::test]
@@ -4523,11 +5487,9 @@ mod tests {
         assert_eq!(message["result"]["isError"], false, "{message}");
 
         let lines = audit_lines(&device);
-        assert_eq!(lines.len(), 2, "one call, a begin and an end: {lines:?}");
-
-        let begin = &lines[0];
-        assert_eq!(begin["event"], "begin");
-        assert_eq!(begin["tool"], "files.write");
+        // The harness begins a device-scope transaction through the tool surface, so the file
+        // holds that pair too; the assertion is about the call this test made.
+        let begin = audit_half(&lines, "files.write", "begin");
         assert_eq!(begin["decision"], "allow");
         assert!(
             begin["ok"].is_null(),
@@ -4538,7 +5500,7 @@ mod tests {
             "the line carries the device's clock: {begin:?}"
         );
 
-        let end = &lines[1];
+        let end = audit_half(&lines, "files.write", "end");
         assert_eq!(end["event"], "end");
         assert_eq!(end["ok"], true);
         assert!(
@@ -4631,12 +5593,12 @@ mod tests {
         );
 
         let lines = audit_lines(&device);
-        assert_eq!(lines.len(), 2, "a failed call is still one call: {lines:?}");
-        assert_eq!(lines[0]["event"], "begin");
-        assert_eq!(lines[0]["decision"], "allow");
-        assert_eq!(lines[1]["event"], "end");
-        assert_eq!(lines[1]["ok"], false, "a refused read is a failed call");
-        assert_eq!(lines[1]["error_kind"], "refused");
+        // The harness's own `txn.begin` pair is in the file; the failed read is this test's call.
+        let begin = audit_half(&lines, "files.read", "begin");
+        assert_eq!(begin["decision"], "allow");
+        let end = audit_half(&lines, "files.read", "end");
+        assert_eq!(end["ok"], false, "a refused read is a failed call");
+        assert_eq!(end["error_kind"], "refused");
     }
 
     #[tokio::test]
@@ -4666,10 +5628,7 @@ mod tests {
             "the audit line records the error kind, not the argument: {raw}"
         );
         let lines = audit_lines(&device);
-        let end = lines
-            .iter()
-            .find(|line| line["event"] == "end")
-            .expect("the call has an end line");
+        let end = audit_half(&lines, "memory.search", "end");
         assert_eq!(end["ok"], false);
         assert_eq!(end["error_kind"], "arguments");
     }
@@ -4682,15 +5641,49 @@ mod tests {
         let summary = super::summarize_args("runs.exec", args.as_object().expect("object"))
             .expect("a command is summarized");
         assert!(summary.contains("command="), "{summary}");
-        assert!(summary.contains("***"), "credential shapes are replaced: {summary}");
-        assert!(!summary.contains("srm_abc123456789"), "the token is gone: {summary}");
-        assert!(!summary.contains("hunter2"), "the password is gone: {summary}");
-        assert!(super::summarize_args("memory.save", args.as_object().expect("object")).is_none(),
-            "only runs.exec and the terminal tools get their arguments into the audit");
+        assert!(
+            summary.contains("***"),
+            "credential shapes are replaced: {summary}"
+        );
+        assert!(
+            !summary.contains("srm_abc123456789"),
+            "the token is gone: {summary}"
+        );
+        assert!(
+            !summary.contains("hunter2"),
+            "the password is gone: {summary}"
+        );
+        assert!(
+            super::summarize_args("memory.save", args.as_object().expect("object")).is_none(),
+            "only runs.exec and the terminal tools get their arguments into the audit"
+        );
         let terminal = serde_json::json!({ "session_id": "session-3", "data": "echo hi\r" });
         assert_eq!(
             super::summarize_args("terminal.write", terminal.as_object().expect("object")),
             Some("session=session-3".to_owned())
+        );
+        // A goal is a claim, not an operation an operator needs replayed: the audit names the
+        // session and the action, and never the sentence a client wrote about itself. The action is
+        // what tells Task 4's goal divider whether the claim was set or cleared.
+        for (action, expected) in [
+            ("set", "session=session-3 action=set"),
+            ("clear", "session=session-3 action=clear"),
+        ] {
+            let goal = serde_json::json!({
+                "id": "session-3",
+                "action": action,
+                "goal": "read the operator's private notes"
+            });
+            assert_eq!(
+                super::summarize_args("terminal.goal", goal.as_object().expect("object")),
+                Some(expected.to_owned()),
+                "the summary names the session and the action, never the goal text"
+            );
+        }
+        let clear = serde_json::json!({ "id": "session-3", "action": "clear" });
+        assert_eq!(
+            super::summarize_args("terminal.goal", clear.as_object().expect("object")),
+            Some("session=session-3 action=clear".to_owned())
         );
     }
 
@@ -4707,11 +5700,14 @@ mod tests {
         assert!(message.get("result").is_some(), "{message}");
 
         let lines = audit_lines(&device);
-        let begin = lines.iter().find(|line| line["event"] == "begin").expect("begin");
+        let begin = audit_half(&lines, "runs.exec", "begin");
         let args = begin["args"].as_str().expect("the command is summarized");
-        assert_eq!(args, "command=echo", "the command an operator can read: {args}");
+        assert_eq!(
+            args, "command=echo",
+            "the command an operator can read: {args}"
+        );
 
-        let end = lines.iter().find(|line| line["event"] == "end").expect("end");
+        let end = audit_half(&lines, "runs.exec", "end");
         assert_eq!(end["outcome"], "exit 0", "the end names its outcome: {end}");
     }
 
@@ -4730,6 +5726,8 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
+                false,
             )
             .await;
 
@@ -4742,6 +5740,17 @@ mod tests {
         assert_eq!(line["event"], "begin");
         assert_eq!(line["tool"], "files.write");
         assert_eq!(line["decision"], "allow");
+        // A call with no transaction does not carry the key at all: the audit omits the field when
+        // there is nothing to group under, and `line["txn"]` reads as null either way.
+        assert!(
+            line.as_object()
+                .is_some_and(|line| !line.contains_key("txn")),
+            "a call with no transaction carries no txn field: {line}"
+        );
+        assert!(
+            line["txn"].is_null(),
+            "no transaction fired this call: {line}"
+        );
     }
 
     #[tokio::test]
@@ -4752,7 +5761,18 @@ mod tests {
 
         assert!(
             !audit
-            .begin(1, 1, "files.write", "allow", super::Arrival::Loopback, None, None, None)
+            .begin(
+                1,
+                1,
+                "files.write",
+                "allow",
+                super::Arrival::Loopback,
+                None,
+                None,
+                None,
+                None,
+                false,
+            )
             .await,
             "the caller must be able to refuse the call when its authorization line cannot be written"
         );
@@ -4774,6 +5794,8 @@ mod tests {
                     None,
                     None,
                     None,
+                    None,
+                    false,
                 )
                 .await;
             audit
@@ -4783,6 +5805,7 @@ mod tests {
                     true,
                     None,
                     super::Arrival::Loopback,
+                    None,
                     None,
                     None,
                     None,
@@ -4999,17 +6022,72 @@ mod tests {
     fn every_migrated_schema_comes_from_its_declaration() {
         for capability in summrise_core::capabilities::DECLARED {
             for declared in capability.tools {
-                let schema = (declared
-                    .schema
-                    .expect("a migrated tool declares its schema"))();
+                let schema = with_working_txn_arg(
+                    declared.name,
+                    (declared
+                        .schema
+                        .expect("a migrated tool declares its schema"))(),
+                );
                 let advertised =
                     summrise_core::registry::tool(declared.name).expect("in the registry");
                 assert_eq!(
                     input_schema(advertised),
                     schema,
-                    "{}: the advertised schema is the declared one",
+                    "{}: the advertised schema is the declared one plus the surface's txn override",
                     declared.name
                 );
+            }
+        }
+    }
+
+    /// **EVERY REQUIRED TOOL TELLS A CLIENT IT MAY NAME ITS TRANSACTION.** The gate accepts a `txn`
+    /// argument and strips it before the capability's parser; a schema that says
+    /// `additionalProperties: false` and never lists `txn` hides the override from a client that
+    /// validates its own arguments. The property is optional (inheritance needs no argument) and
+    /// absent from every exempt tool.
+    #[test]
+    fn every_required_tool_advertises_the_transaction_override() {
+        for capability in summrise_core::registry::CAPABILITIES {
+            for declared in capability.tools {
+                let schema = input_schema(declared);
+                let property = schema["properties"].get(WORKING_TXN_ARG);
+                let policy = summrise_core::registry::txn_policy(declared.name)
+                    .unwrap_or(summrise_core::TxnPolicy::Required);
+                if policy == summrise_core::TxnPolicy::Required {
+                    assert_eq!(
+                        property.and_then(|property| property["type"].as_str()),
+                        Some("string"),
+                        "{}: a Required tool advertises its txn override",
+                        declared.name
+                    );
+                    assert!(
+                        !schema["required"]
+                            .as_array()
+                            .is_some_and(|required| required
+                                .iter()
+                                .any(|name| name == WORKING_TXN_ARG)),
+                        "{}: the override is optional, because inheritance needs no argument",
+                        declared.name
+                    );
+                } else if let Some(property) = property {
+                    // `txn.commit`/`txn.abort` have a `txn` argument of their own: the record they
+                    // end, required on the wire. It is not the gate's override, which an exempt
+                    // call never rides.
+                    assert!(
+                        schema["required"]
+                            .as_array()
+                            .is_some_and(|required| required
+                                .iter()
+                                .any(|name| name == WORKING_TXN_ARG)),
+                        "{}: an exempt tool's txn property is its own required argument",
+                        declared.name
+                    );
+                    assert_eq!(
+                        property["type"], "string",
+                        "{}: its own txn is a string id",
+                        declared.name
+                    );
+                }
             }
         }
     }
@@ -5370,7 +6448,7 @@ mod tests {
     fn every_schemas_required_set_is_the_parsers_required_set() {
         // The pairs, written out because the mapping is a fact of this module and not of a name
         // convention: a handler parses ONE struct, and this test needs to know which.
-        let pairs: [(&str, Required); 51] = [
+        let pairs: [(&str, Required); 55] = [
             (
                 "files.read",
                 Required::new(&["path"], &["root", "encoding"]),
@@ -5404,6 +6482,7 @@ mod tests {
                         "stop_bits",
                         "rows",
                         "cols",
+                        "goal",
                     ],
                 ),
             ),
@@ -5418,6 +6497,7 @@ mod tests {
             ),
             ("terminal.close", Required::new(&["id"], &[])),
             ("terminal.list", Required::new(&[], &[])),
+            ("terminal.goal", Required::new(&["id", "action"], &["goal"])),
             ("terminal.screen", Required::new(&["id"], &["lines"])),
             ("browser.list", Required::new(&[], &[])),
             (
@@ -5474,6 +6554,12 @@ mod tests {
             ("plugins.remove", Required::new(&["namespace"], &[])),
             ("plugins.restart", Required::new(&["namespace"], &[])),
             ("plugins.logs", Required::new(&["namespace"], &["lines"])),
+            (
+                "txn.begin",
+                Required::new(&["purpose"], &["session", "goal"]),
+            ),
+            ("txn.commit", Required::new(&["txn"], &[])),
+            ("txn.abort", Required::new(&["txn"], &["reason"])),
         ];
 
         let mut wrong = Vec::new();
@@ -5498,9 +6584,17 @@ mod tests {
                 })
                 .unwrap_or_default();
             // Every name the schema offers is either required or declared-optional here; a property
-            // in neither list is a field this test does not know about, which is the failure.
+            // in neither list is a field this test does not know about, which is the failure. The
+            // one surface-level exception is `txn`: the gate reads and strips it, so the capability's
+            // parser never sees it, and it is not one of the struct's fields.
+            let surface_override = summrise_core::registry::txn_policy(tool)
+                == Some(summrise_core::TxnPolicy::Required)
+                && properties.iter().any(|name| name == WORKING_TXN_ARG);
             let mut unknown = Vec::new();
             for property in &properties {
+                if property == WORKING_TXN_ARG && surface_override {
+                    continue;
+                }
                 if !expected.required.iter().any(|name| name == property)
                     && !expected.optional.iter().any(|name| name == property)
                 {
@@ -5657,13 +6751,14 @@ mod tests {
     }
 
     async fn host_restart(server: &super::DeviceServer, id: u64) -> Value {
+        let txn = fixture_txn(server);
         server
             .handle(
                 &json!({
                     "jsonrpc": "2.0",
                     "id": id,
                     "method": "tools/call",
-                    "params": { "name": "host.restart", "arguments": {} }
+                    "params": { "name": "host.restart", "arguments": { "txn": txn } }
                 }),
                 super::Caller::Owner,
             )
@@ -6019,8 +7114,48 @@ mod tests {
         events
     }
 
-    async fn tools_call(server: &super::DeviceServer, name: &str, arguments: Value) -> Value {
+    /// A device-scope transaction begun directly on the registry, for the tests that drive the
+    /// handler without a client. No audit pair is written: the test measures its own call.
+    fn fixture_txn(server: &super::DeviceServer) -> String {
         server
+            .txns()
+            .begin(
+                summrise_core::Holder::install(),
+                "test fixture work",
+                None,
+                None,
+                crate::http::now_ms(),
+            )
+            .expect("the fixture begins a transaction")
+            .id()
+            .as_str()
+            .to_owned()
+    }
+
+    async fn tools_call(server: &super::DeviceServer, name: &str, mut arguments: Value) -> Value {
+        // The in-process fixture is a client too: a `Required` tool gets a working transaction of
+        // the scope its arguments name, begun and ended directly on the registry (no extra audit
+        // rows), so the test measures the call it asked for rather than the fixture's own pair.
+        let mut txn = None;
+        if summrise_core::registry::txn_policy(name) == Some(summrise_core::TxnPolicy::Required) {
+            let session = summrise_core::registry::session_arg(name)
+                .and_then(|argument| arguments.get(argument))
+                .and_then(Value::as_str)
+                .map(summrise_core::SessionRef::new);
+            let opened = server
+                .txns()
+                .begin(
+                    summrise_core::Holder::install(),
+                    "test fixture work",
+                    session,
+                    None,
+                    crate::http::now_ms(),
+                )
+                .expect("the fixture begins a transaction");
+            arguments["txn"] = json!(opened.id().as_str());
+            txn = Some(opened.id().clone());
+        }
+        let reply = server
             .handle(
                 &json!({
                     "jsonrpc": "2.0",
@@ -6030,7 +7165,18 @@ mod tests {
                 }),
                 super::Caller::Owner,
             )
-            .await
+            .await;
+        if let Some(txn) = txn {
+            let _ = server.txns().end(
+                &txn,
+                &summrise_core::Holder::install(),
+                summrise_core::TxnState::Committed,
+                None,
+                None,
+                crate::http::now_ms(),
+            );
+        }
+        reply
     }
 
     #[tokio::test]
@@ -6068,7 +7214,14 @@ mod tests {
         );
         assert_eq!(calls[1].seq, calls[0].seq + 1, "the pair is adjacent");
         assert_eq!(calls[0].payload["tool"], "host.facts");
+        assert_eq!(calls[0].payload["door"], "loopback");
+        assert_eq!(calls[0].payload["row_kind"], "call");
         assert_eq!(calls[1].payload["ok"], true);
+        assert_eq!(
+            calls[1].payload["door"], "loopback",
+            "the finished half names the door too: {:?}",
+            calls[1].payload
+        );
         // The journal's pair and the audit line describe the same call: one id, one row each.
         let audit = audit_lines_of(&config);
         assert_eq!(
@@ -6119,7 +7272,9 @@ mod tests {
         );
         assert_eq!(calls[1].payload["reason"], "denied");
         assert_eq!(calls[1].payload["ok"], false);
+        assert_eq!(calls[1].payload["door"], "console");
         assert_eq!(calls[0].payload["tool"], "files.write");
+        assert_eq!(calls[0].payload["door"], "console");
         assert_eq!(calls[0].subject, Some(json!({ "token": "tok-1" })));
     }
 
@@ -6143,6 +7298,8 @@ mod tests {
             "an unknown tool is refused before dispatch, and the pair still names why: {calls:?}"
         );
         assert_eq!(calls[1].payload["reason"], "unknown_tool");
+        assert_eq!(calls[1].payload["door"], "loopback");
+        assert_eq!(calls[1].payload["row_kind"], "call.denied");
     }
 
     #[tokio::test]
@@ -6157,6 +7314,7 @@ mod tests {
     #[tokio::test]
     async fn a_loopback_context_is_still_the_owner_through_the_console_handler() {
         let (server, config, _dir) = console_server("console-owner");
+        let txn = fixture_txn(&server);
 
         let reply = server
             .handle(
@@ -6166,7 +7324,7 @@ mod tests {
                     "method": "tools/call",
                     "params": {
                         "name": "files.write",
-                        "arguments": { "path": "owner.txt", "content": "owner" }
+                        "arguments": { "path": "owner.txt", "content": "owner", "txn": txn }
                     }
                 }),
                 super::Caller::Owner,
@@ -6229,6 +7387,7 @@ mod tests {
     #[tokio::test]
     async fn a_console_token_call_records_its_token_id_on_the_allow_line() {
         let (server, config, _dir) = console_server("console-token-allow");
+        let txn = fixture_txn(&server);
         let scopes = vec!["files.read".to_owned()];
         let caller = super::Caller::Console {
             token_id: "tok-9",
@@ -6243,7 +7402,7 @@ mod tests {
                     "jsonrpc": "2.0",
                     "id": 6,
                     "method": "tools/call",
-                    "params": { "name": "files.read", "arguments": { "path": "missing" } }
+                    "params": { "name": "files.read", "arguments": { "path": "missing", "txn": txn } }
                 }),
                 caller,
             )
@@ -6316,6 +7475,7 @@ mod tests {
     #[tokio::test]
     async fn a_grant_that_consents_runs_the_destructive_call() {
         let (server, config, _dir) = console_server("console-destructive-allow");
+        let txn = fixture_txn(&server);
         let grant = summrise_core::grant::Grant {
             device_id: "ab".repeat(32),
             tools: vec!["files.write".to_owned()],
@@ -6332,7 +7492,7 @@ mod tests {
                     "method": "tools/call",
                     "params": {
                         "name": "files.write",
-                        "arguments": { "path": "consented.txt", "content": "written" }
+                        "arguments": { "path": "consented.txt", "content": "written", "txn": txn }
                     }
                 }),
                 super::Caller::Granted {
@@ -6421,6 +7581,10 @@ mod tests {
         assert_eq!(plugin["annotations"]["idempotentHint"], true);
         assert_eq!(plugin["annotations"]["openWorldHint"], false);
         assert_eq!(plugin["inputSchema"]["required"], json!(["name"]));
+        assert_eq!(
+            plugin["inputSchema"]["properties"]["txn"]["type"], "string",
+            "a plugin tool is Required and advertises the surface's transaction override"
+        );
 
         let schema = |name: &str| {
             tools
@@ -6446,7 +7610,7 @@ mod tests {
                     "jsonrpc": "2.0",
                     "id": 2,
                     "method": "tools/call",
-                    "params": { "name": "hello.greet", "arguments": { "name": "Bob" } }
+                    "params": { "name": "hello.greet", "arguments": { "name": "Bob", "txn": fixture_txn(&server) } }
                 }),
                 super::Caller::Owner,
             )
@@ -6531,9 +7695,15 @@ mod tests {
 
         // A token that names it calls it: no plugin-specific authorization exists.
         let scopes = vec!["hello.greet".to_owned()];
+        let txn = fixture_txn(&server);
         let reply = server
             .handle(
-                &call(11, "hello.greet"),
+                &json!({
+                    "jsonrpc": "2.0",
+                    "id": 11,
+                    "method": "tools/call",
+                    "params": { "name": "hello.greet", "arguments": { "name": "Bob", "txn": txn } }
+                }),
                 super::Caller::Console {
                     token_id: "tok-8",
                     scopes: &scopes,
@@ -6586,6 +7756,7 @@ mod tests {
         let host = crate::plugins::test_support::host(&dir, Arc::clone(&launcher));
         let server = server.with_plugins(Arc::new(host));
         let source = crate::plugins::test_support::plugin_dir(&dir, "hello");
+        let txn = fixture_txn(&server);
 
         let call = |id: u64, name: &'static str, arguments: Value| {
             json!({
@@ -6622,7 +7793,7 @@ mod tests {
                 &call(
                     21,
                     "plugins.add",
-                    json!({ "path": source.display().to_string() }),
+                    json!({ "path": source.display().to_string(), "txn": txn }),
                 ),
                 super::Caller::Owner,
             )
@@ -6645,7 +7816,7 @@ mod tests {
                 &call(
                     23,
                     "plugins.logs",
-                    json!({ "namespace": "hello", "lines": 10 }),
+                    json!({ "namespace": "hello", "lines": 10, "txn": txn }),
                 ),
                 super::Caller::Owner,
             )
@@ -6656,7 +7827,11 @@ mod tests {
 
         let reply = server
             .handle(
-                &call(24, "plugins.remove", json!({ "namespace": "hello" })),
+                &call(
+                    24,
+                    "plugins.remove",
+                    json!({ "namespace": "hello", "txn": txn }),
+                ),
                 super::Caller::Owner,
             )
             .await;
@@ -6670,7 +7845,11 @@ mod tests {
         // A plugin error is the tool-text shape, not an MCP protocol error.
         let reply = server
             .handle(
-                &call(25, "plugins.remove", json!({ "namespace": "hello" })),
+                &call(
+                    25,
+                    "plugins.remove",
+                    json!({ "namespace": "hello", "txn": txn }),
+                ),
                 super::Caller::Owner,
             )
             .await;
@@ -6714,5 +7893,1013 @@ mod tests {
         );
         assert!(server.plugins.tools().is_empty());
         assert!(super::registry::tool("plugins.list").is_some());
+    }
+
+    // ---- the gate: a machine call needs a working transaction --------------------------------
+
+    /// The audit row one call wrote, filtered by tool and half: a test must not mistake the
+    /// harness's own `txn.begin` pair for the call it is about.
+    fn audit_half<'a>(lines: &'a [Value], tool: &str, event: &str) -> &'a Value {
+        if event == "end" {
+            // An end line names no tool: it pairs with its begin by the audit's id.
+            let begin = audit_half(lines, tool, "begin");
+            return lines
+                .iter()
+                .find(|line| line["event"] == "end" && line["id"] == begin["id"])
+                .unwrap_or_else(|| panic!("{tool}'s end line is in {lines:?}"));
+        }
+        lines
+            .iter()
+            .find(|line| line["tool"] == tool && line["event"] == event)
+            .unwrap_or_else(|| panic!("{tool}'s {event} line is in {lines:?}"))
+    }
+
+    #[tokio::test]
+    async fn a_machine_call_without_a_transaction_is_refused_and_told_the_fix() {
+        let device = start("mcp-gate-required").await;
+        let mut client = Client::authorized(&device);
+        client.initialize().await;
+
+        let refused = client
+            .call_raw("files.write", json!({ "path": "x", "content": "y" }))
+            .await;
+
+        assert_eq!(refused["result"]["isError"], true, "{refused}");
+        let sentence = text_of(&refused);
+        assert!(
+            sentence.contains("this machine call needs a working transaction"),
+            "the refusal says what is missing: {sentence:?}"
+        );
+        assert!(
+            sentence.contains("txn.begin {session, purpose}")
+                && sentence.contains("txn.begin {purpose}"),
+            "the refusal names the fix for both scopes: {sentence:?}"
+        );
+        assert!(
+            !device.config.files_root.join("x").exists(),
+            "a refused call did not run"
+        );
+
+        let lines = audit_lines(&device);
+        let begin = audit_half(&lines, "files.write", "begin");
+        assert_eq!(begin["decision"], "deny", "{begin}");
+        assert!(
+            begin["txn"].is_null(),
+            "a call with no transaction carries none: {begin}"
+        );
+        let end = lines
+            .iter()
+            .find(|line| line["event"] == "end" && line["id"] == begin["id"])
+            .expect("the refusal has an end line");
+        assert_eq!(end["error_kind"], "txn_required", "{end}");
+    }
+
+    #[tokio::test]
+    async fn a_bootstrap_call_is_audited_with_no_transaction() {
+        let device = start("mcp-gate-bootstrap").await;
+        let mut client = Client::authorized(&device);
+        client.initialize().await;
+
+        let created = client
+            .call_raw("terminal.create", json!({ "kind": "pty" }))
+            .await;
+        assert_eq!(created["result"]["isError"], false, "{created}");
+
+        let lines = audit_lines(&device);
+        let begin = audit_half(&lines, "terminal.create", "begin");
+        assert_eq!(begin["decision"], "allow", "{begin}");
+        assert!(
+            begin["txn"].is_null(),
+            "creating the shell is what makes a transaction possible: {begin}"
+        );
+        assert_eq!(
+            begin["bootstrap"], true,
+            "the row says why it had no transaction: {begin}"
+        );
+        let end = lines
+            .iter()
+            .find(|line| line["event"] == "end" && line["id"] == begin["id"])
+            .expect("the call has an end line");
+        assert!(end["txn"].is_null(), "the end line names no txn: {end}");
+    }
+
+    #[tokio::test]
+    async fn an_exempt_read_is_audited_with_no_transaction() {
+        let device = start("mcp-gate-exempt").await;
+        let mut client = Client::authorized(&device);
+        client.initialize().await;
+
+        let listed = client.call_raw("terminal.list", json!({})).await;
+        assert_eq!(listed["result"]["isError"], false, "{listed}");
+
+        let lines = audit_lines(&device);
+        let begin = audit_half(&lines, "terminal.list", "begin");
+        assert!(begin["txn"].is_null(), "{begin}");
+        assert_eq!(begin["decision"], "allow", "{begin}");
+        assert!(
+            begin.get("bootstrap").is_none(),
+            "a read is exempt, not the call that makes a transaction possible: {begin}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_call_on_the_transactions_session_inherits_it() {
+        let device = start("mcp-gate-inherit").await;
+        let mut client = Client::authorized(&device);
+        client.initialize().await;
+        let created = client
+            .call_raw("terminal.create", json!({ "kind": "pty" }))
+            .await;
+        let id = json_of(&created)["id"]
+            .as_str()
+            .expect("a session id")
+            .to_owned();
+
+        let begun = client
+            .call_raw(
+                "txn.begin",
+                json!({ "session": id, "purpose": "verify the suite" }),
+            )
+            .await;
+        let txn = txn_id_of(&begun);
+
+        let written = client
+            .call_raw(
+                "terminal.write",
+                json!({ "id": id, "data": "echo inherited\n" }),
+            )
+            .await;
+        assert_eq!(written["result"]["isError"], false, "{written}");
+
+        let lines = audit_lines(&device);
+        let end = audit_half(&lines, "terminal.write", "end");
+        assert_eq!(
+            end["txn"],
+            json!(txn),
+            "the call on the session rides the session's transaction: {end}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_call_naming_another_session_is_refused() {
+        let device = start("mcp-gate-session-mismatch").await;
+        let mut client = Client::authorized(&device);
+        client.initialize().await;
+        let first = json_of(
+            &client
+                .call_raw("terminal.create", json!({ "kind": "pty" }))
+                .await,
+        )["id"]
+            .as_str()
+            .expect("a session id")
+            .to_owned();
+        let second = json_of(
+            &client
+                .call_raw("terminal.create", json!({ "kind": "pty" }))
+                .await,
+        )["id"]
+            .as_str()
+            .expect("a session id")
+            .to_owned();
+        let txn = txn_id_of(
+            &client
+                .call_raw(
+                    "txn.begin",
+                    json!({ "session": first, "purpose": "work on the first" }),
+                )
+                .await,
+        );
+
+        let refused = client
+            .call_raw(
+                "terminal.write",
+                json!({ "id": second, "txn": txn, "data": "echo wrong\n" }),
+            )
+            .await;
+
+        assert_eq!(refused["result"]["isError"], true, "{refused}");
+        assert!(
+            text_of(&refused).contains("another session"),
+            "the refusal names the rule: {}",
+            text_of(&refused)
+        );
+        let lines = audit_lines(&device);
+        let end = audit_half(&lines, "terminal.write", "end");
+        assert_eq!(end["error_kind"], "txn_session_mismatch", "{end}");
+        assert_eq!(end["txn"], json!(txn), "the denial carries the txn: {end}");
+    }
+
+    #[tokio::test]
+    async fn a_session_less_required_call_rides_the_callers_device_scope_transaction() {
+        let (server, config, _dir) = console_server("mcp-gate-device-scope");
+        let scopes = vec!["txn.begin".to_owned(), "files.write".to_owned()];
+        let caller = super::Caller::Console {
+            token_id: "tok-device",
+            scopes: &scopes,
+            allow_destructive: true,
+            arrival: super::Arrival::Console,
+            trace: None,
+        };
+
+        let begun = call_as(
+            &server,
+            caller,
+            "txn.begin",
+            json!({ "purpose": "write the machine's file" }),
+        )
+        .await;
+        let txn = txn_id_of(&begun);
+
+        let written = call_as(
+            &server,
+            caller,
+            "files.write",
+            json!({ "path": "machine.txt", "content": "written on the machine" }),
+        )
+        .await;
+
+        assert_eq!(written["result"]["isError"], false, "{written}");
+        assert_eq!(
+            fs::read_to_string(config.files_root.join("machine.txt"))
+                .expect("the write reached the files root"),
+            "written on the machine"
+        );
+        let lines = audit_lines_of(&config);
+        let end = audit_half(&lines, "files.write", "end");
+        assert_eq!(
+            end["txn"],
+            json!(txn),
+            "the machine call inherits the caller's device-scope transaction: {end}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_session_less_call_without_any_transaction_is_refused_and_told_the_fix() {
+        let device = start("mcp-gate-device-required").await;
+        let mut client = Client::authorized(&device);
+        client.initialize().await;
+
+        let refused = client
+            .call_raw("memory.append", json!({ "text": "no transaction" }))
+            .await;
+
+        assert_eq!(refused["result"]["isError"], true, "{refused}");
+        let sentence = text_of(&refused);
+        for form in ["txn.begin {session, purpose}", "txn.begin {purpose}"] {
+            assert!(
+                sentence.contains(form),
+                "the fix names {form:?}: {sentence}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_call_under_an_unknown_transaction_is_refused() {
+        let device = start("mcp-gate-unknown").await;
+        let mut client = Client::authorized(&device);
+        client.initialize().await;
+
+        let refused = client
+            .call_raw(
+                "files.write",
+                json!({ "path": "unknown.txt", "content": "x", "txn": "txn-999" }),
+            )
+            .await;
+
+        assert_eq!(refused["result"]["isError"], true, "{refused}");
+        assert!(
+            text_of(&refused).contains("no transaction with that id"),
+            "the refusal says the id is unknown: {}",
+            text_of(&refused)
+        );
+        assert!(
+            !device.config.files_root.join("unknown.txt").exists(),
+            "a call refused for its transaction did not run"
+        );
+        let lines = audit_lines(&device);
+        let end = audit_half(&lines, "files.write", "end");
+        assert_eq!(end["error_kind"], "txn_unknown", "{end}");
+        assert_eq!(
+            end["txn"],
+            json!("txn-999"),
+            "the denial carries the id the caller named: {end}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_txn_argument_that_is_not_an_id_is_refused() {
+        let device = start("mcp-gate-malformed-txn").await;
+        let mut client = Client::authorized(&device);
+        client.initialize().await;
+
+        let refused = client
+            .call_raw(
+                "files.write",
+                json!({ "path": "malformed.txt", "content": "x", "txn": 42 }),
+            )
+            .await;
+
+        assert_eq!(refused["result"]["isError"], true, "{refused}");
+        assert!(
+            text_of(&refused).contains("must be a transaction id string"),
+            "the refusal names the shape: {}",
+            text_of(&refused)
+        );
+        let lines = audit_lines(&device);
+        let begin = audit_half(&lines, "files.write", "begin");
+        assert_eq!(begin["decision"], "deny", "{begin}");
+        assert!(
+            begin["txn"].is_null(),
+            "a value that is not an id resolves no transaction: {begin}"
+        );
+        let end = audit_half(&lines, "files.write", "end");
+        assert_eq!(end["error_kind"], "txn_unknown", "{end}");
+    }
+
+    #[tokio::test]
+    async fn a_session_scoped_call_cannot_use_a_device_scope_transaction() {
+        let device = start("mcp-gate-scope-session").await;
+        let mut client = Client::authorized(&device);
+        client.initialize().await;
+        let id = json_of(
+            &client
+                .call_raw("terminal.create", json!({ "kind": "pty" }))
+                .await,
+        )["id"]
+            .as_str()
+            .expect("a session id")
+            .to_owned();
+        let machine = txn_id_of(
+            &client
+                .call_raw("txn.begin", json!({ "purpose": "work on the machine" }))
+                .await,
+        );
+
+        let refused = client
+            .call_raw(
+                "terminal.write",
+                json!({ "id": id, "txn": machine, "data": "echo scope\n" }),
+            )
+            .await;
+
+        assert_eq!(refused["result"]["isError"], true, "{refused}");
+        let lines = audit_lines(&device);
+        let end = audit_half(&lines, "terminal.write", "end");
+        assert_eq!(end["error_kind"], "txn_scope_mismatch", "{end}");
+        assert_eq!(end["txn"], json!(machine), "{end}");
+    }
+
+    #[tokio::test]
+    async fn a_device_scope_call_cannot_use_a_session_transaction() {
+        let device = start("mcp-gate-scope-machine").await;
+        let mut client = Client::authorized(&device);
+        client.initialize().await;
+        let id = json_of(
+            &client
+                .call_raw("terminal.create", json!({ "kind": "pty" }))
+                .await,
+        )["id"]
+            .as_str()
+            .expect("a session id")
+            .to_owned();
+        let session_txn = txn_id_of(
+            &client
+                .call_raw(
+                    "txn.begin",
+                    json!({ "session": id, "purpose": "work on the session" }),
+                )
+                .await,
+        );
+
+        let refused = client
+            .call_raw(
+                "files.write",
+                json!({ "path": "wrong.txt", "content": "x", "txn": session_txn }),
+            )
+            .await;
+
+        assert_eq!(refused["result"]["isError"], true, "{refused}");
+        let lines = audit_lines(&device);
+        let end = audit_half(&lines, "files.write", "end");
+        assert_eq!(end["error_kind"], "txn_scope_mismatch", "{end}");
+        assert_eq!(end["txn"], json!(session_txn), "{end}");
+    }
+
+    #[tokio::test]
+    async fn a_second_begin_on_the_same_session_is_refused() {
+        let device = start("mcp-gate-second-begin").await;
+        let mut client = Client::authorized(&device);
+        client.initialize().await;
+        let id = json_of(
+            &client
+                .call_raw("terminal.create", json!({ "kind": "pty" }))
+                .await,
+        )["id"]
+            .as_str()
+            .expect("a session id")
+            .to_owned();
+        let first = txn_id_of(
+            &client
+                .call_raw(
+                    "txn.begin",
+                    json!({ "session": id, "purpose": "the first attempt" }),
+                )
+                .await,
+        );
+
+        let second = client
+            .call_raw(
+                "txn.begin",
+                json!({ "session": id, "purpose": "the second attempt" }),
+            )
+            .await;
+
+        assert_eq!(second["result"]["isError"], true, "{second}");
+        assert!(
+            text_of(&second).contains("already open"),
+            "the refusal says one is open: {}",
+            text_of(&second)
+        );
+        let lines = audit_lines(&device);
+        let begins: Vec<&Value> = lines
+            .iter()
+            .filter(|line| line["tool"] == "txn.begin" && line["event"] == "begin")
+            .collect();
+        assert_eq!(begins.len(), 2, "two begins were attempted: {lines:?}");
+        let second_end = lines
+            .iter()
+            .find(|line| line["event"] == "end" && line["id"] == begins[1]["id"])
+            .expect("the second begin has an end line");
+        assert_eq!(
+            second_end["error_kind"],
+            json!("txn_already_open"),
+            "the second begin is a typed refusal: {lines:?}"
+        );
+        assert_eq!(
+            lines
+                .iter()
+                .filter(|line| line["event"] == "end" && line["outcome"] == "started")
+                .count(),
+            1,
+            "one begin started a record: {lines:?}"
+        );
+        assert!(!first.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_call_under_an_ended_transaction_is_refused() {
+        let device = start("mcp-gate-ended").await;
+        let mut client = Client::authorized(&device);
+        client.initialize().await;
+        let id = json_of(
+            &client
+                .call_raw("terminal.create", json!({ "kind": "pty" }))
+                .await,
+        )["id"]
+            .as_str()
+            .expect("a session id")
+            .to_owned();
+        let txn = txn_id_of(
+            &client
+                .call_raw(
+                    "txn.begin",
+                    json!({ "session": id, "purpose": "a finished unit" }),
+                )
+                .await,
+        );
+        let committed = client.call_raw("txn.commit", json!({ "txn": txn })).await;
+        assert_eq!(committed["result"]["isError"], false, "{committed}");
+
+        let refused = client
+            .call_raw(
+                "terminal.write",
+                json!({ "id": id, "txn": txn, "data": "echo late\n" }),
+            )
+            .await;
+
+        assert_eq!(refused["result"]["isError"], true, "{refused}");
+        assert!(
+            text_of(&refused).contains("has ended"),
+            "the refusal says it ended: {}",
+            text_of(&refused)
+        );
+        let lines = audit_lines(&device);
+        let end = audit_half(&lines, "terminal.write", "end");
+        assert_eq!(end["error_kind"], "txn_ended", "{end}");
+        assert_eq!(
+            end["txn"],
+            json!(txn),
+            "the denial carries the ended id: {end}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_receipt_puts_declaration_beside_observation() {
+        let device = start("mcp-gate-receipt").await;
+        let mut client = Client::authorized(&device);
+        client.initialize().await;
+        let id = json_of(
+            &client
+                .call_raw("terminal.create", json!({ "kind": "pty" }))
+                .await,
+        )["id"]
+            .as_str()
+            .expect("a session id")
+            .to_owned();
+        let other = json_of(
+            &client
+                .call_raw("terminal.create", json!({ "kind": "pty" }))
+                .await,
+        )["id"]
+            .as_str()
+            .expect("a session id")
+            .to_owned();
+        let txn = txn_id_of(
+            &client
+                .call_raw(
+                    "txn.begin",
+                    json!({ "session": id, "purpose": "two writes and a refusal" }),
+                )
+                .await,
+        );
+
+        for data in ["echo one\n", "echo two\n"] {
+            let written = client
+                .call_raw(
+                    "terminal.write",
+                    json!({ "id": id, "txn": txn, "data": data }),
+                )
+                .await;
+            assert_eq!(written["result"]["isError"], false, "{written}");
+        }
+        // A denied call with the txn resolved still counts as a refusal of it: the transaction is
+        // named, but it belongs to the other session.
+        let denied = client
+            .call_raw(
+                "terminal.write",
+                json!({ "id": other, "txn": txn, "data": "not counted as a call\n" }),
+            )
+            .await;
+        assert_eq!(denied["result"]["isError"], true, "{denied}");
+
+        let receipt = json_of(&client.call_raw("txn.commit", json!({ "txn": txn })).await);
+
+        assert_eq!(receipt["txn"], json!(txn), "{receipt}");
+        assert_eq!(receipt["state"], "committed", "{receipt}");
+        assert_eq!(receipt["session"], json!(id), "{receipt}");
+        assert_eq!(receipt["purpose"], "two writes and a refusal", "{receipt}");
+        assert_eq!(receipt["by"]["kind"], "install", "{receipt}");
+        assert_eq!(
+            receipt["observed"]["calls"], 2,
+            "only the admitted calls count: {receipt}"
+        );
+        assert_eq!(receipt["observed"]["failures"], 0, "{receipt}");
+        assert_eq!(
+            receipt["observed"]["refusals"], 1,
+            "the denied call is counted against its transaction: {receipt}"
+        );
+        assert!(
+            receipt["observed"]["duration_ms"].as_u64().is_some(),
+            "the receipt names how long it ran: {receipt}"
+        );
+        assert!(
+            receipt["started_at_ms"].as_i64().is_some()
+                && receipt["ended_at_ms"].as_i64().is_some(),
+            "the receipt names both ends: {receipt}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_denied_call_still_counts_against_its_transaction() {
+        let (server, config, _dir) = console_server("mcp-gate-denied-counts");
+        let scopes = vec!["txn.begin".to_owned(), "txn.commit".to_owned()];
+        let caller = super::Caller::Console {
+            token_id: "tok-denied",
+            scopes: &scopes,
+            allow_destructive: true,
+            arrival: super::Arrival::Console,
+            trace: None,
+        };
+        let txn = txn_id_of(
+            &call_as(
+                &server,
+                caller,
+                "txn.begin",
+                json!({ "purpose": "a scope this token does not have" }),
+            )
+            .await,
+        );
+
+        // Authorize refuses the call (the token does not cover files.write) before dispatch. The
+        // gate resolved the device-scope transaction first, so the denial carries it and counts.
+        let denied = call_as(
+            &server,
+            caller,
+            "files.write",
+            json!({ "path": "denied.txt", "content": "x" }),
+        )
+        .await;
+        assert!(denied.get("error").is_some(), "{denied}");
+        let lines = audit_lines_of(&config);
+        let end = audit_half(&lines, "files.write", "end");
+        assert_eq!(end["error_kind"], "denied", "{end}");
+        assert_eq!(end["txn"], json!(txn), "the denial carries the txn: {end}");
+
+        let receipt = json_of(&call_as(&server, caller, "txn.commit", json!({ "txn": txn })).await);
+        assert_eq!(
+            receipt["observed"]["refusals"], 1,
+            "a denied call is not lost from the receipt: {receipt}"
+        );
+        assert_eq!(receipt["observed"]["calls"], 0, "{receipt}");
+    }
+
+    #[tokio::test]
+    async fn an_abort_reverts_nothing_and_records_its_reason() {
+        let device = start("mcp-gate-abort").await;
+        let mut client = Client::authorized(&device);
+        client.initialize().await;
+        let id = json_of(
+            &client
+                .call_raw("terminal.create", json!({ "kind": "pty" }))
+                .await,
+        )["id"]
+            .as_str()
+            .expect("a session id")
+            .to_owned();
+        let txn = txn_id_of(
+            &client
+                .call_raw(
+                    "txn.begin",
+                    json!({ "session": id, "purpose": "an attempt" }),
+                )
+                .await,
+        );
+        let written = client
+            .call_raw(
+                "terminal.write",
+                json!({ "id": id, "txn": txn, "data": "echo not undone\n" }),
+            )
+            .await;
+        assert_eq!(written["result"]["isError"], false, "{written}");
+
+        let receipt = json_of(
+            &client
+                .call_raw(
+                    "txn.abort",
+                    json!({ "txn": txn, "reason": "the build was red" }),
+                )
+                .await,
+        );
+
+        assert_eq!(receipt["state"], "aborted", "{receipt}");
+        assert_eq!(receipt["reason"], "the build was red", "{receipt}");
+        assert_eq!(
+            receipt["observed"]["calls"], 1,
+            "an abort reverts nothing: the call stays observed: {receipt}"
+        );
+        // The session is still live, and the write's effect is still there.
+        let listed = json_of(&client.call_raw("terminal.list", json!({})).await);
+        assert_eq!(listed[0]["id"], json!(id), "{listed}");
+
+        let refused = client
+            .call_raw(
+                "terminal.write",
+                json!({ "id": id, "txn": txn, "data": "echo after\n" }),
+            )
+            .await;
+        assert_eq!(refused["result"]["isError"], true, "{refused}");
+        let lines = audit_lines(&device);
+        let commit_end = audit_half(&lines, "txn.abort", "end");
+        assert_eq!(commit_end["outcome"], "aborted", "{commit_end}");
+    }
+
+    #[tokio::test]
+    async fn a_begin_with_a_goal_writes_the_session_goal_and_snapshots_it() {
+        let device = start("mcp-gate-begin-goal").await;
+        let mut client = Client::authorized(&device);
+        client.initialize().await;
+        let id = json_of(
+            &client
+                .call_raw("terminal.create", json!({ "kind": "pty" }))
+                .await,
+        )["id"]
+            .as_str()
+            .expect("a session id")
+            .to_owned();
+
+        let begun = json_of(
+            &client
+                .call_raw(
+                    "txn.begin",
+                    json!({
+                        "session": id,
+                        "purpose": "ship the spine",
+                        "goal": "ship the spine this week",
+                    }),
+                )
+                .await,
+        );
+        let txn = begun["txn"].as_str().expect("a txn id").to_owned();
+        assert_eq!(
+            begun["goal_at_start"]["text"], "ship the spine this week",
+            "the begin snapshots the goal it just wrote: {begun}"
+        );
+        let listed = json_of(&client.call_raw("terminal.list", json!({})).await);
+        assert_eq!(
+            listed[0]["goal"]["text"], "ship the spine this week",
+            "a session-bound begin writes the session's goal: {listed}"
+        );
+
+        // The goal did not change, so the receipt does not name one at the end.
+        let receipt = json_of(&client.call_raw("txn.commit", json!({ "txn": txn })).await);
+        assert_eq!(
+            receipt["goal_at_start"]["text"], "ship the spine this week",
+            "{receipt}"
+        );
+        assert!(
+            receipt.get("goal_at_end").is_none(),
+            "an unchanged goal is not restated: {receipt}"
+        );
+
+        // It changed: the receipt names the new goal.
+        let txn = txn_id_of(
+            &client
+                .call_raw("txn.begin", json!({ "session": id, "purpose": "rewrite" }))
+                .await,
+        );
+        let set = client
+            .call_raw(
+                "terminal.goal",
+                json!({ "id": id, "action": "set", "goal": "rewrite the parser" }),
+            )
+            .await;
+        assert_eq!(set["result"]["isError"], false, "{set}");
+        let receipt = json_of(&client.call_raw("txn.commit", json!({ "txn": txn })).await);
+        assert_eq!(
+            receipt["goal_at_end"]["text"], "rewrite the parser",
+            "a changed goal is named at the end: {receipt}"
+        );
+
+        // It was cleared: the ending names the absence rather than omitting the field.
+        let txn = txn_id_of(
+            &client
+                .call_raw("txn.begin", json!({ "session": id, "purpose": "clear it" }))
+                .await,
+        );
+        let cleared = client
+            .call_raw("terminal.goal", json!({ "id": id, "action": "clear" }))
+            .await;
+        assert_eq!(cleared["result"]["isError"], false, "{cleared}");
+        let receipt = json_of(&client.call_raw("txn.commit", json!({ "txn": txn })).await);
+        assert!(
+            receipt.get("goal_at_end").is_some(),
+            "a cleared goal differs, so the field is present: {receipt}"
+        );
+        assert!(
+            receipt["goal_at_end"].is_null(),
+            "the cleared goal is an explicit absence: {receipt}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_commit_after_close_does_not_report_the_goal_as_cleared() {
+        let device = start("mcp-gate-close-commit").await;
+        let mut client = Client::authorized(&device);
+        client.initialize().await;
+        let id = json_of(
+            &client
+                .call_raw("terminal.create", json!({ "kind": "pty" }))
+                .await,
+        )["id"]
+            .as_str()
+            .expect("a session id")
+            .to_owned();
+        let txn = txn_id_of(
+            &client
+                .call_raw(
+                    "txn.begin",
+                    json!({
+                        "session": id,
+                        "purpose": "work that outlives its shell",
+                        "goal": "the umbrella stays",
+                    }),
+                )
+                .await,
+        );
+        let closed = client.call_raw("terminal.close", json!({ "id": id })).await;
+        assert_eq!(closed["result"]["isError"], false, "{closed}");
+
+        // The session is gone, so there is no goal to read — but that is not a clear. The receipt
+        // keeps the snapshot the begin took and does not claim the umbrella changed.
+        let receipt = json_of(&client.call_raw("txn.commit", json!({ "txn": txn })).await);
+        assert_eq!(
+            receipt["goal_at_start"]["text"], "the umbrella stays",
+            "{receipt}"
+        );
+        assert!(
+            receipt.get("goal_at_end").is_none(),
+            "a closed session is not a cleared goal: {receipt}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_audit_row_carries_the_purpose_and_the_state_so_an_orphan_group_survives() {
+        let device = start("mcp-gate-orphan").await;
+        let mut client = Client::authorized(&device);
+        client.initialize().await;
+        let id = json_of(
+            &client
+                .call_raw("terminal.create", json!({ "kind": "pty" }))
+                .await,
+        )["id"]
+            .as_str()
+            .expect("a session id")
+            .to_owned();
+        let purpose = "leave a header the orphan group can read";
+        let txn = txn_id_of(
+            &client
+                .call_raw("txn.begin", json!({ "session": id, "purpose": purpose }))
+                .await,
+        );
+        let _ = client.call_raw("txn.commit", json!({ "txn": txn })).await;
+
+        let lines = audit_lines(&device);
+        let begin = lines
+            .iter()
+            .find(|line| line["tool"] == "txn.begin" && line["event"] == "begin")
+            .expect("the begin row");
+        let begin_end = lines
+            .iter()
+            .find(|line| line["event"] == "end" && line["id"] == begin["id"])
+            .expect("the begin row's end");
+        assert_eq!(
+            begin["args"],
+            json!(format!("purpose={purpose}")),
+            "the purpose is on the row, so a group can name itself after a restart: {begin}"
+        );
+        assert_eq!(
+            begin_end["txn"],
+            json!(txn),
+            "the begin's end line carries the id it minted: {begin_end}"
+        );
+        assert_eq!(begin_end["outcome"], "started", "{begin_end}");
+
+        let commit_begin = lines
+            .iter()
+            .find(|line| line["tool"] == "txn.commit" && line["event"] == "begin")
+            .expect("the commit row");
+        assert_eq!(
+            commit_begin["txn"],
+            json!(txn),
+            "the commit row is grouped under the transaction it ended: {commit_begin}"
+        );
+        let commit_end = lines
+            .iter()
+            .find(|line| line["event"] == "end" && line["id"] == commit_begin["id"])
+            .expect("the commit row's end");
+        assert_eq!(
+            commit_end["outcome"], "committed",
+            "the declaration's end is on the row: {commit_end}"
+        );
+        assert_eq!(commit_end["txn"], json!(txn), "{commit_end}");
+    }
+
+    #[tokio::test]
+    async fn a_goal_refused_for_the_wrong_writer_is_a_typed_decline() {
+        let (server, config, bus, _dir) = journaled_server("mcp-gate-goal-writer");
+        let creator_scopes = vec!["terminal.create".to_owned()];
+        let creator = super::Caller::Console {
+            token_id: "tok-creator",
+            scopes: &creator_scopes,
+            allow_destructive: true,
+            arrival: super::Arrival::Console,
+            trace: None,
+        };
+        let created = call_as(
+            &server,
+            creator,
+            "terminal.create",
+            json!({ "kind": "pty" }),
+        )
+        .await;
+        let id = json_of(&created)["id"]
+            .as_str()
+            .expect("a session id")
+            .to_owned();
+
+        let writer_scopes = vec!["terminal.goal".to_owned()];
+        let writer = super::Caller::Console {
+            token_id: "tok-writer",
+            scopes: &writer_scopes,
+            allow_destructive: true,
+            arrival: super::Arrival::Console,
+            trace: None,
+        };
+        let refused = call_as(
+            &server,
+            writer,
+            "terminal.goal",
+            json!({ "id": id, "action": "set", "goal": "not mine" }),
+        )
+        .await;
+
+        assert_eq!(refused["result"]["isError"], true, "{refused}");
+        assert!(
+            text_of(&refused).contains("written only by the holder that created it"),
+            "the refusal says why: {}",
+            text_of(&refused)
+        );
+        let lines = audit_lines_of(&config);
+        let end = audit_half(&lines, "terminal.goal", "end");
+        assert_eq!(
+            end["error_kind"], "not_goal_writer",
+            "the refusal keeps its own kind on the row: {end}"
+        );
+        let denials: Vec<_> = journal_of(&bus)
+            .into_iter()
+            .filter(|event| event.kind == "call.denied")
+            .collect();
+        assert_eq!(
+            denials.len(),
+            1,
+            "the decline is a denied call: {denials:?}"
+        );
+        assert_eq!(
+            denials[0].payload["reason"], "not_goal_writer",
+            "the live event carries the same typed reason: {:?}",
+            denials[0].payload
+        );
+    }
+
+    /// **A TAKEN SLOT NAMES THE RECORD THAT HOLDS IT.** The console's holder is
+    /// `console·operator` before and after a console restart, so a second device-scope begin is
+    /// refused; without the open id and its purpose the restarted console could never adopt or end
+    /// the record it left behind. The structured data is the device's own fact, not a claim.
+    #[tokio::test]
+    async fn an_already_open_refusal_names_the_open_transaction() {
+        let (server, _config, _dir) = console_server("mcp-already-open-names-the-record");
+        let scopes = vec!["*".to_owned()];
+        let caller = super::Caller::Console {
+            token_id: "operator",
+            scopes: &scopes,
+            allow_destructive: true,
+            arrival: super::Arrival::Console,
+            trace: None,
+        };
+        let first = server
+            .handle(
+                &json!({
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "txn.begin",
+                        "arguments": { "purpose": "your console on the machine" }
+                    }
+                }),
+                caller,
+            )
+            .await;
+        assert_eq!(first["result"]["isError"], json!(false), "{first}");
+        let answer: Value = serde_json::from_str(
+            first["result"]["content"][0]["text"]
+                .as_str()
+                .expect("a begin answers text"),
+        )
+        .expect("the begin answer is JSON");
+        let txn = answer["txn"].as_str().expect("the minted id").to_owned();
+
+        let second = server
+            .handle(
+                &json!({
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "txn.begin",
+                        "arguments": { "purpose": "a second unit of work" }
+                    }
+                }),
+                caller,
+            )
+            .await;
+
+        assert_eq!(
+            second["result"]["isError"],
+            json!(true),
+            "a taken slot is a refusal: {second}"
+        );
+        let sentence = second["result"]["content"][0]["text"]
+            .as_str()
+            .expect("the refusal is a sentence");
+        assert!(
+            sentence.contains("txn_already_open"),
+            "the refusal keeps its kind: {second}"
+        );
+        assert_eq!(
+            second["result"]["structuredContent"],
+            json!({ "txn": txn, "purpose": "your console on the machine" }),
+            "the refusal names the open record and its declared purpose: {second}"
+        );
     }
 }

@@ -39,6 +39,7 @@ mod repair_task;
 mod restart;
 mod restarts;
 mod store;
+mod txns;
 mod update;
 mod update_check;
 mod update_source;
@@ -1161,6 +1162,9 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         plugin_host.attach_bus(std::sync::Arc::clone(bus));
     }
     plugin_host.start_all().await;
+    // This boot's transaction-id scope, minted once from the OS random source: a restart mints a
+    // new one, so an old row in the audit tail cannot join a new record.
+    let txn_boot = crate::txns::boot_nonce();
     let serving = http::serve(
         config,
         store,
@@ -1170,6 +1174,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         std::sync::Arc::clone(&plugin_host),
         update_check,
         bus,
+        txn_boot,
     )
     .await;
     plugin_host.stop_all().await;

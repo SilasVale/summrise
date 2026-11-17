@@ -34,7 +34,7 @@ use crate::audit::{self, Absence, Audit, Caller};
 use crate::auth::{
     bearer_secret, constant_time_eq, new_session_token, random_32, Session, SESSION_LIFETIME_MS,
 };
-use crate::channels::{ChannelRegistry, Reply, RequestAuth, RequestError};
+use crate::channels::{Answered, ChannelRegistry, Reply, RequestAuth, RequestError};
 use crate::codes::{ConsumeError, EnrollmentCodes, IssueError};
 use crate::config::{load_grant_key, load_operator_token, Config, StartupError};
 use crate::connections;
@@ -45,6 +45,7 @@ use crate::hex;
 use crate::mcp::DeviceRef;
 use crate::tokens::{Token, TokenError, TokenKind, TokenMeta, Tokens};
 use summrise_console_page::{Page, PageSource};
+use summrise_core::{session_arg, txn_policy, TxnPolicy, WORKING_TXN_ARG};
 
 /// How far a device's clock may be from the console's when it registers: five minutes.
 const REGISTRATION_SKEW_MS: u64 = 5 * 60 * 1000;
@@ -153,6 +154,10 @@ struct Inner {
     /// `None` means the console has no mesh view; the readiness route reports that rather than a fake
     /// "unreachable". No operator frame moves over the mesh yet.
     mesh_broker: Option<String>,
+    /// The console's own transactions: one device-scope per machine and one per session a person is
+    /// using, begun lazily and cached here. Memory only, like the sessions and the device's own book:
+    /// a restart forgets them, and a device says `txn_unknown` if the record died with it.
+    txns: TxnBook,
 }
 
 /// The page role's reads, over the control role's own handles.
@@ -286,6 +291,7 @@ impl Console {
                 data: config.data.clone(),
                 trusted_proxy: config.trusted_proxy,
                 mesh_broker: config.mesh_broker.clone(),
+                txns: TxnBook::default(),
                 access: match &config.access {
                     Some(access) => Some(
                         crate::access::Access::from_jwks_file(
@@ -539,6 +545,9 @@ struct AuditFacts<'a> {
     /// pair, which share it. An operator action (a grant, a token, a sign-in) proxied nothing, so
     /// it has none.
     trace: Option<&'a str>,
+    /// The transaction the call rode, when the console attached one; absent for an exempt call, a
+    /// client's own call, or a device that records no transactions.
+    txn: Option<&'a str>,
     /// The machine journal's `seq` for this call's outcome half, when the device named one.
     machine_seq: Option<u64>,
 }
@@ -558,6 +567,10 @@ struct CallIdentity<'a> {
     /// it reaches the live stream. Only the operator's `/mcp` route and the terminal stream can set
     /// it; an AI client's routes always pass `false`.
     poll: bool,
+    /// True only for a call the console made on a human's behalf — the operator's own page, the
+    /// terminal stream, the journal reads. A client token's call is the device's gate to meet, so
+    /// the console forwards it untouched.
+    auto_txn: bool,
 }
 
 /// One proxied call, as the live stream describes it.
@@ -582,6 +595,8 @@ struct LiveCall<'a> {
     token_id: Option<&'a str>,
     /// The `trace.call` this exchange is known by, on the frame, the audit line and the journal.
     trace: Option<&'a str>,
+    /// The transaction the call rode, so the page groups it from the row and never from a guess.
+    txn: Option<&'a str>,
     /// The machine journal's `seq` for this call's outcome half, when the device named one.
     machine_seq: Option<u64>,
 }
@@ -782,6 +797,7 @@ impl Inner {
                 token_id: facts.token_id,
                 caller: facts.caller,
                 trace: facts.trace,
+                txn: facts.txn,
                 machine_seq: facts.machine_seq,
             })
             .await;
@@ -806,6 +822,9 @@ impl Inner {
             }
             if let Some(trace) = facts.trace {
                 event["trace"] = json!(trace);
+            }
+            if let Some(txn) = facts.txn {
+                event["txn"] = json!(txn);
             }
             if let Some(machine_seq) = facts.machine_seq {
                 event["machine_seq"] = json!(machine_seq);
@@ -852,6 +871,9 @@ impl Inner {
         }
         if let Some(trace) = call.trace {
             event["trace"] = json!(trace);
+        }
+        if let Some(txn) = call.txn {
+            event["txn"] = json!(txn);
         }
         if let Some(machine_seq) = call.machine_seq {
             event["machine_seq"] = json!(machine_seq);
@@ -937,6 +959,7 @@ impl Inner {
             token_id,
             caller: None,
             trace: None,
+            txn: None,
             machine_seq: None,
         })
         .await;
@@ -966,6 +989,7 @@ impl Inner {
             token_id: None,
             caller,
             trace: None,
+            txn: None,
             machine_seq: None,
         })
         .await;
@@ -1002,6 +1026,7 @@ impl Inner {
                 token_id: None,
                 caller: None,
                 trace: None,
+                txn: None,
                 machine_seq: None,
             })
             .await;
@@ -2185,6 +2210,9 @@ async fn device_tool(
             caller: Caller::Console,
             token_id: None,
             poll,
+            // The page's own terminal stream: a person watching a session, so the console opens
+            // the session's transaction if it has none.
+            auto_txn: true,
         },
         request,
         StatusCode::BAD_REQUEST,
@@ -2356,7 +2384,7 @@ async fn terminal_stream(
     // the stream, and the page cannot tell the two apart.
     if app.channels.has_cap(&device_id, "terminal.stream") {
         let scope = operator_scope(&device_id);
-        let read = json!({
+        let mut read = json!({
             "jsonrpc": "2.0",
             "id": 1,
             "method": "tools/call",
@@ -2365,23 +2393,32 @@ async fn terminal_stream(
                 "arguments": { "id": session_id, "cursor": query.from },
             },
         });
-        // The subscribe's one audited read is a call like any other: its trace goes on the frame so
-        // the device's journal pair names it, and the relay drops that pair rather than drawing the
-        // console's own read twice.
-        let trace = app.channels.mint_trace();
-        if let Ok((sub, stream, ack)) = app
-            .channels
-            .subscribe(
-                &device_id,
-                session_id,
-                query.from,
-                read,
-                &RequestAuth::Token(&scope),
-                &trace,
-            )
-            .await
-        {
-            return subscription_stream(app, device_id, sub, stream, ack, slot);
+        // The subscribe's one audited read is a call like any other: it rides the session's
+        // transaction, its trace goes on the frame so the device's journal pair names it, and the
+        // relay drops that pair rather than drawing the console's own read twice. A begin that
+        // cannot be had falls through to the parked-read pump, which surfaces the same sentence.
+        if tag_request(&app, &device_id, &mut read, true).await.is_ok() {
+            let trace = app.channels.mint_trace();
+            if let Ok((sub, stream, ack)) = app
+                .channels
+                .subscribe(
+                    &device_id,
+                    session_id,
+                    query.from,
+                    read,
+                    &RequestAuth::Token(&scope),
+                    &trace,
+                )
+                .await
+            {
+                // A tool-level refusal (the transaction was refused) is not a stream: stop the
+                // follow and let the pump answer with the device's sentence.
+                if !stream_ack_refused(&ack) {
+                    return subscription_stream(app, device_id, sub, stream, ack, slot);
+                }
+                app.channels.unsubscribe(&device_id, sub);
+                drop(stream);
+            }
         }
     }
 
@@ -2637,6 +2674,22 @@ fn result_answer(result: &Value) -> Option<Value> {
         .get("text")?
         .as_str()?;
     serde_json::from_str(text).ok()
+}
+
+/// Whether a subscription's ack is a tool-level refusal rather than a read.
+///
+/// A device that refuses the follow's `terminal.read` (a missing transaction, a dead session)
+/// answers with MCP's `isError` result; there is no stream behind it, so the pump answers instead.
+fn stream_ack_refused(ack: &Reply) -> bool {
+    let Reply::Result(result) = ack else {
+        return false;
+    };
+    result
+        .get("result")
+        .unwrap_or(result)
+        .get("isError")
+        .and_then(Value::as_bool)
+        == Some(true)
 }
 
 /// The sentence inside a device's JSON-RPC error envelope.
@@ -3387,6 +3440,602 @@ fn operator_scope(device_id: &str) -> crate::channels::TokenScope {
     }
 }
 
+// ---- the console's own transactions -------------------------------------------------------------
+
+/// How long the console's own transaction may sit unused before the next call ends it.
+///
+/// The console keeps **one** device-scope transaction per machine and **one** session-bound
+/// transaction per session a person is using. A person who comes back after this gap starts a new
+/// record rather than extending one whose calls are already a closed stretch of work: the receipt is
+/// written by the next call that proves the gap. A console that never calls again leaves its record
+/// open, and both surfaces say "no end recorded" — the console never invents an ending.
+const CONSOLE_TXN_IDLE_MS: u64 = 15 * 60 * 1000;
+
+/// What a device has said about the transaction tools. A device absent from the book is "not asked".
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TxnSupport {
+    /// The device answered `txn.begin` with an id: it has the tools.
+    Present,
+    /// The device answered as a build that does not offer them: no tag is sent to it again.
+    Absent,
+}
+
+/// One transaction the console holds open, and when it was last used.
+#[derive(Clone, Debug)]
+struct OpenTxn {
+    id: String,
+    used_ms: u64,
+}
+
+/// One device's transaction state: what it offers, and the one open record per scope.
+#[derive(Default)]
+struct DeviceTxns {
+    /// What this device said about the transaction tools; `None` is "not asked yet".
+    support: Option<TxnSupport>,
+    /// The one working device-scope transaction for this machine.
+    device: Option<OpenTxn>,
+    /// The one working session-bound transaction per session on this machine.
+    session: HashMap<String, OpenTxn>,
+}
+
+/// The console's transaction book: one entry per device, each with its **own** lock.
+///
+/// **THE OUTER MAP IS NEVER HELD ACROSS AN `await`.** It is a `std::sync::Mutex` touched only to
+/// find or insert a device's entry, and every entry is its own `tokio::sync::Mutex`. A begin or a
+/// commit waits on the device through that device's lock alone, so a connected but unresponsive
+/// machine cannot stall another machine's forwarding (review, 2026-11-17).
+#[derive(Default)]
+struct TxnBook {
+    devices: Mutex<HashMap<String, Arc<tokio::sync::Mutex<DeviceTxns>>>>,
+}
+
+impl TxnBook {
+    /// This device's entry, created on first use. The outer lock is released before it returns.
+    fn entry(&self, device_id: &str) -> Arc<tokio::sync::Mutex<DeviceTxns>> {
+        let mut devices = lock(&self.devices);
+        devices.entry(device_id.to_owned()).or_default().clone()
+    }
+}
+
+/// Why a console-owned transaction could not be attached to a call.
+enum TxnUnavailable {
+    /// The channel could not carry the frame: the same link failure any call maps.
+    Link(RequestError),
+    /// The device took the frame and did not answer inside the console's bound.
+    Timeout,
+    /// The device answered the begin with its own refusal, already rendered for the caller.
+    Refused(Box<Response>),
+}
+
+/// The one transaction a forwarded call rides, and the exchange that carried it.
+struct TaggedExchange {
+    answered: Answered,
+    trace: String,
+    txn: Option<String>,
+}
+
+/// A tagged exchange that did not happen, with the transaction and trace the record names for it.
+struct TaggedFailure {
+    error: TxnUnavailable,
+    trace: String,
+    txn: Option<String>,
+}
+
+/// The name a device is called in the console's own purpose: the operator's name when it has one,
+/// otherwise the short id the rest of the console prints.
+fn device_txn_label(app: &AppState, device_id: &str) -> String {
+    lock(&app.devices)
+        .get(device_id)
+        .and_then(|device| device.name.clone())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| short_device_id(device_id))
+}
+
+/// The purpose of the device-scope transaction: the console's declaration, not the caller's.
+fn device_txn_purpose(app: &AppState, device_id: &str) -> String {
+    format!("your console on {}", device_txn_label(app, device_id))
+}
+
+/// The purpose of a session-bound transaction: a person typing is named as typing; any other
+/// session call is the person watching the same session. Never a client's claim.
+fn session_txn_purpose(tool: &str, session: &str) -> String {
+    if tool == "terminal.write" {
+        format!("your typing on {session}")
+    } else {
+        format!("your console on {session}")
+    }
+}
+
+/// The arguments object of a request, created when the call has none, or `None` when the request's
+/// shape cannot carry one (a malformed call the device refuses on its own).
+fn request_arguments_mut(request: &mut Value) -> Option<&mut serde_json::Map<String, Value>> {
+    let params = request.get_mut("params")?.as_object_mut()?;
+    let arguments = params
+        .entry("arguments")
+        .or_insert_with(|| Value::Object(serde_json::Map::new()));
+    arguments.as_object_mut()
+}
+
+/// Whether a begin's refusal is a build that does not offer the transaction tools.
+///
+/// A device older than the tools answers the `txn.begin` call as a name it does not know. **The
+/// current gate treats an unknown name as `Required`**, so a build that has the gate but not the
+/// tools answers `txn_required` instead; both mean the same thing here and neither is a refusal the
+/// operator has to read.
+fn names_no_transaction_tool(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("unknown tool")
+        || lower.contains("no such tool")
+        || message.contains("txn_required")
+}
+
+/// The sentence inside a refused begin, bounded like every other detail the console keeps.
+fn begin_refusal(reply: &Reply) -> Option<String> {
+    match reply {
+        Reply::Error(error) => error
+            .get("error")
+            .and_then(|body| body.get("message"))
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        Reply::Result(_) => {
+            let result = tool_result(reply)?;
+            if result.get("isError").and_then(Value::as_bool) == Some(true) {
+                tool_text(reply).map(str::to_owned)
+            } else {
+                None
+            }
+        }
+    }
+}
+
+/// The open record an `txn_already_open` refusal names, when the device sent one.
+///
+/// **A CONSOLE'S HOLDER SURVIVES ITS OWN RESTART.** The device keeps the working record of
+/// `console·operator`, and the id is otherwise unrecoverable, so the refusal carries it (with the
+/// purpose it declared) in `structuredContent`. A refusal from a device too old to name the record
+/// has no data and is surfaced as a sentence.
+fn already_open_record(reply: &Reply) -> Option<(String, String)> {
+    let result = tool_result(reply)?;
+    if result.get("isError").and_then(Value::as_bool) != Some(true) {
+        return None;
+    }
+    let data = result.get("structuredContent")?;
+    Some((
+        data.get("txn")?.as_str()?.to_owned(),
+        data.get("purpose")?.as_str()?.to_owned(),
+    ))
+}
+
+/// What a `txn.begin` answer was: a minted id, a device without the tools, the record already
+/// holding the slot, or a refusal.
+enum BeginAnswer {
+    Id(String),
+    NoTool,
+    /// The device holds an open record for this holder; its own sentence is already rendered for
+    /// the case where the console cannot use it.
+    AlreadyOpen {
+        txn: String,
+        purpose: String,
+        refusal: Box<Response>,
+    },
+    Refused(Box<Response>),
+}
+
+/// Parse one `txn.begin` answer into the id it minted, the fact that the device does not offer the
+/// tools, the record holding the slot, or the device's own refusal sentence.
+fn begin_answer(reply: &Reply) -> BeginAnswer {
+    if let Some(sentence) = begin_refusal(reply) {
+        if names_no_transaction_tool(&sentence) {
+            return BeginAnswer::NoTool;
+        }
+        let refusal = Box::new(
+            ApiError::bad_gateway("transaction_unavailable")
+                .saying(sentence)
+                .into_response(),
+        );
+        if let Some((txn, purpose)) = already_open_record(reply) {
+            return BeginAnswer::AlreadyOpen {
+                txn,
+                purpose,
+                refusal,
+            };
+        }
+        return BeginAnswer::Refused(refusal);
+    }
+    let id = tool_text(reply)
+        .and_then(|text| serde_json::from_str::<Value>(text).ok())
+        .and_then(|answer| answer.get("txn").and_then(Value::as_str).map(str::to_owned));
+    match id {
+        Some(id) if !id.is_empty() => BeginAnswer::Id(id),
+        _ => BeginAnswer::Refused(Box::new(
+            ApiError::bad_gateway("transaction_unavailable")
+                .saying("the device answered txn.begin without a transaction id")
+                .into_response(),
+        )),
+    }
+}
+
+/// One console-origin call over the device's channel, under the operator's own scope.
+///
+/// Not [`proxy_reply`]: the console's bookkeeping is not the operator's action, so it writes no
+/// audit line and no live row. The device's journal still records the call, and the minted trace is
+/// what the console's relay uses to drop the device's copy rather than drawing it twice.
+async fn console_exchange(
+    app: &AppState,
+    device_id: &str,
+    tool: &str,
+    arguments: Value,
+) -> Result<Reply, TxnUnavailable> {
+    let scope = operator_scope(device_id);
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": { "name": tool, "arguments": arguments },
+    });
+    let trace = app.channels.mint_trace();
+    let answer = tokio::time::timeout(
+        app.mcp_timeout,
+        app.channels
+            .request(device_id, request, &RequestAuth::Token(&scope), &trace),
+    )
+    .await;
+    match answer {
+        Err(_) => Err(TxnUnavailable::Timeout),
+        Ok(Err(error)) => Err(TxnUnavailable::Link(error)),
+        Ok(Ok(reply)) => Ok(reply),
+    }
+}
+
+/// Open a transaction on the device and answer its id, or say the device has no transaction tools.
+///
+/// **A RESTARTED CONSOLE RECOVERS ITS OWN SLOT, ONCE.** The console's holder is the same before and
+/// after its process restarts, so the device may answer `txn_already_open` with the record it kept.
+/// If that record declares this same purpose it is adopted — the calls continue the record the
+/// console itself opened earlier. A record with another purpose is ended once and one fresh begin
+/// is made; the second answer is either an id or the device's sentence, never another attempt.
+async fn begin_console_txn(
+    app: &AppState,
+    device_id: &str,
+    session: Option<&str>,
+    purpose: &str,
+) -> Result<Option<String>, TxnUnavailable> {
+    let arguments = match session {
+        Some(session) => json!({ "session": session, "purpose": purpose }),
+        None => json!({ "purpose": purpose }),
+    };
+    let reply = console_exchange(app, device_id, "txn.begin", arguments.clone()).await?;
+    match begin_answer(&reply) {
+        BeginAnswer::Id(id) => Ok(Some(id)),
+        BeginAnswer::NoTool => Ok(None),
+        BeginAnswer::AlreadyOpen {
+            txn, purpose: open, ..
+        } if open == purpose => Ok(Some(txn)),
+        BeginAnswer::AlreadyOpen {
+            txn, refusal: _, ..
+        } => {
+            // The open record is this holder's own, so the console may end it as its author. One
+            // abort, then one begin: a console that could loop here would end records it cannot
+            // explain, and the device's second answer is the one the caller reads.
+            abort_console_txn(app, device_id, &txn).await;
+            let reply = console_exchange(app, device_id, "txn.begin", arguments).await?;
+            match begin_answer(&reply) {
+                BeginAnswer::Id(id) => Ok(Some(id)),
+                BeginAnswer::NoTool => Ok(None),
+                BeginAnswer::AlreadyOpen { refusal, .. } | BeginAnswer::Refused(refusal) => {
+                    Err(TxnUnavailable::Refused(refusal))
+                }
+            }
+        }
+        BeginAnswer::Refused(response) => Err(TxnUnavailable::Refused(response)),
+    }
+}
+
+/// End one console-owned transaction this console no longer knows, before it begins a new one.
+///
+/// Best effort: a device that refuses the abort leaves the record working, and the following begin
+/// surfaces the device's own sentence. The reason is the console's declaration, not a guess.
+async fn abort_console_txn(app: &AppState, device_id: &str, txn: &str) {
+    let _ = console_exchange(
+        app,
+        device_id,
+        "txn.abort",
+        json!({
+            "txn": txn,
+            "reason": "the console no longer has this record; it ends it and begins a new one",
+        }),
+    )
+    .await;
+}
+
+/// End one console-owned transaction. Best effort: a device that does not answer leaves the record
+/// open, which is the honest state a reader sees; the console never pretends it ended.
+async fn commit_console_txn(app: &AppState, device_id: &str, txn: &str) {
+    let _ = console_exchange(app, device_id, "txn.commit", json!({ "txn": txn })).await;
+}
+
+/// Forget a cached id the device no longer holds, so the next call begins a fresh one.
+async fn forget_console_txn(app: &AppState, device_id: &str, txn: &str) {
+    let entry = app.txns.entry(device_id);
+    let mut book = entry.lock().await;
+    if book.device.as_ref().is_some_and(|open| open.id == txn) {
+        book.device = None;
+    }
+    let stale: Vec<String> = book
+        .session
+        .iter()
+        .filter(|(_, open)| open.id == txn)
+        .map(|(key, _)| key.clone())
+        .collect();
+    for key in stale {
+        book.session.remove(&key);
+    }
+}
+
+/// End the session-bound transaction a closed session left open.
+async fn close_session_txn(app: &AppState, device_id: &str, session: &str) {
+    let entry = app.txns.entry(device_id);
+    let open = entry.lock().await.session.remove(session);
+    if let Some(open) = open {
+        commit_console_txn(app, device_id, &open.id).await;
+    }
+}
+
+/// The one working device-scope transaction for this machine, begun lazily.
+///
+/// Only this device's entry is locked while the begin/commit is in flight; another device's
+/// forwarding takes its own entry and never waits here.
+async fn device_txn(app: &AppState, device_id: &str) -> Result<Option<String>, TxnUnavailable> {
+    let now = (app.now)();
+    let entry = app.txns.entry(device_id);
+    let mut book = entry.lock().await;
+    if book.support == Some(TxnSupport::Absent) {
+        return Ok(None);
+    }
+    if let Some(open) = book.device.as_mut() {
+        if now.saturating_sub(open.used_ms) < CONSOLE_TXN_IDLE_MS {
+            open.used_ms = now;
+            return Ok(Some(open.id.clone()));
+        }
+    }
+    // The record was idle: end it before opening the next one, so a reader never sees two working
+    // records for one machine. A commit that fails leaves the old record open; the begin below then
+    // says what the device thinks of that slot.
+    if let Some(stale) = book.device.take() {
+        commit_console_txn(app, device_id, &stale.id).await;
+    }
+    let purpose = device_txn_purpose(app, device_id);
+    match begin_console_txn(app, device_id, None, &purpose).await? {
+        Some(id) => {
+            book.device = Some(OpenTxn {
+                id: id.clone(),
+                used_ms: now,
+            });
+            book.support = Some(TxnSupport::Present);
+            Ok(Some(id))
+        }
+        None => {
+            book.support = Some(TxnSupport::Absent);
+            Ok(None)
+        }
+    }
+}
+
+/// The one working session-bound transaction for this session, begun lazily.
+async fn session_txn(
+    app: &AppState,
+    device_id: &str,
+    session: &str,
+    tool: &str,
+) -> Result<Option<String>, TxnUnavailable> {
+    let now = (app.now)();
+    let entry = app.txns.entry(device_id);
+    let mut book = entry.lock().await;
+    if book.support == Some(TxnSupport::Absent) {
+        return Ok(None);
+    }
+    if let Some(open) = book.session.get_mut(session) {
+        if now.saturating_sub(open.used_ms) < CONSOLE_TXN_IDLE_MS {
+            open.used_ms = now;
+            return Ok(Some(open.id.clone()));
+        }
+    }
+    if let Some(stale) = book.session.remove(session) {
+        commit_console_txn(app, device_id, &stale.id).await;
+    }
+    let purpose = session_txn_purpose(tool, session);
+    match begin_console_txn(app, device_id, Some(session), &purpose).await? {
+        Some(id) => {
+            book.session.insert(
+                session.to_owned(),
+                OpenTxn {
+                    id: id.clone(),
+                    used_ms: now,
+                },
+            );
+            book.support = Some(TxnSupport::Present);
+            Ok(Some(id))
+        }
+        None => {
+            book.support = Some(TxnSupport::Absent);
+            Ok(None)
+        }
+    }
+}
+
+/// **THE ONE PLACE A CONSOLE-FORWARDED FRAME IS TAGGED.**
+///
+/// The policy is read from `summrise_core::registry` — the same table the device's gate reads — so
+/// the exempt and bootstrap sets are never copied into the console. A transaction is attached only
+/// when the call is `Required`, the console made it on a human's behalf (`auto`), and the device
+/// still has the tools. An explicit `txn` the caller wrote is the caller's own declaration and is
+/// left alone. A client token's call never reaches here with `auto`.
+async fn tag_request(
+    app: &AppState,
+    device_id: &str,
+    request: &mut Value,
+    auto: bool,
+) -> Result<Option<String>, TxnUnavailable> {
+    if !auto {
+        return Ok(None);
+    }
+    let Some(tool) = requested_tool(request).ok().flatten().map(str::to_owned) else {
+        return Ok(None);
+    };
+    // A name this console does not know is the device's to refuse; the device's own default is
+    // `Required`, so an unknown tool (a plugin's) is tagged rather than let through untagged.
+    let policy = txn_policy(&tool).unwrap_or(TxnPolicy::Required);
+    if policy != TxnPolicy::Required {
+        return Ok(None);
+    }
+    let Some(arguments) = request_arguments_mut(request) else {
+        return Ok(None);
+    };
+    if arguments
+        .get(WORKING_TXN_ARG)
+        .and_then(Value::as_str)
+        .is_some_and(|txn| !txn.is_empty())
+    {
+        return Ok(None);
+    }
+    let session = session_arg(&tool)
+        .and_then(|argument| arguments.get(argument))
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let txn = match &session {
+        Some(session) => session_txn(app, device_id, session, &tool).await?,
+        None => device_txn(app, device_id).await?,
+    };
+    if let Some(txn) = &txn {
+        arguments.insert(WORKING_TXN_ARG.to_owned(), json!(txn));
+    }
+    Ok(txn)
+}
+
+/// Whether an answer says the transaction a call rode is no longer open on the device.
+///
+/// Only `txn_unknown` and `txn_ended` are retried: the device restarted or the record was ended
+/// elsewhere, and the call never ran. A scope or session mismatch is a bug in the console's own
+/// resolution and must be read, not papered over.
+fn transaction_gone(reply: &Reply) -> bool {
+    let Some(sentence) = begin_refusal(reply) else {
+        return false;
+    };
+    sentence.contains("txn_unknown") || sentence.contains("txn_ended")
+}
+
+/// Send one exchange and keep the machine's position for it.
+async fn send_once(
+    app: &AppState,
+    device_id: &str,
+    auth: &RequestAuth<'_>,
+    request: &Value,
+    trace: &str,
+    wait: Option<Duration>,
+) -> Result<Answered, TxnUnavailable> {
+    let answer = match wait {
+        Some(wait) => {
+            tokio::time::timeout(
+                wait + WAIT_BACKSTOP_GRACE,
+                app.channels.request_within_acknowledged(
+                    device_id,
+                    request.clone(),
+                    auth,
+                    trace,
+                    wait,
+                ),
+            )
+            .await
+        }
+        None => {
+            tokio::time::timeout(
+                app.mcp_timeout,
+                app.channels
+                    .request_acknowledged(device_id, request.clone(), auth, trace),
+            )
+            .await
+        }
+    };
+    match answer {
+        Err(_) => Err(TxnUnavailable::Timeout),
+        Ok(Err(error)) => Err(TxnUnavailable::Link(error)),
+        Ok(Ok(answered)) => Ok(answered),
+    }
+}
+
+/// Tag one exchange and send it, re-beginning **once** when the device says the cached transaction
+/// is gone. More than one re-begin would be a loop against a device whose answer the console has
+/// already read; the second refusal is the caller's to see.
+async fn exchange_tagged(
+    app: &AppState,
+    device_id: &str,
+    auth: &RequestAuth<'_>,
+    mut request: Value,
+    wait: Option<Duration>,
+    auto: bool,
+) -> Result<TaggedExchange, TaggedFailure> {
+    let mut trace = app.channels.mint_trace();
+    let mut txn = match tag_request(app, device_id, &mut request, auto).await {
+        Ok(txn) => txn,
+        Err(error) => {
+            return Err(TaggedFailure {
+                error,
+                trace,
+                txn: None,
+            })
+        }
+    };
+    let mut answer = send_once(app, device_id, auth, &request, &trace, wait).await;
+    if let Ok(answered) = &answer {
+        if let Some(stale) = txn.as_deref().filter(|_| transaction_gone(&answered.reply)) {
+            forget_console_txn(app, device_id, stale).await;
+            if let Some(arguments) = request_arguments_mut(&mut request) {
+                arguments.remove(WORKING_TXN_ARG);
+            }
+            trace = app.channels.mint_trace();
+            txn = match tag_request(app, device_id, &mut request, auto).await {
+                Ok(txn) => txn,
+                Err(error) => return Err(TaggedFailure { error, trace, txn }),
+            };
+            answer = send_once(app, device_id, auth, &request, &trace, wait).await;
+        }
+    }
+    match answer {
+        Ok(answered) => Ok(TaggedExchange {
+            answered,
+            trace,
+            txn,
+        }),
+        Err(error) => Err(TaggedFailure { error, trace, txn }),
+    }
+}
+
+/// Copy the fields only a transaction's own answer knows into the row the page draws: the id a
+/// `txn.begin` minted, and the receipt a `commit`/`abort` answered. Returns the id the row joins.
+fn copy_transaction_answer(
+    tool: Option<&str>,
+    reply: &Reply,
+    evidence: &mut Option<Value>,
+) -> Option<String> {
+    let tool = tool?;
+    if !tool.starts_with("txn.") {
+        return None;
+    }
+    let answer: Value = serde_json::from_str(tool_text(reply)?).ok()?;
+    let txn = answer
+        .get("txn")
+        .and_then(Value::as_str)
+        .map(str::to_owned)?;
+    let evidence = evidence.get_or_insert_with(|| json!({}));
+    if let Some(object) = evidence.as_object_mut() {
+        object.insert("txn".to_owned(), json!(txn));
+        if matches!(tool, "txn.commit" | "txn.abort") {
+            object.insert("receipt".to_owned(), answer);
+        }
+    }
+    Some(txn)
+}
+
 /// Mint the grant one token authorizes for this request.
 ///
 /// The scope is the token's, never the request's: the record's device, tools and destructive consent
@@ -3673,6 +4322,7 @@ async fn proxy_reply(
                 token_id: identity.token_id,
                 caller: Some(identity.caller),
                 trace: Some(&trace),
+                txn: None,
                 machine_seq: None,
             })
             .await;
@@ -3686,6 +4336,14 @@ async fn proxy_reply(
         }
     };
     let is_tools_list = request.get("method").and_then(Value::as_str) == Some("tools/list");
+    // The session this call acts on, read before the frame is tagged and sent. The close's own
+    // commit needs it after the request has moved into the exchange.
+    let call_session = tool
+        .as_deref()
+        .and_then(session_arg)
+        .and_then(|argument| requested_arguments(&request).get(argument))
+        .and_then(Value::as_str)
+        .map(str::to_owned);
     // The sentence a person reads, built from the call's own arguments — never a guess. It is made
     // once, before the wait, so every outcome publishes the same description of the same call.
     let sentence = match tool.as_deref() {
@@ -3716,6 +4374,7 @@ async fn proxy_reply(
                 token_id: identity.token_id,
                 caller: Some(identity.caller),
                 trace: Some(&trace),
+                txn: None,
                 machine_seq: None,
             })
             .await;
@@ -3752,263 +4411,285 @@ async fn proxy_reply(
     // answer and the proxy's backstop around it. Without this the console's own thirty-second bound
     // would cut a legal read at exactly the wait the device was allowed to spend. Every other tool
     // keeps `mcp_timeout`, and a device that has not answered in it is one to give up on.
-    let answer = match call_wait(&request) {
-        Some(wait) => {
-            tokio::time::timeout(
-                wait + WAIT_BACKSTOP_GRACE,
-                app.channels
-                    .request_within_acknowledged(device_id, request, auth, &trace, wait),
-            )
-            .await
-        }
-        // Everything else answers in milliseconds; the general bound stays in charge of both layers.
-        None => {
-            tokio::time::timeout(
-                app.mcp_timeout,
-                app.channels
-                    .request_acknowledged(device_id, request, auth, &trace),
-            )
-            .await
-        }
-    };
-
-    match answer {
-        Err(_) => {
-            app.publish_work(
-                poll,
-                LiveCall {
-                    device_id: audit_id.as_deref(),
-                    tool: tool.as_deref(),
-                    sentence: &publish_sentence,
-                    status: StatusCode::GATEWAY_TIMEOUT,
-                    ok: false,
-                    detail: "device timeout",
-                    ms: started.elapsed().as_millis() as u64,
-                    evidence: evidence.clone(),
-                    caller: identity.caller,
-                    token_id: identity.token_id,
-                    trace: Some(&trace),
-                    machine_seq: None,
-                },
-            );
-            app.record_facts(AuditFacts {
-                kind: if poll { "poll" } else { "denied" },
-                device_id: audit_id.as_deref(),
-                status: StatusCode::GATEWAY_TIMEOUT,
-                detail: Some("device timeout"),
-                tool: tool.as_deref(),
-                token_id: identity.token_id,
-                caller: Some(identity.caller),
-                trace: Some(&trace),
-                machine_seq: None,
-            })
-            .await;
-            Err(Box::new(
-                ApiError::gateway_timeout("device timeout").into_response(),
-            ))
-        }
-        Ok(Err(error)) => {
-            let now = (app.now)();
-            let failure = failure_for(error, app.link_state(device_id, now), now);
-            app.publish_work(
-                poll,
-                LiveCall {
-                    device_id: audit_id.as_deref(),
-                    tool: tool.as_deref(),
-                    sentence: &publish_sentence,
-                    status: failure.status(),
-                    ok: false,
-                    detail: failure.detail,
-                    ms: started.elapsed().as_millis() as u64,
-                    evidence: evidence.clone(),
-                    caller: identity.caller,
-                    token_id: identity.token_id,
-                    trace: Some(&trace),
-                    machine_seq: None,
-                },
-            );
-            app.record_facts(AuditFacts {
-                kind: if poll { "poll" } else { "denied" },
-                device_id: audit_id.as_deref(),
-                status: failure.status(),
-                detail: Some(failure.detail),
-                tool: tool.as_deref(),
-                token_id: identity.token_id,
-                caller: Some(identity.caller),
-                trace: Some(&trace),
-                machine_seq: None,
-            })
-            .await;
-            Err(Box::new(failure.into_response()))
-        }
-        Ok(Ok(answered)) => {
-            // **THE MACHINE'S OWN POSITION FOR THIS CALL (round 9).** The frame named the outcome
-            // half's journal `seq`; the audit line below records it, so the row can be read back
-            // from the machine by its own sequence rather than guessed from two clocks.
-            let machine_seq = answered.journal_seq;
-            let mut reply = answered.reply;
-            // A device answers -32002 when a destructive call's credential did not consent to it.
-            // There is no ninety-second hold: the token's consent was the decision, and a call it
-            // did not authorize is refused now, with a sentence that says how to authorize it.
-            if error_code(&reply) == Some(-32002) {
-                if let Reply::Error(error) = &mut reply {
-                    if let Some(inner) = error.get_mut("error") {
-                        inner["message"] = json!(
-                            "this token does not allow destructive calls; mint one with destructive consent to run it"
-                        );
-                    }
-                }
+    let wait = call_wait(&request);
+    let TaggedExchange {
+        answered,
+        trace,
+        txn: mut row_txn,
+    } = match exchange_tagged(app, device_id, auth, request, wait, identity.auto_txn).await {
+        Ok(tagged) => tagged,
+        Err(TaggedFailure {
+            error: TxnUnavailable::Refused(response),
+            ..
+        }) => return Err(response),
+        Err(TaggedFailure {
+            error,
+            trace: failed_trace,
+            txn: failed_txn,
+        }) => match error {
+            TxnUnavailable::Timeout => {
                 app.publish_work(
                     poll,
                     LiveCall {
                         device_id: audit_id.as_deref(),
                         tool: tool.as_deref(),
                         sentence: &publish_sentence,
-                        status: StatusCode::FORBIDDEN,
+                        status: StatusCode::GATEWAY_TIMEOUT,
                         ok: false,
-                        detail: "destructive_without_consent",
+                        detail: "device timeout",
                         ms: started.elapsed().as_millis() as u64,
                         evidence: evidence.clone(),
                         caller: identity.caller,
                         token_id: identity.token_id,
-                        trace: Some(&trace),
-                        machine_seq,
+                        trace: Some(&failed_trace),
+                        txn: failed_txn.as_deref(),
+                        machine_seq: None,
                     },
                 );
                 app.record_facts(AuditFacts {
                     kind: if poll { "poll" } else { "denied" },
                     device_id: audit_id.as_deref(),
-                    status: StatusCode::FORBIDDEN,
-                    detail: Some("destructive_without_consent"),
+                    status: StatusCode::GATEWAY_TIMEOUT,
+                    detail: Some("device timeout"),
                     tool: tool.as_deref(),
                     token_id: identity.token_id,
                     caller: Some(identity.caller),
-                    trace: Some(&trace),
-                    machine_seq,
+                    trace: Some(&failed_trace),
+                    txn: failed_txn.as_deref(),
+                    machine_seq: None,
                 })
                 .await;
-                return Ok(reply);
+                return Err(Box::new(
+                    ApiError::gateway_timeout("device timeout").into_response(),
+                ));
             }
-            if let (Some(allowed), true) = (filter, is_tools_list) {
-                if let Reply::Result(result) = &mut reply {
-                    crate::mcp::filter_tools(result, allowed);
-                }
-            }
-            // The audit keeps the outcome as a code; the live event also carries the device's own
-            // sentence, because the panel is where a person reads why a call was refused.
-            let detail = if tool.as_deref() == Some("runs.exec") {
-                run_detail(&reply)
-            } else {
-                reply_detail(&reply)
-            };
-            // **A TOOL THAT ANSWERED IS NOT NECESSARILY A SUCCESS.** MCP puts the failure in the
-            // result (`isError: true` with its reason), and a run says so with its exit code. A
-            // device older than that rule refuses a `tools/call` with a JSON-RPC error envelope.
-            // All three become a non-200 audit line; the HTTP answer to the caller is untouched,
-            // and a protocol error on ping/initialize/tools/list stays a 200 answer.
-            let tool_failure = tool_failure(&reply, tool.as_deref());
-            let (ok, status, audit_detail, live_detail) = match &reply {
-                Reply::Result(_) => match tool_failure {
-                    Some(reason) => (false, TOOL_REFUSED_STATUS, Some(reason.clone()), reason),
-                    None => (
-                        true,
-                        StatusCode::OK,
-                        detail.clone(),
-                        detail.clone().unwrap_or_default(),
-                    ),
-                },
-                Reply::Error(_) => match tool_failure {
-                    Some(reason) => (false, TOOL_REFUSED_STATUS, Some(reason.clone()), reason),
-                    None => (
-                        false,
-                        StatusCode::OK,
-                        detail.clone(),
-                        error_message(&reply)
-                            .map(bounded_detail)
-                            .unwrap_or_else(|| detail.clone().unwrap_or_default()),
-                    ),
-                },
-            };
-            // The row's words match the form's for the one failure a person causes by typing a
-            // command: "Could not run the command", with the device's reason one click away.
-            let publish_sentence = if tool.as_deref() == Some("runs.exec") && !ok {
-                "Could not run the command".to_owned()
-            } else {
-                publish_sentence
-            };
-            if tool.as_deref() == Some("runs.exec") {
-                // The evidence object is the page's, not the audit's: a run with no arguments still
-                // gets one so its exit facts have somewhere to live.
-                if let Some(run) = run_evidence(&reply) {
-                    let evidence = evidence.get_or_insert_with(|| json!({}));
-                    if let Some(object) = evidence.as_object_mut() {
-                        if let Some(output) = run.tail {
-                            object.insert("output".to_owned(), json!(output));
-                        }
-                        if let Some(exit_code) = run.exit_code {
-                            object.insert("exit_code".to_owned(), json!(exit_code));
-                        }
-                        if let Some(timed_out) = run.timed_out {
-                            object.insert("timed_out".to_owned(), json!(timed_out));
-                        }
-                    }
-                }
-            }
-            // A screenshot is evidence a row can open, not a data URL in an event: the image stays
-            // in the console's memory, and the event names the path and the moment. A device answer
-            // that is not a PNG is still the device's result, but it gets no `shot` it cannot serve.
-            if ok && tool.as_deref() == Some("screen.capture") {
-                if let (Some(device), Some(encoded)) = (audit_id.as_deref(), screen_png(&reply)) {
-                    let captured_at_ms = (app.now)();
-                    if let Some(image_id) = app.captures.remember(device, &encoded) {
-                        let evidence = evidence.get_or_insert_with(|| json!({}));
-                        if let Some(object) = evidence.as_object_mut() {
-                            object.insert(
-                                "shot".to_owned(),
-                                json!(format!("/activity/shot/{device}/{image_id}")),
-                            );
-                            object.insert("captured_at_ms".to_owned(), json!(captured_at_ms));
-                        }
-                    }
-                }
-            }
-            // A successful poll of a screen read is the console redrawing what it already has.
-            // It is neither an audit line nor a live event; a failed poll still writes its `poll`
-            // line below, so the operator can find the machine's silence in the Activity Table.
-            let silent_poll = poll && ok && is_poll_read(tool.as_deref());
-            if !silent_poll {
+            TxnUnavailable::Link(error) => {
+                let now = (app.now)();
+                let failure = failure_for(error, app.link_state(device_id, now), now);
                 app.publish_work(
                     poll,
                     LiveCall {
                         device_id: audit_id.as_deref(),
                         tool: tool.as_deref(),
                         sentence: &publish_sentence,
-                        status,
-                        ok,
-                        detail: &live_detail,
+                        status: failure.status(),
+                        ok: false,
+                        detail: failure.detail,
                         ms: started.elapsed().as_millis() as u64,
-                        evidence,
+                        evidence: evidence.clone(),
                         caller: identity.caller,
                         token_id: identity.token_id,
-                        trace: Some(&trace),
-                        machine_seq,
+                        trace: Some(&failed_trace),
+                        txn: failed_txn.as_deref(),
+                        machine_seq: None,
                     },
                 );
                 app.record_facts(AuditFacts {
-                    kind: if poll { "poll" } else { "mcp" },
+                    kind: if poll { "poll" } else { "denied" },
                     device_id: audit_id.as_deref(),
-                    status,
-                    detail: audit_detail.as_deref(),
+                    status: failure.status(),
+                    detail: Some(failure.detail),
                     tool: tool.as_deref(),
                     token_id: identity.token_id,
                     caller: Some(identity.caller),
-                    trace: Some(&trace),
-                    machine_seq,
+                    trace: Some(&failed_trace),
+                    txn: failed_txn.as_deref(),
+                    machine_seq: None,
                 })
                 .await;
+                return Err(Box::new(failure.into_response()));
             }
-            Ok(reply)
+            TxnUnavailable::Refused(_) => {
+                unreachable!("a refused exchange returned before its trace was used")
+            }
+        },
+    };
+
+    {
+        // **THE MACHINE'S OWN POSITION FOR THIS CALL (round 9).** The frame named the outcome
+        // half's journal `seq`; the audit line below records it, so the row can be read back
+        // from the machine by its own sequence rather than guessed from two clocks.
+        let machine_seq = answered.journal_seq;
+        let mut reply = answered.reply;
+        // A device answers -32002 when a destructive call's credential did not consent to it.
+        // There is no ninety-second hold: the token's consent was the decision, and a call it
+        // did not authorize is refused now, with a sentence that says how to authorize it.
+        if error_code(&reply) == Some(-32002) {
+            if let Reply::Error(error) = &mut reply {
+                if let Some(inner) = error.get_mut("error") {
+                    inner["message"] = json!(
+                            "this token does not allow destructive calls; mint one with destructive consent to run it"
+                        );
+                }
+            }
+            app.publish_work(
+                poll,
+                LiveCall {
+                    device_id: audit_id.as_deref(),
+                    tool: tool.as_deref(),
+                    sentence: &publish_sentence,
+                    status: StatusCode::FORBIDDEN,
+                    ok: false,
+                    detail: "destructive_without_consent",
+                    ms: started.elapsed().as_millis() as u64,
+                    evidence: evidence.clone(),
+                    caller: identity.caller,
+                    token_id: identity.token_id,
+                    trace: Some(&trace),
+                    txn: row_txn.as_deref(),
+                    machine_seq,
+                },
+            );
+            app.record_facts(AuditFacts {
+                kind: if poll { "poll" } else { "denied" },
+                device_id: audit_id.as_deref(),
+                status: StatusCode::FORBIDDEN,
+                detail: Some("destructive_without_consent"),
+                tool: tool.as_deref(),
+                token_id: identity.token_id,
+                caller: Some(identity.caller),
+                trace: Some(&trace),
+                txn: row_txn.as_deref(),
+                machine_seq,
+            })
+            .await;
+            return Ok(reply);
         }
+        if let (Some(allowed), true) = (filter, is_tools_list) {
+            if let Reply::Result(result) = &mut reply {
+                crate::mcp::filter_tools(result, allowed);
+            }
+        }
+        // **THE ROW'S FIELDS THE ANSWER MINTED.** A `txn.begin` learns its id only from its own
+        // answer, and a `commit`/`abort` answers the receipt; both are copied onto the row so the
+        // page groups by the record instead of drawing an unknown, purpose-less begin.
+        if let Some(answer_txn) = copy_transaction_answer(tool.as_deref(), &reply, &mut evidence) {
+            row_txn = Some(answer_txn);
+        }
+        // The audit keeps the outcome as a code; the live event also carries the device's own
+        // sentence, because the panel is where a person reads why a call was refused.
+        let detail = if tool.as_deref() == Some("runs.exec") {
+            run_detail(&reply)
+        } else {
+            reply_detail(&reply)
+        };
+        // **A TOOL THAT ANSWERED IS NOT NECESSARILY A SUCCESS.** MCP puts the failure in the
+        // result (`isError: true` with its reason), and a run says so with its exit code. A
+        // device older than that rule refuses a `tools/call` with a JSON-RPC error envelope.
+        // All three become a non-200 audit line; the HTTP answer to the caller is untouched,
+        // and a protocol error on ping/initialize/tools/list stays a 200 answer.
+        let tool_failure = tool_failure(&reply, tool.as_deref());
+        let (ok, status, audit_detail, live_detail) = match &reply {
+            Reply::Result(_) => match tool_failure {
+                Some(reason) => (false, TOOL_REFUSED_STATUS, Some(reason.clone()), reason),
+                None => (
+                    true,
+                    StatusCode::OK,
+                    detail.clone(),
+                    detail.clone().unwrap_or_default(),
+                ),
+            },
+            Reply::Error(_) => match tool_failure {
+                Some(reason) => (false, TOOL_REFUSED_STATUS, Some(reason.clone()), reason),
+                None => (
+                    false,
+                    StatusCode::OK,
+                    detail.clone(),
+                    error_message(&reply)
+                        .map(bounded_detail)
+                        .unwrap_or_else(|| detail.clone().unwrap_or_default()),
+                ),
+            },
+        };
+        // A session that closed successfully ends its transaction: the record's calls are a
+        // closed stretch of work, and leaving it working would make the next session's txn
+        // collide with a record no one is still adding to.
+        if ok && tool.as_deref() == Some("terminal.close") {
+            if let Some(session) = call_session.as_deref() {
+                close_session_txn(app, device_id, session).await;
+            }
+        }
+        // The row's words match the form's for the one failure a person causes by typing a
+        // command: "Could not run the command", with the device's reason one click away.
+        let publish_sentence = if tool.as_deref() == Some("runs.exec") && !ok {
+            "Could not run the command".to_owned()
+        } else {
+            publish_sentence
+        };
+        if tool.as_deref() == Some("runs.exec") {
+            // The evidence object is the page's, not the audit's: a run with no arguments still
+            // gets one so its exit facts have somewhere to live.
+            if let Some(run) = run_evidence(&reply) {
+                let evidence = evidence.get_or_insert_with(|| json!({}));
+                if let Some(object) = evidence.as_object_mut() {
+                    if let Some(output) = run.tail {
+                        object.insert("output".to_owned(), json!(output));
+                    }
+                    if let Some(exit_code) = run.exit_code {
+                        object.insert("exit_code".to_owned(), json!(exit_code));
+                    }
+                    if let Some(timed_out) = run.timed_out {
+                        object.insert("timed_out".to_owned(), json!(timed_out));
+                    }
+                }
+            }
+        }
+        // A screenshot is evidence a row can open, not a data URL in an event: the image stays
+        // in the console's memory, and the event names the path and the moment. A device answer
+        // that is not a PNG is still the device's result, but it gets no `shot` it cannot serve.
+        if ok && tool.as_deref() == Some("screen.capture") {
+            if let (Some(device), Some(encoded)) = (audit_id.as_deref(), screen_png(&reply)) {
+                let captured_at_ms = (app.now)();
+                if let Some(image_id) = app.captures.remember(device, &encoded) {
+                    let evidence = evidence.get_or_insert_with(|| json!({}));
+                    if let Some(object) = evidence.as_object_mut() {
+                        object.insert(
+                            "shot".to_owned(),
+                            json!(format!("/activity/shot/{device}/{image_id}")),
+                        );
+                        object.insert("captured_at_ms".to_owned(), json!(captured_at_ms));
+                    }
+                }
+            }
+        }
+        // A successful poll of a screen read is the console redrawing what it already has.
+        // It is neither an audit line nor a live event; a failed poll still writes its `poll`
+        // line below, so the operator can find the machine's silence in the Activity Table.
+        let silent_poll = poll && ok && is_poll_read(tool.as_deref());
+        if !silent_poll {
+            app.publish_work(
+                poll,
+                LiveCall {
+                    device_id: audit_id.as_deref(),
+                    tool: tool.as_deref(),
+                    sentence: &publish_sentence,
+                    status,
+                    ok,
+                    detail: &live_detail,
+                    ms: started.elapsed().as_millis() as u64,
+                    evidence,
+                    caller: identity.caller,
+                    token_id: identity.token_id,
+                    trace: Some(&trace),
+                    txn: row_txn.as_deref(),
+                    machine_seq,
+                },
+            );
+            app.record_facts(AuditFacts {
+                kind: if poll { "poll" } else { "mcp" },
+                device_id: audit_id.as_deref(),
+                status,
+                detail: audit_detail.as_deref(),
+                tool: tool.as_deref(),
+                token_id: identity.token_id,
+                caller: Some(identity.caller),
+                trace: Some(&trace),
+                txn: row_txn.as_deref(),
+                machine_seq,
+            })
+            .await;
+        }
+        Ok(reply)
     }
 }
 
@@ -4096,6 +4777,9 @@ async fn proxy_mcp(
         None => None,
     };
     let operator_scope = operator_scope(&body.device_id);
+    // A grant on this route is a client still using the operator transport: it is not the console's
+    // own page, so the console opens no transaction for it. The page never presents one.
+    let auto_txn = body.grant.is_none();
     let auth = match legacy {
         Some(grant) => RequestAuth::Grant(grant),
         None => RequestAuth::Token(&operator_scope),
@@ -4110,6 +4794,7 @@ async fn proxy_mcp(
             // The page's own automatic reads say so. A legacy grant on this route is a client that
             // still uses the operator transport; it must not be able to hide behind the marker.
             poll: body.poll && body.grant.is_none(),
+            auto_txn,
         },
         body.request,
         StatusCode::BAD_REQUEST,
@@ -4232,6 +4917,7 @@ async fn standard_mcp(
                         token_id: None,
                         caller: Some(Caller::Client),
                         trace: None,
+                        txn: None,
                         machine_seq: None,
                     })
                     .await;
@@ -4254,6 +4940,7 @@ async fn standard_mcp(
                         token_id: None,
                         caller: Some(Caller::Client),
                         trace: None,
+                        txn: None,
                         machine_seq: None,
                     })
                     .await;
@@ -4363,6 +5050,9 @@ async fn standard_mcp(
                     caller: Caller::Client,
                     token_id: token_id.as_deref(),
                     poll: false,
+                    // A client's own transaction is the device's gate to meet; the console only
+                    // forwards what the client sent.
+                    auto_txn: false,
                 },
                 request,
                 StatusCode::OK,
@@ -4379,6 +5069,9 @@ async fn standard_mcp(
                     caller: Caller::Client,
                     token_id: token_id.as_deref(),
                     poll: false,
+                    // A client's own transaction is the device's gate to meet; the console only
+                    // forwards what the client sent.
+                    auto_txn: false,
                 },
                 request,
                 StatusCode::OK,
@@ -4632,6 +5325,7 @@ async fn aggregate_mcp(State(app): State<AppState>, request: axum::extract::Requ
                     caller: Caller::Client,
                     token_id: Some(&granted.token_id),
                     poll: false,
+                    auto_txn: false,
                 },
                 request,
                 StatusCode::OK,
@@ -4661,6 +5355,7 @@ async fn aggregate_mcp(State(app): State<AppState>, request: axum::extract::Requ
                         token_id: Some(&record.id),
                         caller: Some(Caller::Client),
                         trace: None,
+                        txn: None,
                         machine_seq: None,
                     })
                     .await;
@@ -4701,6 +5396,7 @@ async fn aggregate_mcp(State(app): State<AppState>, request: axum::extract::Requ
                             caller: Caller::Client,
                             token_id: Some(&granted.token_id),
                             poll: false,
+                            auto_txn: false,
                         },
                         request,
                         StatusCode::OK,
@@ -4720,6 +5416,7 @@ async fn aggregate_mcp(State(app): State<AppState>, request: axum::extract::Requ
                         token_id: Some(&record.id),
                         caller: Some(Caller::Client),
                         trace: None,
+                        txn: None,
                         machine_seq: None,
                     })
                     .await;
@@ -4748,6 +5445,7 @@ async fn aggregate_mcp(State(app): State<AppState>, request: axum::extract::Requ
                         token_id: Some(&record.id),
                         caller: Some(Caller::Client),
                         trace: None,
+                        txn: None,
                         machine_seq: None,
                     })
                     .await;
@@ -6115,6 +6813,7 @@ async fn audit_join(
         Err(JoinUnreadable::Transport(error)) => {
             return error.refusal(&app, &device_id).into_response();
         }
+        Err(JoinUnreadable::Refused(response)) => return *response,
         // A device that answered but could not answer THIS question leaves every row unanswered.
         // The page draws no claim about a machine it could not ask, and `reason` is for the operator
         // and the tests: the page ignores it and reads `unknown` alone.
@@ -6162,6 +6861,9 @@ enum JoinUnreadable {
     /// The machine could not be asked. This is a link failure, not an answer: it is refused with the
     /// same 503/504 sentence every other per-device read uses, so one silence reads one way.
     Transport(LiveToolsError),
+    /// The console could not obtain the transaction the read needs; the device's own refusal is
+    /// already rendered and crosses unchanged.
+    Refused(Box<Response>),
     /// The device answered, and its answer is not a join: an older build that does not offer the
     /// tool, or a result this console cannot read. The route answers 200 with `unknown`.
     Unanswered(&'static str),
@@ -6202,6 +6904,77 @@ fn join_traces(text: &str) -> Result<Vec<String>, ApiError> {
     Ok(traces.into_iter().map(str::to_owned).collect())
 }
 
+/// One console-owned journal read: tagged with the device-scope transaction, retried once when the
+/// device no longer holds it. Like the reads themselves, it writes no audit line and no live row.
+async fn journal_exchange(
+    app: &AppState,
+    device_id: &str,
+    mut request: Value,
+) -> Result<Reply, TxnUnavailable> {
+    let scope = operator_scope(device_id);
+    let auth = RequestAuth::Token(&scope);
+    let mut trace = app.channels.mint_trace();
+    let txn = tag_request(app, device_id, &mut request, true).await?;
+    let mut answer = journal_send(app, device_id, &request, &auth, &trace).await;
+    if let Ok(reply) = &answer {
+        if let Some(stale) = txn.as_deref().filter(|_| transaction_gone(reply)) {
+            forget_console_txn(app, device_id, stale).await;
+            if let Some(arguments) = request_arguments_mut(&mut request) {
+                arguments.remove(WORKING_TXN_ARG);
+            }
+            trace = app.channels.mint_trace();
+            tag_request(app, device_id, &mut request, true).await?;
+            answer = journal_send(app, device_id, &request, &auth, &trace).await;
+        }
+    }
+    answer
+}
+
+/// Send one journal read and bound the answer like every other console call.
+async fn journal_send(
+    app: &AppState,
+    device_id: &str,
+    request: &Value,
+    auth: &RequestAuth<'_>,
+    trace: &str,
+) -> Result<Reply, TxnUnavailable> {
+    match tokio::time::timeout(
+        app.mcp_timeout,
+        app.channels
+            .request(device_id, request.clone(), auth, trace),
+    )
+    .await
+    {
+        Err(_) => Err(TxnUnavailable::Timeout),
+        Ok(Err(error)) => Err(TxnUnavailable::Link(error)),
+        Ok(Ok(reply)) => Ok(reply),
+    }
+}
+
+/// Map a transaction-layer failure onto the journal reads' answer.
+fn journal_txn_failure(error: TxnUnavailable) -> JournalUnreadable {
+    match error {
+        TxnUnavailable::Refused(response) => JournalUnreadable::Refused(response),
+        TxnUnavailable::Timeout => JournalUnreadable::Transport(LiveToolsError::Timeout),
+        TxnUnavailable::Link(RequestError::SendTimeout | RequestError::ReplyTimeout) => {
+            JournalUnreadable::Transport(LiveToolsError::Timeout)
+        }
+        TxnUnavailable::Link(_) => JournalUnreadable::Transport(LiveToolsError::Unavailable),
+    }
+}
+
+/// [`journal_txn_failure`] for the join's own error type.
+fn join_txn_failure(error: TxnUnavailable) -> JoinUnreadable {
+    match error {
+        TxnUnavailable::Refused(response) => JoinUnreadable::Refused(response),
+        TxnUnavailable::Timeout => JoinUnreadable::Transport(LiveToolsError::Timeout),
+        TxnUnavailable::Link(RequestError::SendTimeout | RequestError::ReplyTimeout) => {
+            JoinUnreadable::Transport(LiveToolsError::Timeout)
+        }
+        TxnUnavailable::Link(_) => JoinUnreadable::Transport(LiveToolsError::Unavailable),
+    }
+}
+
 /// Ask the device's `journal.get` over its channel, under the operator's own scope.
 ///
 /// Not through [`proxy_reply`]: that path is the operator's proxied call, and it writes the audit
@@ -6218,32 +6991,15 @@ async fn read_journal_join(
         return Err(JoinUnreadable::Transport(LiveToolsError::Unavailable));
     }
 
-    let scope = operator_scope(device_id);
     let request = json!({
         "jsonrpc": "2.0",
         "id": 1,
         "method": "tools/call",
         "params": { "name": "journal.get", "arguments": { "traces": traces } },
     });
-    // The trace is minted for the same reason `/fleet/:id/tools` mints one: the console's relay
-    // drops a `call.*` pair it recognises as its own, so this read stays out of Activity.
-    let trace = app.channels.mint_trace();
-    let answer = tokio::time::timeout(
-        app.mcp_timeout,
-        app.channels
-            .request(device_id, request, &RequestAuth::Token(&scope), &trace),
-    )
-    .await;
-
-    let reply = match answer {
-        Err(_) => return Err(JoinUnreadable::Transport(LiveToolsError::Timeout)),
-        Ok(Err(RequestError::Offline | RequestError::Busy | RequestError::Disconnected)) => {
-            return Err(JoinUnreadable::Transport(LiveToolsError::Unavailable))
-        }
-        Ok(Err(RequestError::SendTimeout | RequestError::ReplyTimeout)) => {
-            return Err(JoinUnreadable::Transport(LiveToolsError::Timeout))
-        }
-        Ok(Ok(reply)) => reply,
+    let reply = match journal_exchange(app, device_id, request).await {
+        Ok(reply) => reply,
+        Err(error) => return Err(join_txn_failure(error)),
     };
 
     let Reply::Result(_) = reply else {
@@ -6406,6 +7162,7 @@ async fn journal_read(
         Err(JournalUnreadable::Transport(error)) => {
             return error.refusal(&app, &device_id).into_response();
         }
+        Err(JournalUnreadable::Refused(response)) => return *response,
         // A machine that answered but could not answer THIS question leaves the window unanswered.
         // The page draws no claim about a record it could not read, and `reason` is for the operator
         // and the tests; the page reads `unknown` alone. **AN EMPTY WINDOW HERE WOULD BE DRAWN AS
@@ -6506,6 +7263,7 @@ async fn journal_day(
         Err(JournalUnreadable::Transport(error)) => {
             return error.refusal(&app, &device_id).into_response();
         }
+        Err(JournalUnreadable::Refused(response)) => return *response,
         // A machine that answered but could not answer THIS question leaves the day unanswered. The
         // page draws no claim about a day it could not read, and never a zero it did not measure.
         Err(JournalUnreadable::Unanswered(reason)) => {
@@ -6644,6 +7402,9 @@ enum JournalUnreadable {
     /// The machine could not be asked. This is a link failure, not an answer: it is refused with the
     /// same 503/504 sentence every other per-device read uses, so one silence reads one way.
     Transport(LiveToolsError),
+    /// The console could not obtain the transaction the read needs; the device's own refusal is
+    /// already rendered and crosses unchanged.
+    Refused(Box<Response>),
     /// The device answered, and its answer is not a window: an older build that does not offer the
     /// tool, a refusal, or a result this console cannot read. The route answers 200 with `unknown`.
     Unanswered(&'static str),
@@ -6755,32 +7516,15 @@ async fn ask_journal(
         return Err(JournalUnreadable::Transport(LiveToolsError::Unavailable));
     }
 
-    let scope = operator_scope(device_id);
     let request = json!({
         "jsonrpc": "2.0",
         "id": 1,
         "method": "tools/call",
         "params": { "name": tool, "arguments": arguments },
     });
-    // The trace is minted for the same reason `/fleet/:id/tools` mints one: the console's relay
-    // drops a `call.*` pair it recognises as its own, so this read stays out of Activity.
-    let trace = app.channels.mint_trace();
-    let answer = tokio::time::timeout(
-        app.mcp_timeout,
-        app.channels
-            .request(device_id, request, &RequestAuth::Token(&scope), &trace),
-    )
-    .await;
-
-    let reply = match answer {
-        Err(_) => return Err(JournalUnreadable::Transport(LiveToolsError::Timeout)),
-        Ok(Err(RequestError::Offline | RequestError::Busy | RequestError::Disconnected)) => {
-            return Err(JournalUnreadable::Transport(LiveToolsError::Unavailable))
-        }
-        Ok(Err(RequestError::SendTimeout | RequestError::ReplyTimeout)) => {
-            return Err(JournalUnreadable::Transport(LiveToolsError::Timeout))
-        }
-        Ok(Ok(reply)) => reply,
+    let reply = match journal_exchange(app, device_id, request).await {
+        Ok(reply) => reply,
+        Err(error) => return Err(journal_txn_failure(error)),
     };
 
     let Reply::Result(_) = reply else {

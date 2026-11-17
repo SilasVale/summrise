@@ -1044,6 +1044,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_mesh_required_call_without_a_transaction_is_refused_before_the_capability() {
+        let mut pair = pair("mesh-txn-required").await;
+        let grant = grant_for(&pair.target.peer_id(), &["journal.read"], now_ms() + 60_000);
+
+        let reply = pair
+            .ask(
+                json!({
+                    "jsonrpc": "2.0",
+                    "id": 107,
+                    "method": "tools/call",
+                    "params": { "name": "journal.read", "arguments": { "limit": 1 } },
+                }),
+                Some(grant),
+            )
+            .await;
+
+        // A mesh peer is a machine caller too: without a device-scope transaction the gate refuses
+        // before the capability can read anything, and the refusal says how to fix it.
+        assert_eq!(reply["result"]["result"]["isError"], true, "{reply}");
+        let sentence = reply["result"]["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap_or_default();
+        assert!(
+            sentence.contains("txn.begin {purpose}"),
+            "the mesh refusal names the fix: {sentence}"
+        );
+        let lines = audit_lines(&pair.target.config);
+        assert_eq!(lines[0]["decision"], "deny", "{lines:?}");
+        assert_eq!(lines[0]["tool"], "journal.read");
+        assert!(
+            lines[0]["txn"].is_null(),
+            "no transaction was resolved: {lines:?}"
+        );
+        assert_eq!(lines[1]["error_kind"], "txn_required", "{lines:?}");
+    }
+
+    #[tokio::test]
     async fn a_dead_direct_candidate_falls_back_to_the_relay_and_still_answers() {
         let broker = start_broker().await;
         let relay = start_relay().await;
