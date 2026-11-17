@@ -8514,6 +8514,151 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_old_shaped_token_begins_works_and_commits() {
+        let (server, config, _dir) = console_server("mcp-old-token-control-plane");
+        let scopes = vec!["files.write".to_owned()];
+        // The record predates `txn.*`; it consented to the write it does name, which is why the
+        // capability (not the control plane) still asks for that consent.
+        let caller = super::Caller::Console {
+            token_id: "tok-old",
+            scopes: &scopes,
+            allow_destructive: true,
+            arrival: super::Arrival::Console,
+            trace: None,
+        };
+        let txn = txn_id_of(
+            &call_as(
+                &server,
+                caller,
+                "txn.begin",
+                json!({ "purpose": "an old token still groups work" }),
+            )
+            .await,
+        );
+        let wrote = call_as(
+            &server,
+            caller,
+            "files.write",
+            json!({ "path": "old.txt", "content": "ok" }),
+        )
+        .await;
+        assert_eq!(wrote["result"]["isError"], false, "{wrote}");
+        let receipt = json_of(&call_as(&server, caller, "txn.commit", json!({ "txn": txn })).await);
+        assert_eq!(receipt["state"], "committed", "{receipt}");
+        assert_eq!(
+            receipt["observed"]["calls"], 1,
+            "the call is in the receipt: {receipt}"
+        );
+        let lines = audit_lines_of(&config);
+        assert_eq!(
+            audit_half(&lines, "files.write", "begin")["txn"],
+            json!(txn)
+        );
+    }
+
+    #[tokio::test]
+    async fn a_token_narrowed_to_one_tool_begins_a_transaction_and_nothing_else() {
+        let (server, _config, _dir) = console_server("mcp-narrow-token");
+        let scopes = vec!["files.read".to_owned()];
+        let caller = super::Caller::Console {
+            token_id: "tok-narrow",
+            scopes: &scopes,
+            allow_destructive: false,
+            arrival: super::Arrival::Console,
+            trace: None,
+        };
+        let txn =
+            txn_id_of(&call_as(&server, caller, "txn.begin", json!({ "purpose": "narrow" })).await);
+        for (name, args) in [
+            ("files.write", json!({"path":"no","content":"x"})),
+            ("terminal.create", json!({"kind":"pty"})),
+            ("host.facts", json!({})),
+        ] {
+            let refused = call_as(&server, caller, name, args).await;
+            assert!(
+                refused.get("error").is_some() || refused["result"]["isError"] == true,
+                "{name}: {refused}"
+            );
+        }
+        let receipt = json_of(&call_as(&server, caller, "txn.commit", json!({ "txn": txn })).await);
+        assert!(
+            receipt["observed"]["refusals"].as_u64().unwrap_or(0) >= 1,
+            "a refused call is not lost from the receipt: {receipt}"
+        );
+    }
+
+    #[tokio::test]
+    async fn every_door_begins_a_transaction_from_a_credential_that_predates_it() {
+        let (server, _config, _dir) = console_server("mcp-every-door-control-plane");
+        // The credential a door hands the device, with the one name that would have made the
+        // control plane reachable on its own dropped: `txn.begin` is not in this list.
+        let tools = vec![
+            "terminal.create".to_owned(),
+            "terminal.list".to_owned(),
+            "terminal.close".to_owned(),
+        ];
+        let grant = summrise_core::grant::Grant {
+            device_id: "ab".repeat(32),
+            tools: tools.clone(),
+            expires_at_ms: (crate::http::now_ms() + 60_000) as u64,
+            allow_destructive: true,
+            nonce: String::new(),
+        };
+        let console = super::Caller::Console {
+            token_id: "operator",
+            scopes: &tools,
+            allow_destructive: true,
+            arrival: super::Arrival::Console,
+            trace: None,
+        };
+        let token = super::Caller::Console {
+            token_id: "tok-bound",
+            scopes: &tools,
+            allow_destructive: true,
+            arrival: super::Arrival::Console,
+            trace: None,
+        };
+        let grant_door = super::Caller::Granted {
+            grant: &grant,
+            arrival: super::Arrival::Console,
+            peer: None,
+            trace: None,
+        };
+        let mesh = super::Caller::Granted {
+            grant: &grant,
+            arrival: super::Arrival::Mesh,
+            peer: None,
+            trace: None,
+        };
+        let doors: [(&str, super::Caller<'_>); 5] = [
+            ("install", super::Caller::Owner),
+            ("console", console),
+            ("token", token),
+            ("grant", grant_door),
+            ("mesh", mesh),
+        ];
+        for (door, caller) in doors {
+            let txn = txn_id_of(
+                &call_as(
+                    &server,
+                    caller,
+                    "txn.begin",
+                    json!({ "purpose": "a credential that predates the gate" }),
+                )
+                .await,
+            );
+            assert!(!txn.is_empty(), "{door}: the begin answers an id");
+            let receipt =
+                json_of(&call_as(&server, caller, "txn.commit", json!({ "txn": txn })).await);
+            assert_eq!(receipt["txn"], json!(txn), "{door}: {receipt}");
+            assert_eq!(receipt["state"], "committed", "{door}: {receipt}");
+            // The begin and the commit are the record's own exempt calls, and this test ran no
+            // work between them, so the receipt observes no counted call.
+            assert_eq!(receipt["observed"]["calls"], 0, "{door}: {receipt}");
+        }
+    }
+
+    #[tokio::test]
     async fn an_abort_reverts_nothing_and_records_its_reason() {
         let device = start("mcp-gate-abort").await;
         let mut client = Client::authorized(&device);

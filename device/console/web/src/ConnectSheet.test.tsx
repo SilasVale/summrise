@@ -227,6 +227,33 @@ describe("ConnectSheet", () => {
     expect(screen.queryByText("Copy this token now. It is not shown again.")).not.toBeInTheDocument();
   });
 
+  it("includes the control-plane transaction tools in the default all-tools preset", async () => {
+    // A record minted from this form must carry the three verbs that group work, even though the
+    // device's answer predates them: the default preset is the whole catalogue, and the catalogue
+    // the form falls back to includes the control plane.
+    mocks.liveTools.mockReturnValue([]);
+    catalogue.tools = [
+      { name: "files.read", destructive: false },
+      { name: "txn.begin", destructive: false },
+      { name: "txn.commit", destructive: false },
+      { name: "txn.abort", destructive: false }
+    ];
+    draw({ initialSection: "tokens" });
+    fireEvent.change(within(tokenForm()).getByLabelText("Name"), {
+      target: { value: "grouped" }
+    });
+    fireEvent.click(within(tokenForm()).getByRole("button", { name: "Create token" }));
+
+    await waitFor(() =>
+      expect(mocks.createToken).toHaveBeenCalledWith({
+        name: "grouped",
+        device_id: WORKSHOP.id,
+        tools: ["files.read", "txn.begin", "txn.commit", "txn.abort"],
+        allow_destructive: true
+      })
+    );
+  });
+
   it("mints read-only when the operator turns destructive consent off", async () => {
     draw({ initialSection: "tokens" });
     const consent = within(tokenForm()).getByRole("checkbox", {

@@ -4358,13 +4358,9 @@ async fn proxy_reply(
         .and_then(|tool| crate::activity::detail(tool, requested_arguments(&request)));
 
     if let Some(tool) = tool.as_deref() {
-        // A `*` is a wildcard, as it is on the device: the operator's own scope is `["*"]`, and an
-        // exact-equality check here silently refused every tool call that presented no grant.
-        if !auth
-            .tools()
-            .iter()
-            .any(|allowed| summrise_core::auth::pattern_matches(allowed, tool))
-        {
+        // The one allowlist rule: `*` is a wildcard, as it is on the device, and the control plane
+        // is never withheld — a credential that predates `txn.*` must still be able to group work.
+        if !summrise_core::auth::permits(auth.tools(), tool) {
             app.record_facts(AuditFacts {
                 kind: if poll { "poll" } else { "denied" },
                 device_id: audit_id.as_deref(),

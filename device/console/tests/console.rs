@@ -3038,6 +3038,13 @@ async fn answer_tool(socket: &mut DeviceSocket, frame: &Value, body: Value) {
     .await;
 }
 
+/// The device's answer with MCP's structured output beside its text: the page reads
+/// `result.structuredContent` for the id a begin minted and the receipt a commit returned.
+fn with_structured(mut answer: Value, structured: Value) -> Value {
+    answer["result"]["structuredContent"] = structured;
+    answer
+}
+
 /// Answer a `tools/call` with MCP's tool-level failure (`isError: true`), as a device refuses.
 async fn answer_refused(socket: &mut DeviceSocket, frame: &Value, sentence: &str) {
     answer(
@@ -8381,6 +8388,223 @@ async fn a_tool_outside_the_token_never_reaches_the_device() {
                 && line["tool"] == json!("files.write")
                 && line["detail"] == json!("tool_not_permitted")),
         "the refusal is audited"
+    );
+}
+
+/// **THE CONTROL PLANE IS NEVER WITHHELD.** A token minted before `txn.*` existed names only a
+/// capability; it can still begin, work and commit through the console, because the gate groups
+/// work and a record cannot be asked to name what did not exist when it was minted.
+#[tokio::test]
+async fn an_old_shaped_token_begins_works_and_commits_through_the_console() {
+    let fixture = Fixture::new("old-token-control-plane");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xb8)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(&session, &device_id, "dsh-old", &["files.write"], false)
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let token = created["token"].as_str().expect("the token").to_owned();
+
+    let begin = json!({ "jsonrpc": "2.0", "id": 21, "method": "tools/call",
+        "params": { "name": "txn.begin", "arguments": { "purpose": "a record that predates txn" } } });
+    let http = send(fixture.app(), post_token(&device_id, &token, begin));
+    let device_side = async {
+        let frame = next_json_raw(&mut device).await;
+        assert_eq!(frame_tool(&frame), Some("txn.begin"), "{frame}");
+        assert_eq!(
+            frame_arguments(&frame)["purpose"],
+            json!("a record that predates txn"),
+            "{frame}"
+        );
+        assert_eq!(
+            frame["token"]["scopes"],
+            json!(["files.write"]),
+            "the frame carries the old record's list"
+        );
+        answer(
+            &mut device,
+            &frame,
+            with_structured(
+                tools_call_answer(
+                    frame["id"].clone(),
+                    &json!({ "txn": "txn-old", "started_at_ms": START_MS }).to_string(),
+                    false,
+                ),
+                json!({ "txn": "txn-old", "started_at_ms": START_MS }),
+            ),
+        )
+        .await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "the control plane reaches the device: {body}"
+    );
+    assert_eq!(
+        body["result"]["structuredContent"]["txn"], "txn-old",
+        "{body}"
+    );
+
+    // The capability the record does name still works, forwarded as before: the control plane is
+    // not a licence to reach anything else.
+    let work = json!({ "jsonrpc": "2.0", "id": 22, "method": "tools/call",
+        "params": { "name": "files.write", "arguments": { "path": "old.txt", "content": "ok" } } });
+    let http = send(fixture.app(), post_token(&device_id, &token, work));
+    let device_side = async {
+        let frame = next_json_raw(&mut device).await;
+        assert_eq!(frame_tool(&frame), Some("files.write"), "{frame}");
+        answer_tool(&mut device, &frame, json!({ "path": "old.txt" })).await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["result"]["isError"], json!(false), "{body}");
+
+    let commit = json!({ "jsonrpc": "2.0", "id": 23, "method": "tools/call",
+        "params": { "name": "txn.commit", "arguments": { "txn": "txn-old" } } });
+    let http = send(fixture.app(), post_token(&device_id, &token, commit));
+    let device_side = async {
+        let frame = next_json_raw(&mut device).await;
+        assert_eq!(frame_tool(&frame), Some("txn.commit"), "{frame}");
+        assert_eq!(frame_arguments(&frame)["txn"], json!("txn-old"), "{frame}");
+        let receipt = json!({ "txn": "txn-old", "state": "committed",
+            "observed": { "calls": 1, "failures": 0, "refusals": 0, "duration_ms": 5 } });
+        answer(
+            &mut device,
+            &frame,
+            with_structured(
+                tools_call_answer(frame["id"].clone(), &receipt.to_string(), false),
+                receipt,
+            ),
+        )
+        .await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["result"]["structuredContent"]["state"], "committed",
+        "{body}"
+    );
+}
+
+/// A revoked record is not a credential: it cannot begin a transaction either.
+#[tokio::test]
+async fn a_revoked_token_cannot_begin_a_transaction() {
+    let fixture = Fixture::new("revoked-token-control-plane");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xb9)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(&session, &device_id, "dsh-revoked", &["files.write"], false)
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let token = created["token"].as_str().expect("the token").to_owned();
+    let id = created["id"].as_str().expect("an id").to_owned();
+    let (status, _) = send(
+        fixture.app(),
+        delete(&format!("/tokens/{id}"), Some(&session)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let begin = json!({ "jsonrpc": "2.0", "id": 31, "method": "tools/call",
+        "params": { "name": "txn.begin", "arguments": { "purpose": "revoked" } } });
+    let (status, body) = send(fixture.app(), post_token(&device_id, &token, begin)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+    assert_eq!(body["error"], json!("unauthorized"), "{body}");
+    let frame = tokio::time::timeout(Duration::from_millis(100), device.next()).await;
+    assert!(
+        frame.is_err(),
+        "a revoked record must not reach the device: {frame:?}"
+    );
+}
+
+/// A made-up token is refused before the control plane is considered.
+#[tokio::test]
+async fn an_unknown_token_cannot_begin_a_transaction() {
+    let fixture = Fixture::new("unknown-token-control-plane");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xba)).await;
+    let unknown = format!("srm_{}", "11".repeat(32));
+    let begin = json!({ "jsonrpc": "2.0", "id": 32, "method": "tools/call",
+        "params": { "name": "txn.begin", "arguments": { "purpose": "unknown" } } });
+    let (status, body) = send(fixture.app(), post_token(&device_id, &unknown, begin)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+    assert_eq!(body["error"], json!("unauthorized"), "{body}");
+    assert!(
+        denial_lines(&fixture)
+            .iter()
+            .any(|line| line["detail"] == json!("unknown_api_token")),
+        "the refusal names the credential, not the tool"
+    );
+    let frame = tokio::time::timeout(Duration::from_millis(100), device.next()).await;
+    assert!(
+        frame.is_err(),
+        "an unissued record must not reach the device: {frame:?}"
+    );
+}
+
+/// **THE TOOLS/LIST CONTRACT NAMES THE CONTROL PLANE.** A record that predates `txn.*` is shown
+/// the three verbs its client must call to group work, and nothing else it was not granted.
+#[tokio::test]
+async fn a_tokens_tool_list_names_the_transaction_tools() {
+    let fixture = Fixture::new("token-tool-list-control-plane");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xbb)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(&session, &device_id, "reader", &["files.read"], false)
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let token = created["token"].as_str().expect("the token").to_owned();
+
+    let request = json!({ "jsonrpc": "2.0", "id": 41, "method": "tools/list" });
+    let http = send(
+        fixture.app(),
+        post_token(&device_id, &token, request.clone()),
+    );
+    let device_side = async {
+        let frame = next_json_raw(&mut device).await;
+        assert_eq!(frame["mcp"], request, "{frame}");
+        assert_eq!(
+            frame["token"]["scopes"],
+            json!(["files.read"]),
+            "the device is asked with the record's own list"
+        );
+        answer(
+            &mut device,
+            &frame,
+            json!({ "jsonrpc": "2.0", "id": 41, "result": { "tools": [
+                { "name": "files.read", "description": "read" },
+                { "name": "files.write", "description": "write" },
+                { "name": "txn.begin", "description": "begin" },
+                { "name": "txn.commit", "description": "commit" },
+                { "name": "txn.abort", "description": "abort" },
+            ]}}),
+        )
+        .await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let names: Vec<&str> = body["result"]["tools"]
+        .as_array()
+        .expect("a tools array")
+        .iter()
+        .map(|tool| tool["name"].as_str().expect("a tool name"))
+        .collect();
+    assert_eq!(
+        names,
+        ["files.read", "txn.begin", "txn.commit", "txn.abort"],
+        "the list names the record's tool and the control plane: {body}"
+    );
+    assert!(
+        !names.contains(&"files.write"),
+        "a capability the record does not name stays withheld: {body}"
     );
 }
 

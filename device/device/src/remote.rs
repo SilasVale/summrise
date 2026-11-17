@@ -168,13 +168,10 @@ pub(crate) fn admit<'a>(
             return Err(GrantRefusal::Expired);
         }
         if let Some(tool) = frame.mcp.as_ref().and_then(requested_tool) {
-            // `*` is a wildcard here too: the console's operator scope is exactly that, and an
-            // exact comparison refused every grantless call before it reached a capability.
-            if !scope
-                .scopes
-                .iter()
-                .any(|allowed| summrise_core::auth::pattern_matches(allowed, tool))
-            {
+            // The control plane is admitted before the scope's list is asked, so a record that
+            // predates `txn.*` can still group its work; `*` is a wildcard for everything else,
+            // as it is on the console.
+            if !summrise_core::auth::permits(&scope.scopes, tool) {
                 return Err(GrantRefusal::ToolNotCovered);
             }
         }
@@ -204,7 +201,11 @@ pub(crate) fn admit<'a>(
         return Err(GrantRefusal::Expired);
     }
     if let Some(tool) = frame.mcp.as_ref().and_then(requested_tool) {
-        if !envelope.grant.tools.iter().any(|allowed| allowed == tool) {
+        // The control plane is admitted before the grant's coverage is asked. Every other tool is
+        // still compared exactly: a signed grant's names are a permission, never a glob.
+        if !summrise_core::registry::control_plane(tool)
+            && !envelope.grant.tools.iter().any(|allowed| allowed == tool)
+        {
             return Err(GrantRefusal::ToolNotCovered);
         }
     }
@@ -409,6 +410,150 @@ mod tests {
                 &NonceLog::new()
             ),
             Err(GrantRefusal::ToolNotCovered)
+        );
+    }
+
+    #[test]
+    fn a_token_scope_that_predates_the_transaction_tools_still_begins_one() {
+        let scope = TokenScope {
+            token_id: "old".into(),
+            device_id: device_id(),
+            scopes: vec!["runs.exec".into()],
+            allow_destructive: false,
+            expires_at_ms: None,
+        };
+        let frame = |name| RemoteFrame {
+            id: 7,
+            mcp: Some(call(name)),
+            subscribe: None,
+            unsubscribe: None,
+            events: None,
+            grant: None,
+            token: Some(scope.clone()),
+            trace: None,
+        };
+        assert!(
+            matches!(
+                admit(
+                    &frame("txn.begin"),
+                    &device_id(),
+                    Some(&signing().verifying_key()),
+                    now_ms(),
+                    Transport::Console,
+                    &NonceLog::new()
+                ),
+                Ok(Admitted::Token(_))
+            ),
+            "the control plane is never withheld"
+        );
+        assert_eq!(
+            admit(
+                &frame("files.write"),
+                &device_id(),
+                Some(&signing().verifying_key()),
+                now_ms(),
+                Transport::Console,
+                &NonceLog::new()
+            ),
+            Err(GrantRefusal::ToolNotCovered),
+            "a capability stays the scope's to grant"
+        );
+    }
+
+    #[test]
+    fn a_grant_that_predates_the_transaction_tools_still_begins_one() {
+        let grant = grant_for(&device_id(), &["runs.exec"], now_ms() as u64 + 60_000);
+        let frame = |name| remote_frame(call(name), Some(grant.clone()));
+        assert!(
+            matches!(
+                admit(
+                    &frame("txn.begin"),
+                    &device_id(),
+                    Some(&signing().verifying_key()),
+                    now_ms(),
+                    Transport::Console,
+                    &NonceLog::new()
+                ),
+                Ok(Admitted::Grant(_))
+            ),
+            "a grant minted before txn.* still groups its work"
+        );
+        assert_eq!(
+            admit(
+                &frame("files.write"),
+                &device_id(),
+                Some(&signing().verifying_key()),
+                now_ms(),
+                Transport::Console,
+                &NonceLog::new()
+            ),
+            Err(GrantRefusal::ToolNotCovered),
+            "the control plane does not widen the grant's named tools"
+        );
+    }
+
+    #[test]
+    fn a_grant_still_names_its_tools_exactly() {
+        let grant = grant_for(&device_id(), &["files.*"], now_ms() as u64 + 60_000);
+        let frame = |name| remote_frame(call(name), Some(grant.clone()));
+        assert!(
+            matches!(
+                admit(
+                    &frame("txn.begin"),
+                    &device_id(),
+                    Some(&signing().verifying_key()),
+                    now_ms(),
+                    Transport::Console,
+                    &NonceLog::new()
+                ),
+                Ok(Admitted::Grant(_))
+            ),
+            "the control plane is admitted"
+        );
+        assert_eq!(
+            admit(
+                &frame("files.read"),
+                &device_id(),
+                Some(&signing().verifying_key()),
+                now_ms(),
+                Transport::Console,
+                &NonceLog::new()
+            ),
+            Err(GrantRefusal::ToolNotCovered),
+            "the exact-name rule on this door is not widened into a glob"
+        );
+    }
+
+    #[test]
+    fn an_expired_token_scope_cannot_begin_a_transaction_beyond_the_clock_skew() {
+        let scope = TokenScope {
+            token_id: "dead".into(),
+            device_id: device_id(),
+            scopes: vec!["runs.exec".into()],
+            allow_destructive: false,
+            expires_at_ms: Some((now_ms() - CLOCK_SKEW_MS - 1) as u64),
+        };
+        let frame = RemoteFrame {
+            id: 7,
+            mcp: Some(call("txn.begin")),
+            subscribe: None,
+            unsubscribe: None,
+            events: None,
+            grant: None,
+            token: Some(scope),
+            trace: None,
+        };
+        assert_eq!(
+            admit(
+                &frame,
+                &device_id(),
+                Some(&signing().verifying_key()),
+                now_ms(),
+                Transport::Console,
+                &NonceLog::new()
+            ),
+            Err(GrantRefusal::Expired),
+            "the control plane does not outlive the token"
         );
     }
 

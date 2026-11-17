@@ -150,6 +150,23 @@ pub const EXEMPT_READ_TXNS: &[&str] = &[
     "system.process_list",
 ];
 
+/// The three transaction verbs: the protocol's control plane, never withheld by a tool list.
+///
+/// The gate groups work, so a credential minted before `txn.*` existed cannot be asked to name the
+/// tools that open and close the group. Every allowlist checkpoint admits these three
+/// unconditionally ([`control_plane`]) while expiry, revocation, device binding and every other
+/// tool stay exactly as strict.
+pub const CONTROL_PLANE_TXNS: &[&str] = &["txn.begin", "txn.commit", "txn.abort"];
+
+/// Whether `name` is one of the protocol's control-plane verbs.
+///
+/// The one rule every allowlist checkpoint reads for the exemption: a credential's `tools` list
+/// grants capabilities, and these three are not a capability — they are how the protocol groups
+/// work, so a list that predates them still admits them.
+pub fn control_plane(name: &str) -> bool {
+    CONTROL_PLANE_TXNS.contains(&name)
+}
+
 /// The transaction policy of `name`, or `None` when the registry does not declare it.
 ///
 /// The default is [`TxnPolicy::Required`], and that direction is deliberate: a tool added without a
@@ -640,6 +657,39 @@ mod tests {
                 None,
                 "{name:?} is not a tool of this surface"
             );
+        }
+    }
+
+    #[test]
+    fn the_control_plane_is_the_transaction_capability_and_is_never_gated() {
+        let names: Vec<&str> = crate::capabilities::txn::CAPABILITY
+            .tools
+            .iter()
+            .map(|t| t.name)
+            .collect();
+        assert_eq!(
+            CONTROL_PLANE_TXNS,
+            names.as_slice(),
+            "exactly the three txn tools"
+        );
+        for name in CONTROL_PLANE_TXNS {
+            assert!(
+                EXEMPT_READ_TXNS.contains(name),
+                "{name} is exempt from the gate too"
+            );
+            assert_eq!(txn_policy(name), Some(TxnPolicy::ExemptRead), "{name}");
+            assert!(
+                !BOOTSTRAP_TXNS.contains(name),
+                "{name} is not the bootstrap call"
+            );
+        }
+        for name in EXEMPT_READ_TXNS {
+            if !CONTROL_PLANE_TXNS.contains(name) {
+                assert!(
+                    !control_plane(name),
+                    "{name} stays the credential's to grant"
+                );
+            }
         }
     }
 

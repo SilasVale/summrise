@@ -258,11 +258,12 @@ fn device_list(devices: &[DeviceRef]) -> String {
         .join(", ")
 }
 
-/// Retain only the tools the grant names, in the order the device returned them.
+/// Retain the tools the grant names and the control plane, in the order the device returned them.
 ///
 /// The device's `tools/list` is the authority on names, descriptions and input schemas; the grant is
-/// the authority on which of them this client may see. A response without a `result.tools` array is
-/// left alone, whatever it is.
+/// the authority on which of them this client may see. The three `txn.*` verbs always survive: they
+/// are how the protocol groups work, so a record that predates them is still told about them. A
+/// response without a `result.tools` array is left alone, whatever it is.
 pub(crate) fn filter_tools(response: &mut Value, allowed: &[String]) {
     let Some(tools) = response
         .get_mut("result")
@@ -274,7 +275,7 @@ pub(crate) fn filter_tools(response: &mut Value, allowed: &[String]) {
     tools.retain(|tool| {
         tool.get("name")
             .and_then(Value::as_str)
-            .is_some_and(|name| allowed.iter().any(|allowed| allowed == name))
+            .is_some_and(|name| summrise_core::auth::permits(allowed, name))
     });
 }
 
@@ -398,13 +399,14 @@ mod tests {
     }
 
     #[test]
-    fn only_the_allowed_tools_survive_the_filter() {
+    fn only_the_allowed_tools_and_the_control_plane_survive_the_filter() {
         let mut response = json!({
             "jsonrpc": "2.0",
             "id": 1,
             "result": { "tools": [
                 { "name": "files.read", "description": "read" },
                 { "name": "files.write", "description": "write" },
+                { "name": "txn.begin", "description": "begin" },
             ]},
         });
 
@@ -412,7 +414,11 @@ mod tests {
 
         assert_eq!(
             response["result"]["tools"],
-            json!([{ "name": "files.read", "description": "read" }])
+            json!([
+                { "name": "files.read", "description": "read" },
+                { "name": "txn.begin", "description": "begin" },
+            ]),
+            "the cap the credential names and the control plane it is never asked to name"
         );
     }
 
