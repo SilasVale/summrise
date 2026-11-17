@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { mergeActivity } from "./activityMerge";
-import { liveActivityPath, openLiveActivity, type EventSourceLike } from "./liveActivity";
+import {
+  deviceLine,
+  liveActivityPath,
+  openLiveActivity,
+  type DeviceEvent,
+  type EventSourceLike
+} from "./liveActivity";
 
 class FakeSource implements EventSourceLike {
   listeners = new Map<string, (event: MessageEvent) => void>();
@@ -205,6 +211,41 @@ describe("the live activity stream", () => {
     expect(handlers.finished).toHaveBeenCalledWith("call-7");
   });
 
+  it("keeps a started call's evidence and token, so a running call can be scoped", () => {
+    const source = new FakeSource("/events");
+    const handlers = {
+      snapshot: vi.fn(),
+      activity: vi.fn(),
+      lagged: vi.fn(),
+      error: vi.fn(),
+      started: vi.fn()
+    };
+    openLiveActivity(handlers, () => source);
+
+    // The proxy announced the call before the device answered. The arguments it already built are
+    // the only way to know which session the running call belongs to; the token is who made it.
+    source.emit("started", {
+      started: {
+        id: "call-9",
+        tool: "terminal.write",
+        at_ms: 500,
+        device_id: "abc",
+        evidence: { session: "session-1", input: "npm test" },
+        token_id: "token-1"
+      },
+      caller: "client"
+    });
+    expect(handlers.started).toHaveBeenCalledWith({
+      id: "call-9",
+      tool: "terminal.write",
+      at_ms: 500,
+      device_id: "abc",
+      evidence: { session: "session-1", input: "npm test" },
+      token_id: "token-1",
+      caller: "client"
+    });
+  });
+
   it("replaces the running list with each snapshot's in-flight calls", () => {
     const source = new FakeSource("/events");
     const handlers = { snapshot: vi.fn(), activity: vi.fn(), lagged: vi.fn(), error: vi.fn() };
@@ -220,6 +261,89 @@ describe("the live activity stream", () => {
       [],
       [{ id: "call-8", tool: "files.read", at_ms: 2_000, caller: "console" }]
     );
+  });
+
+  it("keeps a snapshot running call's evidence and token too", () => {
+    const source = new FakeSource("/events");
+    const handlers = { snapshot: vi.fn(), activity: vi.fn(), lagged: vi.fn(), error: vi.fn() };
+    openLiveActivity(handlers, () => source);
+
+    // The snapshot's running list is the same facts as a started frame; a reconnect must not lose
+    // the session a call belongs to or the token that made it.
+    source.emit("snapshot", {
+      lines: [],
+      running: [
+        {
+          id: "call-8",
+          tool: "terminal.write",
+          at_ms: 2_000,
+          device_id: "abc",
+          caller: "client",
+          evidence: { session: "session-1", input: "npm test" },
+          token_id: "token-1"
+        }
+      ]
+    });
+    expect(handlers.snapshot).toHaveBeenCalledWith(
+      [],
+      [
+        {
+          id: "call-8",
+          tool: "terminal.write",
+          at_ms: 2_000,
+          device_id: "abc",
+          caller: "client",
+          evidence: { session: "session-1", input: "npm test" },
+          token_id: "token-1"
+        }
+      ]
+    );
+  });
+
+  it("gives a session event the session it names, so the rail can scope it", () => {
+    // A session's own event is not a call and has no HTTP status; its payload names the terminal.
+    // The rail filters rows by device and session, so the row must carry that session structurally
+    // rather than leaving the reader to parse the sentence.
+    const opened: DeviceEvent = {
+      v: 1,
+      plane: "control",
+      seq: 42,
+      ts: "2026-11-13T10:00:00.000Z",
+      type: "session.opened",
+      payload: { id: "2", kind: "pty" }
+    };
+    expect(deviceLine("abc", opened)).toMatchObject({
+      kind: "session",
+      device_id: "abc",
+      session: "2",
+      sentence: "terminal 2 opened on abc"
+    });
+
+    const closed: DeviceEvent = {
+      ...opened,
+      seq: 43,
+      type: "session.closed",
+      ts: "2026-11-13T10:05:00.000Z"
+    };
+    expect(deviceLine("abc", closed)).toMatchObject({
+      session: "2",
+      sentence: "terminal 2 closed on abc"
+    });
+  });
+
+  it("leaves a device call sessionless rather than guessing one", () => {
+    // A call the console did not proxy reaches the page as a journal pair with a tool and outcome,
+    // not the arguments a session would be read from. The rail withholds and counts it.
+    const row = deviceLine("abc", {
+      v: 1,
+      plane: "control",
+      seq: 44,
+      ts: "2026-11-13T10:00:02.000Z",
+      type: "call.finished",
+      payload: { tool: "files.read", ok: true }
+    });
+    expect(row).not.toBeNull();
+    expect(row?.session).toBeUndefined();
   });
 
   it("hands a relayed device event to the page with its envelope parsed", () => {

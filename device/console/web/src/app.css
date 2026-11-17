@@ -4416,3 +4416,189 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 /* The record's two-column grid gives its value column the rest of the row; a sentence that long is
    measured, not stretched, so it keeps the page's reading width like every other paragraph. */
 .audit-record .audit-join-fact { max-width: var(--measure); }
+
+/* ── The session's activity beside its terminal ────────────────────────────────────────────────
+   The rail is the second stream of the SAME page, not another destination: one active tab's rows
+   beside that tab's xterm. It owns its scroll (the terminal keeps its own), so a long command list
+   can be read back without moving the terminal's viewport. The column is 340 px on a desktop and
+   stacks under the screen below 900 px; at a phone it takes the stage's full width. Every colour
+   comes from the palette tokens above, so the rail follows light/dark and keeps AA contrast. */
+.terminal-stage {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+.terminal-screens {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.activity-rail {
+  flex: 0 0 340px;
+  width: 340px;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--line);
+  background: var(--canvas);
+  color: var(--ink);
+}
+.activity-rail-head {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: var(--sp-2-5) var(--sp-3);
+  border-bottom: 1px solid var(--line);
+}
+.activity-rail-head h2 { margin: 0; font-size: var(--fs-md); font-weight: var(--fw-semi); }
+.activity-rail-state-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  color: var(--ink-muted);
+  font-size: var(--fs-xs);
+}
+.activity-rail-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-pill);
+  background: var(--ink-faint);
+}
+.activity-rail-state-badge.is-live .activity-rail-dot { background: var(--ok); }
+.activity-rail-state-badge.is-connecting .activity-rail-dot { background: var(--warn); }
+.activity-rail-state-badge.is-offline .activity-rail-dot { background: var(--error); }
+.activity-rail-count {
+  margin-left: auto;
+  color: var(--ink-faint);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.activity-rail-note {
+  flex: none;
+  margin: 0;
+  padding: var(--sp-1-5) var(--sp-3);
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-muted);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+}
+.activity-rail-body {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+.activity-rail-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--sp-2);
+}
+.activity-rail-list:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.activity-rail-cards { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-2); }
+.activity-card {
+  display: grid;
+  gap: var(--sp-1);
+  padding: var(--sp-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  background: var(--surface);
+}
+.activity-card.tone-running { border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); }
+.activity-card.tone-failed { border-color: color-mix(in srgb, var(--error) 40%, var(--line)); }
+.activity-card.tone-session { background: transparent; border-style: dashed; }
+.activity-card-meta { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-1-5); }
+.activity-card-meta .timeline-time { padding-top: 0; }
+.activity-actor.actor-you { background: var(--accent-soft); color: var(--accent-on-soft); }
+.activity-actor.actor-client { background: var(--surface-chip); color: var(--ink); }
+.activity-actor.actor-unknown { background: var(--warn-soft); color: var(--warn); }
+.activity-actor.actor-session { background: var(--surface-chip); color: var(--ink); }
+.activity-card-state {
+  margin-left: auto;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semi);
+  letter-spacing: var(--tracking-label);
+}
+.activity-card-state.state-running { color: var(--warn); }
+.activity-card-state.state-failed { color: var(--error); }
+.activity-card-state.state-session { color: var(--ink-muted); }
+code.activity-card-title {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-tight);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+p.activity-card-title {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-tight);
+  overflow-wrap: anywhere;
+}
+.activity-card-facts {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-tight);
+  overflow-wrap: anywhere;
+}
+.activity-card-jump { justify-self: start; }
+.activity-rail-empty { margin: 0; }
+.activity-rail-new {
+  position: absolute;
+  right: var(--sp-3);
+  bottom: var(--sp-3);
+  z-index: 1;
+  padding: var(--sp-1) var(--sp-3);
+  border-color: var(--accent-solid);
+  background: var(--accent-solid);
+  color: var(--accent-fg);
+  font-size: var(--fs-xs);
+}
+.activity-rail-new:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.activity-rail-foot {
+  flex: none;
+  display: grid;
+  gap: var(--sp-1);
+  padding: var(--sp-2) var(--sp-3);
+  border-top: 1px solid var(--line);
+}
+.activity-rail-foot .hint { margin: 0; font-size: var(--fs-xs); line-height: var(--lh-tight); }
+
+@media (max-width: 767px) {
+  /* The terminal is the work; the rail collapses under it rather than becoming a hidden tab. The
+     stage scrolls as a whole because the rail's footer states the window's limits: a fixed pane
+     that clipped those disclosures would make the rail's honesty unreachable on a phone. */
+  .terminal-stage { flex-direction: column; overflow-y: auto; }
+  .activity-rail {
+    flex: 0 0 auto;
+    width: 100%;
+    max-height: 44vh;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+  .activity-rail-list { padding: var(--sp-2) var(--sp-3); }
+}
+@media (max-width: 639px) {
+  .terminal-stage { min-height: 0; }
+  .activity-rail { max-height: 44vh; }
+  .activity-rail-head { padding: var(--sp-2); }
+  .activity-rail-note,
+  .activity-rail-foot { padding-left: var(--sp-2); padding-right: var(--sp-2); }
+  .activity-rail-list { padding: var(--sp-2); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .activity-rail,
+  .activity-rail * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}

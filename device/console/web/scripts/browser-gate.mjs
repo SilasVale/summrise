@@ -319,15 +319,14 @@ const HISTORIC_LINES = Array.from({ length: 75 }, (_, index) => ({
 const FIXTURE_LINES = [CONSOLE_LINE, AUDIT_LINE, ...HISTORIC_LINES];
 const TODAY_LINES = FIXTURE_LINES.filter((line) => line.ts_ms >= DAY_START.getTime());
 const TODAY_CLIENT = TODAY_LINES.filter((line) => line.caller === 'client').length;
-const ALL_CLIENT = FIXTURE_LINES.filter((line) => line.caller === 'client').length;
+// The rail leg below adds one live client call to this page; it is in the same window Activity
+// merges, so the count it asserts is updated at that leg rather than assumed forever.
+let ALL_CLIENT = FIXTURE_LINES.filter((line) => line.caller === 'client').length;
 // One day, one number: the fleet's `today` is the day this fixture's `/audit/day` would answer.
 DEVICE.today = { client_calls: TODAY_CLIENT, failed: 0 };
-// The newest client row in the window is the one a narrowed list draws first. It is the run's line
-// at a normal hour and a historic call in the five minutes after midnight, when `AUDIT_LINE` is
-// yesterday; the leg names whichever it is rather than racing the clock.
-const FIRST_CLIENT = [...FIXTURE_LINES]
-  .filter((line) => line.caller === 'client')
-  .sort((left, right) => right.ts_ms - left.ts_ms)[0];
+// The rail leg publishes one live client write stamped now, newer than every fixture client call
+// (including in the five minutes after midnight), so it is the first row a narrowed list draws.
+const LIVE_CLIENT_TEXT = 'Typed npm test into a terminal';
 // **THE MEASURED WINDOW: 1004 FETCHED, 974 ACTIVITY DRAWS.** A 1000-line answer for BIG_DEVICE:
 // 9 channel boundaries, 17 repeated keys, and 974 rows the record draws — 283 client calls, 580
 // console reads and 111 rows no caller was recorded for. All of it inside today's first twenty
@@ -2598,6 +2597,7 @@ try {
   const dialog = page.getByRole('dialog', { name: 'New terminal session' });
   await dialog.getByRole('button', { name: 'Open' }).click();
   await page.locator('.term-host .xterm').waitFor({ state: 'visible', timeout: 10_000 });
+  const firstSession = `gate-pty-${state.created}`;
   step('opened one pty; xterm mounted');
 
   // The card reads the console's live activity. A page that never opened `/events` would make the
@@ -2640,6 +2640,123 @@ try {
     );
   }
   step('the session card joined the line’s writes instead of showing the newest batch');
+
+  // **THE SESSION'S ACTIVITY SITS BESIDE ITS TERMINAL.** The console's live window is machine-wide;
+  // the rail must narrow it to this tab's session, name the console's own write You, and show the
+  // command the person typed. A second frame from a client token on this machine proves the actor
+  // label is the token's name, not a guess at who is on the other end.
+  const rail = page.locator('.activity-rail');
+  await rail.waitFor({ timeout: 10_000 });
+  await rail.getByText('You', { exact: true }).first().waitFor({ timeout: 10_000 });
+  await page.waitForFunction(
+    (marker) =>
+      [...document.querySelectorAll('.activity-rail .activity-card-title')].some(
+        (node) => node.textContent === marker
+      ),
+    MARKER,
+    { timeout: 5_000 }
+  );
+  const railAt1280 = await rail.boundingBox();
+  if (!railAt1280 || railAt1280.width < 300) {
+    throw new Error(`the activity rail measured ${JSON.stringify(railAt1280)} at 1280`);
+  }
+  step(`the activity rail sits beside the xterm for the active session (You + ${MARKER})`);
+
+  pushEvent('activity', {
+    ts_ms: Date.now(),
+    kind: 'mcp',
+    device_id: DEVICE.id,
+    status: 200,
+    tool: 'terminal.write',
+    caller: 'client',
+    token_id: 'gate-token-on-gate-device',
+    live: true,
+    sentence: LIVE_CLIENT_TEXT,
+    evidence: { session: firstSession, input: 'npm test -- --run' }
+  });
+  // The frame above is a real live client row in the window Activity reads later in this run, so
+  // the count that window states has one more client call than the fixture alone.
+  ALL_CLIENT += 1;
+  await rail.getByText('gate-laptop', { exact: true }).waitFor({ timeout: 10_000 });
+  await page.waitForFunction(
+    () =>
+      [...document.querySelectorAll('.activity-rail .activity-card-title')].some(
+        (node) => node.textContent === 'npm test -- --run'
+      ),
+    undefined,
+    { timeout: 5_000 }
+  );
+  const jumpButtons = await rail.getByRole('button', { name: 'Show in terminal' }).count();
+  if (jumpButtons < 2) {
+    throw new Error(`the rail offered ${jumpButtons} jump button(s) for two finished typed writes`);
+  }
+  step("the client's write reads \"gate-laptop\" and its command; both typed rows offer a jump");
+
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await page.waitForTimeout(400);
+  const stage1440 = await page.locator('.terminal-screens').boundingBox();
+  const rail1440 = await rail.boundingBox();
+  if (!stage1440 || !rail1440 || rail1440.x < stage1440.x + stage1440.width - 1) {
+    throw new Error(
+      `at 1440 the rail is ${JSON.stringify(rail1440)} and the screen column ${JSON.stringify(stage1440)}`
+    );
+  }
+  await page.screenshot({ path: path.join(OUT, '03b-activity-rail-1440.png') });
+  step('at 1440 the activity rail is the column beside the terminal');
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(500);
+  const stage390 = await page.locator('.terminal-screens').boundingBox();
+  const rail390 = await rail.boundingBox();
+  if (!stage390 || !rail390 || rail390.y < stage390.y + stage390.height - 1) {
+    throw new Error(
+      `at 390 the rail is ${JSON.stringify(rail390)} and the screen column ${JSON.stringify(stage390)}`
+    );
+  }
+  const overflow390 = await page.evaluate(
+    () => document.documentElement.scrollWidth - window.innerWidth
+  );
+  if (overflow390 > 0) {
+    throw new Error(`the terminal page with its rail scrolls sideways at 390 by ${overflow390} px`);
+  }
+  // **THE FOOTER MUST BE REACHABLE, NOT JUST PRESENT.** The stage is the phone's scroll container
+  // once the rail stacks inside it; a clipped footer would hide the window/history/dropped-lines
+  // disclosures the rail exists to state. Scroll the stage to its end and read the footer's box.
+  const stageScroll = await page.evaluate(() => {
+    const stage = document.querySelector('.terminal-stage');
+    return stage ? { scrollHeight: stage.scrollHeight, clientHeight: stage.clientHeight } : null;
+  });
+  if (!stageScroll || stageScroll.scrollHeight <= stageScroll.clientHeight) {
+    throw new Error(`the stacked terminal stage did not scroll: ${JSON.stringify(stageScroll)}`);
+  }
+  await page.evaluate(() => {
+    const stage = document.querySelector('.terminal-stage');
+    if (stage) stage.scrollTop = stage.scrollHeight;
+  });
+  await page.waitForTimeout(300);
+  const foot390 = await page.locator('.activity-rail-foot').boundingBox();
+  const panel390 = await page.locator('.terminal-panel').boundingBox();
+  if (!foot390 || !panel390 || foot390.y + foot390.height > panel390.y + panel390.height + 1) {
+    throw new Error(
+      `at 390 the rail footer is ${JSON.stringify(foot390)} inside the panel ${JSON.stringify(panel390)}`
+    );
+  }
+  const footText = (await page.locator('.activity-rail-foot').innerText()).trim();
+  if (!/200-line machine-wide window/.test(footText)) {
+    throw new Error(`the rail footer lost its window disclosure at 390: "${footText}"`);
+  }
+  await page.screenshot({ path: path.join(OUT, '03c-activity-rail-390.png') });
+  step(
+    'at 390 the rail stacks under the screen at full width with no horizontal overflow, and its ' +
+      'disclosures scroll into view'
+  );
+  await page.evaluate(() => {
+    const stage = document.querySelector('.terminal-stage');
+    if (stage) stage.scrollTop = 0;
+  });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.waitForTimeout(200);
+
   await page.screenshot({ path: path.join(OUT, '03-terminal-marker.png') });
 
   // **A CURSOR TOO OLD PAGES IN A REAL BROWSER.** The gate's stream for the second pty refuses its
@@ -3095,7 +3212,9 @@ try {
   // **THE PAGE'S OWN WRITES ARE AUDIT ROWS.** The console records every call, so the two
   // `terminal.write` lines the session-card leg typed are drawn beside the fetched window. The
   // fixture is that window; the live rows this run added are the difference.
-  const expectedActivityRows = FIXTURE_LINES.length + state.writeCalls;
+  // The marker's two console writes plus the rail's one client frame: three live rows on top of
+  // the fixture, and the last of them is the only client one.
+  const expectedActivityRows = FIXTURE_LINES.length + state.writeCalls + 1;
   if (allActivityRows !== expectedActivityRows) {
     throw new Error(
       `Activity drew ${allActivityRows} rows; the audit's default is all ${expectedActivityRows}`
@@ -3146,8 +3265,10 @@ try {
     );
   }
   const narrowed = (await page.locator('.timeline-row').first().textContent()) ?? '';
-  if (!narrowed.includes(FIRST_CLIENT.tool)) {
-    throw new Error(`the Clients only chip kept a row that is not the AI's call: "${narrowed}"`);
+  // The rail's live client frame is newer than every fixture client call, so it is the first row
+  // this narrowed list draws; the chip must keep it, not the fixture's older run.
+  if (!narrowed.includes(LIVE_CLIENT_TEXT)) {
+    throw new Error(`the Clients only chip kept a row that is not the client's call: "${narrowed}"`);
   }
   await clientsChip.click();
   await page.waitForFunction(
@@ -3365,7 +3486,7 @@ try {
 
   step(
     `the header counted ${TODAY_CLIENT} client calls, Activity kept all ${allActivityRows} rows ` +
-      `and Clients only narrowed them to ${ALL_CLIENT}`
+      `(including this run's live rail write) and Clients only narrowed them to ${ALL_CLIENT}`
   );
 
   // Activity opens on the timeline; the audit rows are the table view.

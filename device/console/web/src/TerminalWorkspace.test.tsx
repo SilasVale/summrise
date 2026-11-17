@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { shouldPollSessions, TerminalWorkspace } from "./TerminalWorkspace";
 import { api } from "./api";
-import type { LiveLine } from "./liveActivity";
+import type { LiveLine, StartedCall } from "./liveActivity";
 import { callTool, ToolError, type Grant } from "./terminal";
 import { DEFAULT_FONT_SIZE, FONT_SIZE_KEY, MAX_FONT_SIZE, MIN_FONT_SIZE } from "./terminalFont";
 import { restoreGlobal } from "./test/dom";
@@ -2096,6 +2096,142 @@ describe("TerminalWorkspace session card", () => {
     const start = within(sessions).getAllByRole("button", { name: "New session" });
     expect(start).toHaveLength(1);
     expect(screen.getAllByRole("button", { name: "New session" })).toHaveLength(1);
+  });
+});
+
+
+describe("TerminalWorkspace activity rail", () => {
+  /** A finished typed write for the tab `startPtyTab` will open: the mock names it t1. */
+  function typedLine(session: string, input: string, tsMs = Date.now() - 1_000): LiveLine {
+    return liveLine({
+      ts_ms: tsMs,
+      device_id: GRANT.deviceId,
+      tool: "terminal.write",
+      caller: "console",
+      evidence: { session, input },
+      sentence: "Typed into a terminal"
+    });
+  }
+
+  it("puts the rail beside the active xterm and leaves another session's rows out", async () => {
+    const lines = [
+      typedLine("t1", "npm test -- --run"),
+      typedLine("session-other", "not this tab", Date.now() - 2_000)
+    ];
+    const { container } = render(<TerminalWorkspace grant={GRANT} liveLines={lines} />);
+    // With no tab there is no session to describe, so the rail does not exist yet.
+    expect(screen.queryByRole("complementary", { name: "Session activity" })).not.toBeInTheDocument();
+
+    await startPtyTab();
+    await screen.findByRole("tab", { name: /pty · / });
+
+    const rail = screen.getByRole("complementary", { name: "Session activity" });
+    const stage = container.querySelector(".terminal-stage");
+    const screens = container.querySelector(".terminal-screens");
+    expect(stage).not.toBeNull();
+    expect(screens).not.toBeNull();
+    // The rail is a sibling of the screen column, not a second terminal and not above the tabs.
+    expect(stage!.contains(screens!)).toBe(true);
+    expect(stage!.contains(rail)).toBe(true);
+    expect(screens!.contains(container.querySelector(".term-host"))).toBe(true);
+    expect(within(rail).getByText("You")).toBeInTheDocument();
+    expect(within(rail).getByText("npm test -- --run")).toBeInTheDocument();
+    expect(within(rail).queryByText("not this tab")).not.toBeInTheDocument();
+  });
+
+  it("shows a running call and the dropped-line count the feed reports", async () => {
+    const running: StartedCall[] = [
+      {
+        id: "call-1",
+        tool: "terminal.write",
+        at_ms: Date.now() - 500,
+        device_id: GRANT.deviceId,
+        caller: "client",
+        token_id: "token-known",
+        evidence: { session: "t1", input: "make test" }
+      }
+    ];
+    render(
+      <TerminalWorkspace
+        grant={GRANT}
+        liveLines={[]}
+        liveRunning={running}
+        liveLagged={4}
+        tokenNames={new Map([["token-known", "gate-laptop"]])}
+      />
+    );
+    await startPtyTab();
+    await screen.findByRole("tab", { name: /pty · / });
+
+    const rail = screen.getByRole("complementary", { name: "Session activity" });
+    expect(within(rail).getByText("gate-laptop")).toBeInTheDocument();
+    expect(within(rail).getByText("running")).toBeInTheDocument();
+    expect(within(rail).getByText("make test")).toBeInTheDocument();
+    expect(within(rail).getByText(/dropped 4 live lines/)).toBeInTheDocument();
+    // A running call has no output in the record, so the rail offers no jump for it.
+    expect(within(rail).queryByRole("button", { name: "Show in terminal" })).not.toBeInTheDocument();
+  });
+
+  it("jumps only through the active tab's search addon, and says a miss out loud", async () => {
+    render(<TerminalWorkspace grant={GRANT} liveLines={[typedLine("t1", "npm test -- --run")]} />);
+    await startPtyTab();
+    await screen.findByRole("tab", { name: /pty · / });
+    await waitFor(() => expect(mockedSearch.instances).toHaveLength(1));
+    const addon = mockedSearch.instances[0];
+
+    const rail = screen.getByRole("complementary", { name: "Session activity" });
+    fireEvent.click(within(rail).getByRole("button", { name: "Show in terminal" }));
+
+    expect(addon.findNext).toHaveBeenCalledTimes(1);
+    expect(addon.findNext.mock.calls[0][0]).toBe("npm test -- --run");
+    expect(addon.findNext.mock.calls[0][1]?.decorations).toBeDefined();
+    expect(screen.getByText('Showing "npm test -- --run" in this terminal.')).toBeInTheDocument();
+
+    mockedSearch.nextResult = false;
+    fireEvent.click(within(rail).getByRole("button", { name: "Show in terminal" }));
+    expect(
+      await screen.findByText('This terminal\'s scrollback does not contain "npm test -- --run".')
+    ).toBeInTheDocument();
+  });
+
+  it("changes the rail when the tab changes without remounting either xterm", async () => {
+    const lines = [
+      typedLine("t1", "first tab command", Date.now() - 2_000),
+      typedLine("t2", "second tab command", Date.now() - 1_000)
+    ];
+    render(<TerminalWorkspace grant={GRANT} liveLines={lines} />);
+    await startPtyTab();
+    await startPtyTab();
+    await waitFor(() => expect(mockedXterm.instances).toHaveLength(2));
+    const firstTerm = mockedXterm.instances[0];
+
+    let rail = screen.getByRole("complementary", { name: "Session activity" });
+    expect(within(rail).getByText("second tab command")).toBeInTheDocument();
+    expect(within(rail).queryByText("first tab command")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByRole("tab")[0]);
+    await waitFor(() => {
+      rail = screen.getByRole("complementary", { name: "Session activity" });
+      expect(within(rail).getByText("first tab command")).toBeInTheDocument();
+    });
+    expect(within(rail).queryByText("second tab command")).not.toBeInTheDocument();
+    // The other tab's terminal is still the same instance: the rail is a sibling, not a wrapper.
+    expect(mockedXterm.instances[0]).toBe(firstTerm);
+    expect(mockedXterm.instances).toHaveLength(2);
+  });
+
+  it("says the feed is connecting until the live window answers", async () => {
+    const { rerender } = render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+    await screen.findByRole("tab", { name: /pty · / });
+    let rail = screen.getByRole("complementary", { name: "Session activity" });
+    expect(within(rail).getByText(/Connecting to the console's live activity/)).toBeInTheDocument();
+
+    rerender(<TerminalWorkspace grant={GRANT} liveLines={[]} />);
+    rail = screen.getByRole("complementary", { name: "Session activity" });
+    expect(
+      within(rail).getByText("No activity recorded for this session since this page opened.")
+    ).toBeInTheDocument();
   });
 });
 

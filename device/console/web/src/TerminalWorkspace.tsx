@@ -7,9 +7,11 @@ import { callTool, ToolError, type Grant } from "./terminal";
 import { createTerminalWriteBatcher, type TerminalWriteBatcher } from "./terminalWriteBatcher";
 import { openTerminalStream, type TerminalStream } from "./terminalStream";
 import { createOutputPump, type OutputPump } from "./terminalOutput";
+import { typedText, WRITE_BURST_MS } from "./terminalInput";
 import { renameTab, tabLabel, titleFromInput, type Tab } from "./terminalTabs";
 import { age } from "./age";
-import type { LiveLine } from "./liveActivity";
+import type { LiveLine, StartedCall } from "./liveActivity";
+import { ActivityRail } from "./ActivityRail";
 import {
   earliestCursor,
   endCursor,
@@ -93,6 +95,9 @@ const FAULT_LABELS: Record<FaultKind, string> = {
  * stops as soon as one session is listed.
  */
 const EMPTY_LIST_POLL_MS = 10_000;
+
+/** No token names known: the rail falls back to the record's short ids. */
+const NO_TOKEN_NAMES: ReadonlyMap<string, string> = new Map();
 
 /**
  * How many times one feed chases a cursor the device has refused as older than its ring.
@@ -456,49 +461,6 @@ function isAbsolutePath(text: string): boolean {
 }
 
 /**
- * One ANSI escape sequence, as much of the grammar a terminal sends as input: CSI
- * (`ESC [ parameters final`, where the focus reports `ESC[I`/`ESC[O` live), SS3 (`ESC O final`),
- * OSC and the other string controls (closed by BEL or ST), and any other escape.
- *
- * Matched whole on purpose: a sequence's final byte is printable (`I`, `O`, `A` …), so a test for
- * "does this write contain a printable character" must remove the sequence first or the sequence's
- * own letter reads as a typed key.
- */
-const ANSI_ESCAPE =
-  /\x1b\[[0-?]*[ -/]*[@-~]|\x1bO[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?|\x1b[PX^_][^\x1b]*(?:\x1b\\)?|\x1b[ -/]*[@-~]?/g;
-
-/**
- * What a person typed in one `terminal.write`, or null when the write carried no keystroke.
- *
- * xterm sends the terminal's focus reports through `onData` (`ESC[I` on focus, `ESC[O` on blur), and
- * cursor and function keys are escape sequences too. The session receives them — that is the
- * terminal's job — but they are not text a person typed, so the card must not present one as input.
- * A space is a keystroke (the space bar) and survives; a write whose remainder is only control
- * characters (Enter, Tab, Backspace, a stray BEL) has nothing to show.
- */
-function typedText(input: string): string | null {
-  const text = input.replace(ANSI_ESCAPE, "");
-  return /[^\x00-\x1f\x7f-\x9f]/.test(text) ? text : null;
-}
-
-/**
- * How far apart two writes may be and still belong to one typed line.
- *
- * **ONE KEYSTROKE IS NOT ONE WRITE.** xterm sends each keystroke through `onData`; the write batcher
- * sends the first chunk immediately and holds what arrives while that call is on the wire, so a line
- * typed faster than the console's round trip leaves as two or more writes. Measured 2026-11-06 on
- * the 84T: `echo audit37-terminal` reached the audit as two writes 923 ms apart, and the card drew
- * only the second, `cho audit37-terminal` — the first character was the previous write.
- *
- * Two seconds covers a slow round trip and is still shorter than the pause before a person starts
- * the next command. The evidence carries no control bytes (the console's excerpt flattens and trims
- * them), so an Enter and a Backspace are both an `input`-less write and cannot be told apart here;
- * splitting at every one would show the tail after a Backspace as a fragment, which is the failure
- * this bound exists to prevent.
- */
-const WRITE_BURST_MS = 2_000;
-
-/**
  * The last line a person typed, from the writes the console's live activity recorded.
  *
  * A session's evidence is carried by every call about it (`terminal.read`, `resize`, `close`), so
@@ -693,7 +655,11 @@ export function TerminalWorkspace({
   deviceOnline,
   lastSeenMs,
   deviceName,
-  liveLines = [],
+  liveLines,
+  liveRunning = [],
+  liveState,
+  liveLagged = 0,
+  tokenNames = NO_TOKEN_NAMES,
   onGrantRefused,
   newSession,
   onNewSessionHandled
@@ -719,6 +685,21 @@ export function TerminalWorkspace({
    * since this page opened rather than showing one it does not have.
    */
   liveLines?: readonly LiveLine[];
+  /** Calls the proxy has announced and not cleared, from the page's one live feed. */
+  liveRunning?: readonly StartedCall[];
+  /**
+   * The feed's connection state. Absent means a page that passed no `liveLines` is still
+   * connecting; a page that passed a list is live, which is what a test that only cares about the
+   * last-keystroke card expects.
+   */
+  liveState?: "connecting" | "live" | "offline";
+  /** Lines the console's buffer dropped that no reread has covered yet. */
+  liveLagged?: number;
+  /**
+   * The operator's names for token ids, so the rail names a client by its token rather than a
+   * guess. Optional because the workspace also renders without a feed.
+   */
+  tokenNames?: ReadonlyMap<string, string>;
   onGrantRefused?: () => void;
   /**
    * A one-shot request from the desktop shell's tray: the Connect dialog's kind, with a nonce so
@@ -731,6 +712,11 @@ export function TerminalWorkspace({
   onNewSessionHandled?: () => void;
 }) {
   const offline = deviceOnline === false;
+  // `undefined` is "this page did not subscribe" and reads as connecting; an empty list is a real
+  // live window that happens to have no rows. Keeping the distinction is what stops the rail from
+  // saying "no activity" while the stream has not answered yet.
+  const feedLines = liveLines ?? [];
+  const feedState = liveState ?? (liveLines === undefined ? "connecting" : "live");
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [active, setActive] = useState<string | null>(null);
   const [faults, setFaults] = useState<Record<string, Fault>>({});
@@ -2202,6 +2188,28 @@ export function TerminalWorkspace({
     setFindMiss(!hit);
   };
 
+  /**
+   * Show one finished write's text in the active tab's scrollback.
+   *
+   * The rail only offers this for a finished `terminal.write` that carried typed input, and only
+   * when the text is what this tab's xterm may already hold: `activeSearch` is that tab's own
+   * addon, never another session's. A miss is a sentence under the tab, not a fault: the console
+   * keeps the text only if the screen still has it, and the rail must not pretend a jump happened.
+   */
+  const jumpToOutput = (text: string) => {
+    const search = activeSearch();
+    if (!search) {
+      setStatus("The terminal is not open, so there is no scrollback to search.");
+      return;
+    }
+    const hit = search.findNext(text, { decorations: searchDecorations() });
+    setStatus(
+      hit
+        ? `Showing ${JSON.stringify(text)} in this terminal.`
+        : `This terminal's scrollback does not contain ${JSON.stringify(text)}.`
+    );
+  };
+
   // THE BAR SEARCHES WHILE THE OPERATOR TYPES. It used to wait for Enter, so typing a term looked like
   // a broken field until the second action; a 120 ms pause is enough for a person to see the matches
   // spread out before stepping through them, and short enough to feel immediate on a 20 000-line
@@ -2272,7 +2280,7 @@ export function TerminalWorkspace({
         <SessionCard
           machine={deviceName ?? grant.deviceId}
           tab={activeTab}
-          liveLines={liveLines}
+          liveLines={feedLines}
           deviceId={grant.deviceId}
           grant={grant}
         />
@@ -2568,17 +2576,35 @@ export function TerminalWorkspace({
         </div>
       )}
 
-      {tabs.map((tab) => (
-        <div
-          key={tab.key}
-          className="term-host"
-          hidden={tab.key !== active}
-          ref={(element) => {
-            if (element) hosts.current.set(tab.key, element);
-            else hosts.current.delete(tab.key);
-          }}
-        />
-      ))}
+      {tabs.length > 0 && (
+        <div className="terminal-stage">
+          <div className="terminal-screens">
+            {tabs.map((tab) => (
+              <div
+                key={tab.key}
+                className="term-host"
+                hidden={tab.key !== active}
+                ref={(element) => {
+                  if (element) hosts.current.set(tab.key, element);
+                  else hosts.current.delete(tab.key);
+                }}
+              />
+            ))}
+          </div>
+          {activeTab && (
+            <ActivityRail
+              session={activeTab.session}
+              deviceId={grant.deviceId}
+              lines={feedLines}
+              running={liveRunning}
+              state={feedState}
+              lagged={liveLagged}
+              tokenNames={tokenNames}
+              onJump={jumpToOutput}
+            />
+          )}
+        </div>
+      )}
 
       {connect && (
         <Modal

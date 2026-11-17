@@ -378,6 +378,12 @@ export function App() {
   // Connect can list what exists. Empty when the console would not answer: the table falls back to
   // record ids.
   const [tokens, setTokens] = useState<TokenMeta[]>([]);
+  // The rail names a client by the operator's token name, and falls back to the record's short id
+  // when the list is absent or does not know it.
+  const tokenNames = useMemo(
+    () => new Map(tokens.map((entry) => [entry.id, entry.name])),
+    [tokens]
+  );
   // A run link in the fragment survives a reload (and the sign-in a reload needs). It names the
   // machine as well as the run, because a run id is only unique on its device.
   const [initialRun] = useState(() => parseRunLink(window.location.hash));
@@ -2045,6 +2051,10 @@ export function App() {
                 lastSeenMs={lastHeardMs(chosen)}
                 deviceName={chosen.name ?? shortId(chosen.id)}
                 liveLines={live.lines}
+                liveRunning={live.running}
+                liveState={live.state}
+                liveLagged={live.lagged}
+                tokenNames={tokenNames}
                 onGrantRefused={() => setGrantStale(true)}
                 newSession={newSession ?? undefined}
                 onNewSessionHandled={() => setNewSession(null)}

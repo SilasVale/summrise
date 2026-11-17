@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EventSourceLike } from "./liveActivity";
-import { useLiveActivity } from "./useLiveActivity";
+import { LIVE_LIMIT, useLiveActivity } from "./useLiveActivity";
 
 /** The browser's `EventSource`, with the test deciding when a frame arrives. */
 class FakeSource implements EventSourceLike {
@@ -239,6 +239,24 @@ describe("following the live activity", () => {
     expect(result.current.running).toEqual([]);
   });
 
+  it("keeps the newest 200 lines, the window the rail discloses rather than history", () => {
+    const { result } = renderHook(() => useLiveActivity(true));
+    const source = FakeSource.instances[0];
+
+    act(() => {
+      for (let index = 0; index < 205; index += 1) {
+        source.emit("activity", line(index, `Call ${index}`));
+      }
+    });
+
+    // The page keeps a live window, not a per-session history. A row that scrolled out of the
+    // window is absent, and the rail says the window is 200 rather than implying it has everything.
+    expect(LIVE_LIMIT).toBe(200);
+    expect(result.current.lines).toHaveLength(200);
+    expect(result.current.lines[0].ts_ms).toBe(204);
+    expect(result.current.lines[199].ts_ms).toBe(5);
+  });
+
   it("draws a device event as a session line, not as a running call", () => {
     const { result } = renderHook(() => useLiveActivity(true));
     const source = FakeSource.instances[0];
@@ -259,6 +277,7 @@ describe("following the live activity", () => {
         status: 200,
         ok: true,
         device_id: "abc",
+        session: "2",
         live: true,
         sentence: "terminal 2 opened on abc"
       },
@@ -429,6 +448,7 @@ describe("following the live activity", () => {
         status: 200,
         ok: true,
         device_id: "abc",
+        session: "2",
         live: true,
         sentence: "terminal 2 opened on abc"
       },

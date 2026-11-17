@@ -25,6 +25,12 @@ export type LiveLine = {
   kind: string;
   /** The machine the action names, when it names one. */
   device_id?: string;
+  /**
+   * The terminal session this row belongs to, when the row is the machine's own session event. A
+   * call joins a session through its `evidence.session` instead; a row with neither names no session
+   * and the rail withholds it rather than attributing it to the active one.
+   */
+  session?: string;
   /** The HTTP status the caller saw. */
   status: number;
   /** Who made the call: the console's own read, or an AI client's. Absent on an older line. */
@@ -85,6 +91,17 @@ export type StartedCall = {
   device_id?: string;
   /** Who made the call, so the band can count the AI and not the console's own reads. */
   caller?: "console" | "client";
+  /**
+   * The call's own arguments, bounded by the console, as the proxy already builds them for the
+   * finished row. They are what lets a running call be scoped to a session: `evidence.session`.
+   */
+  evidence?: Record<string, unknown>;
+  /**
+   * The permanent token record that authenticated a client's call, by id. Carried on the
+   * announcement for the same reason as the finished row: a running call's actor is a fact, and
+   * the rail names the token rather than guessing an audience.
+   */
+  token_id?: string;
 };
 
 /**
@@ -178,6 +195,83 @@ export type DeviceReset = {
   /** The inclusive range of sequence numbers the journal no longer retains. */
   lost: { from: number; to: number };
 };
+
+/**
+ * The sentence a device event earns on Activity.
+ *
+ * The device's journal carries no human sentence, and `session.opened on <machine>` would make the
+ * reader learn the journal's own spelling. The two session events name the terminal they are
+ * about, and a started device names itself; a call's outcome is described by [`callSentence`], which
+ * needs the tool the event named. Anything else is reported as the event's type, because the page
+ * knows nothing about that kind beyond the fact that it happened on this machine.
+ */
+function deviceSentence(device: string, event: DeviceEvent): string {
+  if (event.type === "session.opened" || event.type === "session.closed") {
+    const id = event.payload.id;
+    if (id !== undefined && id !== "") {
+      const verb = event.type === "session.opened" ? "opened" : "closed";
+      return `terminal ${id} ${verb} on ${device}`;
+    }
+  }
+  if (event.type === "device.started") return `${device} started`;
+  return `${event.type} on ${device}`;
+}
+
+/**
+ * One device event as a row, or `null` when the event is a half that earns none.
+ *
+ * A session fact is not a call: the envelope has no HTTP status, and the device's `ts` is its own
+ * clock — a body whose time cannot be read falls back to this page's, which is newer than the
+ * event, never older.
+ *
+ * A call's journal pair is one call, so only its outcome half is a row. `call.started` is the half
+ * the paired `call.finished`/`call.denied` describes, and drawing both would show one call twice —
+ * once with no outcome, once with. A started event whose outcome never comes is not worth a row
+ * either: the page must not invent a timer to guess when a call died, and an unfinished half with
+ * no answer is not a fact it can report.
+ *
+ * **A SESSION EVENT CARRIES ITS SESSION STRUCTURALLY.** The rail filters by the active device and
+ * session, so `session.opened`/`session.closed` name the terminal in `session`, from the payload's
+ * own `id`, rather than making the reader parse the sentence. A device call names no session — its
+ * journal pair carries a tool and an outcome, not arguments — so the field is absent and the rail
+ * withholds the row instead of guessing.
+ */
+export function deviceLine(device: string, event: DeviceEvent): LiveLine | null {
+  if (event.type === "call.started") return null;
+  const parsed = Date.parse(event.ts);
+  const ts_ms = Number.isFinite(parsed) ? parsed : Date.now();
+  if (event.type === "call.finished" || event.type === "call.denied") {
+    const tool = event.payload.tool;
+    // The parser refuses an outcome that names no tool, so this guard only narrows the type; a row
+    // without one would be the blank the parser already rejected before the page saw it.
+    if (tool === undefined) return null;
+    // The console records a tool-level failure as 424, so a call the machine refused reads failed
+    // with every other failed call in the list rather than as a green 200.
+    const ok = event.payload.ok === true;
+    return {
+      ts_ms,
+      kind: "mcp",
+      status: ok ? 200 : 424,
+      ok,
+      device_id: device,
+      tool,
+      ...(event.trace?.call !== undefined ? { trace: event.trace.call } : {}),
+      live: true,
+      sentence: callSentence(device, event.type, tool, event.payload.reason)
+    };
+  }
+  const sessionId = event.payload.id;
+  return {
+    ts_ms,
+    kind: "session",
+    status: 200,
+    ok: true,
+    device_id: device,
+    ...(sessionId !== undefined && sessionId !== "" ? { session: sessionId } : {}),
+    live: true,
+    sentence: deviceSentence(device, event)
+  };
+}
 
 /**
  * The proxy's own cut on one call: the longest a `started` entry may stand without a `finished`.
@@ -350,6 +444,9 @@ function asLine(value: unknown): LiveLine | null {
     status: typeof frame.status === "number" ? frame.status : 0,
     sentence,
     ...(typeof frame.device_id === "string" ? { device_id: frame.device_id } : {}),
+    ...(typeof frame.session === "string" && frame.session !== ""
+      ? { session: frame.session }
+      : {}),
     ...(typeof frame.tool === "string" ? { tool: frame.tool } : {}),
     ...(typeof frame.detail === "string" ? { detail: frame.detail } : {}),
     ...(typeof frame.ok === "boolean" ? { ok: frame.ok } : {}),
@@ -394,6 +491,12 @@ function asStarted(value: unknown, caller: unknown): StartedCall | null {
     tool,
     at_ms: at,
     ...(typeof frame.device_id === "string" ? { device_id: frame.device_id } : {}),
+    ...(frame.evidence && typeof frame.evidence === "object" && !Array.isArray(frame.evidence)
+      ? { evidence: frame.evidence as Record<string, unknown> }
+      : {}),
+    ...(typeof frame.token_id === "string" && frame.token_id !== ""
+      ? { token_id: frame.token_id }
+      : {}),
     ...(audience ? { caller: audience } : {})
   };
 }

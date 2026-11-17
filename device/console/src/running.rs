@@ -24,6 +24,12 @@ pub(crate) struct Started {
     caller: Caller,
     device_id: Option<String>,
     tool: String,
+    /// The call's bounded arguments, as the proxy already builds them for the finished row. They are
+    /// what lets a page scope a running call to a session (`evidence.session`), and they never carry
+    /// the device's answer: the proxy announces before the wait.
+    evidence: Option<Value>,
+    /// The permanent token record that authenticated a client's call, by id, never the secret.
+    token_id: Option<String>,
 }
 
 impl Started {
@@ -42,6 +48,12 @@ impl Started {
         });
         if let Some(device_id) = &self.device_id {
             value["device_id"] = json!(device_id);
+        }
+        if let Some(evidence) = &self.evidence {
+            value["evidence"] = evidence.clone();
+        }
+        if let Some(token_id) = &self.token_id {
+            value["token_id"] = json!(token_id);
         }
         value
     }
@@ -77,14 +89,19 @@ impl Running {
         caller: Caller,
         device_id: Option<&str>,
         tool: &str,
+        evidence: Option<Value>,
+        token_id: Option<&str>,
     ) -> Started {
         let id = format!("call-{}", self.next_id.fetch_add(1, Ordering::Relaxed));
+        let token_id = token_id.map(str::to_owned);
         let entry = Started {
             id,
             at_ms: now_ms,
             caller,
             device_id: device_id.map(str::to_owned),
             tool: tool.to_owned(),
+            evidence: evidence.clone(),
+            token_id: token_id.clone(),
         };
         let started = Started {
             id: entry.id.clone(),
@@ -92,6 +109,8 @@ impl Running {
             caller: entry.caller,
             device_id: entry.device_id.clone(),
             tool: entry.tool.clone(),
+            evidence,
+            token_id,
         };
         let mut entries = lock(&self.entries);
         entries.retain(|entry| !expired(entry, now_ms, self.cut_ms));
@@ -123,4 +142,71 @@ fn lock(entries: &Mutex<Vec<Started>>) -> std::sync::MutexGuard<'_, Vec<Started>
     entries
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn registry() -> Running {
+        Running::new(Duration::from_secs(90))
+    }
+
+    #[test]
+    fn a_started_call_names_the_evidence_and_the_token_it_was_made_with() {
+        let running = registry();
+        let started = running.start(
+            1_000,
+            Caller::Client,
+            Some("device-1"),
+            "terminal.write",
+            Some(json!({ "session": "session-1", "input": "npm test" })),
+            Some("token-1"),
+        );
+        let value = started.value();
+        assert_eq!(
+            value["evidence"],
+            json!({ "session": "session-1", "input": "npm test" })
+        );
+        assert_eq!(value["token_id"], json!("token-1"));
+    }
+
+    #[test]
+    fn the_snapshot_carries_the_same_evidence_beside_the_caller() {
+        let running = registry();
+        running.start(
+            1_000,
+            Caller::Client,
+            Some("device-1"),
+            "terminal.write",
+            Some(json!({ "session": "session-1", "input": "npm test" })),
+            Some("token-1"),
+        );
+        let current = running.current(1_000);
+        assert_eq!(current[0]["caller"], json!("client"));
+        assert_eq!(
+            current[0]["evidence"],
+            json!({ "session": "session-1", "input": "npm test" })
+        );
+        assert_eq!(current[0]["token_id"], json!("token-1"));
+    }
+
+    #[test]
+    fn a_started_call_without_evidence_or_token_names_neither() {
+        let running = registry();
+        let started = running.start(
+            1_000,
+            Caller::Console,
+            Some("device-1"),
+            "terminal.list",
+            None,
+            None,
+        );
+        let value = started.value();
+        assert!(value.get("evidence").is_none(), "{value}");
+        assert!(value.get("token_id").is_none(), "{value}");
+        let current = running.current(1_000);
+        assert!(current[0].get("evidence").is_none(), "{}", current[0]);
+        assert!(current[0].get("token_id").is_none(), "{}", current[0]);
+    }
 }

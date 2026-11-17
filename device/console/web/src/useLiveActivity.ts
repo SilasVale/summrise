@@ -1,84 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  callSentence,
+  deviceLine,
   openLiveActivity,
   runningAt,
-  type DeviceEvent,
   type LiveLine,
   type StartedCall
 } from "./liveActivity";
 
 /** How many lines the page keeps: the hub reads five, Activity filters a few hundred. */
 export const LIVE_LIMIT = 200;
-
-/**
- * The sentence a device event earns on Activity.
- *
- * The device's journal carries no human sentence, and `session.opened on <machine>` would make the
- * reader learn the journal's own spelling. The two session events name the terminal they are
- * about, and a started device names itself; a call's outcome is described by [`callSentence`], which
- * needs the tool the event named. Anything else is reported as the event's type, because the page
- * knows nothing about that kind beyond the fact that it happened on this machine.
- */
-function deviceSentence(device: string, event: DeviceEvent): string {
-  if (event.type === "session.opened" || event.type === "session.closed") {
-    const id = event.payload.id;
-    if (id !== undefined && id !== "") {
-      const verb = event.type === "session.opened" ? "opened" : "closed";
-      return `terminal ${id} ${verb} on ${device}`;
-    }
-  }
-  if (event.type === "device.started") return `${device} started`;
-  return `${event.type} on ${device}`;
-}
-
-/**
- * One device event as a row, or `null` when the event is a half that earns none.
- *
- * A session fact is not a call: the envelope has no HTTP status, and the device's `ts` is its own
- * clock — a body whose time cannot be read falls back to this page's, which is newer than the
- * event, never older.
- *
- * A call's journal pair is one call, so only its outcome half is a row. `call.started` is the half
- * the paired `call.finished`/`call.denied` describes, and drawing both would show one call twice —
- * once with no outcome, once with. A started event whose outcome never comes is not worth a row
- * either: the page must not invent a timer to guess when a call died, and an unfinished half with
- * no answer is not a fact it can report.
- */
-function deviceLine(device: string, event: DeviceEvent): LiveLine | null {
-  if (event.type === "call.started") return null;
-  const parsed = Date.parse(event.ts);
-  const ts_ms = Number.isFinite(parsed) ? parsed : Date.now();
-  if (event.type === "call.finished" || event.type === "call.denied") {
-    const tool = event.payload.tool;
-    // The parser refuses an outcome that names no tool, so this guard only narrows the type; a row
-    // without one would be the blank the parser already rejected before the page saw it.
-    if (tool === undefined) return null;
-    // The console records a tool-level failure as 424, so a call the machine refused reads failed
-    // with every other failed call in the list rather than as a green 200.
-    const ok = event.payload.ok === true;
-    return {
-      ts_ms,
-      kind: "mcp",
-      status: ok ? 200 : 424,
-      ok,
-      device_id: device,
-      tool,
-      ...(event.trace?.call !== undefined ? { trace: event.trace.call } : {}),
-      live: true,
-      sentence: callSentence(device, event.type, tool, event.payload.reason)
-    };
-  }
-  return {
-    ts_ms,
-    kind: "session",
-    status: 200,
-    ok: true,
-    device_id: device,
-    live: true,
-    sentence: deviceSentence(device, event)
-  };
-}
 
 export type LiveFeedState = {
   /** Newest first. */

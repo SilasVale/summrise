@@ -880,8 +880,26 @@ impl Inner {
     /// **THIS IS NOT AN AUDIT LINE.** The frame goes to [`Audit::publish`], which only broadcasts;
     /// nothing is appended to the file, because a call that has not finished is not a record. The
     /// returned guard clears it however the wait ends.
-    fn start_call(&self, caller: Caller, device_id: Option<&str>, tool: &str) -> RunningCall<'_> {
-        let started = self.running.start((self.now)(), caller, device_id, tool);
+    ///
+    /// The evidence and token travel with the announcement because the page scopes a running call by
+    /// `evidence.session` and names its actor from the caller/token. The evidence is the proxy's own
+    /// bounded argument object, built before the wait, so it never carries the device's answer.
+    fn start_call(
+        &self,
+        caller: Caller,
+        device_id: Option<&str>,
+        tool: &str,
+        evidence: Option<&Value>,
+        token_id: Option<&str>,
+    ) -> RunningCall<'_> {
+        let started = self.running.start(
+            (self.now)(),
+            caller,
+            device_id,
+            tool,
+            evidence.cloned(),
+            token_id,
+        );
         self.audit.publish(json!({
             "started": started.value(),
             "caller": caller,
@@ -3718,7 +3736,13 @@ async fn proxy_reply(
     // gives up at ninety seconds; without this frame the band reads "Quiet" for exactly the call a
     // person most needs to see. The guard clears it on every exit.
     let _running = match tool.as_deref() {
-        Some(tool) if !poll => Some(app.start_call(identity.caller, audit_id.as_deref(), tool)),
+        Some(tool) if !poll => Some(app.start_call(
+            identity.caller,
+            audit_id.as_deref(),
+            tool,
+            evidence.as_ref(),
+            identity.token_id,
+        )),
         _ => None,
     };
 
