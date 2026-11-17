@@ -12,6 +12,7 @@ import { renameTab, tabLabel, titleFromInput, type Tab } from "./terminalTabs";
 import { age } from "./age";
 import type { LiveLine, StartedCall } from "./liveActivity";
 import { ActivityRail } from "./ActivityRail";
+import { writeActorKey } from "./sessionActivity";
 import {
   earliestCursor,
   endCursor,
@@ -470,48 +471,73 @@ function isAbsolutePath(text: string): boolean {
  * is not a keystroke either — xterm's focus reports (`ESC[I`/`ESC[O`) arrive this way through
  * `onData` — and the terminal still receives them; only the card's fact ignores them.
  *
- * The writes that form one line are joined by their times, not cut at the newest batch: that is what
- * keeps a split line whole. The console's `excerpt` trims each write, so a whitespace-only write
- * arrives as `""`; that is a space keystroke, not a missing one. A line can arrive twice (the
- * `/events` snapshot reads the file after subscribing, so a write published in between is in both);
- * the same instant and text is one write, not two keys. Newest wins by `ts_ms`, so a feed handed
- * over in any order gives the same answer, and no line means null — the card never invents an input.
+ * The writes that form one line are joined by their times, but only across written proof of one
+ * actor: the console and each client token are separate voices, and a client's command must not be
+ * appended to the console's line just because the two arrived within the burst. An input-less write
+ * (Enter, an arrow, a focus report) ends the open line, so two commands typed a second apart stay
+ * two; a trailing focus report finalises the newest line rather than erasing it, so the card keeps
+ * the last text a person typed.
+ *
+ * The console's `excerpt` trims each write, so a whitespace-only write arrives as `""`; that is a
+ * space keystroke, not a missing one. A line can arrive twice (the `/events` snapshot reads the file
+ * after subscribing, so a write published in between is in both); the same instant and text is one
+ * write, not two keys. The newest line wins, and no line means null — the card never invents an
+ * input.
  */
 function lastTypedLine(
   lines: readonly LiveLine[],
   deviceId: string,
   session: string
 ): { input: string; tsMs: number } | null {
-  const typed: { input: string; tsMs: number }[] = [];
-  const seen = new Set<string>();
+  const writes: LiveLine[] = [];
   for (const line of lines) {
     if (line.device_id !== deviceId) continue;
     const evidence = line.evidence;
     if (!evidence || evidence.session !== session) continue;
-    const input = evidence.input;
-    if (typeof input !== "string") continue;
+    // An input-bearing line is a typed write whatever its tool field says; an input-less line is a
+    // boundary only when it is one (`terminal.read` and `resize` are neither).
+    if (typeof evidence.input !== "string" && line.tool !== "terminal.write") continue;
+    writes.push(line);
+  }
+  writes.sort((left, right) => left.ts_ms - right.ts_ms);
+  const seen = new Set<string>();
+  let open: { input: string; tsMs: number; actor: string | null } | null = null;
+  let newest: { input: string; tsMs: number } | null = null;
+  for (const line of writes) {
+    const input = line.evidence?.input;
+    if (typeof input !== "string") {
+      // An input-less write is the boundary between two commands, not a keystroke. The line typed
+      // before it is finished; a later fragment starts a new one rather than joining across Enter.
+      open = null;
+      continue;
+    }
     const text = input === "" ? " " : typedText(input);
-    if (text === null) continue;
+    if (text === null) {
+      // The same boundary for a write whose text is only escape or control bytes.
+      open = null;
+      continue;
+    }
     // An exact duplicate of one write, not two keystrokes that happened to share a millisecond.
-    const key = `${line.ts_ms}\u0000${input}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    typed.push({ input: text, tsMs: line.ts_ms });
+    const duplicate = `${line.ts_ms}\u0000${input}`;
+    if (seen.has(duplicate)) continue;
+    seen.add(duplicate);
+    const actor = writeActorKey(line);
+    if (
+      open !== null &&
+      actor !== null &&
+      open.actor === actor &&
+      line.ts_ms - open.tsMs <= WRITE_BURST_MS
+    ) {
+      open.input += text;
+      open.tsMs = line.ts_ms;
+    } else {
+      open = { input: text, tsMs: line.ts_ms, actor };
+    }
+    // The newest line, not merely the open one: a focus report after it closes the line but does
+    // not take away the fact that it was the last input.
+    newest = open;
   }
-  if (typed.length === 0) return null;
-  typed.sort((left, right) => left.tsMs - right.tsMs);
-  const newest = typed[typed.length - 1];
-  let oldestTs = newest.tsMs;
-  let start = typed.length - 1;
-  for (let index = typed.length - 2; index >= 0; index -= 1) {
-    if (oldestTs - typed[index].tsMs > WRITE_BURST_MS) break;
-    oldestTs = typed[index].tsMs;
-    start = index;
-  }
-  return {
-    input: typed.slice(start).map((part) => part.input).join(""),
-    tsMs: newest.tsMs
-  };
+  return newest;
 }
 
 /**
@@ -721,6 +747,11 @@ export function TerminalWorkspace({
   const [active, setActive] = useState<string | null>(null);
   const [faults, setFaults] = useState<Record<string, Fault>>({});
   const [status, setStatus] = useState("");
+  /**
+   * The jump's answer, in its own line so it can be a live region. The general `status` line also
+   * reports presets and exports and stays a plain paragraph; mixing the two would announce those.
+   */
+  const [jumpStatus, setJumpStatus] = useState("");
   const [closing, setClosing] = useState<Tab | null>(null);
   const [sessionsOpen, setSessionsOpen] = useState(false);
   /** Sessions this page has detached from on purpose: auto-attach must not put them back. */
@@ -2199,11 +2230,11 @@ export function TerminalWorkspace({
   const jumpToOutput = (text: string) => {
     const search = activeSearch();
     if (!search) {
-      setStatus("The terminal is not open, so there is no scrollback to search.");
+      setJumpStatus("The terminal is not open, so there is no scrollback to search.");
       return;
     }
     const hit = search.findNext(text, { decorations: searchDecorations() });
-    setStatus(
+    setJumpStatus(
       hit
         ? `Showing ${JSON.stringify(text)} in this terminal.`
         : `This terminal's scrollback does not contain ${JSON.stringify(text)}.`
@@ -2270,6 +2301,15 @@ export function TerminalWorkspace({
         />
       )}
       {status && <p className={status.startsWith("Could not") ? "error" : "hint"}>{status}</p>}
+
+      {/* The jump's success or miss is the one answer here a screen reader must hear: it arrives
+          after a click and has no other visible focus change. It is its own status region so the
+          preset/export sentence above keeps its plain-text semantics. */}
+      {jumpStatus !== "" && (
+        <p className="hint" role="status">
+          {jumpStatus}
+        </p>
+      )}
 
       {/* THE SESSION COMES BEFORE THE SCREEN. The page used to open on a black rectangle; the card
           names the machine and the attached session, its age and the last keystroke the console saw

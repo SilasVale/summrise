@@ -201,8 +201,12 @@ function toneOf(line: LiveLine): SessionRow["tone"] {
  * Only proven identities coalesce: the console has one actor, and a client is its token. A row with
  * no caller, or a client with no token record, has no identity to compare — joining two of them
  * would draw one line for two actors the record cannot tell apart.
+ *
+ * Exported because the session card's last-input line joins by the same proof. The rail and the card
+ * must agree on what "one actor" means, or the same two writes would be one line in one place and
+ * two in the other.
  */
-function coalesceKey(line: LiveLine): string | null {
+export function writeActorKey(line: Pick<LiveLine, "caller" | "token_id">): string | null {
   if (line.caller === "console") return "console";
   if (
     line.caller === "client" &&
@@ -246,13 +250,16 @@ function rowFromLine(
 function rowFromRunning(call: StartedCall, names: ReadonlyMap<string, string>): SessionRow | null {
   const typed = typedInputOf(call.evidence);
   if (call.tool === "terminal.write" && (typed === null || typed.trim() === "")) return null;
+  const title = typed ?? commandLine(call.evidence) ?? evidenceText(call.evidence, "path") ?? call.tool;
   return {
     id: `running:${call.id}`,
     atMs: call.at_ms,
     actor: actorOf(call, names),
     tone: "running",
-    title: typed ?? commandLine(call.evidence) ?? evidenceText(call.evidence, "path") ?? call.tool,
-    facts: [call.tool]
+    title,
+    // The title is the tool when the evidence names nothing else; repeating it as a fact would draw
+    // the same word twice. The fact earns its place only when the title is something else.
+    facts: title === call.tool ? [] : [call.tool]
   };
 }
 
@@ -295,6 +302,16 @@ export function sessionActivity(
   const ordered = [...scoped].sort((left, right) => left.ts_ms - right.ts_ms);
   for (const line of ordered) {
     const typed = typedInputOf(line.evidence);
+    if (line.tool === "terminal.write" && typed === null) {
+      // An input-less write is the terminal's own traffic (Enter, an arrow, xterm's focus report).
+      // It earns no card, as before, and it ends the actor's open line: without that boundary the
+      // 2 s bound would join two commands a person typed separately. A write that proves no actor
+      // cannot say whose line it ends, so it ends them all rather than guessing.
+      const actor = writeActorKey(line);
+      if (actor === null) openWrites.clear();
+      else openWrites.delete(actor);
+      continue;
+    }
     if (typed !== null) {
       const raw = line.evidence?.input;
       const key = `${line.ts_ms}\u0000${line.tool ?? ""}\u0000${line.caller ?? ""}\u0000${
@@ -306,7 +323,7 @@ export function sessionActivity(
     const id = `line:${line.ts_ms}:${entries.length}`;
     const row = rowFromLine(line, names, id);
     if (row === null) continue;
-    const key = typed !== null ? coalesceKey(line) : null;
+    const key = typed !== null ? writeActorKey(line) : null;
     const previous = key !== null ? openWrites.get(key) : undefined;
     if (
       key !== null &&

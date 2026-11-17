@@ -1953,11 +1953,36 @@ describe("TerminalWorkspace session card", () => {
     expect(within(card).queryByText("not this session")).not.toBeInTheDocument();
   });
 
-  /** One input line for the attached session, as `/events` would carry it. */
+  /** One console write for the attached session, as `/events` would carry it. */
   function inputLine(input: string, tsMs: number): LiveLine {
     return liveLine({
       ts_ms: tsMs,
       device_id: GRANT.deviceId,
+      tool: "terminal.write",
+      caller: "console",
+      evidence: { session: "session-7", input }
+    });
+  }
+
+  /** An input-less write: Enter, an arrow or xterm's focus report. It is not a keystroke. */
+  function controlLine(tsMs: number): LiveLine {
+    return liveLine({
+      ts_ms: tsMs,
+      device_id: GRANT.deviceId,
+      tool: "terminal.write",
+      caller: "console",
+      evidence: { session: "session-7" }
+    });
+  }
+
+  /** A client's write for the attached session, proven by its token. */
+  function clientLine(input: string, tsMs: number): LiveLine {
+    return liveLine({
+      ts_ms: tsMs,
+      device_id: GRANT.deviceId,
+      tool: "terminal.write",
+      caller: "client",
+      token_id: "token-known",
       evidence: { session: "session-7", input }
     });
   }
@@ -2062,6 +2087,41 @@ describe("TerminalWorkspace session card", () => {
     ]);
     const shown = card.querySelector(".session-card-input");
     expect(shown?.textContent).toBe("echo two");
+  });
+
+  it("does not join two commands typed within the burst across a control-only write", async () => {
+    // Enter is an input-less write. Without the boundary the 2 s bound would read the two commands
+    // as one split line and draw `echo oneecho two`.
+    const now = Date.now();
+    const card = await cardFor([
+      inputLine("echo two", now - 1_000),
+      controlLine(now - 1_500),
+      inputLine("echo one", now - 2_000)
+    ]);
+    const shown = card.querySelector(".session-card-input");
+    expect(shown?.textContent).toBe("echo two");
+  });
+
+  it("never joins a client's write onto the console's line", async () => {
+    const now = Date.now();
+    const card = await cardFor([
+      clientLine("npm test", now - 1_000),
+      inputLine("echo one", now - 1_500)
+    ]);
+    const shown = card.querySelector(".session-card-input");
+    expect(shown?.textContent).toBe("npm test");
+    expect(within(card).queryByText(/echo one/)).not.toBeInTheDocument();
+  });
+
+  it("keeps the newer actor's line when a focus report trails it", async () => {
+    const now = Date.now();
+    const card = await cardFor([
+      controlLine(now - 500),
+      clientLine("npm test", now - 1_000),
+      inputLine("echo one", now - 1_500)
+    ]);
+    const shown = card.querySelector(".session-card-input");
+    expect(shown?.textContent).toBe("npm test");
   });
 
   it("counts a write that arrives twice once", async () => {
@@ -2185,13 +2245,20 @@ describe("TerminalWorkspace activity rail", () => {
     expect(addon.findNext).toHaveBeenCalledTimes(1);
     expect(addon.findNext.mock.calls[0][0]).toBe("npm test -- --run");
     expect(addon.findNext.mock.calls[0][1]?.decorations).toBeDefined();
-    expect(screen.getByText('Showing "npm test -- --run" in this terminal.')).toBeInTheDocument();
+    const showing = screen.getByText('Showing "npm test -- --run" in this terminal.');
+    expect(showing.tagName).toBe("P");
+    expect(showing).toHaveAttribute("role", "status");
+    // One live region for the jump's answer: the general preset/export status line is not one.
+    expect(screen.getAllByRole("status")).toHaveLength(1);
 
     mockedSearch.nextResult = false;
     fireEvent.click(within(rail).getByRole("button", { name: "Show in terminal" }));
-    expect(
-      await screen.findByText('This terminal\'s scrollback does not contain "npm test -- --run".')
-    ).toBeInTheDocument();
+    const missed = await screen.findByText(
+      'This terminal\'s scrollback does not contain "npm test -- --run".'
+    );
+    expect(missed.tagName).toBe("P");
+    expect(missed).toHaveAttribute("role", "status");
+    expect(screen.getAllByRole("status")).toHaveLength(1);
   });
 
   it("changes the rail when the tab changes without remounting either xterm", async () => {

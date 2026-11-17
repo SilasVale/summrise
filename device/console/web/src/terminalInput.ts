@@ -44,8 +44,9 @@ export function typedText(input: string): string | null {
  *
  * Two seconds covers a slow round trip and is still shorter than the pause before a person starts
  * the next command. The evidence carries no control bytes (the console's excerpt flattens and trims
- * them), so an Enter and a Backspace are both an `input`-less write and cannot be told apart here;
- * splitting at every one would show the tail after a Backspace as a fragment, which is the failure
- * this bound exists to prevent.
+ * them), so an Enter and a Backspace are both an `input`-less write and cannot be told apart here.
+ * Both now end the burst: an Enter must not let the command typed after it join the one before it.
+ * The price is that a Backspace can start a fragment — the write after it is not joined to the line
+ * it edited — and that is accepted, because the other error draws one card for two commands.
  */
 export const WRITE_BURST_MS = 2_000;

@@ -164,6 +164,43 @@ describe("ActivityRail", () => {
     expect(within(rail).queryByText("another machine's")).not.toBeInTheDocument();
   });
 
+  it("draws two commands within the burst as two cards when a control write separates them", () => {
+    renderRail({
+      onJump: vi.fn(),
+      lines: [
+        write(3_000, "echo two"),
+        line({
+          ts_ms: 2_500,
+          tool: "terminal.write",
+          caller: "console",
+          evidence: { session },
+          sentence: "Typed into a terminal"
+        }),
+        write(2_000, "echo one")
+      ]
+    });
+
+    const rail = screen.getByRole("complementary", { name: "Session activity" });
+    const commands = within(rail).getAllByText(/^echo /);
+    expect(commands.map((node) => node.textContent)).toEqual(["echo two", "echo one"]);
+    for (const command of commands) expect(command.tagName).toBe("CODE");
+    // Each command keeps its own jump, and the control write earns no card between them.
+    expect(within(rail).getAllByRole("button", { name: "Show in terminal" })).toHaveLength(2);
+    expect(within(rail).getAllByRole("listitem")).toHaveLength(2);
+  });
+
+  it("shows a running call's tool once when its evidence names nothing else", () => {
+    renderRail({
+      running: [started({ id: "call-1", tool: "files.list", at_ms: 1_000, evidence: { session } })]
+    });
+
+    const rail = screen.getByRole("complementary", { name: "Session activity" });
+    const tool = within(rail).getByText("files.list");
+    expect(tool.tagName).toBe("CODE");
+    expect(within(rail).getAllByText("files.list")).toHaveLength(1);
+    expect(rail.querySelector(".activity-card-facts")).toBeNull();
+  });
+
   it("says it is connecting before the first snapshot and offline after the connection drops", () => {
     const { rerender } = renderRail({ state: "connecting" });
     const rail = screen.getByRole("complementary", { name: "Session activity" });
@@ -208,10 +245,33 @@ describe("ActivityRail", () => {
     });
 
     const rail = screen.getByRole("complementary", { name: "Session activity" });
-    expect(within(rail).getByText(/2 calls on this machine name no session/)).toBeInTheDocument();
-    expect(within(rail).getByText(/the record could not place these calls/)).toBeInTheDocument();
-    expect(within(rail).getByText(/Snapshot rows .* carry no session or evidence/)).toBeInTheDocument();
+    const withheld = within(rail).getByText(/withheld because they name no session/);
+    expect(withheld).toHaveTextContent(
+      "2 calls on this machine are withheld because they name no session."
+    );
+    expect(withheld).toHaveTextContent(
+      "Running calls that name no session are counted too; snapshot rows read back from the audit file carry no session or evidence."
+    );
+    // The sentence counts running calls outside the window as well, so it must not say "in this
+    // window": the number is not only the window's lines.
+    expect(withheld.textContent).not.toMatch(/in this window/i);
     expect(rail.textContent).not.toMatch(/another session/i);
+  });
+
+  it("says one withheld running call the same way, outside the window", () => {
+    renderRail({
+      running: [started({ id: "call-1", tool: "files.read", at_ms: 1_000 })]
+    });
+
+    const rail = screen.getByRole("complementary", { name: "Session activity" });
+    const withheld = within(rail).getByText(/withheld because it names no session/);
+    expect(withheld).toHaveTextContent(
+      "1 call on this machine is withheld because it names no session."
+    );
+    expect(withheld).toHaveTextContent(
+      "Running calls that name no session are counted too; snapshot rows read back from the audit file carry no session or evidence."
+    );
+    expect(withheld.textContent).not.toMatch(/in this window/i);
   });
 
   it("offers Show in terminal only for a finished typed row and passes its text to onJump", () => {

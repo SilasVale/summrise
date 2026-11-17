@@ -148,6 +148,29 @@ describe("the session's activity", () => {
     expect(result.withheld).toBe(1);
   });
 
+  it("does not repeat a running call's tool when its evidence names nothing else", () => {
+    const result = sessionActivity(
+      [],
+      [
+        started({ id: "call-1", tool: "files.list", at_ms: 20, evidence: { session } }),
+        started({
+          id: "call-2",
+          tool: "runs.exec",
+          at_ms: 10,
+          evidence: { session, command: "npm", args: ["test", "--", "--run"] }
+        })
+      ],
+      device,
+      session,
+      new Map()
+    );
+
+    // The title is the tool when nothing else is proven; repeating it as a fact would be a second
+    // copy of the same word. A command's row still names the tool that is running.
+    expect(result.rows.map((row) => row.title)).toEqual(["files.list", "npm test -- --run"]);
+    expect(result.rows.map((row) => row.facts)).toEqual([[], ["runs.exec"]]);
+  });
+
   it("coalesces the pieces of one typed line, and never merges two actors", () => {
     const result = sessionActivity(
       [
@@ -202,6 +225,31 @@ describe("the session's activity", () => {
     );
 
     expect(result.rows.map((row) => row.title)).toEqual(["b", "a"]);
+  });
+
+  it("ends the typed burst at a control-only write, so two commands stay two rows", () => {
+    // Enter (or a focus report) is an `input`-less terminal.write: it is the boundary between what
+    // a person typed before it and after it. Two commands a second apart are still two commands.
+    const result = sessionActivity(
+      [
+        write(3_000, "echo two"),
+        line({
+          ts_ms: 2_500,
+          tool: "terminal.write",
+          caller: "console",
+          evidence: { session },
+          sentence: "Typed into a terminal"
+        }),
+        write(2_000, "echo one")
+      ],
+      [],
+      device,
+      session,
+      new Map()
+    );
+
+    expect(result.rows.map((row) => row.title)).toEqual(["echo two", "echo one"]);
+    expect(result.rows.map((row) => row.jump)).toEqual(["echo two", "echo one"]);
   });
 
   it("does not draw a card for a control-only write", () => {

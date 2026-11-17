@@ -187,9 +187,11 @@ export function ActivityRail({
       <footer className="activity-rail-foot">
         {withheld > 0 && (
           <p className="hint">
-            {withheld} {withheld === 1 ? "call" : "calls"} on this machine name no session in this
-            window; the record could not place {withheld === 1 ? "this call" : "these calls"}.
-            Snapshot rows read back from the audit file carry no session or evidence.
+            {withheld} {withheld === 1 ? "call" : "calls"} on this machine{" "}
+            {withheld === 1 ? "is" : "are"} withheld because{" "}
+            {withheld === 1 ? "it names" : "they name"} no session. Running calls that name no
+            session are counted too; snapshot rows read back from the audit file carry no session or
+            evidence.
           </p>
         )}
         {lagged > 0 && (

@@ -4421,8 +4421,9 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
    The rail is the second stream of the SAME page, not another destination: one active tab's rows
    beside that tab's xterm. It owns its scroll (the terminal keeps its own), so a long command list
    can be read back without moving the terminal's viewport. The column is 340 px on a desktop and
-   stacks under the screen below 900 px; at a phone it takes the stage's full width. Every colour
-   comes from the palette tokens above, so the rail follows light/dark and keeps AA contrast. */
+   stacks under the screen at 767 px and below; at a phone it takes the stage's full width. Every
+   colour comes from the palette tokens above, so the rail follows light/dark and keeps AA
+   contrast. */
 .terminal-stage {
   display: flex;
   flex: 1 1 auto;

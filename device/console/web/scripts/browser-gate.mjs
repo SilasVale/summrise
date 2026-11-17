@@ -2692,6 +2692,41 @@ try {
   }
   step("the client's write reads \"gate-laptop\" and its command; both typed rows offer a jump");
 
+  // **ONE ACTOR'S LINE IS NOT THE NEXT ACTOR'S.** The client's write came within the card's 2 s
+  // burst of the console's marker; time alone would join them into one line. The card must show the
+  // newest actor's own command, and the rail must still draw the two commands as two rows.
+  try {
+    await page.waitForFunction(
+      () => document.querySelector('.session-card-input')?.textContent === 'npm test -- --run',
+      undefined,
+      { timeout: 5_000 }
+    );
+  } catch {
+    const shown = await page
+      .locator('.session-card-input')
+      .textContent()
+      .catch(() => null);
+    throw new Error(
+      `the session card showed ${JSON.stringify(shown)} after the client's write; ` +
+        `it joined two actors' lines`
+    );
+  }
+  const commandTitles = await page.evaluate(() =>
+    [...document.querySelectorAll('.activity-rail .activity-card-title')].map(
+      (node) => node.textContent
+    )
+  );
+  const markerCards = commandTitles.filter((title) => title === MARKER).length;
+  const clientCards = commandTitles.filter((title) => title === 'npm test -- --run').length;
+  if (markerCards !== 1 || clientCards !== 1) {
+    throw new Error(
+      `the rail drew ${markerCards} marker card(s) and ${clientCards} client card(s) for two commands`
+    );
+  }
+  step(
+    "the client's line stays its own: the card shows only its command and the rail keeps two command cards"
+  );
+
   await page.setViewportSize({ width: 1440, height: 960 });
   await page.waitForTimeout(400);
   const stage1440 = await page.locator('.terminal-screens').boundingBox();
