@@ -198,7 +198,14 @@ impl Store {
     /// document keeps describing the previous run. The release facts are identity: a restart under a
     /// new release must replace the version, channel, baseline and verdict too, or `state.json` keeps
     /// naming a binary (and a channel) that is no longer on disk.
+    ///
+    /// **A LOCATION IS NOT A RELEASE CLAIM.** The measured 2.0.10 document still named
+    /// `C:\SummriseInstall`, a tree that does not exist, because only `initial()` ever wrote
+    /// `install.dir`; every later start refreshed the release facts and left the location as the
+    /// first document found it. The directory is where this process runs, so a claimed start records
+    /// it beside the release it claims.
     pub fn refresh_start(&self, state: &mut State) {
+        state.install.dir = self.install.display().to_string();
         state.install.version = self.release.version.clone();
         state.install.channel = self.release.channel.clone();
         state.baseline = self.baseline_facts();
@@ -274,8 +281,14 @@ impl Store {
     /// run, not the supervised app. It must not overwrite the identity facts the launcher recorded:
     /// doing so rewrote `state.json` to the crate version with an empty digest, and the next
     /// scheduled update then judged a release against a version the device does not run. The
-    /// document keeps its install and baseline; only the facts about *this process* change.
+    /// document keeps its install version, channel and baseline; only the facts about *this process*
+    /// change.
+    ///
+    /// **A LOCATION IS NOT A RELEASE CLAIM.** The directory is where this process runs, so an
+    /// unclaimed start records it too: the measured 2.0.10 document still named
+    /// `C:\SummriseInstall` because only `initial()` ever wrote it.
     pub fn refresh_liveness(&self, state: &mut State) {
+        state.install.dir = self.install.display().to_string();
         state.last_verdict = LastVerdict {
             ts: now_rfc3339(),
             outcome: VerdictOutcome::Ok,
@@ -1055,6 +1068,33 @@ mod tests {
         assert_eq!(stale.service.pid, std::process::id());
     }
 
+    /// **THE DOCUMENT NAMES THE TREE THIS PROCESS RUNS FROM.** The measured 2.0.10 device still said
+    /// `C:\SummriseInstall`, a tree that does not exist, because only `initial()` ever wrote
+    /// `install.dir`; every later start refreshed the release facts and left the location alone.
+    #[test]
+    fn a_claimed_start_records_the_install_root_it_runs_from() {
+        let dir = TempDir::new("store-claimed-install-root");
+        let install_root = dir.join("Program Files").join("Summrise");
+        let store = Store::new(
+            &install_root,
+            dir.join("data"),
+            release("2.0.11", &"ab".repeat(32)),
+        );
+        let mut state = store.initial();
+        state.install.dir = r"C:\SummriseInstall".to_owned();
+        // A claim the document predates, so the version assertion below cannot pass on `initial()`.
+        state.install.version = "2.0.3".to_owned();
+
+        store.refresh_start(&mut state);
+
+        assert_eq!(
+            state.install.dir,
+            install_root.display().to_string(),
+            "the location is where this process runs, not the tree the first document named"
+        );
+        assert_eq!(state.install.version, "2.0.11");
+    }
+
     #[test]
     fn a_canary_start_records_the_channel_the_sidecar_names() {
         let dir = TempDir::new("canary-channel");
@@ -1107,6 +1147,8 @@ mod tests {
         );
         let mut state = recorded.initial();
         state.install.channel = "canary".to_owned();
+        // The measured 2.0.10 document named the retired tree; the location is not a claim.
+        state.install.dir = r"C:\SummriseInstall".to_owned();
         state.service.pid = 111;
         state.service.started_at = "2026-01-01T00:00:00Z".to_owned();
 
@@ -1126,6 +1168,11 @@ mod tests {
         );
         assert_ne!(state.service.pid, 111, "the liveness is this process");
         assert_eq!(state.last_verdict.outcome, VerdictOutcome::Ok);
+        assert_eq!(
+            state.install.dir,
+            dir.join("install").display().to_string(),
+            "the location this process runs from is corrected even when no release is claimed"
+        );
         assert!(
             state.last_verdict.detail.contains("unclaimed"),
             "the verdict says what kind of start this was: {}",

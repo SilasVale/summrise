@@ -1734,6 +1734,42 @@ mod tests {
         assert_eq!(after.service.state, ServiceState::Running);
     }
 
+    /// **THE MEASURED 2.0.10 DOCUMENT NAMED A TREE THAT NO LONGER EXISTS.** `state.json` said
+    /// `install.dir = C:\SummriseInstall` while the device ran from `C:\Program Files\Summrise`:
+    /// only the initial document ever wrote the directory, so a claimed start must record the root
+    /// it runs from without disturbing the apply the start proves.
+    #[test]
+    fn a_claimed_start_repairs_a_state_document_that_names_the_old_install_root() {
+        let dir = TempDir::new("startup-repair-install-root");
+        let before = release_store(&dir, "2.0.10");
+        save_previous(
+            &before,
+            Update {
+                phase: UpdatePhase::Idle,
+                to: Some("2.0.10".to_owned()),
+                outcome: Some(UpdateOutcome::Applied),
+                last_result_at_ms: Some(1_793_819_465_957),
+                last_check: None,
+            },
+        );
+        let mut stale = before.load().expect("the previous document loads");
+        stale.install.dir = r"C:\SummriseInstall".to_owned();
+        before.save(&stale).expect("the stale location is written");
+
+        let after = release_store(&dir, "2.0.11");
+        ensure_state(&after, true, START_MS).expect("startup records the new start");
+
+        let state = after.load().expect("the document loads");
+        assert_eq!(
+            state.install.dir,
+            dir.join("install").display().to_string(),
+            "the directory is where this process runs, not the tree the first document named: {state:?}"
+        );
+        assert_eq!(state.install.version, "2.0.11");
+        assert_eq!(state.update.to.as_deref(), Some("2.0.11"));
+        assert_eq!(state.update.outcome, Some(UpdateOutcome::Applied));
+    }
+
     /// **THE UPDATE THAT CHANGED THE VERSION IS THE ONE THE STORY MUST NAME.** The measured 9VH
     /// shape: the document's last answer was `applied to 0.3.273` on 2026-11-05, while the process
     /// that starts is 0.3.289 (the restart journal since carries 0.3.284 → 0.3.289). Nothing folded

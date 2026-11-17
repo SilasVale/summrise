@@ -785,3 +785,194 @@ fn the_installer_grants_users_execute_on_every_desktop_replacement() {
         "the old tray must be closed before its image is replaced"
     );
 }
+
+/// The seven tasks the 2.0.10 install found Ready with one past trigger, pointing into the retired
+/// `C:\SummriseInstall` tree. The installer never created them; it owns task registration now, so it
+/// owns their removal too.
+const DORMANT_SETUP_TASKS: [&str; 7] = [
+    "SummriseSetup048",
+    "SummriseSetup049",
+    "SummriseSetup050",
+    "SummriseSetup051",
+    "SummriseSetup052",
+    "SummriseSetup053",
+    "SummriseInstallOnce",
+];
+
+/// The text of a `Function` block, from its `Function` line to its matching `FunctionEnd`. The
+/// uninstaller's copy is named `un.<name>`: `Function un.RemoveDormantSetupTasks` does not contain
+/// `Function RemoveDormantSetupTasks`.
+fn function_text(name: &str) -> &'static str {
+    let start = NSI
+        .find(&format!("Function {name}"))
+        .unwrap_or_else(|| panic!("the installer has Function {name}"));
+    let end = NSI[start..]
+        .find("\nFunctionEnd")
+        .expect("the function ends");
+    &NSI[start..start + end]
+}
+
+#[test]
+fn the_seven_dormant_setup_tasks_are_removed_on_install_and_uninstall() {
+    let install = function_text("RemoveDormantSetupTasks");
+    let uninstall = function_text("un.RemoveDormantSetupTasks");
+
+    // The exact names, in both sweeps: a name that is added or dropped is a different defect.
+    for name in DORMANT_SETUP_TASKS {
+        assert!(install.contains(name), "the install cleanup names {name}");
+        assert!(
+            uninstall.contains(name),
+            "the uninstall cleanup names {name}"
+        );
+    }
+    assert!(
+        install.contains("${RELAY_TASK}"),
+        "a stale hand-off one-shot is swept by the same install cleanup"
+    );
+
+    // One call site, after the hand-off has already exited on a relayed run and before the first
+    // image replacement or stop.
+    assert_eq!(
+        NSI.matches("Call RemoveDormantSetupTasks").count(),
+        1,
+        "the install cleanup is called once"
+    );
+    let call = NSI
+        .find("Call RemoveDormantSetupTasks")
+        .expect("the section calls the cleanup");
+    let relay = NSI
+        .find("Call RelaySupervisedSetup")
+        .expect("the section calls the hand-off");
+    let stop = NSI
+        .find("Call StopRuntime")
+        .expect("the setup stops what is running only in the section");
+    assert!(
+        relay < call && call < stop,
+        "the cleanup runs after the relay and before the stop: relay {relay}, cleanup {call}, stop {stop}"
+    );
+    // The hand-off branch is a `Quit` on a relayed run: the sweep must sit after its `${EndIf}`, or
+    // the relayed process would delete task state before it leaves. A call next to the `Quit` is
+    // still "after the relay" and "before the stop", so the coarse bounds alone do not hold this.
+    let branch = NSI
+        .find(r#"${If} $R3 == "1""#)
+        .expect("the relay exit branch is in the section");
+    let branch_end = NSI[branch..]
+        .find("${EndIf}")
+        .map(|offset| branch + offset)
+        .expect("the relay exit branch ends");
+    assert!(
+        call > branch_end,
+        "the sweep runs after the relayed run's Quit branch: branch end {branch_end}, cleanup {call}"
+    );
+    // And before the reconnect block: that block aborts on a refused delete, and the sweep must
+    // precede it (and therefore `Call StopRuntime`) so no image is touched first.
+    let reconnect = NSI
+        .find("schtasks /query /tn SummriseShellOnReconnect")
+        .expect("the reconnect block queries its task");
+    assert!(
+        call < reconnect,
+        "the sweep runs before the reconnect block: cleanup {call}, reconnect {reconnect}"
+    );
+
+    // The uninstaller's call, inside `Section "Uninstall"`, with its own log handle around it.
+    assert_eq!(
+        NSI.matches("Call un.RemoveDormantSetupTasks").count(),
+        1,
+        "the uninstall cleanup is called once"
+    );
+    let section = NSI
+        .find("Section \"Uninstall\"")
+        .expect("the installer has an uninstall section");
+    let uninstall_call = NSI
+        .find("Call un.RemoveDormantSetupTasks")
+        .expect("the uninstall section calls the cleanup");
+    assert!(
+        uninstall_call > section,
+        "the uninstall cleanup is inside the uninstall section"
+    );
+    let uninstall_end = NSI[section..]
+        .find("\nSectionEnd")
+        .map(|offset| section + offset)
+        .expect("the uninstall section ends");
+    assert!(uninstall_call < uninstall_end);
+    let open = NSI
+        .find("FileOpen $9 \"$TEMP\\summrise-uninstall.log\" w")
+        .expect("the uninstaller opens its log");
+    assert!(
+        section < open && open < uninstall_call,
+        "the uninstall log is open before the cleanup writes: open {open}, cleanup {uninstall_call}"
+    );
+    let close = NSI[uninstall_call..]
+        .find("FileClose $9")
+        .map(|offset| uninstall_call + offset)
+        .expect("the uninstaller closes its log");
+    assert!(
+        close < uninstall_end,
+        "the log is closed before the uninstall section ends: close {close}, end {uninstall_end}"
+    );
+}
+
+#[test]
+fn the_cleanup_never_recreates_a_dormant_task_and_cannot_abort_the_install() {
+    let install = function_text("RemoveDormantSetupTasks");
+    let helper = function_text("RemoveOneDormantSetupTask");
+
+    // Cleanup is removal: no line of the script creates one of these tasks again.
+    for line in NSI.lines().filter(|line| line.contains("schtasks /create")) {
+        for name in DORMANT_SETUP_TASKS {
+            assert!(
+                !line.contains(name),
+                "the installer never creates {name}: {line}"
+            );
+        }
+    }
+
+    // Ask first, delete only what exists: an absent task is the normal case, not an error.
+    let query = helper
+        .find(r#"schtasks /query /tn "$R9""#)
+        .expect("the helper queries the exact name before deleting");
+    let delete = helper
+        .find(r#"schtasks /delete /tn "$R9" /f"#)
+        .expect("the helper deletes the exact name");
+    assert!(
+        query < delete,
+        "the helper queries before it deletes: query {query}, delete {delete}"
+    );
+    // The delete sits inside `${If} $0 == "0"`: a failed query must never reach the delete. The
+    // first such gate after the query is that one (the nested result check comes after the delete).
+    let query_gate = helper[query..]
+        .find(r#"${If} $0 == "0""#)
+        .map(|offset| query + offset)
+        .expect("the helper gates the delete on the query exit");
+    assert!(
+        query < query_gate && query_gate < delete,
+        "the delete is gated on the query's exit 0: query {query}, gate {query_gate}, delete {delete}"
+    );
+
+    // One refused or absent task is logged, never fatal: debris must not fail an install.
+    for (label, block) in [
+        ("the install wrapper", install),
+        ("the one-task helper", helper),
+    ] {
+        assert!(
+            !block.contains("Abort"),
+            "{label} cannot abort the install over a dormant task"
+        );
+        assert!(
+            !block.contains("SetErrorLevel"),
+            "{label} cannot fail the install over a dormant task"
+        );
+    }
+
+    // The retired tree is named by no line, including any deletion: only the task names point at it.
+    assert!(
+        !NSI.contains(r"C:\SummriseInstall"),
+        "the installer must not write or delete into the retired tree"
+    );
+
+    // Reused from the pointer tests: this cleanup deletes tasks, never a version pointer.
+    assert!(
+        !NSI.contains("Delete \"$INSTDIR\\current.txt\""),
+        "the installer never removes the pointer; the launcher owns it"
+    );
+}

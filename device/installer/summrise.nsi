@@ -415,6 +415,56 @@ Function RelaySupervisedSetup
   FileWrite $6 "relay: ${RELAY_TASK} is running; this setup exits 3 before the first write or stop. Its run appends to this log: the last 'service:' line it writes is the install's verdict$\r$\n"
 FunctionEnd
 
+; **SEVEN READY TASKS POINT AT A TREE THAT NO LONGER EXISTS.** The 2.0.10 install found
+; `SummriseSetup048`..`053` and `SummriseInstallOnce` registered with one past trigger, all naming
+; the retired install tree no release has written since the layout moved. They can never run again,
+; and the installer owns task registration, so it owns their removal. It never created them and
+; never will: this function only deletes them, by exact name. An absent task is the normal case,
+; and a deletion the machine refuses is written to the log and skipped — debris is not a reason to
+; fail an install. `SummriseRepair` and `SummriseShellStart` are the install's own and are not
+; debris; the supervised hand-off one-shot is swept too, in case a failed run left it behind.
+; `$6` must be the open setup log.
+Function RemoveDormantSetupTasks
+  StrCpy $R9 "SummriseSetup048"
+  Call RemoveOneDormantSetupTask
+  StrCpy $R9 "SummriseSetup049"
+  Call RemoveOneDormantSetupTask
+  StrCpy $R9 "SummriseSetup050"
+  Call RemoveOneDormantSetupTask
+  StrCpy $R9 "SummriseSetup051"
+  Call RemoveOneDormantSetupTask
+  StrCpy $R9 "SummriseSetup052"
+  Call RemoveOneDormantSetupTask
+  StrCpy $R9 "SummriseSetup053"
+  Call RemoveOneDormantSetupTask
+  StrCpy $R9 "SummriseInstallOnce"
+  Call RemoveOneDormantSetupTask
+  StrCpy $R9 "${RELAY_TASK}"
+  Call RemoveOneDormantSetupTask
+FunctionEnd
+
+; One task from the list above: `$R9` is its exact name and `$6` the open setup log. Query first
+; so an absent task logs as the normal case; delete only then, and never with a wildcard. A refused
+; delete leaves a line naming the exit and the task's output, and the caller continues.
+Function RemoveOneDormantSetupTask
+  nsExec::ExecToStack 'schtasks /query /tn "$R9"'
+  Pop $0
+  Pop $1
+  ${If} $0 == "0"
+    nsExec::ExecToStack 'schtasks /delete /tn "$R9" /f'
+    Pop $0
+    Pop $1
+    ${If} $0 == "0"
+      FileWrite $6 "dormant setup task: $R9 removed$\r$\n"
+    ${Else}
+      FileWrite $6 "dormant setup task: $R9 remove failed ($0)$\r$\n"
+      FileWrite $6 "$1$\r$\n"
+    ${EndIf}
+  ${Else}
+    FileWrite $6 "dormant setup task: $R9 not registered$\r$\n"
+  ${EndIf}
+FunctionEnd
+
 Section "Summrise runtime" SecRuntime
   ; Optional auto-enrolment: `/CONSOLE=<console-url> /CODE=<one-time-code>` makes the installer register
   ; this machine with the console, so "install" is the whole onboarding. Both are absent by default and
@@ -541,6 +591,15 @@ Section "Summrise runtime" SecRuntime
     SetErrorLevel 1
     Abort
   ${EndIf}
+
+  ; **THE DEBRIS THE OLD TREE LEFT IS SWEPT BEFORE ANY IMAGE OR STOP.** Seven dormant setup tasks
+  ; still point into an install tree that no longer exists; they are Ready with one past trigger and
+  ; can never succeed. The sweep is by exact name, idempotent, and logged, never fatal: one task the
+  ; machine refuses to delete must not fail an install that is otherwise useful. It runs after the
+  ; hand-off branch above, so a relayed run has already exited before this process could touch the
+  ; task list, and before the first write or stop. The repair and shell-start tasks are the install's
+  ; own, not debris, and the uninstaller keeps its explicit removal of the hand-off task.
+  Call RemoveDormantSetupTasks
 
   ; **THE EVENT TASK IS A SECOND OWNER, AND IT IS DELETED BEFORE ANY IMAGE OR STOP.** An older
   ; full-tray shell registered `SummriseShellOnReconnect` itself on every normal run; the current
@@ -1022,9 +1081,52 @@ Section "Summrise runtime" SecRuntime
   FileClose $6
 SectionEnd
 
+; **THE UNINSTALLER SWEEPS THE SAME SEVEN NAMES.** A machine can be uninstalled without a fresh
+; install ever having run the install-side sweep, so the uninstaller carries its own copy: exact
+; names, query then delete, best effort. `$9` is the uninstall log opened at the top of the section;
+; an absent task is the normal case and a refused delete is logged and skipped.
+Function un.RemoveDormantSetupTasks
+  StrCpy $R9 "SummriseSetup048"
+  Call un.RemoveOneDormantSetupTask
+  StrCpy $R9 "SummriseSetup049"
+  Call un.RemoveOneDormantSetupTask
+  StrCpy $R9 "SummriseSetup050"
+  Call un.RemoveOneDormantSetupTask
+  StrCpy $R9 "SummriseSetup051"
+  Call un.RemoveOneDormantSetupTask
+  StrCpy $R9 "SummriseSetup052"
+  Call un.RemoveOneDormantSetupTask
+  StrCpy $R9 "SummriseSetup053"
+  Call un.RemoveOneDormantSetupTask
+  StrCpy $R9 "SummriseInstallOnce"
+  Call un.RemoveOneDormantSetupTask
+FunctionEnd
+
+; One task from the list above: `$R9` is its exact name and `$9` the open uninstall log. Query
+; first so an absent task logs as the normal case; delete only then, and never with a wildcard.
+Function un.RemoveOneDormantSetupTask
+  nsExec::ExecToStack 'schtasks /query /tn "$R9"'
+  Pop $0
+  Pop $1
+  ${If} $0 == "0"
+    nsExec::ExecToStack 'schtasks /delete /tn "$R9" /f'
+    Pop $0
+    Pop $1
+    ${If} $0 == "0"
+      FileWrite $9 "dormant setup task: $R9 removed$\r$\n"
+    ${Else}
+      FileWrite $9 "dormant setup task: $R9 remove failed ($0)$\r$\n"
+      FileWrite $9 "$1$\r$\n"
+    ${EndIf}
+  ${Else}
+    FileWrite $9 "dormant setup task: $R9 not registered$\r$\n"
+  ${EndIf}
+FunctionEnd
+
 Section "Uninstall"
   SetShellVarContext all
   SetRegView 64
+  FileOpen $9 "$TEMP\summrise-uninstall.log" w
   nsExec::Exec 'taskkill /F /IM summrise-shell.exe'
   nsExec::ExecToStack '"$INSTDIR\summrise-launch.exe" --uninstall-service'
   Pop $0
@@ -1036,6 +1138,10 @@ Section "Uninstall"
   ; A supervised silent install hands itself to this task; an uninstall in the gap between the
   ; hand-off and the task's run must not leave a boot-time install behind.
   nsExec::Exec 'schtasks /delete /tn ${RELAY_TASK} /f'
+  ; The dormant setup tasks point into a tree no version of this product wrote; they can never run,
+  ; and an uninstall must not leave them behind. Best effort, by exact name, logged to `$9`.
+  Call un.RemoveDormantSetupTasks
+  FileClose $9
   ; The event task is the retired second owner: the install no longer leaves it behind, and an
   ; uninstall must not leave it pointing at a shell binary this section is about to delete. Best
   ; effort, like the relay task: an absent task is the normal case and there is no log handle here.
