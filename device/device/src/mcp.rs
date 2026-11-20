@@ -4228,6 +4228,194 @@ mod tests {
         );
     }
 
+    // This catches both lost prefixes and false completeness below the production caps.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn pipe_capture_nonzero_keeps_unfinished_capture_and_private_metadata() {
+        let (server, config, bus, _dir) = journaled_server("mcp-open-pipe");
+        let server = Arc::new(server);
+        let scopes: Vec<String> = [
+            "runs.exec",
+            "runs.get",
+            "runs.list",
+            "txn.begin",
+            "txn.commit",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+        let caller = super::Caller::Console {
+            token_id: "pipe-diagnostics",
+            scopes: &scopes,
+            allow_destructive: true,
+            arrival: super::Arrival::Console,
+            trace: None,
+        };
+        let txn = txn_id_of(
+            &call_as(
+                &server,
+                caller,
+                "txn.begin",
+                json!({"purpose": "inspect inherited pipe capture"}),
+            )
+            .await,
+        );
+        let worker_server = Arc::clone(&server);
+        let worker_txn = txn.clone();
+        let worker_scopes = scopes.clone();
+        let mut pipe = runs::open_pipe_fixture::OpenPipe::start(
+            "mcp-pipe-control",
+            "srm_pipe_stdout_marker",
+            "sk-pipe_stderr_marker",
+            3,
+            move |request| {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(call_as(
+                        &worker_server,
+                        super::Caller::Console {
+                            token_id: "pipe-diagnostics",
+                            scopes: &worker_scopes,
+                            allow_destructive: true,
+                            arrival: super::Arrival::Console,
+                            trace: None,
+                        },
+                        "runs.exec",
+                        json!({
+                            "command": request.command, "args": request.args,
+                            "env": request.env, "timeout_ms": request.timeout_ms, "txn": worker_txn,
+                        }),
+                    ))
+            },
+        );
+        let ready = pipe.wait_ready();
+        let received = pipe.receive();
+        let elapsed = pipe.elapsed();
+        let live = pipe
+            .holder_pid()
+            .is_some_and(|pid| !crate::test_support::process_is_dead(pid));
+        let request = pipe.request.clone();
+        // Snapshot both owned result serialization and persisted history before distinctive late output.
+        let before = received
+            .as_ref()
+            .ok()
+            .map(|value| serde_json::to_string(value).unwrap());
+        let history_before = fs::read(config.data.join(runs::HISTORY_FILE));
+        let cleanup = pipe.cleanup();
+        eprintln!("external MCP result: elapsed={elapsed:?} holder_live_before_release={live} cleanup={cleanup:?}");
+        assert!(cleanup.is_ok(), "{cleanup:?}");
+        ready.expect("SETUP: holder reached its private control read");
+        let failed = received.expect("result within the fixture watchdog");
+        assert!(
+            live,
+            "the inherited holder must remain live until result receipt"
+        );
+        assert!(elapsed < Duration::from_secs(15));
+        assert!(failed.get("error").is_none(), "{failed}");
+        assert_eq!(failed["result"]["isError"], true, "{failed}");
+        assert_eq!(
+            failed["result"]["content"].as_array().map(Vec::len),
+            Some(1)
+        );
+        let capture = &failed["result"]["structuredContent"];
+        assert_eq!(
+            capture.as_object().map(|object| object.len()),
+            Some(8),
+            "{failed}"
+        );
+        assert_eq!(
+            (
+                &capture["stdout"],
+                &capture["stderr"],
+                &capture["truncated"]
+            ),
+            (
+                &json!("srm_pipe_stdout_marker"),
+                &json!("sk-pipe_stderr_marker"),
+                &json!(true)
+            ),
+            "public below-cap prefix/flag tuple: {capture}"
+        );
+        assert_eq!(capture["exit_code"], 3);
+        assert_eq!(capture["timed_out"], false);
+        assert_eq!(capture["history_recorded"], true);
+        let id = capture["id"].as_str().expect("a run id");
+        assert!(id.starts_with("run-") && id.len() > 4);
+        let duration = capture["duration_ms"].as_u64().expect("a duration");
+        assert!(duration < 15_000);
+        assert_eq!(
+            text_of(&failed),
+            format!("runs.exec: run {id} exited 3 in {duration} ms")
+        );
+        let got = call_as(&server, caller, "runs.get", json!({"id": id})).await;
+        let row = json_of(&got);
+        let listed = call_as(&server, caller, "runs.list", json!({"limit": 5})).await;
+        assert_eq!(json_of(&listed), json!([row]));
+        assert_eq!(row["id"], id);
+        assert_eq!(row["exit_code"], 3);
+        assert_eq!(row["duration_ms"], duration);
+        assert_eq!(row["stdout_bytes"], 22);
+        assert_eq!(row["stderr_bytes"], 21);
+        assert_eq!(row["stdout_preview"], "srm_***");
+        assert_eq!(row["stderr_preview"], "sk-***");
+        assert_eq!(row["command"], request.command);
+        assert_eq!(row["args"], json!(request.args));
+        assert_eq!(
+            row["cwd"],
+            fs::canonicalize(&config.files_root)
+                .unwrap()
+                .to_string_lossy()
+                .as_ref()
+        );
+        for field in ["env", "stdout", "stderr"] {
+            assert!(row.get(field).is_none());
+        }
+        assert_eq!(
+            history_before.unwrap(),
+            fs::read(config.data.join(runs::HISTORY_FILE)).unwrap()
+        );
+        assert_eq!(before.unwrap(), serde_json::to_string(&failed).unwrap());
+        let again = call_as(&server, caller, "runs.get", json!({"id": id})).await;
+        assert_eq!(json_of(&again), row);
+        let lines = audit_lines_of(&config);
+        let end = audit_half(&lines, "runs.exec", "end");
+        assert_eq!(end["ok"], false);
+        assert_eq!(end["error_kind"], "executed_failure");
+        let events = journal_of(&bus);
+        let denied = events
+            .iter()
+            .find(|event| event.kind == "call.denied" && event.payload["tool"] == "runs.exec")
+            .expect("the journal holds the outcome");
+        assert_eq!(denied.payload["reason"], "executed_failure");
+        assert_eq!(denied.payload["ok"], false);
+        for shared in [
+            serde_json::to_string(&lines).unwrap(),
+            serde_json::to_string(&events).unwrap(),
+        ] {
+            for private in [
+                "srm_pipe_stdout_marker",
+                "sk-pipe_stderr_marker",
+                "late-owned-stdout",
+                "late-owned-stderr",
+                "\"stdout\"",
+                "\"stderr\"",
+                "structuredContent",
+            ] {
+                assert!(
+                    !shared.contains(private),
+                    "capture stays out of shared records: {shared}"
+                );
+            }
+        }
+        let committed = call_as(&server, caller, "txn.commit", json!({"txn": txn})).await;
+        assert_eq!(committed["result"]["isError"], false, "{committed}");
+        let receipt = json_of(&committed);
+        assert_eq!(receipt["observed"]["failures"], 1);
+        assert_eq!(receipt["observed"]["refusals"], 0);
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn a_run_that_exits_non_zero_is_a_tool_level_failure() {
