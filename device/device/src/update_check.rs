@@ -196,7 +196,7 @@ impl UpdateChecker {
                     "summrise-device: update check ({}) skipped: cannot read the state: {error}",
                     trigger.as_str()
                 );
-                self.finish_failure(now);
+                self.finish_failure();
                 return CheckRun::Failed;
             }
         };
@@ -230,14 +230,15 @@ impl UpdateChecker {
                     "summrise-device: update check ({}): {error}",
                     trigger.as_str()
                 );
-                self.finish_failure(now);
+                self.finish_failure();
                 CheckRun::Failed
             }
         }
     }
 
     /// Release the slot and start the failure backoff.
-    fn finish_failure(&self, now: u64) {
+    fn finish_failure(&self) {
+        let now = (self.clock)();
         let mut guard = self.guard.lock().expect("the update guard is not poisoned");
         guard.in_flight = false;
         guard.backoff_until_ms = Some(now.saturating_add(millis(FAILURE_BACKOFF)));
@@ -574,6 +575,51 @@ mod tests {
             CheckRun::Ran
         );
         assert_eq!(harness.probes(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_slow_failure_gets_thirty_minutes_after_completion() {
+        let harness = Harness::new(0);
+        harness.fail.store(true, Ordering::SeqCst);
+        let held = harness.gate.lock().await;
+        let checker = Arc::clone(&harness.checker);
+        let first = tokio::spawn(async move { checker.trigger(UpdateCheckTrigger::Start).await });
+
+        harness.started.notified().await;
+        harness.advance(10 * 60_000);
+        drop(held);
+        assert_eq!(
+            first.await.expect("the slow failed check finishes"),
+            CheckRun::Failed
+        );
+
+        harness.advance(20 * 60_000);
+        assert_eq!(
+            harness.checker.trigger(UpdateCheckTrigger::Channel).await,
+            CheckRun::Skipped(Skip::Backoff)
+        );
+        assert_eq!(harness.last_check().map(|check| check.at_ms), Some(0));
+
+        harness.advance(10 * 60_000 - 1);
+        assert_eq!(
+            harness.checker.trigger(UpdateCheckTrigger::Schedule).await,
+            CheckRun::Skipped(Skip::Backoff)
+        );
+        assert_eq!(harness.last_check().map(|check| check.at_ms), Some(0));
+
+        harness.fail.store(false, Ordering::SeqCst);
+        harness.advance(1);
+        assert_eq!(
+            harness.checker.trigger(UpdateCheckTrigger::Schedule).await,
+            CheckRun::Ran
+        );
+        assert_eq!(
+            harness.last_check(),
+            Some(UpdateCheck {
+                at_ms: 2_400_000,
+                trigger: UpdateCheckTrigger::Schedule,
+            })
+        );
     }
 
     #[tokio::test]
