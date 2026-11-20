@@ -222,6 +222,7 @@ for candidate in "$(command -v makensis 2>/dev/null || true)" \
 done
 # Empty until a setup actually reached $out; the mirror copy must not assume one exists.
 installer_path=""
+installer_sidecar=""
 if [ -n "$makensis" ]; then
     if [ ! -e /usr/share/nsis/Stubs ] && [ -d /tmp/nsis/usr/share/nsis/Stubs ]; then
         export NSISDIR="/tmp/nsis/usr/share/nsis"
@@ -245,6 +246,12 @@ if [ -n "$makensis" ]; then
     cp "installer/SummriseSetup-$version-$channel.exe" "$out/"
     installer_path="$out/SummriseSetup-$version-$channel.exe"
     sign_file "$installer_path"
+    # Attest the final setup bytes, including the Authenticode signature when configured. The
+    # existing sidecar binds publisher-signed bytes/version/channel; it does not attest NSIS/payload.
+    installer_sidecar="$out/SummriseSetup-$version-$channel.sidecar.json"
+    "$release_signer" sidecar --key-file "$launcher_key" \
+        --artifact "$installer_path" --version "$version" --channel "$channel" \
+        --out "$installer_sidecar"
 else
     echo "publish-canary: makensis was not found; the installer is not in this publish" >&2
 fi
@@ -257,7 +264,7 @@ if [[ -n "$mirror_dir" ]]; then
     cp "$out/summrise-device-$version.exe" \
        "$out/release-$version.json" "$out/release-$channel.json" "$mirror_dir/"
     if [[ -n "$installer_path" ]]; then
-        cp "$installer_path" "$mirror_dir/"
+        cp "$installer_path" "$installer_sidecar" "$mirror_dir/"
     fi
     echo "== mirrored to $mirror_dir"
 fi
@@ -265,7 +272,12 @@ fi
 # The publish is only half the job: what matters is what the world sees. With `--console` the script
 # checks the mirror and the running console against this version before it claims success.
 if [[ -n "$console_url" ]]; then
-    "$root/scripts/verify-release.sh" "$version" --mirror "$mirror" --console "$console_url" --channel "$channel"
+    installer_verify_args=()
+    if [[ -n "$installer_path" ]]; then
+        installer_verify_args=(--require-installer --release-tool "$release_signer")
+    fi
+    "$root/scripts/verify-release.sh" "$version" --mirror "$mirror" --console "$console_url" --channel "$channel" \
+        "${installer_verify_args[@]}"
 fi
 
 echo "== what a mirror must serve"

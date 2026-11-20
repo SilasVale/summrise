@@ -17,7 +17,11 @@
 # derives its staging paths from `<install>`.
 set -euo pipefail
 
-version="${1:?usage: verify-release.sh <version> [--mirror URL] [--console URL] [--channel CHANNEL] [--device PATH --device-data DIR --device-install DIR]}"
+# Installer trust additionally needs --installer-pubkey HEX (or SUMMRISE_LAUNCHER_PUBKEY) and
+# --release-tool PATH (defaults to device/target/release/summrise-release). --require-installer makes
+# missing setup/configuration an error. Installer downloads need curl 8.4.0+ to bound unknown-length
+# bodies. This verifies publisher-signed bytes/version/channel only.
+version="${1:?usage: verify-release.sh <version> [--mirror URL] [--console URL] [--channel CHANNEL] [--device PATH --device-data DIR --device-install DIR] [--installer-pubkey HEX] [--release-tool PATH] [--require-installer]}"
 shift
 mirror=""
 console=""
@@ -26,6 +30,10 @@ channel="canary"
 device=""
 device_data=""
 device_install=""
+installer_pubkey="${SUMMRISE_LAUNCHER_PUBKEY:-}"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+release_tool="$repo_root/device/target/release/summrise-release"
+require_installer=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --mirror) mirror="$2"; shift 2 ;;
@@ -35,9 +43,34 @@ while [[ $# -gt 0 ]]; do
         --device) device="$2"; shift 2 ;;
         --device-data) device_data="$2"; shift 2 ;;
         --device-install) device_install="$2"; shift 2 ;;
+        --installer-pubkey|--release-tool)
+            if [[ $# -lt 2 || -z "$2" || "$2" == --* ]]; then
+                echo "verify-release: $1 needs a value" >&2
+                exit 2
+            fi
+            if [[ "$1" == --installer-pubkey ]]; then installer_pubkey="$2"; else release_tool="$2"; fi
+            shift 2
+            ;;
+        --require-installer) require_installer=true; shift ;;
         *) echo "verify-release: unknown argument $1" >&2; exit 2 ;;
     esac
 done
+mirror="${mirror%/}"
+
+if $require_installer; then
+    if [[ -z "$installer_pubkey" ]]; then
+        echo "verify-release: --require-installer needs --installer-pubkey or SUMMRISE_LAUNCHER_PUBKEY" >&2
+        exit 2
+    fi
+    if [[ ! -f "$release_tool" || ! -x "$release_tool" ]]; then
+        echo "verify-release: --require-installer needs an executable --release-tool: $release_tool" >&2
+        exit 2
+    fi
+    if [[ -z "$mirror" ]]; then
+        echo "verify-release: --require-installer needs --mirror" >&2
+        exit 2
+    fi
+fi
 
 if [[ -n "$device" ]]; then
     if [[ -z "$device_data" ]]; then
@@ -64,6 +97,77 @@ failures=0
 note() { printf '  %-8s %s\n' "$1" "$2"; }
 pass() { note "ok" "$1"; }
 fail() { note "FAIL" "$1"; failures=$((failures + 1)); }
+
+# Download once into a temporary file. Ignore curlrc so it cannot enable redirects/retries. Both
+# transport failure and non-2xx status remain distinct from a successfully received HTTP404.
+fetch_installer_file() {
+    local url="$1" destination="$2" cap="$3" seconds="$4"
+    download_status=""
+    download_status="$(curl -q -sS --proto '=http,https' --max-redirs 0 \
+        --max-time "$seconds" --max-filesize "$cap" \
+        -o "$destination" -w '%{http_code}' -- "$url")"
+}
+
+check_installer() {
+    local installer="SummriseSetup-$version-$channel.exe" sidecar detail curl_version
+    # Before curl 8.4, --max-filesize did not cap responses with unknown Content-Length. Refuse
+    # unsupported/unparseable versions before any installer body, including the no-key partial mode.
+    if curl_version="$(curl -q --version 2>/dev/null)" &&
+        [[ "$curl_version" =~ ^curl[[:space:]]+([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})([[:space:]]|$) ]] &&
+        (( 10#${BASH_REMATCH[1]} > 8 || (10#${BASH_REMATCH[1]} == 8 && 10#${BASH_REMATCH[2]} >= 4) )); then
+        :
+    else
+        fail "installer bounded downloads require curl 8.4.0 or newer; unsupported or unknown curl version"
+        return
+    fi
+    if ! fetch_installer_file "$mirror/$installer" "$tmpdir/installer.exe" 134217728 300; then
+        fail "cannot download $installer (transport or size limit failure)"
+        return
+    fi
+    if [[ "$download_status" == 404 ]]; then
+        installer="SummriseSetup-$version.exe"
+        if ! fetch_installer_file "$mirror/$installer" "$tmpdir/installer.exe" 134217728 300; then
+            fail "cannot download $installer (transport or size limit failure)"
+            return
+        fi
+    fi
+    case "$download_status" in
+        2[0-9][0-9])
+            if [[ -z "$installer_pubkey" ]]; then
+                note "warn" "$installer is served; installer trust was not checked (no caller public key)"
+                return
+            fi
+            if [[ ! -f "$release_tool" || ! -x "$release_tool" ]]; then
+                fail "installer trust needs an executable --release-tool: $release_tool"
+                return
+            fi
+            sidecar="${installer%.exe}.sidecar.json"
+            if ! fetch_installer_file "$mirror/$sidecar" "$tmpdir/installer.sidecar.json" 65536 20; then
+                fail "cannot download $sidecar (transport or size limit failure)"
+                return
+            fi
+            case "$download_status" in
+                2[0-9][0-9]) ;;
+                *) fail "cannot fetch $sidecar (HTTP ${download_status:-none})"; return ;;
+            esac
+            if detail="$("$release_tool" verify-artifact --artifact "$tmpdir/installer.exe" \
+                --sidecar "$tmpdir/installer.sidecar.json" --public-key "$installer_pubkey" \
+                --version "$version" --channel "$channel" 2>&1)"; then
+                pass "$installer: trusted publisher-signed bytes for $version ($channel)"
+            else
+                fail "$installer verification failed: $detail"
+            fi
+            ;;
+        404)
+            if $require_installer; then
+                fail "installer is not served under either setup name"
+            else
+                note "warn" "installer is not served: this publish cannot deliver a tray change"
+            fi
+            ;;
+        *) fail "cannot fetch $installer (HTTP ${download_status:-none})" ;;
+    esac
+}
 
 if [[ -n "$mirror" ]]; then
     echo "mirror $mirror"
@@ -144,21 +248,9 @@ PY
                 fail "cannot fetch summrise-device-$version.sidecar.json (HTTP ${sidecar_status:-none})"
                 ;;
         esac
-        # The installer is the ONLY channel that carries `summrise-shell.exe`: the canary update
-        # swaps the app and nothing else. A publish without it (no makensis on the host) can still
-        # update the app, but a shell fix reaches a device only through this file.
-        # The installer names its channel since 2.0.0: one version can publish both channels and the
-        # files must not overwrite each other. An older publish has only the unqualified name.
-        installer="SummriseSetup-$version-$channel.exe"
-        if ! curl -fsS --max-time 20 -o /dev/null "$mirror/$installer"; then
-            installer="SummriseSetup-$version.exe"
-        fi
-        if curl -fsS --max-time 20 -o /dev/null "$mirror/$installer"; then
-            digest="$(curl -fsS --max-time 300 "$mirror/$installer" | sha256sum | cut -d' ' -f1)"
-            pass "$installer is served (sha256 $digest) — the tray's only update channel"
-        else
-            note "warn" "$installer is not served: this publish cannot deliver a tray change"
-        fi
+        # A setup proves publisher-signed bytes/version/channel only. Its sidecar always belongs to
+        # the selected filename; a qualified setup with bad/missing metadata cannot select legacy.
+        check_installer
     fi
 fi
 
