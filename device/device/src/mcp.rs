@@ -1167,17 +1167,28 @@ impl DeviceServer {
                 (Err(failure), seq)
             }
             Err(error) => {
-                let (kind, message, failure): (&'static str, String, fn(String) -> CallFailure) =
-                    match error {
-                        ToolError::Arguments(message) => {
-                            ("arguments", message, CallFailure::Arguments)
-                        }
-                        ToolError::Refused(message) => ("refused", message, CallFailure::Refused),
-                        ToolError::Internal(message) => {
-                            ("internal", message, CallFailure::Internal)
-                        }
-                        ToolError::Declined { .. } => unreachable!("handled above"),
-                    };
+                type FailureConstructor = fn(String) -> CallFailure;
+                let (kind, message, data, failure): (
+                    &'static str,
+                    String,
+                    Option<Value>,
+                    FailureConstructor,
+                ) = match error {
+                    ToolError::Arguments(message) => {
+                        ("arguments", message, None, CallFailure::Arguments)
+                    }
+                    ToolError::Refused(message) => ("refused", message, None, CallFailure::Refused),
+                    ToolError::ExecutedFailure { message, data } => (
+                        "executed_failure",
+                        message,
+                        Some(data),
+                        CallFailure::Refused,
+                    ),
+                    ToolError::Internal(message) => {
+                        ("internal", message, None, CallFailure::Internal)
+                    }
+                    ToolError::Declined { .. } => unreachable!("handled above"),
+                };
                 if let Some(txn) = &admitted {
                     self.txns.record_failure(txn);
                 }
@@ -1206,7 +1217,11 @@ impl DeviceServer {
                         "row_kind": row_kind_name(RowKind::of_row(name, action.as_deref(), "call.denied")),
                     }),
                 );
-                (Err(failure(message)), seq)
+                let failure = match data {
+                    Some(data) => CallFailure::RefusedNamed(message, data),
+                    None => failure(message),
+                };
+                (Err(failure), seq)
             }
         }
     }
@@ -1691,6 +1706,11 @@ fn with_working_txn_arg(name: &str, mut schema: Value) -> Value {
 pub(crate) enum ToolError {
     Arguments(String),
     Refused(String),
+    /// A completed process failed; bounded capture belongs only in its caller's response.
+    ExecutedFailure {
+        message: String,
+        data: Value,
+    },
     /// A typed refusal: the kind is a closed name the audit row and the live event both carry, so a
     /// reader groups a decline without parsing the sentence. The transaction gate uses it for
     /// `txn_required`/`txn_unknown`/…; a capability uses it for a rule of its own
@@ -4215,10 +4235,19 @@ mod tests {
         let mut client = Client::authorized(&device);
         client.initialize().await;
 
+        let txn = txn_id_of(
+            &client
+                .call_raw("txn.begin", json!({ "purpose": "inspect a failed run" }))
+                .await,
+        );
         let failed = client
-            .call(
+            .call_raw(
                 "runs.exec",
-                json!({ "command": "sh", "args": ["-c", "exit 2"] }),
+                json!({
+                    "command": "sh",
+                    "args": ["-c", "printf srm_diag_stdout_marker; printf sk-diag_stderr_marker >&2; exit 2"],
+                    "txn": txn,
+                }),
             )
             .await;
         assert!(
@@ -4226,21 +4255,60 @@ mod tests {
             "a non-zero run is a tool result, not a protocol error: {failed}"
         );
         assert_eq!(failed["result"]["isError"], true, "{failed}");
+        assert_eq!(
+            failed["result"]["content"].as_array().map(Vec::len),
+            Some(1)
+        );
+        let capture = &failed["result"]["structuredContent"];
+        assert!(
+            capture.is_object(),
+            "failed runs retain structured capture: {failed}"
+        );
+        assert_eq!(capture.as_object().unwrap().len(), 8);
+        assert_eq!(capture["stdout"], "srm_diag_stdout_marker");
+        assert_eq!(capture["stderr"], "sk-diag_stderr_marker");
+        assert_eq!(capture["exit_code"], 2);
+        assert_eq!(capture["timed_out"], false);
+        assert_eq!(capture["truncated"], false);
+        assert_eq!(capture["history_recorded"], true);
+        let id = capture["id"].as_str().expect("the run has an id");
+        assert!(!id.is_empty());
+        let duration = capture["duration_ms"].as_u64().expect("the run is timed");
 
-        let listed = client.call("runs.list", json!({ "limit": 5 })).await;
+        let listed = client.call_raw("runs.list", json!({ "limit": 5 })).await;
         let rows: Value = serde_json::from_str(text_of(&listed)).expect("list is JSON");
         let rows = rows.as_array().expect("the history is an array");
         assert_eq!(rows.len(), 1, "the run happened before it failed: {rows:?}");
         assert_eq!(rows[0]["exit_code"], json!(2));
-        let id = rows[0]["id"].as_str().expect("the row names the run");
-        let duration = rows[0]["duration_ms"]
-            .as_u64()
-            .expect("the row times the run");
+        assert_eq!(rows[0]["id"], id);
+        assert_eq!(rows[0]["duration_ms"], duration);
+        let got = client.call_raw("runs.get", json!({ "id": id })).await;
+        assert_eq!(json_of(&got), rows[0]);
+        assert!(rows[0].get("stdout").is_none());
+        assert!(rows[0].get("stderr").is_none());
+        assert_eq!(rows[0]["stdout_preview"], "srm_***");
+        assert_eq!(rows[0]["stderr_preview"], "sk-***");
         assert_eq!(
             text_of(&failed),
             format!("runs.exec: run {id} exited 2 in {duration} ms"),
             "the reason is the run's own exit facts: {failed}"
         );
+        let lines = audit_lines(&device);
+        let end = audit_half(&lines, "runs.exec", "end");
+        assert_eq!(end["ok"], false);
+        assert_eq!(end["error_kind"], "executed_failure");
+        let audit = serde_json::to_string(&lines).unwrap();
+        for marker in ["srm_diag_stdout_marker", "sk-diag_stderr_marker"] {
+            assert!(
+                !audit.contains(marker),
+                "capture stays out of audit: {audit}"
+            );
+        }
+        let committed = client.call_raw("txn.commit", json!({ "txn": txn })).await;
+        assert_eq!(committed["result"]["isError"], false, "{committed}");
+        let receipt = json_of(&committed);
+        assert_eq!(receipt["observed"]["failures"], 1);
+        assert_eq!(receipt["observed"]["refusals"], 0);
     }
 
     #[cfg(unix)]
@@ -4258,6 +4326,7 @@ mod tests {
             "a failed run is a tool result, not a protocol error: {missing}"
         );
         assert_eq!(missing["result"]["isError"], true, "{missing}");
+        assert!(missing["result"].get("structuredContent").is_none());
         assert_eq!(
             missing["result"]["content"].as_array().map(Vec::len),
             Some(1),
@@ -4282,8 +4351,8 @@ mod tests {
                 "runs.exec",
                 json!({
                     "command": "sh",
-                    "args": ["-c", "sleep 5"],
-                    "timeout_ms": 50,
+                    "args": ["-c", "printf timeout_stdout_marker; printf timeout_stderr_marker >&2; sleep 5"],
+                    "timeout_ms": 2000,
                 }),
             )
             .await;
@@ -4292,6 +4361,24 @@ mod tests {
             "a killed run is a tool result, not a protocol error: {killed}"
         );
         assert_eq!(killed["result"]["isError"], true, "{killed}");
+        assert_eq!(
+            killed["result"]["content"].as_array().map(Vec::len),
+            Some(1)
+        );
+        let capture = &killed["result"]["structuredContent"];
+        assert!(
+            capture.is_object(),
+            "timed-out runs retain structured capture: {killed}"
+        );
+        assert_eq!(capture.as_object().unwrap().len(), 8);
+        assert_eq!(capture["stdout"], "timeout_stdout_marker");
+        assert_eq!(capture["stderr"], "timeout_stderr_marker");
+        assert!(!capture["id"].as_str().expect("a run id").is_empty());
+        assert!(capture["duration_ms"].is_u64());
+        assert_eq!(capture["exit_code"], Value::Null);
+        assert_eq!(capture["timed_out"], true);
+        assert_eq!(capture["truncated"], false);
+        assert_eq!(capture["history_recorded"], true);
         let text = text_of(&killed);
         assert!(
             text.starts_with("runs.exec: run ") && text.contains("timed out after"),
@@ -4304,6 +4391,158 @@ mod tests {
         assert_eq!(rows.len(), 1, "the killed run still has its row: {rows:?}");
         assert_eq!(rows[0]["timed_out"], json!(true));
         assert_eq!(rows[0]["exit_code"], Value::Null);
+        assert_eq!(rows[0]["id"], capture["id"]);
+        assert_eq!(rows[0]["duration_ms"], capture["duration_ms"]);
+        assert_eq!(rows[0]["stdout_preview"], "timeout_stdout_marker");
+        assert_eq!(rows[0]["stderr_preview"], "timeout_stderr_marker");
+        assert!(rows[0].get("stdout").is_none());
+        assert!(rows[0].get("stderr").is_none());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_failed_run_keeps_bounded_capture_without_history_through_the_console_handler() {
+        let (mut server, config, bus, _dir) = journaled_server("mcp-runs-console-capture");
+        server.runs = Arc::new(crate::capabilities::runs::Runs::with_limits(
+            &config.data,
+            &config.files_root,
+            crate::capabilities::runs::Limits {
+                stdout_bytes: 8,
+                stderr_bytes: 8,
+                ..Default::default()
+            },
+        ));
+        fs::create_dir(config.data.join(crate::capabilities::runs::HISTORY_FILE))
+            .expect("a directory deterministically prevents history append");
+        let scopes = vec![
+            "terminal.create".to_owned(),
+            "terminal.close".to_owned(),
+            "runs.exec".to_owned(),
+            "txn.begin".to_owned(),
+            "txn.commit".to_owned(),
+        ];
+        let caller = super::Caller::Console {
+            token_id: "run-diagnostics",
+            scopes: &scopes,
+            allow_destructive: true,
+            arrival: super::Arrival::Console,
+            trace: None,
+        };
+        let created = call_as(
+            &server,
+            caller,
+            "terminal.create",
+            json!({ "kind": "pty", "shell": "/bin/sh" }),
+        )
+        .await;
+        assert_eq!(created["result"]["isError"], false, "{created}");
+        let session = json_of(&created)["id"]
+            .as_str()
+            .expect("a session id")
+            .to_owned();
+        let begun = call_as(
+            &server,
+            caller,
+            "txn.begin",
+            json!({ "session": session, "purpose": "inspect bounded failed capture" }),
+        )
+        .await;
+        let session_txn = txn_id_of(&begun);
+        // On this base, a session-less machine call requires a device-scope transaction.
+        let begun = call_as(
+            &server,
+            caller,
+            "txn.begin",
+            json!({ "purpose": "inspect bounded failed capture on the machine" }),
+        )
+        .await;
+        let txn = txn_id_of(&begun);
+        let failed = call_as(
+            &server,
+            caller,
+            "runs.exec",
+            json!({
+                "command": "sh",
+                "args": ["-c", "printf 0123456789; printf abcdefghij >&2; exit 2"],
+                "txn": txn,
+            }),
+        )
+        .await;
+        let closed = call_as(
+            &server,
+            caller,
+            "terminal.close",
+            json!({ "id": session, "txn": session_txn }),
+        )
+        .await;
+        assert_eq!(closed["result"]["isError"], false, "{closed}");
+        let session_committed =
+            call_as(&server, caller, "txn.commit", json!({ "txn": session_txn })).await;
+        assert_eq!(
+            session_committed["result"]["isError"], false,
+            "{session_committed}"
+        );
+        assert!(failed.get("error").is_none(), "{failed}");
+        assert_eq!(failed["result"]["isError"], true, "{failed}");
+        assert_eq!(
+            failed["result"]["content"].as_array().map(Vec::len),
+            Some(1)
+        );
+        let capture = &failed["result"]["structuredContent"];
+        assert!(
+            capture.is_object(),
+            "the Console handler retains capture: {failed}"
+        );
+        assert_eq!(capture.as_object().unwrap().len(), 8);
+        assert_eq!(capture["stdout"], "01234567");
+        assert_eq!(capture["stderr"], "abcdefgh");
+        assert_eq!(capture["truncated"], true);
+        assert_eq!(capture["history_recorded"], false);
+        assert_eq!(capture["exit_code"], 2);
+        assert_eq!(capture["timed_out"], false);
+        let id = capture["id"].as_str().expect("a run id");
+        assert!(!id.is_empty());
+        let duration = capture["duration_ms"].as_u64().expect("a duration");
+        assert_eq!(
+            text_of(&failed),
+            format!("runs.exec: run {id} exited 2 in {duration} ms")
+        );
+
+        let lines = audit_lines_of(&config);
+        let end = audit_half(&lines, "runs.exec", "end");
+        assert_eq!(end["ok"], false);
+        assert_eq!(end["error_kind"], "executed_failure");
+        let events = journal_of(&bus);
+        let denied = events
+            .iter()
+            .find(|event| event.kind == "call.denied" && event.payload["tool"] == "runs.exec")
+            .expect("the executed failure has an outcome event");
+        assert_eq!(denied.payload["reason"], "executed_failure");
+        assert_eq!(denied.payload["ok"], false);
+        for shared in [
+            serde_json::to_string(&lines).unwrap(),
+            serde_json::to_string(&events).unwrap(),
+        ] {
+            for private in [
+                "\"stdout\"",
+                "\"stderr\"",
+                "structuredContent",
+                "01234567",
+                "abcdefgh",
+                "0123456789",
+                "abcdefghij",
+            ] {
+                assert!(
+                    !shared.contains(private),
+                    "capture stays out of shared records: {shared}"
+                );
+            }
+        }
+        let committed = call_as(&server, caller, "txn.commit", json!({ "txn": txn })).await;
+        assert_eq!(committed["result"]["isError"], false, "{committed}");
+        let receipt = json_of(&committed);
+        assert_eq!(receipt["observed"]["failures"], 1);
+        assert_eq!(receipt["observed"]["refusals"], 0);
     }
 
     #[cfg(unix)]
@@ -4314,6 +4553,7 @@ mod tests {
         client.initialize().await;
 
         let malformed = client.call("runs.exec", json!({ "command": 7 })).await;
+        assert!(malformed["result"].get("structuredContent").is_none());
         assert!(
             malformed.get("result").is_none(),
             "a malformed request is a protocol error, not a tool result: {malformed}"

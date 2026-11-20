@@ -35,8 +35,9 @@
 //!
 //! A history that cannot be written is not a failed run. The command already ran and its result is
 //! returned with `history_recorded: false`; the failure is appended to `<data>/events.jsonl` as a
-//! `runs_history_failed` event carrying the io error. Only a refusal before the spawn — validation,
-//! a cwd outside the sandbox, or the spawn itself — fails the call and returns no result.
+//! `runs_history_failed` event carrying the io error. Errors before the spawn — validation,
+//! a cwd outside the sandbox, or the spawn itself — return no result. Completed nonzero or timed-out
+//! runs fail the tool call while retaining their bounded capture in the tool error.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -1276,7 +1277,9 @@ mod tests {
         assert_eq!(with_body.stdout, "body-not-in-history\n");
 
         assert_eq!(
-            runs.get(&with_body.id).expect("the row reads back").stdout_preview,
+            runs.get(&with_body.id)
+                .expect("the row reads back")
+                .stdout_preview,
             "body-not-in-history\n",
             "a short body is in the history as its preview, and the full answer is on the result"
         );
@@ -1620,10 +1623,10 @@ pub async fn call(
             // The run happened (its history row is written), but the call's outcome is the
             // process's, and the "failed" word the console draws comes from here.
             if result.exit_code != Some(0) {
-                return Err(ToolError::Refused(format!(
-                    "{tool}: {}",
-                    run_failure_sentence(&result)
-                )));
+                return Err(ToolError::ExecutedFailure {
+                    message: format!("{tool}: {}", run_failure_sentence(&result)),
+                    data: json!(result),
+                });
             }
             Ok(json!(result).to_string())
         }
