@@ -1119,9 +1119,8 @@ fn spawn_follow(
                     if !answer.data.is_empty() {
                         let mut offset = 0usize;
                         for chunk in utf8_chunks(&answer.data, FOLLOW_CHUNK) {
-                            // Every chunk of one read carries that read's end; its start is what a
-                            // lag check asks the ring about, because the console's cursor cannot be
-                            // ahead of the first chunk it has not been given.
+                            // Each frame ends at the bytes it carries, so a reconnect after this
+                            // chunk replays the rest of the read. The lag check uses its start.
                             let from = cursor + offset as u64;
                             offset += chunk.len();
                             let pushed = json!({
@@ -1129,7 +1128,7 @@ fn spawn_follow(
                                     "sub": id,
                                     "session": subscribe.session_id,
                                     "data": String::from_utf8_lossy(chunk),
-                                    "cursor": answer.cursor,
+                                    "cursor": cursor + offset as u64,
                                     "alive": answer.alive,
                                 }
                             });
@@ -2577,6 +2576,96 @@ mod tests {
             "the answer queued behind the flood: frame {answer_at:?} of {seen}"
         );
         let _ = registry.close(&session).await;
+    }
+
+    /// A disconnect after one pushed chunk resumes the same session at the bytes actually received.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_follow_resumes_after_its_last_received_chunk_without_losing_output() {
+        let (server, _config, _dir) = fixture("console-follow-reconnect-chunk");
+        let registry = server.terminal_registry();
+        let session = registry
+            .create(
+                console_holder(),
+                None,
+                terminal::CreateTarget::Pty {
+                    shell: Some("/bin/cat"),
+                },
+                24,
+                80,
+            )
+            .await
+            .expect("a quiet local session");
+        let session_id = session.as_str().to_owned();
+        begin_session_txn(&server, &session);
+        let (mut console, serve) = piped_console(&server, 1024 * 1024).await;
+        send_frame(&mut console, subscribe_frame(71, 1, &session_id, 0)).await;
+        let ack = next_frame(&mut console).await;
+        assert_eq!(
+            ack["id"], 71,
+            "the follow is attached before output arrives"
+        );
+
+        // Exactly 96 KiB, with three-byte characters crossing the 32 KiB frame boundary.
+        let payload = format!(
+            "{}{}{}",
+            "界".repeat(10_922),
+            "語".repeat(10_922),
+            "文".repeat(10_924)
+        );
+        registry
+            .push_output_for_test(&session, payload.as_bytes())
+            .expect("the ring takes the whole batch");
+        let first = tokio::time::timeout(Duration::from_secs(5), next_frame(&mut console))
+            .await
+            .expect("the first chunk arrives");
+        assert_eq!(first["term"]["sub"], 71);
+        let received = first["term"]["data"]
+            .as_str()
+            .expect("the first chunk is text");
+        assert_eq!(received.len(), 32_766, "the chunk ends on a UTF-8 boundary");
+        let cursor = first["term"]["cursor"]
+            .as_u64()
+            .expect("the received frame names a resume cursor");
+        let mut transcript = received.to_owned();
+        drop(console);
+        tokio::time::timeout(Duration::from_secs(5), serve)
+            .await
+            .expect("the dropped channel stops")
+            .expect("the channel task exits");
+
+        let (mut resumed, resumed_serve) = piped_console(&server, 1024 * 1024).await;
+        send_frame(&mut resumed, subscribe_frame(72, 2, &session_id, cursor)).await;
+        let replay = tokio::time::timeout(Duration::from_secs(5), next_frame(&mut resumed))
+            .await
+            .expect("the same session answers the resumed follow");
+        assert_eq!(replay["id"], 72);
+        let answer = replay["result"]["result"]["content"][0]["text"]
+            .as_str()
+            .expect("the resumed follow carries its read answer");
+        let answer: Value = serde_json::from_str(answer).expect("a read answer");
+        let remaining = answer["data"]
+            .as_str()
+            .expect("the retained output is text");
+        let remaining_len = remaining.len();
+        transcript.push_str(remaining);
+        drop(resumed);
+        tokio::time::timeout(Duration::from_secs(5), resumed_serve)
+            .await
+            .expect("the resumed channel stops")
+            .expect("the resumed task exits");
+        registry.close(&session).await.expect("the session closes");
+
+        assert_eq!(remaining_len, 65_538, "all undelivered bytes are replayed");
+        assert_eq!(transcript.len(), 98_304, "the whole batch arrives once");
+        assert_eq!(
+            transcript, payload,
+            "recovery neither drops nor duplicates output"
+        );
+        assert_eq!(
+            cursor, 32_766,
+            "the cursor counts received bytes, not characters"
+        );
     }
 
     /// A console that keeps up keeps the follow's frames, their order and their size.
