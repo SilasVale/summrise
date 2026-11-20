@@ -275,13 +275,25 @@ fn live_probe(
                 &pubkey,
             )
             .await?;
-            // A STAGED RELEASE IS NOT AN UPDATE UNTIL IT IS HANDED OFF.
-            if let updater::CheckOutcome::Staged(staged) = outcome {
-                hand_off_after_staging(&install, &data, &staged, supervised, port);
-            }
-            Ok(())
+            complete_probe(outcome, &install, &data, supervised, port)
         }) as ProbeFuture
     })
+}
+
+/// Complete the probe by handing any staged release to the installer.
+fn complete_probe(
+    outcome: updater::CheckOutcome,
+    install: &Path,
+    data: &Path,
+    supervised: bool,
+    port: u16,
+) -> Result<(), UpdateError> {
+    // A STAGED RELEASE IS NOT AN UPDATE UNTIL IT IS HANDED OFF.
+    if let updater::CheckOutcome::Staged(staged) = outcome {
+        hand_off_after_staging(install, data, &staged, supervised, port)
+            .map_err(UpdateError::Stage)?;
+    }
+    Ok(())
 }
 
 /// Hand a release the stager has just written to whatever installs it on this layout.
@@ -291,15 +303,18 @@ pub(crate) fn hand_off_after_staging(
     staged: &crate::update::StagedRelease,
     supervised: bool,
     port: u16,
-) {
+) -> Result<(), crate::update::StageError> {
     let options = crate::update::HandoffOptions::pointer()
         .with_data(Some(data.to_path_buf()))
         .with_port(Some(port));
     match crate::update::hand_off(install, staged, &options) {
-        Ok(crate::update::Handoff::Swap { .. }) => eprintln!(
-            "summrise-device: staged {} and asked the supervisor for the swap",
-            staged.version
-        ),
+        Ok(crate::update::Handoff::Swap { .. }) => {
+            eprintln!(
+                "summrise-device: staged {} and asked the supervisor for the swap",
+                staged.version
+            );
+            Ok(())
+        }
         Ok(crate::update::Handoff::Installed { .. }) => {
             eprintln!(
                 "summrise-device: staged {} and installed it; {}",
@@ -313,11 +328,15 @@ pub(crate) fn hand_off_after_staging(
             if supervised {
                 crate::restart::exit_soon()();
             }
+            Ok(())
         }
-        Err(error) => eprintln!(
-            "summrise-device: staged {} but cannot install it: {error}",
-            staged.version
-        ),
+        Err(error) => {
+            eprintln!(
+                "summrise-device: staged {} but cannot install it: {error}",
+                staged.version
+            );
+            Err(error)
+        }
     }
 }
 
@@ -424,6 +443,12 @@ mod tests {
                 started,
                 checker,
             }
+        }
+
+        fn set_probe(&mut self, probe: Probe) {
+            let now = Arc::clone(&self.now);
+            let clock: Clock = Arc::new(move || now.load(Ordering::SeqCst));
+            self.checker = Arc::new(UpdateChecker::new(self.store.clone(), clock, probe));
         }
 
         fn probes(&self) -> usize {
@@ -578,6 +603,97 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_failed_legacy_handoff_is_a_failed_check_with_existing_backoff() {
+        let mut harness = Harness::new(1_000);
+        let mut state = harness.store.load().expect("the state is readable");
+        state.update.phase = UpdatePhase::Idle;
+        state.update.to = Some("0.0.9".to_owned());
+        state.update.outcome = Some(summrise_core::UpdateOutcome::Applied);
+        state.update.last_result_at_ms = Some(7);
+        let previous_to = state.update.to.clone();
+        let previous_outcome = state.update.outcome;
+        let previous_result_at = state.update.last_result_at_ms;
+        harness.store.save(&state).expect("the old result saves");
+
+        let install = harness.install();
+        std::fs::create_dir_all(&install).expect("the install directory exists");
+        let exe = install.join(crate::update::STAGED_EXE);
+        let sidecar = install.join(crate::update::STAGED_SIDECAR);
+        std::fs::write(&exe, b"staged executable sentinel").expect("the staged executable writes");
+        std::fs::write(&sidecar, b"staged sidecar sentinel").expect("the staged sidecar writes");
+        let staged = crate::update::StagedRelease::pair(&install, "2.0.1", "ab".repeat(32));
+        let request = install.join(crate::store::SWAP_REQUEST_FILE);
+        std::fs::create_dir(&request).expect("a directory obstructs the request rename");
+
+        let up_to_date = Arc::new(AtomicBool::new(false));
+        let probe: Probe = {
+            let up_to_date = Arc::clone(&up_to_date);
+            let data = harness.dir.join("data");
+            Arc::new(move |_state: State| {
+                let outcome = if up_to_date.load(Ordering::SeqCst) {
+                    updater::CheckOutcome::UpToDate
+                } else {
+                    updater::CheckOutcome::Staged(staged.clone())
+                };
+                let install = install.clone();
+                let data = data.clone();
+                Box::pin(async move { complete_probe(outcome, &install, &data, false, 18_080) })
+                    as ProbeFuture
+            })
+        };
+        harness.set_probe(probe);
+
+        let assert_preserved = |expected_check| {
+            let state = harness
+                .store
+                .load()
+                .expect("the persisted state is readable");
+            assert_eq!(state.update.last_check, Some(expected_check));
+            assert_eq!(state.update.phase, UpdatePhase::Idle);
+            assert_eq!(state.update.to, previous_to);
+            assert_eq!(state.update.outcome, previous_outcome);
+            assert_eq!(state.update.last_result_at_ms, previous_result_at);
+            assert_eq!(std::fs::read(&exe).unwrap(), b"staged executable sentinel");
+            assert_eq!(std::fs::read(&sidecar).unwrap(), b"staged sidecar sentinel");
+            assert!(request.is_dir(), "the failed request keeps its obstruction");
+        };
+        let first_check = UpdateCheck {
+            at_ms: 1_000,
+            trigger: UpdateCheckTrigger::Start,
+        };
+        assert_eq!(
+            harness.checker.trigger(UpdateCheckTrigger::Start).await,
+            CheckRun::Failed
+        );
+        assert_preserved(first_check);
+
+        harness.advance(600_000);
+        assert_eq!(
+            harness.checker.trigger(UpdateCheckTrigger::Channel).await,
+            CheckRun::Skipped(Skip::Backoff)
+        );
+        assert_preserved(first_check);
+
+        harness.advance(1_199_999);
+        assert_eq!(
+            harness.checker.trigger(UpdateCheckTrigger::Schedule).await,
+            CheckRun::Skipped(Skip::Backoff)
+        );
+        assert_preserved(first_check);
+
+        up_to_date.store(true, Ordering::SeqCst);
+        harness.advance(1);
+        assert_eq!(
+            harness.checker.trigger(UpdateCheckTrigger::Schedule).await,
+            CheckRun::Ran
+        );
+        assert_preserved(UpdateCheck {
+            at_ms: 1_801_000,
+            trigger: UpdateCheckTrigger::Schedule,
+        });
+    }
+
+    #[tokio::test]
     async fn a_slow_failure_gets_thirty_minutes_after_completion() {
         let harness = Harness::new(0);
         harness.fail.store(true, Ordering::SeqCst);
@@ -720,6 +836,60 @@ mod tests {
     }
 
     #[test]
+    fn a_missing_versioned_artifact_reaches_the_probe_error() {
+        let dir = TempDir::new("update-check-missing-artifact");
+        let install = dir.join("install");
+        let version = install.join(crate::update::VERSIONS_DIR).join("2.0.1");
+        let exe = version.join(crate::update::APP_EXE);
+        let sidecar = version.join(crate::update::VERSION_SIDECAR);
+        let staged = crate::update::StagedRelease {
+            version: "2.0.1".to_owned(),
+            sha256: "ab".repeat(32),
+            staged: crate::update::Staged::Version {
+                dir: version.clone(),
+                sidecar: sidecar.clone(),
+            },
+        };
+
+        let result = complete_probe(
+            updater::CheckOutcome::Staged(staged),
+            &install,
+            &dir.join("data"),
+            false,
+            18_080,
+        );
+
+        assert!(
+            matches!(&result, Err(UpdateError::Stage(crate::update::StageError::MissingArtifact(path))) if path == &exe),
+            "the original missing-artifact error reaches the probe: {result:?}"
+        );
+        assert!(!exe.exists());
+        assert!(!sidecar.exists());
+        assert!(!version.exists(), "the handoff creates no staged version");
+        assert!(!install.join(crate::store::SWAP_REQUEST_FILE).exists());
+    }
+
+    #[test]
+    fn an_up_to_date_probe_completion_needs_no_handoff() {
+        let dir = TempDir::new("update-check-up-to-date");
+        let install = dir.join("install");
+
+        complete_probe(
+            updater::CheckOutcome::UpToDate,
+            &install,
+            &dir.join("data"),
+            false,
+            18_080,
+        )
+        .expect("an up-to-date probe needs no handoff");
+
+        assert!(!install.join(crate::update::STAGED_EXE).exists());
+        assert!(!install.join(crate::update::STAGED_SIDECAR).exists());
+        assert!(!install.join(crate::store::SWAP_REQUEST_FILE).exists());
+        assert!(!install.exists(), "nothing creates an install for a no-op");
+    }
+
+    #[test]
     fn a_staged_legacy_release_asks_the_supervisor_for_the_swap() {
         let dir = TempDir::new("update-check-handoff");
         let staged =
@@ -730,7 +900,8 @@ mod tests {
             &staged,
             false,
             18_080,
-        );
+        )
+        .expect("the staged legacy release is handed to the supervisor");
         let request = std::fs::read(dir.join("install").join(crate::store::SWAP_REQUEST_FILE))
             .expect("the supervisor is asked; a staged release alone is not an update");
         let parsed: serde_json::Value =
