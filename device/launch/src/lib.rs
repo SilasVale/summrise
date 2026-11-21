@@ -2423,8 +2423,8 @@ pub trait VersionProbe {
     fn probe(&self, config: &Config, version: &Version) -> Result<(), String>;
 }
 
-/// Put a verified pair into `<install>/versions/<name>` without overwriting a version that is
-/// already there.
+/// Put a verified pair into `<install>/versions/<name>`, publishing a fresh directory only once
+/// complete, without overwriting a version that is already there.
 ///
 /// A version directory is immutable once it exists: the same bytes may be reused (an installer
 /// re-run), but different bytes are refused. Overwriting is exactly the failure this layout exists
@@ -2447,24 +2447,7 @@ fn stage_version(install: &Path, name: &str, pair: &StagedPair) -> Result<Versio
     }
 
     if !dir.exists() {
-        fs::create_dir_all(&dir).map_err(|error| {
-            format!(
-                "cannot create the version directory {}: {error}",
-                dir.display()
-            )
-        })?;
-        copy_file_synced(&pair.exe, &exe).map_err(|error| {
-            format!("cannot copy the candidate into {}: {error}", exe.display())
-        })?;
-        save_sidecar(&sidecar_path, &pair.sidecar).map_err(|error| {
-            format!(
-                "cannot write the version sidecar {}: {error}",
-                sidecar_path.display()
-            )
-        })?;
-        if let Some(parent) = dir.parent() {
-            let _ = sync_dir(parent);
-        }
+        return stage_migration_version(install, name, pair);
     } else {
         if !dir.is_dir() {
             return Err(format!(
@@ -6628,6 +6611,121 @@ mod tests {
                 error.contains("current.txt"),
                 "{spelled:?} must be refused as a pointer: {error}"
             );
+        }
+    }
+
+    #[test]
+    fn a_failed_new_version_copy_leaves_no_published_directory() {
+        struct NoProbe;
+        impl VersionProbe for NoProbe {
+            fn probe(&self, _: &Config, _: &Version) -> Result<(), String> {
+                panic!("a failed copy must not reach the health probe");
+            }
+        }
+
+        let tmp = TempDir::new("prepare-version-missing-source");
+        let install = install_dir(&tmp, "install");
+        let old = write_version(&install, "0.3.271", b"the running build");
+        let config = config_for(&install);
+        fs::create_dir_all(&config.data).unwrap();
+        fs::write(current_pointer(&install), b"versions/0.3.271\r\n").unwrap();
+        fs::write(previous_pointer(&install), b"0.3.270\n").unwrap();
+        let data = config.data.join("live.bin");
+        fs::write(&data, b"live data\0sentinel").unwrap();
+        let (exe, sidecar_path, pair) = stage_candidate(&tmp, "0.3.274", b"candidate bytes");
+        let sentinels = [
+            old.exe.clone(),
+            old.sidecar_path.clone(),
+            current_pointer(&install),
+            previous_pointer(&install),
+            data,
+            sidecar_path,
+        ]
+        .map(|path| {
+            let bytes = fs::read(&path).unwrap();
+            (path, bytes)
+        });
+        fs::remove_file(&exe).unwrap();
+
+        let error = prepare_version(&config, "0.3.274", &pair, &NoProbe)
+            .expect_err("the validated source disappeared before copying");
+        assert!(error.contains("copy"), "{error}");
+        assert!(
+            !version_dir(&install, "0.3.274").exists(),
+            "a failed copy must not publish the final version directory"
+        );
+        let names: Vec<_> = fs::read_dir(versions_dir(&install))
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(names, [std::ffi::OsString::from("0.3.271")]);
+        for (path, bytes) in &sentinels {
+            assert_eq!(fs::read(path).unwrap(), *bytes, "{}", path.display());
+        }
+
+        fs::write(&exe, b"candidate bytes").unwrap();
+        let version = prepare_version(&config, "0.3.274", &pair, &Probe(Ok(())))
+            .expect("restoring the source permits preparation of the same release");
+        assert_eq!(version.name, "0.3.274");
+        assert_eq!(fs::read(&version.exe).unwrap(), b"candidate bytes");
+        for (path, bytes) in &sentinels {
+            assert_eq!(fs::read(path).unwrap(), *bytes, "{}", path.display());
+        }
+    }
+
+    #[test]
+    fn a_changed_source_does_not_publish_a_new_version() {
+        struct NoProbe;
+        impl VersionProbe for NoProbe {
+            fn probe(&self, _: &Config, _: &Version) -> Result<(), String> {
+                panic!("changed candidate bytes must not reach the health probe");
+            }
+        }
+
+        let tmp = TempDir::new("prepare-version-changed-source");
+        let install = install_dir(&tmp, "install");
+        let old = write_version(&install, "0.3.271", b"the running build");
+        let config = config_for(&install);
+        fs::create_dir_all(&config.data).unwrap();
+        fs::write(current_pointer(&install), b"versions/0.3.271\r\n").unwrap();
+        fs::write(previous_pointer(&install), b"0.3.270\n").unwrap();
+        let data = config.data.join("live.bin");
+        fs::write(&data, b"live data\0sentinel").unwrap();
+        let (exe, sidecar_path, pair) = stage_candidate(&tmp, "0.3.274", b"candidate bytes");
+        let sentinels = [
+            old.exe.clone(),
+            old.sidecar_path.clone(),
+            current_pointer(&install),
+            previous_pointer(&install),
+            data,
+            sidecar_path,
+        ]
+        .map(|path| {
+            let bytes = fs::read(&path).unwrap();
+            (path, bytes)
+        });
+        fs::write(&exe, b"changed after validation").unwrap();
+
+        let error = prepare_version(&config, "0.3.274", &pair, &NoProbe)
+            .expect_err("the copied candidate must still match its validated digest");
+        assert!(error.contains("copied version binary hashes"), "{error}");
+        assert!(!version_dir(&install, "0.3.274").exists());
+        let names: Vec<_> = fs::read_dir(versions_dir(&install))
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(names, [std::ffi::OsString::from("0.3.271")]);
+        for (path, bytes) in &sentinels {
+            assert_eq!(fs::read(path).unwrap(), *bytes, "{}", path.display());
+        }
+
+        fs::write(&exe, b"candidate bytes").unwrap();
+        let version = prepare_version(&config, "0.3.274", &pair, &Probe(Ok(())))
+            .expect("restoring the validated bytes permits preparation");
+        assert_eq!(version.name, "0.3.274");
+        assert_eq!(fs::read(&version.exe).unwrap(), b"candidate bytes");
+        for (path, bytes) in &sentinels {
+            assert_eq!(fs::read(path).unwrap(), *bytes, "{}", path.display());
         }
     }
 

@@ -1503,6 +1503,111 @@ mod tests {
     }
 
     #[test]
+    fn a_failed_launcher_copy_does_not_block_a_later_verified_stage() {
+        struct NoProbe;
+        impl summrise_launch::VersionProbe for NoProbe {
+            fn probe(
+                &self,
+                _: &summrise_launch::Config,
+                _: &summrise_launch::Version,
+            ) -> Result<(), String> {
+                panic!("a failed launcher copy must not reach the health probe");
+            }
+        }
+
+        let dir = TempDir::new("stage-after-launcher-copy-failure");
+        let install = pointer_install(&dir, "1.0.0");
+        let key = signing_key();
+        let bytes = b"release bytes";
+        let manifest = manifest_for("2.0.3", "stable", bytes, &key, "2.0.0");
+        let old_dir = version_dir(&install, "1.0.0");
+        fs::create_dir_all(&old_dir).unwrap();
+        fs::write(old_dir.join(APP_EXE), b"the running build").unwrap();
+        let old_manifest = manifest_for("1.0.0", "stable", b"the running build", &key, "1.0.0");
+        let old_sidecar = LauncherSidecar {
+            version: old_manifest.version,
+            channel: old_manifest.channel,
+            sha256: old_manifest.sha256,
+            signature: old_manifest.signature,
+        };
+        let old_sidecar_path = old_dir.join(VERSION_SIDECAR);
+        fs::write(&old_sidecar_path, serde_json::to_vec(&old_sidecar).unwrap()).unwrap();
+        fs::write(install.join(CURRENT_POINTER), b"versions/1.0.0\r\n").unwrap();
+        let previous = install.join("previous.txt");
+        fs::write(&previous, b"0.9.0\n").unwrap();
+        let data = install.join("data");
+        fs::create_dir_all(&data).unwrap();
+        let live_data = data.join("live.bin");
+        fs::write(&live_data, b"live data\0sentinel").unwrap();
+
+        let external = dir.join("external");
+        fs::create_dir_all(&external).unwrap();
+        let source = external.join(APP_EXE);
+        let source_sidecar = external.join(VERSION_SIDECAR);
+        fs::write(&source, bytes).unwrap();
+        let sidecar = LauncherSidecar {
+            version: manifest.version.clone(),
+            channel: manifest.channel.clone(),
+            sha256: manifest.sha256.clone(),
+            signature: manifest.signature.clone(),
+        };
+        fs::write(&source_sidecar, serde_json::to_vec(&sidecar).unwrap()).unwrap();
+        let pair = summrise_launch::validate_staged_pair(
+            &source,
+            &source_sidecar,
+            &hex_encode(key.verifying_key().as_bytes()),
+        )
+        .expect("the external candidate passes genuine launcher validation");
+        let sentinels = [
+            old_dir.join(APP_EXE),
+            old_sidecar_path,
+            install.join(CURRENT_POINTER),
+            previous,
+            live_data,
+            source_sidecar,
+        ]
+        .map(|path| {
+            let bytes = fs::read(&path).unwrap();
+            (path, bytes)
+        });
+        fs::remove_file(&source).unwrap();
+        let config = summrise_launch::Config {
+            install: install.clone(),
+            data,
+            port: 7_737,
+        };
+        let error = summrise_launch::prepare_version(&config, "2.0.3", &pair, &NoProbe)
+            .expect_err("the source disappeared after validation");
+        assert!(error.contains("copy"), "{error}");
+
+        // Reach the real verified device stage: a leftover partial directory must not block it.
+        let released = stage(bytes, &manifest, &key.verifying_key(), &install)
+            .expect("a verified download must recover after the launcher copy failed");
+        assert_eq!(released.version, "2.0.3");
+        assert_eq!(released.sha256, manifest.sha256);
+        match released.staged {
+            Staged::Version { dir, sidecar } => {
+                assert_eq!(dir, version_dir(&install, "2.0.3"));
+                assert_eq!(sidecar, version_sidecar_path(&install, "2.0.3"));
+                assert_eq!(fs::read(dir.join(APP_EXE)).unwrap(), bytes);
+                let staged: LauncherSidecar =
+                    serde_json::from_slice(&fs::read(sidecar).unwrap()).unwrap();
+                assert_eq!(staged.version, "2.0.3");
+                assert_eq!(staged.channel, "stable");
+                assert_eq!(staged.sha256, manifest.sha256);
+                assert_eq!(staged.signature, manifest.signature);
+                assert_eq!(launcher_verify(&staged, &key.verifying_key()), Ok(()));
+            }
+            other => panic!("expected versioned staging, got {other:?}"),
+        }
+        assert_eq!(version_names(&install), ["1.0.0", "2.0.3"]);
+        for (path, bytes) in &sentinels {
+            assert_eq!(fs::read(path).unwrap(), *bytes, "{}", path.display());
+        }
+        assert!(!swap_request_path(&install).exists());
+    }
+
+    #[test]
     fn a_second_identical_stage_reuses_the_version_directory() {
         let dir = TempDir::new("stage-versioned-reuse");
         let install = pointer_install(&dir, "1.0.0");
