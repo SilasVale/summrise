@@ -2455,7 +2455,9 @@ fn stage_version(install: &Path, name: &str, pair: &StagedPair) -> Result<Versio
                 dir.display()
             ));
         }
-        if exe.exists() {
+        // Refuse incompatible existing components before filling a missing slot with candidate bytes.
+        let exe_exists = exe.exists();
+        if exe_exists {
             let existing = sha256_file(&exe).map_err(|error| {
                 format!(
                     "cannot hash the installed version {}: {error}",
@@ -2469,12 +2471,9 @@ fn stage_version(install: &Path, name: &str, pair: &StagedPair) -> Result<Versio
                     exe.display()
                 ));
             }
-        } else {
-            copy_file_synced(&pair.exe, &exe).map_err(|error| {
-                format!("cannot copy the candidate into {}: {error}", exe.display())
-            })?;
         }
-        if sidecar_path.exists() {
+        let sidecar_exists = sidecar_path.exists();
+        if sidecar_exists {
             let on_disk = load_sidecar(&sidecar_path).map_err(|error| {
                 format!("the existing sidecar of version {name:?} is unusable: {error}")
             })?;
@@ -2487,7 +2486,13 @@ fn stage_version(install: &Path, name: &str, pair: &StagedPair) -> Result<Versio
                     sidecar_path.display()
                 ));
             }
-        } else {
+        }
+        if !exe_exists {
+            copy_file_synced(&pair.exe, &exe).map_err(|error| {
+                format!("cannot copy the candidate into {}: {error}", exe.display())
+            })?;
+        }
+        if !sidecar_exists {
             save_sidecar(&sidecar_path, &pair.sidecar).map_err(|error| {
                 format!(
                     "cannot write the version sidecar {}: {error}",
@@ -6611,6 +6616,455 @@ mod tests {
                 error.contains("current.txt"),
                 "{spelled:?} must be refused as a pointer: {error}"
             );
+        }
+    }
+
+    #[test]
+    fn existing_version_preflight_conflicting_sidecar_preserves_correct_retry() {
+        struct NoProbe;
+        impl VersionProbe for NoProbe {
+            fn probe(&self, _: &Config, _: &Version) -> Result<(), String> {
+                panic!("a refused sidecar must not reach the probe");
+            }
+        }
+        struct CompleteProbe(std::cell::Cell<u32>);
+        impl VersionProbe for CompleteProbe {
+            fn probe(&self, _: &Config, version: &Version) -> Result<(), String> {
+                assert_eq!(fs::read(&version.exe).unwrap(), b"original build");
+                let sidecar = load_sidecar(&version.sidecar_path).unwrap();
+                assert_eq!(sidecar.version, "0.3.274");
+                assert_eq!(sidecar.sha256, sha256_bytes(b"original build"));
+                self.0.set(self.0.get() + 1);
+                Ok(())
+            }
+        }
+
+        let tmp = TempDir::new("existing-preflight-conflict");
+        let original = TempDir::new("existing-preflight-original");
+        let candidate = TempDir::new("existing-preflight-candidate");
+        let install = install_dir(&tmp, "install");
+        let old = write_version(&install, "0.3.271", b"running build");
+        let previous = write_version(&install, "0.3.270", b"rollback build");
+        let config = config_for(&install);
+        fs::create_dir_all(&config.data).unwrap();
+        let data = config.data.join("live.bin");
+        fs::write(&data, b"live data\0sentinel").unwrap();
+        fs::write(current_pointer(&install), b"versions/0.3.271\r\n").unwrap();
+        fs::write(previous_pointer(&install), b"0.3.270\n").unwrap();
+        let (a_exe, a_sidecar, pair_a) = stage_candidate(&original, "0.3.274", b"original build");
+        let (b_exe, b_sidecar, pair_b) = stage_candidate(&candidate, "0.3.274", b"different build");
+        let target = version_dir(&install, "0.3.274");
+        fs::create_dir_all(&target).unwrap();
+        let target_sidecar = version_sidecar(&install, "0.3.274");
+        fs::copy(&a_sidecar, &target_sidecar).unwrap();
+        let sentinels = [
+            old.exe,
+            old.sidecar_path,
+            previous.exe,
+            previous.sidecar_path,
+            current_pointer(&install),
+            previous_pointer(&install),
+            data,
+            target_sidecar,
+            a_exe,
+            a_sidecar,
+            b_exe,
+            b_sidecar,
+        ]
+        .map(|path| {
+            let bytes = fs::read(&path).unwrap();
+            (path, bytes)
+        });
+        let entries = || {
+            let mut names: Vec<_> = fs::read_dir(&target)
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name())
+                .collect();
+            names.sort();
+            names
+        };
+        let before_entries = entries();
+
+        let error = install_version(&config, "0.3.274", &pair_b, &NoProbe)
+            .expect_err("a different signed sidecar must be refused");
+        assert!(error.contains("different sidecar"), "{error}");
+        assert!(
+            !version_exe(&install, "0.3.274").exists(),
+            "sidecar refusal must preserve executable absence for a correct retry"
+        );
+        assert_eq!(entries(), before_entries);
+        for (path, bytes) in &sentinels {
+            assert_eq!(fs::read(path).unwrap(), *bytes, "{}", path.display());
+        }
+
+        let probe = CompleteProbe(std::cell::Cell::new(0));
+        let version = prepare_version(&config, "0.3.274", &pair_a, &probe)
+            .expect("the original pair must repair the partial install without manual cleanup");
+        assert_eq!(version.name, "0.3.274");
+        assert_eq!(probe.0.get(), 1);
+        let mut expected: Vec<std::ffi::OsString> = vec![APP_EXE.into(), VERSION_SIDECAR.into()];
+        expected.sort();
+        assert_eq!(entries(), expected);
+        for (path, bytes) in &sentinels {
+            assert_eq!(fs::read(path).unwrap(), *bytes, "{}", path.display());
+        }
+    }
+
+    #[test]
+    fn existing_version_preflight_malformed_sidecar_preserves_state() {
+        struct NoProbe;
+        impl VersionProbe for NoProbe {
+            fn probe(&self, _: &Config, _: &Version) -> Result<(), String> {
+                panic!("malformed metadata must not reach the probe");
+            }
+        }
+        let tmp = TempDir::new("existing-preflight-malformed");
+        let candidate = TempDir::new("existing-preflight-malformed-candidate");
+        let install = install_dir(&tmp, "install");
+        let old = write_version(&install, "0.3.271", b"running build");
+        let previous = write_version(&install, "0.3.270", b"rollback build");
+        let config = config_for(&install);
+        fs::create_dir_all(&config.data).unwrap();
+        let data = config.data.join("live.bin");
+        fs::write(&data, b"live data\0sentinel").unwrap();
+        fs::write(current_pointer(&install), b"versions/0.3.271\r\n").unwrap();
+        fs::write(previous_pointer(&install), b"0.3.270\n").unwrap();
+        let (exe, sidecar, pair) = stage_candidate(&candidate, "0.3.274", b"original build");
+        let target = version_dir(&install, "0.3.274");
+        fs::create_dir_all(&target).unwrap();
+        let target_sidecar = version_sidecar(&install, "0.3.274");
+        fs::write(&target_sidecar, b"{not-json").unwrap();
+        let sentinels = [
+            old.exe,
+            old.sidecar_path,
+            previous.exe,
+            previous.sidecar_path,
+            current_pointer(&install),
+            previous_pointer(&install),
+            data,
+            target_sidecar,
+            exe,
+            sidecar,
+        ]
+        .map(|path| {
+            let bytes = fs::read(&path).unwrap();
+            (path, bytes)
+        });
+        let entries = || {
+            let mut names: Vec<_> = fs::read_dir(&target)
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name())
+                .collect();
+            names.sort();
+            names
+        };
+        let before_entries = entries();
+
+        for _ in 0..2 {
+            let error = install_version(&config, "0.3.274", &pair, &NoProbe)
+                .expect_err("malformed metadata remains an error on retry");
+            assert!(
+                error.contains("existing sidecar") && error.contains("unusable"),
+                "{error}"
+            );
+            assert!(
+                !version_exe(&install, "0.3.274").exists(),
+                "malformed-sidecar refusal must preserve executable absence"
+            );
+            assert_eq!(entries(), before_entries);
+            for (path, bytes) in &sentinels {
+                assert_eq!(fs::read(path).unwrap(), *bytes, "{}", path.display());
+            }
+        }
+    }
+
+    #[test]
+    fn existing_version_preflight_version_only_conflict_preserves_state() {
+        struct NoProbe;
+        impl VersionProbe for NoProbe {
+            fn probe(&self, _: &Config, _: &Version) -> Result<(), String> {
+                panic!("a version-only metadata conflict must not reach the probe");
+            }
+        }
+        let tmp = TempDir::new("existing-preflight-version-only");
+        let candidate = TempDir::new("existing-preflight-version-candidate");
+        let install = install_dir(&tmp, "install");
+        let old = write_version(&install, "0.3.271", b"running build");
+        let previous = write_version(&install, "0.3.270", b"rollback build");
+        let config = config_for(&install);
+        fs::create_dir_all(&config.data).unwrap();
+        let data = config.data.join("live.bin");
+        fs::write(&data, b"live data\0sentinel").unwrap();
+        fs::write(current_pointer(&install), b"versions/0.3.271\r\n").unwrap();
+        fs::write(previous_pointer(&install), b"0.3.270\n").unwrap();
+        let (exe, sidecar, pair) = stage_candidate(&candidate, "0.3.274", b"original build");
+        let target = version_dir(&install, "0.3.274");
+        fs::create_dir_all(&target).unwrap();
+        let target_sidecar = version_sidecar(&install, "0.3.274");
+        save_sidecar(
+            &target_sidecar,
+            &sidecar_for("0.3.273", b"original build", &signing_key()),
+        )
+        .unwrap();
+        let sentinels = [
+            old.exe,
+            old.sidecar_path,
+            previous.exe,
+            previous.sidecar_path,
+            current_pointer(&install),
+            previous_pointer(&install),
+            data,
+            target_sidecar,
+            exe,
+            sidecar,
+        ]
+        .map(|path| {
+            let bytes = fs::read(&path).unwrap();
+            (path, bytes)
+        });
+        let error = prepare_version(&config, "0.3.274", &pair, &NoProbe)
+            .expect_err("equal digests do not permit different sidecar versions");
+        assert!(error.contains("different sidecar"), "{error}");
+        assert!(!version_exe(&install, "0.3.274").exists());
+        let names: Vec<_> = fs::read_dir(&target)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(names, [std::ffi::OsString::from(VERSION_SIDECAR)]);
+        for (path, bytes) in &sentinels {
+            assert_eq!(fs::read(path).unwrap(), *bytes, "{}", path.display());
+        }
+    }
+
+    #[test]
+    fn existing_version_preflight_compatible_partial_repairs_are_idempotent() {
+        struct CompleteProbe(std::cell::Cell<u32>);
+        impl VersionProbe for CompleteProbe {
+            fn probe(&self, config: &Config, version: &Version) -> Result<(), String> {
+                assert_eq!(fs::read(&version.exe).unwrap(), b"original build");
+                let sidecar = load_sidecar(&version.sidecar_path).unwrap();
+                assert_eq!(sidecar.version, "0.3.274");
+                assert_eq!(sidecar.sha256, sha256_bytes(b"original build"));
+                assert_eq!(
+                    fs::read(current_pointer(&config.install)).unwrap(),
+                    b"versions/0.3.271\r\n"
+                );
+                assert_eq!(
+                    fs::read(previous_pointer(&config.install)).unwrap(),
+                    b"0.3.270\n"
+                );
+                self.0.set(self.0.get() + 1);
+                Ok(())
+            }
+        }
+        for (has_exe, has_sidecar) in [(false, true), (true, false), (false, false), (true, true)] {
+            let tmp = TempDir::new("existing-preflight-compatible");
+            let candidate = TempDir::new("existing-preflight-compatible-candidate");
+            let install = install_dir(&tmp, "install");
+            let old = write_version(&install, "0.3.271", b"running build");
+            let previous = write_version(&install, "0.3.270", b"rollback build");
+            let config = config_for(&install);
+            fs::create_dir_all(&config.data).unwrap();
+            let data = config.data.join("live.bin");
+            fs::write(&data, b"live data\0sentinel").unwrap();
+            fs::write(current_pointer(&install), b"versions/0.3.271\r\n").unwrap();
+            fs::write(previous_pointer(&install), b"0.3.270\n").unwrap();
+            let (exe, sidecar, pair) = stage_candidate(&candidate, "0.3.274", b"original build");
+            let target = version_dir(&install, "0.3.274");
+            fs::create_dir_all(&target).unwrap();
+            let target_exe = version_exe(&install, "0.3.274");
+            let target_sidecar = version_sidecar(&install, "0.3.274");
+            let mut paths = vec![
+                old.exe,
+                old.sidecar_path,
+                previous.exe,
+                previous.sidecar_path,
+                current_pointer(&install),
+                previous_pointer(&install),
+                data,
+                exe.clone(),
+                sidecar.clone(),
+            ];
+            if has_exe {
+                fs::copy(&exe, &target_exe).unwrap();
+                paths.push(target_exe.clone());
+            }
+            if has_sidecar {
+                // Extra JSON whitespace is valid and must survive compatible preparation byte-for-byte.
+                let mut bytes = fs::read(&sidecar).unwrap();
+                bytes.extend_from_slice(b"\n \t");
+                fs::write(&target_sidecar, bytes).unwrap();
+                paths.push(target_sidecar.clone());
+            }
+            let sentinels: Vec<_> = paths
+                .into_iter()
+                .map(|path| {
+                    let bytes = fs::read(&path).unwrap();
+                    (path, bytes)
+                })
+                .collect();
+            let probe = CompleteProbe(std::cell::Cell::new(0));
+            let mut completed = None;
+            for call in 1..=2 {
+                let version = prepare_version(&config, "0.3.274", &pair, &probe)
+                    .expect("compatible existing components remain repairable");
+                assert_eq!(version.name, "0.3.274");
+                assert_eq!(probe.0.get(), call);
+                let bytes = (
+                    fs::read(&target_exe).unwrap(),
+                    fs::read(&target_sidecar).unwrap(),
+                );
+                if let Some(before) = &completed {
+                    assert_eq!(&bytes, before, "repeated prepare must be idempotent");
+                }
+                completed = Some(bytes);
+                let mut names: Vec<_> = fs::read_dir(&target)
+                    .unwrap()
+                    .map(|entry| entry.unwrap().file_name())
+                    .collect();
+                names.sort();
+                let mut expected: Vec<std::ffi::OsString> =
+                    vec![APP_EXE.into(), VERSION_SIDECAR.into()];
+                expected.sort();
+                assert_eq!(names, expected, "only the completed pair may remain");
+                for (path, bytes) in &sentinels {
+                    assert_eq!(fs::read(path).unwrap(), *bytes, "{}", path.display());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn existing_version_preflight_complete_conflict_preserves_running_bytes() {
+        struct NoProbe;
+        impl VersionProbe for NoProbe {
+            fn probe(&self, _: &Config, _: &Version) -> Result<(), String> {
+                panic!("conflicting selected bytes must not reach the probe");
+            }
+        }
+        for has_sidecar in [true, false] {
+            let tmp = TempDir::new("existing-preflight-selected-conflict");
+            let candidate = TempDir::new("existing-preflight-selected-candidate");
+            let install = install_dir(&tmp, "install");
+            let old = write_version(&install, "0.3.271", b"older build");
+            let previous = write_version(&install, "0.3.270", b"rollback build");
+            let config = config_for(&install);
+            fs::create_dir_all(&config.data).unwrap();
+            let data = config.data.join("live.bin");
+            fs::write(&data, b"live data\0sentinel").unwrap();
+            fs::write(current_pointer(&install), b"versions/0.3.274\r\n").unwrap();
+            fs::write(previous_pointer(&install), b"0.3.271\n").unwrap();
+            let (exe, sidecar, pair) = stage_candidate(&candidate, "0.3.274", b"different build");
+            let target = version_dir(&install, "0.3.274");
+            fs::create_dir_all(&target).unwrap();
+            let target_exe = version_exe(&install, "0.3.274");
+            fs::write(&target_exe, b"original build").unwrap();
+            let target_sidecar = version_sidecar(&install, "0.3.274");
+            let mut paths = vec![
+                old.exe,
+                old.sidecar_path,
+                previous.exe,
+                previous.sidecar_path,
+                current_pointer(&install),
+                previous_pointer(&install),
+                data,
+                exe,
+                sidecar,
+                target_exe,
+            ];
+            if has_sidecar {
+                save_sidecar(
+                    &target_sidecar,
+                    &sidecar_for("0.3.274", b"original build", &signing_key()),
+                )
+                .unwrap();
+                paths.push(target_sidecar.clone());
+            }
+            let sentinels: Vec<_> = paths
+                .into_iter()
+                .map(|path| {
+                    let bytes = fs::read(&path).unwrap();
+                    (path, bytes)
+                })
+                .collect();
+            let entries = || {
+                let mut names: Vec<_> = fs::read_dir(&target)
+                    .unwrap()
+                    .map(|entry| entry.unwrap().file_name())
+                    .collect();
+                names.sort();
+                names
+            };
+            let before_entries = entries();
+            let error = install_version(&config, "0.3.274", &pair, &NoProbe)
+                .expect_err("selected executable bytes must never be overwritten");
+            assert!(error.contains("different bytes"), "{error}");
+            assert_eq!(target_sidecar.exists(), has_sidecar);
+            assert_eq!(entries(), before_entries);
+            for (path, bytes) in &sentinels {
+                assert_eq!(fs::read(path).unwrap(), *bytes, "{}", path.display());
+            }
+        }
+    }
+
+    #[test]
+    fn existing_version_preflight_compatible_reinstall_keeps_previous() {
+        struct CompleteProbe(std::cell::Cell<u32>);
+        impl VersionProbe for CompleteProbe {
+            fn probe(&self, _: &Config, version: &Version) -> Result<(), String> {
+                assert_eq!(fs::read(&version.exe).unwrap(), b"original build");
+                let sidecar = load_sidecar(&version.sidecar_path).unwrap();
+                assert_eq!(sidecar.version, "0.3.274");
+                assert_eq!(sidecar.sha256, sha256_bytes(b"original build"));
+                self.0.set(self.0.get() + 1);
+                Ok(())
+            }
+        }
+        let tmp = TempDir::new("existing-preflight-reinstall");
+        let candidate = TempDir::new("existing-preflight-reinstall-candidate");
+        let install = install_dir(&tmp, "install");
+        let old = write_version(&install, "0.3.271", b"running build");
+        let previous = write_version(&install, "0.3.270", b"rollback build");
+        let config = config_for(&install);
+        fs::create_dir_all(&config.data).unwrap();
+        let data = config.data.join("live.bin");
+        fs::write(&data, b"live data\0sentinel").unwrap();
+        fs::write(current_pointer(&install), b"versions/0.3.271\r\n").unwrap();
+        fs::write(previous_pointer(&install), b"0.3.270\n").unwrap();
+        let (exe, sidecar, pair) = stage_candidate(&candidate, "0.3.274", b"original build");
+        let sentinels = [
+            old.exe,
+            old.sidecar_path,
+            previous.exe,
+            previous.sidecar_path,
+            data,
+            exe,
+            sidecar,
+        ]
+        .map(|path| {
+            let bytes = fs::read(&path).unwrap();
+            (path, bytes)
+        });
+        let probe = CompleteProbe(std::cell::Cell::new(0));
+        let mut completed = None;
+        for call in 1..=2 {
+            let installed = install_version(&config, "0.3.274", &pair, &probe)
+                .expect("a compatible reinstall must keep its rollback target");
+            assert_eq!(installed.previous.as_deref(), Some("0.3.271"));
+            assert_eq!(probe.0.get(), call);
+            assert_eq!(fs::read(current_pointer(&install)).unwrap(), b"0.3.274\n");
+            assert_eq!(fs::read(previous_pointer(&install)).unwrap(), b"0.3.271\n");
+            let bytes = (
+                fs::read(&installed.version.exe).unwrap(),
+                fs::read(&installed.version.sidecar_path).unwrap(),
+            );
+            if let Some(before) = &completed {
+                assert_eq!(&bytes, before);
+            }
+            completed = Some(bytes);
+            for (path, bytes) in &sentinels {
+                assert_eq!(fs::read(path).unwrap(), *bytes, "{}", path.display());
+            }
         }
     }
 
