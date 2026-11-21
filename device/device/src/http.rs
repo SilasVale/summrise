@@ -916,9 +916,10 @@ struct AuditTail {
 /// Read the audit from the end: the panel shows 200 lines, so a forward read of a 64 MiB file would
 /// parse hundreds of thousands of lines and then throw them away.
 ///
-/// A byte window starts at the end and grows until it holds `limit + 1` newlines (or reaches the
-/// start of the file); only then are the last `limit` lines parsed. When the window did not reach
-/// the start, at least one older line exists, so the page can say the record was cut.
+/// A byte window starts at the end and grows until it holds more than `limit` complete nonblank
+/// lines (or reaches the start of the file); only then are the last `limit` lines parsed. A window
+/// starting within the file omits its first possible fragment. The extra complete line proves a cut.
+/// Sparse or blank logs can require reading the full metadata length; this is not a fixed byte cap.
 fn read_audit_tail(path: &Path, limit: usize) -> io::Result<AuditTail> {
     use std::fs::File;
     use std::io::{Read, Seek, SeekFrom};
@@ -945,8 +946,13 @@ fn read_audit_tail(path: &Path, limit: usize) -> io::Result<AuditTail> {
         let mut bytes = vec![0u8; (length - start) as usize];
         file.seek(SeekFrom::Start(start))?;
         file.read_exact(&mut bytes)?;
-        let newlines = bytes.iter().filter(|byte| **byte == b'\n').count();
-        if start == 0 || newlines > limit {
+        let text = String::from_utf8_lossy(&bytes);
+        let complete_nonblank = text
+            .lines()
+            .skip(usize::from(start != 0))
+            .filter(|line| !line.trim().is_empty())
+            .count();
+        if start == 0 || complete_nonblank > limit {
             break (bytes, start);
         }
         window = window.saturating_mul(2);
@@ -955,15 +961,11 @@ fn read_audit_tail(path: &Path, limit: usize) -> io::Result<AuditTail> {
     let text = String::from_utf8_lossy(&bytes);
     let mut lines: Vec<&str> = text
         .lines()
+        .skip(usize::from(start != 0))
         .filter(|line| !line.trim().is_empty())
         .collect();
-    let truncated = if start == 0 {
-        lines.len() > limit
-    } else {
-        // The window starts before the `limit + 1`th newline, so the first fragment and every line
-        // before the tail belong to older calls.
-        true
-    };
+    // At nonzero start the loop found an extra complete entry; at byte zero this is the full count.
+    let truncated = lines.len() > limit;
     if lines.len() > limit {
         lines.drain(..lines.len() - limit);
     }
@@ -4939,6 +4941,78 @@ mod tests {
     }
 
     #[test]
+    fn the_audit_tail_skips_long_trailing_blank_windows() {
+        let fixture = fixture("panel-audit-tail-trailing-blanks", None);
+        let path = fixture.config.data.join("events.jsonl");
+
+        for count in [0usize, 1, 200, 201] {
+            let mut text = String::new();
+            for id in 0..count {
+                text.push_str(&format!("{}\n", json!({"id": id})));
+            }
+            text.push_str(&"\n".repeat(65_536));
+            fs::write(&path, text).expect("the trailing-blank fixture is written");
+
+            let tail = read_audit_tail(&path, 200).expect("the audit is readable");
+            let expected: Vec<Value> = (count.saturating_sub(200)..count)
+                .map(|id| json!({"id": id}))
+                .collect();
+            assert_eq!(tail.lines, expected);
+            assert_eq!(tail.truncated, count > 200);
+
+            let zero = read_audit_tail(&path, 0).expect("the audit is readable at limit zero");
+            assert!(zero.lines.is_empty());
+            assert_eq!(zero.truncated, count > 0);
+        }
+    }
+
+    #[test]
+    fn the_audit_tail_counts_interspersed_nonblank_lines() {
+        let fixture = fixture("panel-audit-tail-interspersed-blanks", None);
+        let path = fixture.config.data.join("events.jsonl");
+        let mut text = String::new();
+        for id in 0..250 {
+            text.push_str(&format!(
+                "{}\n",
+                json!({"id": id, "padding": "x".repeat(600)})
+            ));
+            text.push_str(&" \t\n".repeat(4));
+        }
+        fs::write(&path, text).expect("the interspersed-blank fixture is written");
+
+        let tail = read_audit_tail(&path, 200).expect("the audit is readable");
+        let expected: Vec<Value> = (50..250)
+            .map(|id| json!({"id": id, "padding": "x".repeat(600)}))
+            .collect();
+        assert_eq!(tail.lines, expected);
+        assert!(tail.truncated);
+    }
+
+    #[test]
+    fn the_audit_tail_preserves_malformed_and_unterminated_entries() {
+        let fixture = fixture("panel-audit-tail-malformed-unterminated", None);
+        let path = fixture.config.data.join("events.jsonl");
+
+        for older in [false, true] {
+            let mut text = String::new();
+            if older {
+                text.push_str("{\"id\":0}\n");
+            }
+            text.push_str("  damaged audit  \n");
+            text.push_str(&"\n".repeat(65_536));
+            text.push_str("{\"id\":2}");
+            fs::write(&path, text).expect("the malformed and unterminated fixture is written");
+
+            let tail = read_audit_tail(&path, 2).expect("the audit is readable");
+            assert_eq!(
+                tail.lines,
+                vec![json!("  damaged audit  "), json!({"id": 2})]
+            );
+            assert_eq!(tail.truncated, older);
+        }
+    }
+
+    #[test]
     fn the_audit_tail_is_bounded_and_reports_the_cut() {
         let fixture = fixture("panel-audit-tail", None);
         let path = fixture.config.data.join("events.jsonl");
@@ -4946,6 +5020,13 @@ mod tests {
         let tail = read_audit_tail(&path, 200).expect("a missing audit is an empty record");
         assert!(tail.lines.is_empty());
         assert!(!tail.truncated);
+
+        fs::write(&path, b"").expect("the empty audit fixture is written");
+        for limit in [200, 0] {
+            let tail = read_audit_tail(&path, limit).expect("an empty audit is readable");
+            assert!(tail.lines.is_empty());
+            assert!(!tail.truncated);
+        }
 
         // A file larger than the first read window: the reader must find the tail without parsing
         // the whole file, and it must know the lines before it are real.
