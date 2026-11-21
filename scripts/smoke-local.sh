@@ -17,8 +17,18 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DEVICE_BIN="$ROOT/device/target/debug/summrise-device"
-CONSOLE_BIN="$ROOT/device/target/debug/summrise-console"
+BUILD_CWD="$ROOT"
+if [ "${CARGO_TARGET_DIR+x}" != x ]; then
+    TARGET_DIR="$ROOT/device/target"
+else
+    case "$CARGO_TARGET_DIR" in
+        '') printf '%s\n' 'CARGO_TARGET_DIR must not be empty (Cargo rejects an empty target directory)' >&2; exit 1 ;;
+        /*) TARGET_DIR="$CARGO_TARGET_DIR" ;;
+        *) TARGET_DIR="$BUILD_CWD/$CARGO_TARGET_DIR" ;;
+    esac
+fi
+DEVICE_BIN="$TARGET_DIR/debug/summrise-device"
+CONSOLE_BIN="$TARGET_DIR/debug/summrise-console"
 CARGO_BIN="${CARGO:-/home/zss/.cargo/bin/cargo}"
 
 DEVICE_DIR=""
@@ -533,74 +543,75 @@ PY
 fi
 pass "device audit events.jsonl records $MCP_TOOL ($AUDIT_SUMMARY)"
 
-JOURNAL_DIR="$DEVICE_DATA/journal"
-shopt -s nullglob
-SEGMENTS=("$JOURNAL_DIR"/*.seg)
-shopt -u nullglob
-if [ "${#SEGMENTS[@]}" -eq 0 ]; then
-    fail "device journal directory $JOURNAL_DIR has no *.seg segment"
-fi
-JOURNAL_MATCH=""
-for segment in "${SEGMENTS[@]}"; do
-    if grep -qF '"type":"device.started"' "$segment"; then
-        JOURNAL_MATCH="$segment"
-        break
-    fi
-done
-if [ -z "$JOURNAL_MATCH" ]; then
-    fail "no journal segment under $JOURNAL_DIR contains device.started (segments: ${SEGMENTS[*]})"
-fi
-pass "device journal $(basename "$JOURNAL_MATCH") contains device.started"
-
-# §4.2: the call itself is a journal pair, and both halves share one trace.call. The audit proves what
-# ran; only the journal proves the pair a reader joins the two records on.
-if ! CALL_PAIR="$(python3 - "$JOURNAL_DIR" "$MCP_TOOL" <<'PY'
-import glob
+RECORD_FILE="$DEVICE_DATA/record.db"
+# The committed SQLite feed owns startup and the successful same-trace call pair.
+if ! CALL_PAIR="$(python3 - "$RECORD_FILE" "$MCP_TOOL" <<'PY'
 import json
-import os
+from pathlib import Path
+import sqlite3
 import sys
 
-directory, tool = sys.argv[1], sys.argv[2]
-calls = []
-for path in sorted(glob.glob(os.path.join(directory, "*.seg"))):
-    for line in open(path, encoding="utf-8", errors="replace"):
-        line = line.strip()
-        if not line:
-            continue
+
+def read_record(path):
+    path = Path(path).resolve()
+    if not path.is_file():
+        raise SystemExit("record database is missing or is not a regular file")
+    try:
+        connection = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=1)
         try:
-            row = json.loads(line)
-        except Exception:
+            connection.execute("PRAGMA query_only=ON")
+            if connection.execute("PRAGMA query_only").fetchone() != (1,):
+                raise SystemExit("record reader is not query-only")
+            if connection.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone() != ("1",):
+                raise SystemExit("record schema_version is not 1")
+            rows = []
+            for seq, raw in connection.execute("SELECT seq,json FROM feed ORDER BY seq"):
+                row = json.loads(raw)
+                if type(seq) is not int or seq <= 0 or not isinstance(row, dict):
+                    raise SystemExit("record has an invalid sequence or JSON object")
+                rows.append((seq, row))
+            return rows
+        finally:
+            connection.close()
+    except (OSError, sqlite3.Error, ValueError):
+        raise SystemExit("record database cannot be read as schema-1 JSON")
+
+def device_rows(path):
+    rows = read_record(path)
+    for seq, row in rows:
+        if type(row.get("seq")) is not int or row["seq"] != seq or type(row.get("v")) is not int or row["v"] != 1:
+            raise SystemExit("device envelope version or SQL/JSON sequence mismatch")
+    return rows
+
+
+def call_pairs(rows, tool):
+    started, finished = {}, {}
+    for seq, row in rows:
+        trace = row.get("trace")
+        call = trace.get("call") if isinstance(trace, dict) else None
+        payload = row.get("payload")
+        if not isinstance(call, str) or not call or not isinstance(payload, dict) or payload.get("tool") != tool:
             continue
-        if str(row.get("type", "")).startswith("call."):
-            calls.append(row)
-started = {}
-finished = {}
-for row in calls:
-    call = (row.get("trace") or {}).get("call")
-    if not call:
-        continue
-    if row["type"] == "call.started":
-        started[call] = row
-    elif row["type"] in ("call.finished", "call.denied"):
-        finished[call] = row
-paired = [
-    call
-    for call in started
-    if call in finished and (started[call].get("payload") or {}).get("tool") == tool
-]
+        if row.get("type") == "call.started":
+            started[call] = seq
+        elif row.get("type") == "call.finished" and payload.get("ok") is True:
+            finished[call] = seq
+    return [(call, seq, finished[call]) for call, seq in started.items() if call in finished and seq < finished[call]]
+
+path, tool = sys.argv[1:]
+rows = device_rows(path)
+if not any(row.get("type") == "device.started" for _, row in rows):
+    raise SystemExit("device record has no device.started")
+paired = call_pairs(rows, tool)
 if not paired:
-    raise SystemExit(
-        f"no started/outcome pair for {tool}: started={sorted(started)}, finished={sorted(finished)}"
-    )
-call = paired[-1]
-print(
-    f"{len(started)} calls, {len(finished)} outcomes; trace {call} pairs "
-    f"{started[call]['seq']} -> {finished[call]['seq']}"
-)
+    raise SystemExit("device record has no ordered successful same-trace call pair for the selected tool")
+call, start, finish = paired[-1]
+print(f"trace {call} pairs {start} -> {finish}")
 PY
 )"; then
-    fail "device journal $JOURNAL_DIR has no call.started/call.finished pair for $MCP_TOOL"
+    fail "device record $RECORD_FILE has no startup and successful call.started/call.finished pair for $MCP_TOOL"
 fi
+pass "device journal record.db contains device.started"
 pass "device journal carries the call pair ($CALL_PAIR)"
 
 # --- the console ------------------------------------------------------------------------------

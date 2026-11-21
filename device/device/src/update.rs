@@ -1177,7 +1177,10 @@ mod tests {
             "a refused pair must leave the pointer naming the serving version"
         );
         assert!(!staged.exists(), "no artifact may be staged on a refusal");
-        assert!(!sidecar_path.exists(), "no sidecar may be written on a refusal");
+        assert!(
+            !sidecar_path.exists(),
+            "no sidecar may be written on a refusal"
+        );
     }
 
     #[test]

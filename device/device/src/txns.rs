@@ -491,7 +491,7 @@ mod tests {
     fn an_id_from_a_previous_boot_never_joins_a_new_transaction() {
         // The tail a restarted device still holds: a group from the previous boot, whose counter
         // also started at one.
-        let tail = vec![
+        let tail = [
             serde_json::json!({
                 "event": "begin", "id": 1, "tool": "txn.begin", "txn": "txn-1",
                 "args": "purpose=before the restart",

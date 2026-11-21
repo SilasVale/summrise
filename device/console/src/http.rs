@@ -3711,9 +3711,7 @@ async fn begin_console_txn(
         BeginAnswer::AlreadyOpen {
             txn, purpose: open, ..
         } if open == purpose => Ok(Some(txn)),
-        BeginAnswer::AlreadyOpen {
-            txn, refusal: _, ..
-        } => {
+        BeginAnswer::AlreadyOpen { txn, .. } => {
             // The open record is this holder's own, so the console may end it as its author. One
             // abort, then one begin: a console that could loop here would end records it cannot
             // explain, and the device's second answer is the one the caller reads.

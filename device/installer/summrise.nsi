@@ -1077,6 +1077,32 @@ Section "Summrise runtime" SecRuntime
     ${EndIf}
     Abort
   ${EndIf}
+  ; These two common links belong to the installer and are repaired on every successful install.
+  ; SetOutPath supplies the shortcut's working directory; targets stay under the stable root.
+  !ifdef DESKTOP_SOURCE
+    StrCpy $R0 "$INSTDIR\desktop\SummriseDesktop.exe"
+    StrCpy $R1 "--show"
+    SetOutPath "$INSTDIR\desktop"
+  !else
+    StrCpy $R0 "$INSTDIR\summrise-shell.exe"
+    StrCpy $R1 "--panel"
+    SetOutPath "$INSTDIR"
+  !endif
+  ${If} ${FileExists} "$R0"
+    ClearErrors
+    CreateShortCut "$DESKTOP\Summrise.lnk" "$R0" "$R1" "$R0" 0 SW_SHOWNORMAL "" "Summrise"
+    ${If} ${Errors}
+      FileWrite $6 "shortcut warning: could not create $DESKTOP\Summrise.lnk$\r$\n"
+    ${EndIf}
+    ClearErrors
+    CreateShortCut "$SMPROGRAMS\Summrise.lnk" "$R0" "$R1" "$R0" 0 SW_SHOWNORMAL "" "Summrise"
+    ${If} ${Errors}
+      FileWrite $6 "shortcut warning: could not create $SMPROGRAMS\Summrise.lnk$\r$\n"
+    ${EndIf}
+  ${Else}
+    FileWrite $6 "shortcut warning: target $R0 is missing; $DESKTOP\Summrise.lnk and $SMPROGRAMS\Summrise.lnk were not created$\r$\n"
+  ${EndIf}
+  SetOutPath "$INSTDIR"
   FileWrite $6 "service: ${SERVICE} is RUNNING at the end of the install; exit 0$\r$\n"
   FileClose $6
 SectionEnd
@@ -1146,6 +1172,9 @@ Section "Uninstall"
   ; uninstall must not leave it pointing at a shell binary this section is about to delete. Best
   ; effort, like the relay task: an absent task is the normal case and there is no log handle here.
   nsExec::Exec 'schtasks /delete /tn SummriseShellOnReconnect /f'
+  ; Remove only the installer's two canonical common links, before their payload is deleted.
+  Delete "$DESKTOP\Summrise.lnk"
+  Delete "$SMPROGRAMS\Summrise.lnk"
   Delete "$INSTDIR\repair.cmd"
   Delete "$INSTDIR\summrise-launch.exe"
   Delete "$INSTDIR\summrise-shell.exe"

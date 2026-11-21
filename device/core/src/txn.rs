@@ -591,10 +591,12 @@ mod tests {
         );
         assert_eq!(TXN_PURPOSE_MAX_CHARS, 200);
         assert_eq!(TXN_REASON_MAX_CHARS, 200);
-        assert!(
-            MAX_OPEN_TXNS < MAX_RETAINED_TXNS,
-            "the working set is smaller than the retained history"
-        );
+        const {
+            assert!(
+                MAX_OPEN_TXNS < MAX_RETAINED_TXNS,
+                "the working set is smaller than the retained history"
+            );
+        };
 
         // The caps are enforced at the value, not only declared.
         let by = holder(HolderKind::Install, None);

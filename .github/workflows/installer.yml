@@ -304,6 +304,37 @@ jobs:
           if ($run -ne '"C:\SummriseCI\desktop\SummriseDesktop.exe"') {
             throw "the Run value does not start the installed desktop payload: $run"
           }
+          # Resolve the actual common links; merely finding a .lnk cannot prove its launch contract.
+          $desktopLink = Join-Path ([Environment]::GetFolderPath('CommonDesktopDirectory')) 'Summrise.lnk'
+          $programsLink = Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'Summrise.lnk'
+          $shortcutShell = New-Object -ComObject WScript.Shell
+          function Assert-SummriseShortcuts {
+            foreach ($path in @($desktopLink, $programsLink)) {
+              if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "the installed shortcut is missing: $path" }
+              $link = $shortcutShell.CreateShortcut($path)
+              Write-Host "shortcut: $path target=$($link.TargetPath) args=$($link.Arguments) cwd=$($link.WorkingDirectory) icon=$($link.IconLocation) show=$($link.WindowStyle)"
+              if ($link.TargetPath -ine $desktop) { throw "shortcut target differs: $path -> $($link.TargetPath)" }
+              if ($link.Arguments -cne '--show') { throw "shortcut arguments differ: $path -> $($link.Arguments)" }
+              if ($link.WorkingDirectory -ine (Split-Path -Parent $desktop)) { throw "shortcut working directory differs: $path -> $($link.WorkingDirectory)" }
+              if ($link.IconLocation -notmatch '^(.*),\s*([+-]?\d+)\s*$') { throw "shortcut icon has no resource index: $path -> $($link.IconLocation)" }
+              $iconPath = $Matches[1].Trim().Trim('"').Trim()
+              $iconIndex = [int]$Matches[2]
+              if ($iconPath -ine $desktop -or $iconIndex -ne 0) { throw "shortcut icon differs: $path -> $($link.IconLocation)" }
+              if ($link.WindowStyle -ne 1) { throw "shortcut show state differs: $path -> $($link.WindowStyle)" }
+            }
+          }
+          Assert-SummriseShortcuts
+
+          # The same installer/root must repair both a deleted link and stale launch properties.
+          Remove-Item -LiteralPath $desktopLink -Force
+          $staleLink = $shortcutShell.CreateShortcut($programsLink)
+          $staleLink.Arguments = '--obsolete-shortcut'
+          $staleLink.Save()
+          $repair = Start-Process -FilePath $setup -ArgumentList '/S', '/D=C:\SummriseCI' -Wait -PassThru
+          Write-Host "same-root reinstall exit: $($repair.ExitCode)"
+          if ($repair.ExitCode -ne 0) { throw "the same-root reinstall failed: $($repair.ExitCode)" }
+          Assert-SummriseShortcuts
+
           Push-Location 'device/desktop-electron'
           try {
             $entries = & npx asar list 'dist/win-unpacked/resources/app.asar'
@@ -375,6 +406,11 @@ jobs:
           $run = Get-ItemProperty -Path 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run' -Name SummriseShell -ErrorAction SilentlyContinue
           if ($null -ne $run) { throw "the Run value survived the uninstall: $($run.SummriseShell)" }
           Write-Host "Run value is gone"
+          foreach ($folder in @('CommonDesktopDirectory', 'CommonPrograms')) {
+            $link = Join-Path ([Environment]::GetFolderPath($folder)) 'Summrise.lnk'
+            if (Test-Path -LiteralPath $link) { throw "the common shortcut survived uninstall: $link" }
+            Write-Host "shortcut is gone: $link"
+          }
           # The fallback binary and the retired event task go with the install.
           $installedShell = 'C:\SummriseCI\summrise-shell.exe'
           if (Test-Path -LiteralPath $installedShell) { throw "the fallback shell survived the uninstall: $installedShell" }

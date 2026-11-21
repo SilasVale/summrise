@@ -16,9 +16,11 @@
 //! the code it runs is arbitrary.
 //!
 //! Output is bounded: [`MAX_STDOUT_BYTES`] and [`MAX_STDERR_BYTES`] are retained as the **head** of
-//! each stream, and `truncated` says whether either stream produced more. Both pipes are drained
-//! concurrently even after their cap is reached, so a command that writes more than the cap finishes
-//! instead of blocking on a full pipe. `env` carries at most [`MAX_ENV_VARS`] variables with values of
+//! each stream. `truncated` means data may be omitted due to a cap or capture without known clean EOF.
+//! Both pipes are drained concurrently even after their cap is reached, so a command that writes more
+//! than the cap finishes instead of blocking on a full pipe. History counts are bytes observed before
+//! each stream's handoff and can be lower bounds; history has no completeness field.
+//! `env` carries at most [`MAX_ENV_VARS`] variables with values of
 //! at most [`MAX_ENV_VALUE_BYTES`] bytes, added to the device's own environment. `timeout_ms` defaults
 //! to [`DEFAULT_TIMEOUT_MS`] and may not
 //! exceed [`MAX_TIMEOUT_MS`]; on expiry the child's **process group** is killed on Unix (the same
@@ -35,8 +37,9 @@
 //!
 //! A history that cannot be written is not a failed run. The command already ran and its result is
 //! returned with `history_recorded: false`; the failure is appended to `<data>/events.jsonl` as a
-//! `runs_history_failed` event carrying the io error. Only a refusal before the spawn — validation,
-//! a cwd outside the sandbox, or the spawn itself — fails the call and returns no result.
+//! `runs_history_failed` event carrying the io error. Errors before the spawn — validation,
+//! a cwd outside the sandbox, or the spawn itself — return no result. Completed nonzero or timed-out
+//! runs fail the tool call while retaining their bounded capture in the tool error.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -160,7 +163,8 @@ pub struct ExecRequest {
 /// One run's result as the tool returns it.
 ///
 /// `stdout` and `stderr` are the retained heads, decoded as UTF-8 with replacement for invalid
-/// bytes; `truncated` is true when either stream produced more than its cap. A null `exit_code` with
+/// bytes; `truncated` is true when either cap was exceeded or capture lacks known clean EOF (including
+/// a read error or detected reader panic/poison). A null `exit_code` with
 /// `timed_out: true` means the timeout killed the process group; a null `exit_code` with
 /// `timed_out: false` means the process ended from a signal rather than an exit status.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -177,7 +181,7 @@ pub struct ExecResult {
     pub stdout: String,
     /// The retained head of standard error.
     pub stderr: String,
-    /// Whether either stream produced more than its cap.
+    /// Whether a cap or incomplete capture may have omitted stream data.
     pub truncated: bool,
     /// Whether the history row was written. A false means the command ran and was captured but its
     /// row could not be appended; the failure is in `<data>/events.jsonl` as `runs_history_failed`.
@@ -203,9 +207,9 @@ pub struct Record {
     pub duration_ms: u64,
     /// When the run started, in Unix milliseconds.
     pub started_at_ms: u64,
-    /// How many bytes standard output produced in total.
+    /// Standard output bytes observed before handoff, possibly a lower bound; no completeness field.
     pub stdout_bytes: u64,
-    /// How many bytes standard error produced in total.
+    /// Standard error bytes observed before handoff, possibly a lower bound; no completeness field.
     pub stderr_bytes: u64,
     /// The first [`PREVIEW_CHARS`] characters of standard output, with common credential shapes
     /// replaced by `***`. Empty for rows written before the field existed.
@@ -443,11 +447,11 @@ impl Runs {
         let stdout_reader = child
             .stdout
             .take()
-            .map(|stream| thread::spawn(move || capture(stream, stdout_cap)));
+            .map(|stream| spawn_capture(stream, stdout_cap));
         let stderr_reader = child
             .stderr
             .take()
-            .map(|stream| thread::spawn(move || capture(stream, stderr_cap)));
+            .map(|stream| spawn_capture(stream, stderr_cap));
 
         let deadline = started + Duration::from_millis(timeout_ms);
         let mut timed_out = false;
@@ -698,28 +702,55 @@ fn kill_group(pid: u32, child: &mut Child) {
     let _ = child.kill();
 }
 
-/// One stream's retained head, its total size, and whether the cap cut it.
+/// One stream's retained head, observed byte count, and possible omission of data.
 #[derive(Default)]
 struct Captured {
     /// The head of the stream, at most the cap.
     bytes: Vec<u8>,
-    /// Every byte the stream produced, including the ones not retained.
+    /// Bytes published before handoff, including drained excess; possibly a lower bound.
     total: u64,
-    /// Whether more bytes arrived than were retained.
+    /// The cap or incomplete capture may have omitted stream data.
     truncated: bool,
 }
 
-/// Drain `stream` to EOF, retaining at most `cap` bytes at the head.
-///
-/// The loop never stops early: once the buffer is full the remaining bytes are counted and dropped,
-/// so the child keeps writing and finishes.
-fn capture(mut stream: impl Read, cap: usize) -> Captured {
-    let mut captured = Captured::default();
+#[derive(Default)]
+struct CaptureState {
+    captured: Captured,
+    eof: bool,
+    sealed: bool,
+}
+
+struct CaptureTask {
+    handle: thread::JoinHandle<()>,
+    state: Arc<Mutex<CaptureState>>,
+}
+
+fn spawn_capture(stream: impl Read + Send + 'static, cap: usize) -> CaptureTask {
+    let state = Arc::new(Mutex::new(CaptureState::default()));
+    let reader_state = Arc::clone(&state);
+    let handle = thread::spawn(move || capture(stream, cap, reader_state));
+    CaptureTask { handle, state }
+}
+
+/// Drain outside the lock, publishing bounded heads and observed totals until handoff.
+/// After sealing, continue draining without refilling the transferred head or changing its count.
+fn capture(mut stream: impl Read, cap: usize, state: Arc<Mutex<CaptureState>>) {
     let mut chunk = [0u8; 8192];
     loop {
         match stream.read(&mut chunk) {
-            Ok(0) => break,
+            Ok(0) => {
+                let mut state = lock(&state);
+                if !state.sealed {
+                    state.eof = true;
+                }
+                break;
+            }
             Ok(read) => {
+                let mut state = lock(&state);
+                if state.sealed {
+                    continue;
+                }
+                let captured = &mut state.captured;
                 captured.total += read as u64;
                 let room = cap.saturating_sub(captured.bytes.len());
                 let keep = room.min(read);
@@ -729,39 +760,48 @@ fn capture(mut stream: impl Read, cap: usize) -> Captured {
                 }
             }
             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-            // A read error ends this stream's capture; the child's exit status remains the truth
-            // about the run, and an output pipe that broke is not a reason to lose that status.
+            // No clean EOF: the child's exit status still describes execution, while handoff
+            // marks the capture incomplete and preserves every previously published read.
             Err(_) => break,
         }
     }
-    captured
 }
 
-/// How long a capture thread may keep the call after the child has been reaped.
+/// How long each capture thread may keep the call after the child has been reaped.
 ///
-/// A child can exit while a DESCENDANT still holds the write end of its stdout — `daemon &` under
-/// `shell: true`, a `nohup`ed helper — and then the reader sits in `read` forever. An unbounded join
-/// therefore turns one background process into a call that never returns, holding the blocking pool and
-/// the console's request with it. Two seconds is longer than any real flush and shorter than the
-/// console's own bound.
+/// A descendant may hold an inherited write end indefinitely. Preserve the existing per-stream
+/// two-second grace (stdout then stderr), so both streams can add about four seconds to the call.
 const CAPTURE_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 
-/// Join a capture thread, treating a panicked or stuck reader as what it captured so far.
-fn join_capture(handle: Option<std::thread::JoinHandle<Captured>>) -> Captured {
-    let Some(handle) = handle else {
-        return Captured::default();
+/// Seal and transfer published progress, joining only a reader that has finished.
+/// An unfinished detached reader retains its read handle, thread and small state until it exits;
+/// this bounded handoff does not cancel a blocking read or promise leak-free cancellation.
+fn join_capture(task: Option<CaptureTask>) -> Captured {
+    let Some(task) = task else {
+        return Captured {
+            truncated: true,
+            ..Captured::default()
+        };
     };
-    let deadline = std::time::Instant::now() + CAPTURE_GRACE;
-    while !handle.is_finished() {
-        if std::time::Instant::now() >= deadline {
-            // Detached on purpose: the thread is blocked in a `read` this process cannot interrupt, and
-            // leaking it is better than never answering the operator. Its buffer is already shared with
-            // the ring the run reports, so the bytes captured so far are not lost.
-            return Captured::default();
+    let deadline = Instant::now() + CAPTURE_GRACE;
+    while !task.handle.is_finished() {
+        if Instant::now() >= deadline {
+            break;
         }
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        thread::sleep(Duration::from_millis(10));
     }
-    handle.join().unwrap_or_default()
+    let panicked = task.handle.is_finished() && task.handle.join().is_err();
+    // Inspect poison here rather than hiding it through the recovering lock helper. Recheck EOF
+    // under this final lock: it may have arrived as the grace expired. This lock is the snapshot
+    // boundary; chunks read but not yet published are deliberately outside the returned count.
+    let (mut state, poisoned) = match task.state.lock() {
+        Ok(state) => (state, false),
+        Err(error) => (error.into_inner(), true),
+    };
+    state.sealed = true;
+    let mut captured = std::mem::take(&mut state.captured);
+    captured.truncated |= !state.eof || panicked || poisoned;
+    captured
 }
 
 /// The rows of one history file, newest first.
@@ -892,11 +932,272 @@ fn elapsed_ms(started: Instant) -> u64 {
     started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
 }
 
-/// Lock the history mutex, recovering the data from a poisoned lock instead of panicking.
+/// Lock shared history or capture data, recovering poison instead of panicking.
+/// Capture handoff separately inspects poison because recovery alone cannot establish completeness.
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+#[cfg(all(test, unix))]
+pub(crate) mod open_pipe_fixture {
+    use super::*;
+    use crate::test_support::{process_is_dead, TempDir};
+    use std::os::unix::fs::OpenOptionsExt;
+    use std::sync::mpsc;
+
+    // Payloads stay in the environment, so command/argv history cannot contain the markers.
+    const SCRIPT: &str = r#"
+printf '%s\n' "$$" > "$PIPE_PARENT" || { printf 'no-holder\n' > "$PIPE_REGISTRATION_FAILED"; exit 125; }
+sh -c 'if [ "${PIPE_PAUSE_REGISTRATION:-}" = 1 ]; then kill -STOP "$$"; fi; printf ready > "$PIPE_READY"; IFS= read -r release < "$PIPE_CONTROL"; printf "%s" "$PIPE_LATE_OUT"; printf "%s" "$PIPE_LATE_ERR" >&2' &
+holder=$!
+if [ -n "${PIPE_RESCUE_PID:-}" ]; then
+    printf '%s %s\n' "$$" "$holder" > "$PIPE_RESCUE_PID" || { kill -KILL "$holder"; wait "$holder"; printf 'holder-reaped\n' > "$PIPE_REGISTRATION_FAILED"; exit 125; }
+fi
+if ! printf '%s\n' "$holder" > "$PIPE_HOLDER" || ! IFS= read -r registered < "$PIPE_HOLDER" || [ "$registered" != "$holder" ]; then
+    kill -KILL "$holder" 2>/dev/null
+    wait "$holder" 2>/dev/null
+    printf 'holder-reaped\n' > "$PIPE_REGISTRATION_FAILED"
+    exit 125
+fi
+printf '%s' "$PIPE_OUT"
+printf '%s' "$PIPE_ERR" >&2
+exit "$PIPE_EXIT"
+"#;
+
+    /// Owns only this fixture's private FIFO, PID files and worker. Installed before any spawn.
+    pub(crate) struct OpenPipe<T> {
+        _dir: TempDir,
+        parent: PathBuf,
+        holder: PathBuf,
+        registration_failed: PathBuf,
+        ready: PathBuf,
+        control: Option<fs::File>,
+        setup_child: Option<Child>,
+        worker: Option<thread::JoinHandle<()>>,
+        receiver: mpsc::Receiver<T>,
+        started: Instant,
+        pub(crate) request: ExecRequest,
+    }
+
+    impl<T: Send + 'static> OpenPipe<T> {
+        pub(crate) fn start(
+            label: &str,
+            stdout: &str,
+            stderr: &str,
+            exit: i32,
+            run: impl FnOnce(ExecRequest) -> T + Send + 'static,
+        ) -> Self {
+            let dir = TempDir::new(label);
+            let fifo = dir.join("release.fifo");
+            let (sender, receiver) = mpsc::channel();
+            let mut owned = Self {
+                parent: dir.join("parent.pid"),
+                holder: dir.join("holder.pid"),
+                registration_failed: dir.join("registration.failed"),
+                ready: dir.join("ready"),
+                _dir: dir,
+                control: None,
+                setup_child: None,
+                worker: None,
+                receiver,
+                started: Instant::now(),
+                request: ExecRequest::default(),
+            };
+            owned.setup_child = Some(
+                Command::new("mkfifo")
+                    .arg(&fifo)
+                    .spawn()
+                    .expect("SETUP: mkfifo exists"),
+            );
+            let deadline = Instant::now() + Duration::from_secs(3);
+            loop {
+                if let Some(status) = owned
+                    .setup_child
+                    .as_mut()
+                    .unwrap()
+                    .try_wait()
+                    .expect("SETUP: wait mkfifo")
+                {
+                    assert!(status.success(), "SETUP: mkfifo failed: {status}");
+                    owned.setup_child.take(); // try_wait reaped the direct child.
+                    break;
+                }
+                assert!(Instant::now() < deadline, "SETUP: mkfifo deadline");
+                thread::sleep(Duration::from_millis(10));
+            }
+            // O_RDWR avoids a blocking open, including teardown before the holder reaches read.
+            owned.control = Some(
+                fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .custom_flags(nix::libc::O_NONBLOCK)
+                    .open(&fifo)
+                    .expect("SETUP: open private FIFO"),
+            );
+            owned.request = ExecRequest {
+                command: "sh".to_owned(),
+                args: vec!["-c".to_owned(), SCRIPT.to_owned()],
+                timeout_ms: Some(30_000),
+                env: BTreeMap::from([
+                    (
+                        "PIPE_PARENT".to_owned(),
+                        owned.parent.to_string_lossy().into_owned(),
+                    ),
+                    (
+                        "PIPE_HOLDER".to_owned(),
+                        owned.holder.to_string_lossy().into_owned(),
+                    ),
+                    (
+                        "PIPE_REGISTRATION_FAILED".to_owned(),
+                        owned.registration_failed.to_string_lossy().into_owned(),
+                    ),
+                    (
+                        "PIPE_READY".to_owned(),
+                        owned.ready.to_string_lossy().into_owned(),
+                    ),
+                    (
+                        "PIPE_CONTROL".to_owned(),
+                        fifo.to_string_lossy().into_owned(),
+                    ),
+                    ("PIPE_PAUSE_REGISTRATION".to_owned(), String::new()),
+                    ("PIPE_RESCUE_PID".to_owned(), String::new()),
+                    ("PIPE_OUT".to_owned(), stdout.to_owned()),
+                    ("PIPE_ERR".to_owned(), stderr.to_owned()),
+                    ("PIPE_EXIT".to_owned(), exit.to_string()),
+                    ("PIPE_LATE_OUT".to_owned(), "late-owned-stdout".to_owned()),
+                    ("PIPE_LATE_ERR".to_owned(), "late-owned-stderr".to_owned()),
+                ]),
+                ..ExecRequest::default()
+            };
+            let request = owned.request.clone();
+            owned.worker = Some(thread::spawn(move || {
+                let _ = sender.send(run(request));
+            }));
+            owned
+        }
+
+        pub(crate) fn wait_ready(&self) -> Result<u32, String> {
+            let deadline = self.started + Duration::from_secs(5);
+            loop {
+                if self.registration_failed.exists() {
+                    return Err("SETUP: parent could not publish holder registration".to_owned());
+                }
+                if self.ready.exists() {
+                    if let Some(pid) = self.holder_pid() {
+                        if !process_is_dead(pid) {
+                            return Ok(pid);
+                        }
+                        return Err("SETUP: holder stopped before result".to_owned());
+                    }
+                    // The holder can signal readiness before its parent publishes $!.
+                }
+                if Instant::now() >= deadline {
+                    return Err("SETUP: holder readiness deadline".to_owned());
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+        }
+
+        pub(crate) fn receive(&self) -> Result<T, String> {
+            let remaining =
+                (self.started + Duration::from_secs(15)).saturating_duration_since(Instant::now());
+            self.receiver
+                .recv_timeout(remaining)
+                .map_err(|error| format!("WATCHDOG: {error}"))
+        }
+
+        pub(crate) fn holder_pid(&self) -> Option<u32> {
+            read_pid(&self.holder)
+        }
+        pub(crate) fn elapsed(&self) -> Duration {
+            self.started.elapsed()
+        }
+    }
+
+    fn read_pid(path: &Path) -> Option<u32> {
+        fs::read_to_string(path)
+            .ok()?
+            .trim()
+            .parse::<u32>()
+            .ok()
+            .filter(|pid| *pid > 1)
+    }
+
+    impl<T> OpenPipe<T> {
+        pub(crate) fn cleanup(&mut self) -> Result<(), String> {
+            if let Some(control) = self.control.as_mut() {
+                let _ = control.write_all(b"release\n");
+            }
+            if let Some(mut child) = self.setup_child.take() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            let graceful = Instant::now() + Duration::from_secs(3);
+            let deadline = Instant::now() + Duration::from_secs(10);
+            loop {
+                let parent = read_pid(&self.parent);
+                let holder = read_pid(&self.holder);
+                let finished = self
+                    .worker
+                    .as_ref()
+                    .is_none_or(|worker| worker.is_finished());
+                // An absent expected PID is unknown, never evidence that an actor stopped.
+                // A parent receipt is written only before any fork or after kill + wait.
+                let failure = fs::read_to_string(&self.registration_failed).unwrap_or_default();
+                let never_started = self.worker.is_none() && parent.is_none() && holder.is_none();
+                let no_holder = parent.is_none() && holder.is_none() && failure == "no-holder\n";
+                let holder_stopped = holder
+                    .map(process_is_dead)
+                    .unwrap_or(failure == "holder-reaped\n");
+                let stopped = never_started
+                    || no_holder
+                    || (parent.is_some_and(process_is_dead) && holder_stopped);
+                if stopped && finished {
+                    self.control.take();
+                    if let Some(worker) = self.worker.take() {
+                        worker
+                            .join()
+                            .map_err(|_| "fixture worker panicked".to_owned())?;
+                        eprintln!("owned pipe cleanup: parent={parent:?} holder={holder:?} stopped=true worker_joined=true elapsed={:?}", self.started.elapsed());
+                    }
+                    return Ok(());
+                }
+                if Instant::now() >= graceful {
+                    // Signal only the private recorded group after an owned member confirms it.
+                    if let Some(group) = parent {
+                        for pid in parent
+                            .into_iter()
+                            .chain(holder)
+                            .filter(|pid| !process_is_dead(*pid))
+                        {
+                            use nix::sys::signal::{killpg, Signal};
+                            use nix::unistd::{getpgid, Pid};
+                            if getpgid(Some(Pid::from_raw(pid as i32))).ok()
+                                == Some(Pid::from_raw(group as i32))
+                            {
+                                let _ = killpg(Pid::from_raw(group as i32), Signal::SIGKILL);
+                                break;
+                            }
+                        }
+                    }
+                }
+                if Instant::now() >= deadline {
+                    return Err(format!("fixture cleanup deadline: parent={parent:?} holder={holder:?} stopped={stopped} worker_finished={finished}"));
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+        }
+    }
+
+    impl<T> Drop for OpenPipe<T> {
+        fn drop(&mut self) {
+            if let Err(error) = self.cleanup() {
+                eprintln!("{error}");
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -998,6 +1299,331 @@ mod tests {
             3,
             "three whole rows fit in forty bytes"
         );
+    }
+
+    // A real reader error must retain the prefix but cannot establish clean EOF.
+    #[cfg(unix)]
+    #[test]
+    fn pipe_capture_read_error_preserves_prefix_and_marks_incomplete() {
+        struct FailsAfterPrefix(bool);
+        impl Read for FailsAfterPrefix {
+            fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+                if self.0 {
+                    return Err(io::Error::other("owned read failure"));
+                }
+                self.0 = true;
+                buffer[..6].copy_from_slice(b"prefix");
+                Ok(6)
+            }
+        }
+        let captured = join_capture(Some(spawn_capture(FailsAfterPrefix(false), 128)));
+        assert_eq!(
+            (captured.bytes, captured.total, captured.truncated),
+            (b"prefix".to_vec(), 6, true)
+        );
+    }
+
+    // Interrupted is retryable; a later read zero makes an uncapped capture complete.
+    #[cfg(unix)]
+    #[test]
+    fn pipe_capture_clean_eof_after_interruption_is_complete() {
+        struct InterruptedThenEof(u8);
+        impl Read for InterruptedThenEof {
+            fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+                self.0 += 1;
+                match self.0 {
+                    1 => Err(io::Error::from(io::ErrorKind::Interrupted)),
+                    2 => {
+                        buffer[..2].copy_from_slice(b"ok");
+                        Ok(2)
+                    }
+                    _ => Ok(0),
+                }
+            }
+        }
+        let captured = join_capture(Some(spawn_capture(InterruptedThenEof(0), 128)));
+        assert_eq!(
+            (captured.bytes, captured.total, captured.truncated),
+            (b"ok".to_vec(), 2, false)
+        );
+    }
+
+    // A panic after a successful read cannot discard that read or claim clean EOF.
+    #[cfg(unix)]
+    #[test]
+    fn pipe_capture_reader_panic_preserves_published_prefix() {
+        struct PanicsAfterPrefix(bool);
+        impl Read for PanicsAfterPrefix {
+            fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+                assert!(!self.0, "owned reader panic");
+                self.0 = true;
+                buffer[..6].copy_from_slice(b"prefix");
+                Ok(6)
+            }
+        }
+        let captured = join_capture(Some(spawn_capture(PanicsAfterPrefix(false), 128)));
+        assert_eq!(
+            (captured.bytes, captured.total, captured.truncated),
+            (b"prefix".to_vec(), 6, true)
+        );
+    }
+
+    // Poison after a published clean EOF still means completeness cannot be trusted.
+    #[cfg(unix)]
+    #[test]
+    fn pipe_capture_poisoned_state_keeps_prefix_and_marks_incomplete() {
+        let state = Arc::new(Mutex::new(CaptureState {
+            captured: Captured {
+                bytes: b"prefix".to_vec(),
+                total: 6,
+                truncated: false,
+            },
+            eof: true,
+            sealed: false,
+        }));
+        let reader_state = Arc::clone(&state);
+        let poisoner = thread::spawn(move || {
+            let _guard = reader_state.lock().unwrap();
+            panic!("owned capture state poison");
+        });
+        assert!(poisoner.join().is_err(), "the state is actually poisoned");
+        // A separately successful reader handle isolates poison from reader panic and missing EOF.
+        let handle = thread::spawn(|| {});
+        let captured = join_capture(Some(CaptureTask { handle, state }));
+        assert_eq!(
+            (captured.bytes, captured.total, captured.truncated),
+            (b"prefix".to_vec(), 6, true)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pipe_capture_missing_reader_is_incomplete() {
+        let captured = join_capture(None);
+        assert_eq!(
+            (captured.bytes, captured.total, captured.truncated),
+            (Vec::<u8>::new(), 0, true)
+        );
+    }
+
+    // A delayed holder must be accounted for before cleanup can close its only release writer.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pipe_capture_cleanup_stops_holder_delayed_before_registration() {
+        use crate::test_support::process_is_dead;
+        use nix::sys::signal::{kill, Signal};
+        use nix::unistd::{getpgid, Pid};
+
+        // Independent of OpenPipe's registration: installed first, and rescues the real actor
+        // before any assertion, including on the old helper's false-success RED path.
+        struct Rescue {
+            _dir: TempDir,
+            pid_file: PathBuf,
+        }
+        impl Rescue {
+            fn pids(&self) -> Option<(u32, u32)> {
+                let text = fs::read_to_string(&self.pid_file).ok()?;
+                let mut fields = text.split_whitespace();
+                let group = fields.next()?.parse::<u32>().ok().filter(|pid| *pid > 1)?;
+                let holder = fields.next()?.parse::<u32>().ok().filter(|pid| *pid > 1)?;
+                Some((group, holder))
+            }
+            fn stop(&self) -> Result<(), String> {
+                let deadline = Instant::now() + Duration::from_secs(3);
+                loop {
+                    if let Some((group, holder)) = self.pids() {
+                        if process_is_dead(holder) {
+                            return Ok(());
+                        }
+                        if getpgid(Some(Pid::from_raw(holder as i32))).ok()
+                            != Some(Pid::from_raw(group as i32))
+                        {
+                            return Err(
+                                "rescue refused a PID outside its recorded group".to_owned()
+                            );
+                        }
+                        let _ = kill(Pid::from_raw(holder as i32), Signal::SIGKILL);
+                    }
+                    if Instant::now() >= deadline {
+                        return Err("independent rescue deadline".to_owned());
+                    }
+                    thread::sleep(Duration::from_millis(10));
+                }
+            }
+        }
+        impl Drop for Rescue {
+            fn drop(&mut self) {
+                if let Err(error) = self.stop() {
+                    eprintln!("{error}");
+                }
+            }
+        }
+        let rescue_dir = TempDir::new("pipe-registration-rescue");
+        let rescue = Rescue {
+            pid_file: rescue_dir.join("owned.pid"),
+            _dir: rescue_dir,
+        };
+        let rescue_path = rescue.pid_file.to_string_lossy().into_owned();
+        let (_dir, _data, _root, runs) = fixture("pipe-delayed-registration");
+        let mut pipe = super::open_pipe_fixture::OpenPipe::start(
+            "pipe-delayed-control",
+            "",
+            "",
+            0,
+            move |mut request| {
+                request
+                    .env
+                    .insert("PIPE_PAUSE_REGISTRATION".to_owned(), "1".to_owned());
+                request
+                    .env
+                    .insert("PIPE_RESCUE_PID".to_owned(), rescue_path);
+                runs.exec(request)
+            },
+        );
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let paused = loop {
+            if let Some((_, holder)) = rescue.pids() {
+                let stat = fs::read_to_string(format!("/proc/{holder}/stat")).unwrap_or_default();
+                if stat
+                    .rsplit_once(')')
+                    .is_some_and(|(_, fields)| fields.split_whitespace().next() == Some("T"))
+                {
+                    break Ok(holder);
+                }
+            }
+            if Instant::now() >= deadline {
+                break Err("SETUP: holder did not stop before registration");
+            }
+            thread::sleep(Duration::from_millis(10));
+        };
+        let received = pipe.receive();
+        let registered = pipe.holder_pid();
+        let cleanup = pipe.cleanup();
+        let live_after_cleanup = rescue
+            .pids()
+            .is_some_and(|(_, holder)| !process_is_dead(holder));
+        let rescued = rescue.stop();
+        // Exercise final Drop while the independent guard still owns its rescue record.
+        drop(pipe);
+        eprintln!("delayed-registration: paused={paused:?} registered={registered:?} cleanup={cleanup:?} holder_live_after_cleanup={live_after_cleanup} independent_rescue={rescued:?}");
+        assert!(rescued.is_ok(), "{rescued:?}");
+        paused.expect("controlled actual holder stop");
+        received
+            .expect("bounded public exec receipt")
+            .expect("sh runs");
+        assert!(cleanup.is_ok() && !live_after_cleanup,
+            "cleanup must stop every spawned holder before success: cleanup={cleanup:?}, holder_live={live_after_cleanup}, registered={registered:?}");
+
+        // A real failed PID-file publication must reap the forked holder and surface setup failure.
+        let rescue_dir = TempDir::new("pipe-registration-failure-rescue");
+        let rescue = Rescue {
+            pid_file: rescue_dir.join("owned.pid"),
+            _dir: rescue_dir,
+        };
+        let rescue_path = rescue.pid_file.to_string_lossy().into_owned();
+        let (_dir, _data, root, runs) = fixture("pipe-registration-failure");
+        let mut pipe = super::open_pipe_fixture::OpenPipe::start(
+            "pipe-registration-failure-control",
+            "",
+            "",
+            0,
+            move |mut request| {
+                request
+                    .env
+                    .insert("PIPE_RESCUE_PID".to_owned(), rescue_path);
+                // An existing directory deterministically rejects the parent's PID-file write.
+                request.env.insert(
+                    "PIPE_HOLDER".to_owned(),
+                    root.to_string_lossy().into_owned(),
+                );
+                runs.exec(request)
+            },
+        );
+        let received = pipe.receive();
+        let readiness = pipe.wait_ready();
+        let cleanup = pipe.cleanup();
+        let holder_stopped = rescue.pids().is_some_and(|(_, pid)| process_is_dead(pid));
+        let rescued = rescue.stop();
+        drop(pipe);
+        eprintln!("registration-write-failure: readiness={readiness:?} cleanup={cleanup:?} holder_stopped_before_rescue={holder_stopped} independent_rescue={rescued:?}");
+        assert!(rescued.is_ok(), "{rescued:?}");
+        assert!(readiness.is_err(), "failed publication is a setup failure");
+        assert_eq!(
+            received
+                .expect("bounded failure receipt")
+                .expect("sh runs")
+                .exit_code,
+            Some(125)
+        );
+        assert!(
+            cleanup.is_ok() && holder_stopped,
+            "parent must reap the unregistered holder: {cleanup:?}"
+        );
+    }
+
+    // This catches loss of a reader's published head/count when inherited pipes outlive the child.
+    #[cfg(unix)]
+    #[test]
+    fn pipe_capture_success_keeps_capped_heads_and_observed_history_without_eof() {
+        let (_dir, data, root, _) = fixture("runs-open-pipe");
+        let runs = Arc::new(Runs::with_limits(
+            &data,
+            &root,
+            Limits {
+                stdout_bytes: 16,
+                stderr_bytes: 128,
+                ..Limits::default()
+            },
+        ));
+        let worker_runs = Arc::clone(&runs);
+        let mut pipe = super::open_pipe_fixture::OpenPipe::start(
+            "runs-pipe-control",
+            "0123456789abcdefMORE",
+            "sk-pipe_secret err-before",
+            0,
+            move |request| worker_runs.exec(request),
+        );
+        let ready = pipe.wait_ready();
+        let received = pipe.receive();
+        let elapsed = pipe.elapsed();
+        let live = pipe
+            .holder_pid()
+            .is_some_and(|pid| !crate::test_support::process_is_dead(pid));
+        let request = pipe.request.clone();
+        let cleanup = pipe.cleanup();
+        eprintln!("external success result: elapsed={elapsed:?} holder_live_before_release={live} cleanup={cleanup:?}");
+        assert!(cleanup.is_ok(), "{cleanup:?}");
+        ready.expect("SETUP: the holder reached its private control read");
+        let result = received
+            .expect("result within the fixture watchdog")
+            .expect("sh runs");
+        assert!(
+            live,
+            "the inherited holder must remain live until result receipt"
+        );
+        assert!(elapsed < Duration::from_secs(15));
+        assert_eq!(
+            (&*result.stdout, &*result.stderr, result.truncated),
+            ("0123456789abcdef", "sk-pipe_secret err-before", true),
+            "public prefix/flag tuple: {result:?}"
+        );
+        assert_eq!(result.exit_code, Some(0));
+        assert!(!result.timed_out);
+        assert!(result.history_recorded);
+        assert!(result.duration_ms < 15_000);
+        let row = runs.get(&result.id).expect("get retains one row");
+        assert_eq!(runs.list(5).unwrap(), vec![row.clone()]);
+        assert_eq!((row.stdout_bytes, row.stderr_bytes), (20, 25));
+        assert_eq!(row.stdout_preview, "0123456789abcdef");
+        assert_eq!(row.stderr_preview, "sk-*** err-before");
+        assert_eq!(row.command, request.command);
+        assert_eq!(row.args, request.args);
+        assert_eq!(row.cwd, fs::canonicalize(root).unwrap().to_string_lossy());
+        assert_eq!(row.duration_ms, result.duration_ms);
+        let saved = serde_json::to_value(row).unwrap();
+        for field in ["env", "stdout", "stderr"] {
+            assert!(saved.get(field).is_none());
+        }
     }
 
     #[cfg(unix)]
@@ -1276,7 +1902,9 @@ mod tests {
         assert_eq!(with_body.stdout, "body-not-in-history\n");
 
         assert_eq!(
-            runs.get(&with_body.id).expect("the row reads back").stdout_preview,
+            runs.get(&with_body.id)
+                .expect("the row reads back")
+                .stdout_preview,
             "body-not-in-history\n",
             "a short body is in the history as its preview, and the full answer is on the result"
         );
@@ -1620,10 +2248,10 @@ pub async fn call(
             // The run happened (its history row is written), but the call's outcome is the
             // process's, and the "failed" word the console draws comes from here.
             if result.exit_code != Some(0) {
-                return Err(ToolError::Refused(format!(
-                    "{tool}: {}",
-                    run_failure_sentence(&result)
-                )));
+                return Err(ToolError::ExecutedFailure {
+                    message: format!("{tool}: {}", run_failure_sentence(&result)),
+                    data: json!(result),
+                });
             }
             Ok(json!(result).to_string())
         }

@@ -656,7 +656,7 @@ set -euo pipefail
 case "$1" in
   build) mkdir -p target/release; cp "$REAL_RELEASE_TOOL" target/release/summrise-release ;;
   xwin) mkdir -p target/fixture/release
-    for name in launch device console shell; do printf 'fixture %s app' "$name" > "target/fixture/release/summrise-$name.exe"; done ;;
+    for name in launch device console shell helper; do printf 'fixture %s app' "$name" > "target/fixture/release/summrise-$name.exe"; done ;;
   *) exit 92 ;;
 esac
 "#,

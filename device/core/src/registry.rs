@@ -173,9 +173,7 @@ pub fn control_plane(name: &str) -> bool {
 /// row in either list is gated, so forgetting a row can never open the gate. A name that is not a
 /// tool is `None`, and every caller treats `None` as a denial rather than as exempt.
 pub fn txn_policy(name: &str) -> Option<TxnPolicy> {
-    if tool(name).is_none() {
-        return None;
-    }
+    tool(name)?;
     if BOOTSTRAP_TXNS.contains(&name) {
         Some(TxnPolicy::Bootstrap)
     } else if EXEMPT_READ_TXNS.contains(&name) {

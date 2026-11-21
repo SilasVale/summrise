@@ -9,6 +9,17 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BUILD_CWD="$(pwd -P)"
+if [ "${CARGO_TARGET_DIR+x}" != x ]; then
+    TARGET_DIR="$ROOT/device/target"
+else
+    case "$CARGO_TARGET_DIR" in
+        '') printf '%s\n' 'CARGO_TARGET_DIR must not be empty (Cargo rejects an empty target directory)' >&2; exit 1 ;;
+        /*) TARGET_DIR="$CARGO_TARGET_DIR" ;;
+        *) TARGET_DIR="$BUILD_CWD/$CARGO_TARGET_DIR" ;;
+    esac
+fi
+DEVICE_BIN="$TARGET_DIR/debug/summrise-device"
 PORT=$((20000 + RANDOM % 20000))
 WORK="$(mktemp -d)"
 PID=""
@@ -29,7 +40,8 @@ TOKEN="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 printf '%s' "$TOKEN" >"$WORK/data/token"
 cargo build --manifest-path "$ROOT/device/Cargo.toml" -p summrise-device
 
-"$ROOT/device/target/debug/summrise-device" \
+[ -x "$DEVICE_BIN" ] || { printf 'missing binary: %s\n' "$DEVICE_BIN" >&2; exit 1; }
+"$DEVICE_BIN" \
     --install "$WORK/install" --data "$WORK/data" --port "$PORT" \
     >"$WORK/device.log" 2>&1 &
 PID=$!

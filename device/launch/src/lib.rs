@@ -8025,7 +8025,8 @@ mod shell_executable_tests {
     use std::path::{Path, PathBuf};
 
     fn scratch(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("summrise-launch-{name}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("summrise-launch-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
@@ -8041,7 +8042,10 @@ mod shell_executable_tests {
         let dir = scratch("desktop");
         touch(&dir.join("desktop").join("SummriseDesktop.exe"));
         touch(&dir.join("summrise-shell.exe"));
-        assert_eq!(shell_executable(&dir), Some(dir.join("desktop").join("SummriseDesktop.exe")));
+        assert_eq!(
+            shell_executable(&dir),
+            Some(dir.join("desktop").join("SummriseDesktop.exe"))
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 

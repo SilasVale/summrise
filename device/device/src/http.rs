@@ -1284,9 +1284,7 @@ struct PanelTxn {
 /// them would meet `too_many_txns`. A closed session yields the capability's own refusal, never a
 /// silent untagged call and never a leaked record.
 fn panel_transaction(app: &AppState, session: &terminal::SessionId) -> Option<PanelTxn> {
-    if app.terminal.holder_of(session).is_none() {
-        return None;
-    }
+    app.terminal.holder_of(session)?;
     let reference = SessionRef::new(session.as_str());
     if let Some(open) = app.txns.working_on(&reference) {
         return Some(PanelTxn {

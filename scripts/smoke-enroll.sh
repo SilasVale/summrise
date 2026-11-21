@@ -22,8 +22,18 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DEVICE_BIN="$ROOT/device/target/debug/summrise-device"
-CONSOLE_BIN="$ROOT/device/target/debug/summrise-console"
+BUILD_CWD="$ROOT"
+if [ "${CARGO_TARGET_DIR+x}" != x ]; then
+    TARGET_DIR="$ROOT/device/target"
+else
+    case "$CARGO_TARGET_DIR" in
+        '') printf '%s\n' 'CARGO_TARGET_DIR must not be empty (Cargo rejects an empty target directory)' >&2; exit 1 ;;
+        /*) TARGET_DIR="$CARGO_TARGET_DIR" ;;
+        *) TARGET_DIR="$BUILD_CWD/$CARGO_TARGET_DIR" ;;
+    esac
+fi
+DEVICE_BIN="$TARGET_DIR/debug/summrise-device"
+CONSOLE_BIN="$TARGET_DIR/debug/summrise-console"
 export PATH="$HOME/.cargo/bin:$PATH"
 CARGO_BIN="${CARGO:-$HOME/.cargo/bin/cargo}"
 
@@ -605,7 +615,7 @@ pass "the call through the console returned host.facts"
 
 # --- the record on both sides ------------------------------------------------------------------
 DEVICE_AUDIT="$DEVICE_DATA/events.jsonl"
-CONSOLE_AUDIT="$CONSOLE_DATA/audit.jsonl"
+CONSOLE_AUDIT="$CONSOLE_DATA/audit.db"
 
 CONSOLE_AUDIT_INFO=""
 AUDIT_DEADLINE=$((SECONDS + 10))
@@ -613,28 +623,52 @@ while [ "$SECONDS" -lt "$AUDIT_DEADLINE" ]; do
     if [ -f "$CONSOLE_AUDIT" ]; then
         if CONSOLE_AUDIT_INFO="$(python3 - "$CONSOLE_AUDIT" "$DEVICE_ID" "$TOKEN_ID" 2>/dev/null <<'PY'
 import json
+from pathlib import Path
+import sqlite3
 import sys
 
-path, device_id, token_id = sys.argv[1], sys.argv[2], sys.argv[3]
-for number, line in enumerate(open(path, encoding="utf-8"), start=1):
-    line = line.strip()
-    if not line:
-        continue
+
+def read_record(path):
+    path = Path(path).resolve()
+    if not path.is_file():
+        raise SystemExit("record database is missing or is not a regular file")
     try:
-        row = json.loads(line)
-    except Exception:
-        continue
-    if (
-        row.get("kind") == "mcp"
-        and row.get("device_id") == device_id
-        and row.get("tool") == "host.facts"
-        and row.get("status") == 200
-        and row.get("caller") == "client"
-        and row.get("token_id") == token_id
-    ):
-        print(f"line {number}, status 200, caller client, token {token_id[:8]}…")
-        raise SystemExit(0)
-raise SystemExit(1)
+        connection = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=1)
+        try:
+            connection.execute("PRAGMA query_only=ON")
+            if connection.execute("PRAGMA query_only").fetchone() != (1,):
+                raise SystemExit("record reader is not query-only")
+            if connection.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone() != ("1",):
+                raise SystemExit("record schema_version is not 1")
+            rows = []
+            for seq, raw in connection.execute("SELECT seq,json FROM feed ORDER BY seq"):
+                row = json.loads(raw)
+                if type(seq) is not int or seq <= 0 or not isinstance(row, dict):
+                    raise SystemExit("record has an invalid sequence or JSON object")
+                rows.append((seq, row))
+            return rows
+        finally:
+            connection.close()
+    except (OSError, sqlite3.Error, ValueError):
+        raise SystemExit("record database cannot be read as schema-1 JSON")
+
+def matching_audits(path, device_id, token_id):
+    matches = []
+    for seq, row in read_record(path):
+        if (row.get("kind") == "mcp" and row.get("device_id") == device_id
+                and row.get("tool") == "host.facts" and type(row.get("status")) is int and row["status"] == 200
+                and row.get("caller") == "client" and row.get("token_id") == token_id
+                and isinstance(row.get("trace"), str) and row["trace"]
+                and type(row.get("machine_seq")) is int and row["machine_seq"] > 0):
+            matches.append((seq, row))
+    return matches
+
+path, device_id, token_id = sys.argv[1:]
+matches = matching_audits(path, device_id, token_id)
+if not matches:
+    raise SystemExit("console record has no successful exact-device/token mcp row with trace and machine sequence")
+seq, row = matches[-1]
+print(f"seq {seq}, status 200, caller client, token {token_id[:8]}…")
 PY
         )"; then
             [ -n "$CONSOLE_AUDIT_INFO" ] && break
@@ -700,60 +734,81 @@ pass "the device audit records the call ($DEVICE_AUDIT_INFO)"
 JOIN_INFO=""
 JOIN_DEADLINE=$((SECONDS + 10))
 while [ "$SECONDS" -lt "$JOIN_DEADLINE" ]; do
-    if JOIN_INFO="$(python3 - "$CONSOLE_AUDIT" "$DEVICE_DATA/journal" "$DEVICE_ID" 2>/dev/null <<'PY'
-import glob
+    if JOIN_INFO="$(python3 - "$CONSOLE_AUDIT" "$DEVICE_DATA/record.db" "$DEVICE_ID" "$TOKEN_ID" 2>/dev/null <<'PY'
 import json
-import os
+from pathlib import Path
+import sqlite3
 import sys
 
-audit_path, journal_dir, device_id = sys.argv[1], sys.argv[2], sys.argv[3]
-traces = set()
-for line in open(audit_path, encoding="utf-8"):
-    line = line.strip()
-    if not line:
-        continue
+
+def read_record(path):
+    path = Path(path).resolve()
+    if not path.is_file():
+        raise SystemExit("record database is missing or is not a regular file")
     try:
-        row = json.loads(line)
-    except Exception:
-        continue
-    if (
-        row.get("kind") == "mcp"
-        and row.get("device_id") == device_id
-        and row.get("tool") == "host.facts"
-        and row.get("status") == 200
-    ):
-        trace = row.get("trace")
-        if trace:
-            traces.add(trace)
-if not traces:
-    raise SystemExit("no audit row for host.facts carries a trace")
-started, finished = {}, {}
-for path in sorted(glob.glob(os.path.join(journal_dir, "*.seg"))):
-    for line in open(path, encoding="utf-8", errors="replace"):
-        line = line.strip()
-        if not line:
-            continue
+        connection = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=1)
         try:
-            row = json.loads(line)
-        except Exception:
-            continue
-        call = (row.get("trace") or {}).get("call")
-        if not call:
+            connection.execute("PRAGMA query_only=ON")
+            if connection.execute("PRAGMA query_only").fetchone() != (1,):
+                raise SystemExit("record reader is not query-only")
+            if connection.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone() != ("1",):
+                raise SystemExit("record schema_version is not 1")
+            rows = []
+            for seq, raw in connection.execute("SELECT seq,json FROM feed ORDER BY seq"):
+                row = json.loads(raw)
+                if type(seq) is not int or seq <= 0 or not isinstance(row, dict):
+                    raise SystemExit("record has an invalid sequence or JSON object")
+                rows.append((seq, row))
+            return rows
+        finally:
+            connection.close()
+    except (OSError, sqlite3.Error, ValueError):
+        raise SystemExit("record database cannot be read as schema-1 JSON")
+
+def device_rows(path):
+    rows = read_record(path)
+    for seq, row in rows:
+        if type(row.get("seq")) is not int or row["seq"] != seq or type(row.get("v")) is not int or row["v"] != 1:
+            raise SystemExit("device envelope version or SQL/JSON sequence mismatch")
+    return rows
+
+
+def call_pairs(rows, tool):
+    started, finished = {}, {}
+    for seq, row in rows:
+        trace = row.get("trace")
+        call = trace.get("call") if isinstance(trace, dict) else None
+        payload = row.get("payload")
+        if not isinstance(call, str) or not call or not isinstance(payload, dict) or payload.get("tool") != tool:
             continue
         if row.get("type") == "call.started":
-            started[call] = row
-        elif row.get("type") in ("call.finished", "call.denied"):
-            finished[call] = row
-joined = sorted(traces & set(started) & set(finished))
-if not joined:
-    raise SystemExit(
-        f"audit traces {sorted(traces)} do not pair with journal calls "
-        f"(started {len(started)}, finished {len(finished)})"
-    )
-trace = joined[-1]
-print(
-    f"trace {trace}: audit line joins journal seq {started[trace]['seq']} -> {finished[trace]['seq']}"
-)
+            started[call] = seq
+        elif row.get("type") == "call.finished" and payload.get("ok") is True:
+            finished[call] = seq
+    return [(call, seq, finished[call]) for call, seq in started.items() if call in finished and seq < finished[call]]
+
+def matching_audits(path, device_id, token_id):
+    matches = []
+    for seq, row in read_record(path):
+        if (row.get("kind") == "mcp" and row.get("device_id") == device_id
+                and row.get("tool") == "host.facts" and type(row.get("status")) is int and row["status"] == 200
+                and row.get("caller") == "client" and row.get("token_id") == token_id
+                and isinstance(row.get("trace"), str) and row["trace"]
+                and type(row.get("machine_seq")) is int and row["machine_seq"] > 0):
+            matches.append((seq, row))
+    return matches
+
+audit_path, record_path, device_id, token_id = sys.argv[1:]
+rows = device_rows(record_path)
+if not any(row.get("type") == "device.started" for _, row in rows):
+    raise SystemExit("device record has no device.started")
+pairs = call_pairs(rows, "host.facts")
+for _, audit in reversed(matching_audits(audit_path, device_id, token_id)):
+    for trace, start, finish in pairs:
+        if audit["trace"] == trace and audit["machine_seq"] == finish:
+            print(f"trace {trace}: audit line joins journal seq {start} -> {finish}")
+            raise SystemExit(0)
+raise SystemExit("console audit and successful device call pair do not join on exact trace and machine sequence")
 PY
 )"; then
         [ -n "$JOIN_INFO" ] && break
@@ -967,9 +1022,68 @@ PY
 fi
 pass "the machine counts the day the console asked for ($DAY_INFO)"
 
-# The credential must never be in either record: both logs name the token record, never the secret.
-if grep -qF "$SRM_TOKEN" "$CONSOLE_AUDIT" "$DEVICE_AUDIT" 2>/dev/null; then
-    fail "a permanent token secret was written to an audit file"
+# Successfully decode every retained JSON row before checking raw and decoded secret absence.
+if ! python3 - "$CONSOLE_AUDIT" "$DEVICE_DATA/record.db" "$DEVICE_AUDIT" "$SRM_TOKEN" <<'PY'
+import json
+from pathlib import Path
+import sqlite3
+import sys
+
+
+def read_record(path):
+    path = Path(path).resolve()
+    if not path.is_file():
+        raise SystemExit("record database is missing or is not a regular file")
+    try:
+        connection = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=1)
+        try:
+            connection.execute("PRAGMA query_only=ON")
+            if connection.execute("PRAGMA query_only").fetchone() != (1,):
+                raise SystemExit("record reader is not query-only")
+            if connection.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone() != ("1",):
+                raise SystemExit("record schema_version is not 1")
+            rows = []
+            for seq, raw in connection.execute("SELECT seq,json FROM feed ORDER BY seq"):
+                row = json.loads(raw)
+                if type(seq) is not int or seq <= 0 or not isinstance(row, dict):
+                    raise SystemExit("record has an invalid sequence or JSON object")
+                rows.append((seq, row))
+            return rows
+        finally:
+            connection.close()
+    except (OSError, sqlite3.Error, ValueError):
+        raise SystemExit("record database cannot be read as schema-1 JSON")
+
+audit_path, record_path, event_path, secret = sys.argv[1:]
+if not secret:
+    raise SystemExit("the permanent token secret is empty")
+for path in (audit_path, record_path):
+    rows = read_record(path)
+    try:
+        connection = sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True, timeout=1)
+        try:
+            connection.execute("PRAGMA query_only=ON")
+            if connection.execute("PRAGMA query_only").fetchone() != (1,):
+                raise SystemExit("privacy reader is not query-only")
+            raw_rows = connection.execute("SELECT seq,json FROM feed ORDER BY seq").fetchall()
+            for _, raw in raw_rows:
+                decoded = json.loads(raw)
+                if secret in raw or secret in json.dumps(decoded, ensure_ascii=False):
+                    raise SystemExit("a permanent token secret was written to a record")
+        finally:
+            connection.close()
+    except (OSError, sqlite3.Error, ValueError):
+        raise SystemExit("record privacy check could not read every JSON row")
+try:
+    raw = Path(event_path).read_text(encoding="utf-8")
+    decoded = [json.loads(line) for line in raw.splitlines() if line.strip()]
+except (OSError, ValueError):
+    raise SystemExit("device audit privacy check could not read every JSON row")
+if secret in raw or any(secret in json.dumps(row, ensure_ascii=False) for row in decoded):
+    raise SystemExit("a permanent token secret was written to the device audit")
+PY
+then
+    fail "audit privacy check failed to prove permanent token secret absence"
 fi
 pass "neither audit contains the permanent token secret"
 
