@@ -2,30 +2,30 @@
   "$comment": "A3 light presentation decisions for the current React Console and Rust/Maud Device. These are design roles, not measured screenshot budgets. Static checks establish source/semantic contracts; browser and platform gates establish rendered behavior. Device shares the canonical prefix and owns its task-specific composition.",
   "version": "A3-light",
   "ground": {
-    "light": "#f4f7fb",
-    "surface": "#ffffff",
+    "light": "#f3f0e8",
+    "surface": "#fbf9f4",
     "dark": null,
     "decorativeGradients": false
   },
   "palette": {
-    "ink": "#172c38",
-    "muted": "#4c5d73",
-    "faint": "#60718b",
-    "accent": "#2559cc",
+    "ink": "#1d1c1a",
+    "muted": "#6f6a61",
+    "faint": "#6b6252",
+    "accent": "#b4451f",
     "danger": "#a53a37",
     "semantic": ["ok", "warn", "danger", "focus"],
     "accentFamily": {
-      "hover": "#1c47a8",
-      "onSoft": "#1c47a8",
-      "washValue": "#edf2fc"
+      "hover": "#9a3716",
+      "onSoft": "#9a3716",
+      "washValue": "#f6e5d8"
     },
     "sidebar": {
-      "surface": "#ffffff",
-      "ink": "#172c38",
-      "muted": "#60718b",
-      "selected": "#edf2ff",
-      "onSelected": "#1c47a8",
-      "focus": "#2559cc"
+      "surface": "#fbf9f4",
+      "ink": "#1d1c1a",
+      "muted": "#6b6252",
+      "selected": "#f6e5d8",
+      "onSelected": "#9a3716",
+      "focus": "#b4451f"
     }
   },
   "page": {
@@ -89,8 +89,8 @@
     "pill": 999
   },
   "hairline": {
-    "line": "#e1e7f0",
-    "strong": "#8190a5",
+    "line": "#e5e1da",
+    "strong": "#8b8070",
     "soft": "color-mix(in srgb, var(--ink) 7%, var(--panel))",
     "stateMarksCarryOwnColour": true,
     "stateMarksCarryWord": true

@@ -554,11 +554,11 @@ async function boundsCheck(page, pane) {
   assert.deepEqual(measurements.controls.map(control => control.id).sort(), ['tab-browser', 'tab-harness', ...expected].sort(), `${pane}: every navigation, page and recovery control is present`);
   for (const [name, id] of [['Browser', 'tab-browser'], ['Harness', 'tab-harness']]) assert.equal(await page.getByRole('tab', { name, exact: true }).getAttribute('id'), id, `${name}: tool stays labelled at every rail size`);
   if (!measurements.forcedColors) {
-    assert.equal(measurements.theme[0].background, 'rgb(244, 247, 251)');
-    assert.equal(measurements.theme[0].color, 'rgb(23, 44, 56)');
-    for (const plane of measurements.theme.slice(1, -1)) assert.equal(plane.background, 'rgb(255, 255, 255)', `${plane.selector}: A3 white plane`);
-    assert.equal(measurements.theme.at(-1).background, 'rgb(237, 242, 255)', 'selected tool uses the light A3 selected plane');
-    assert.equal(measurements.theme.at(-1).indicator, 'rgb(37, 89, 204)', 'selected tool retains a meaningful blue indicator');
+    assert.equal(measurements.theme[0].background, 'rgb(243, 240, 232)');
+    assert.equal(measurements.theme[0].color, 'rgb(29, 28, 26)');
+    for (const plane of measurements.theme.slice(1, -1)) assert.equal(plane.background, 'rgb(251, 249, 244)', `${plane.selector}: warm paper plane`);
+    assert.equal(measurements.theme.at(-1).background, 'rgb(246, 229, 216)', 'selected tool uses the warm selected plane');
+    assert.equal(measurements.theme.at(-1).indicator, 'rgb(180, 69, 31)', 'selected tool retains a meaningful brand indicator');
   }
   assert.equal(measurements.main, 1);
   assert.equal(measurements.heading.count, 1, `${pane}: one visible page heading`);
@@ -904,8 +904,8 @@ async function offlineLayout(page) {
     assert.ok(result.primary.right <= result.support.x + 1 && result.primary.width > result.support.width, 'requested-device action is the primary desktop area beside support');
   } else if (result.width <= 640) assert.ok(result.primary.bottom <= result.support.y + 1, 'phone recovery support follows the primary action');
   if (!result.forcedColors) {
-    assert.equal(result.canvas, 'rgb(244, 247, 251)'); assert.equal(result.ink, 'rgb(23, 44, 56)');
-    for (const key of ['sidebar', 'header', 'primary']) assert.equal(result[key].background, 'rgb(255, 255, 255)', `offline ${key}: A3 white plane`);
+    assert.equal(result.canvas, 'rgb(243, 240, 232)'); assert.equal(result.ink, 'rgb(29, 28, 26)');
+    for (const key of ['sidebar', 'header', 'primary']) assert.equal(result[key].background, 'rgb(251, 249, 244)', `offline ${key}: warm paper plane`);
   }
   return result;
 }
@@ -967,10 +967,10 @@ const cases = {
         metadata: getComputedStyle(document.querySelector('.url')).fontSize,
         planes: ['.host-sidebar', '.utility-header', '.viewport-column', '.slot'].map(selector => ({ selector, color: getComputedStyle(document.querySelector(selector)).backgroundColor })),
       }));
-      assert.equal(styles.body.background, 'rgb(244, 247, 251)');
-      assert.equal(styles.body.color, 'rgb(23, 44, 56)');
+      assert.equal(styles.body.background, 'rgb(243, 240, 232)');
+      assert.equal(styles.body.color, 'rgb(29, 28, 26)');
       assert.match(styles.body.font, /sans-serif/);
-      for (const plane of styles.planes) assert.equal(plane.color, 'rgb(255, 255, 255)', `${plane.selector}: A3 white work plane`);
+      for (const plane of styles.planes) assert.equal(plane.color, 'rgb(251, 249, 244)', `${plane.selector}: warm paper work plane`);
       assert.equal(styles.state, '13px');
       assert.equal(styles.metadata, '12px');
       await page.emulateMedia({ forcedColors: 'active', reducedMotion: 'reduce' });

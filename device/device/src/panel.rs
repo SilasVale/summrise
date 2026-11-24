@@ -69,6 +69,7 @@ pub(crate) const COMPONENTS: &str = r##"  body.app { flex-direction: column; }
   form { display: grid; gap: var(--sp-2); margin-top: var(--sp-4); padding-top: var(--sp-4); border-top: 1px solid var(--line); }
   form h3 { margin: 0 0 var(--sp-1); font-size: var(--fs-base); font-weight: 600; }
   form label { color: var(--muted); font-size: var(--fs-base); }
+  input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
   form input[type="text"], #term-port, #term-baud {
     width: 100%; min-width: 0; font: inherit; font-size: var(--fs-base); color: var(--ink);
     padding: var(--sp-2); border: 1px solid var(--line-strong); border-radius: var(--radius-xs); background: var(--panel);

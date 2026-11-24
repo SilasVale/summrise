@@ -142,8 +142,8 @@ fn one_spacing_rhythm_and_the_canonical_radii() {
     .map(|name| declared(TOKENS, name).unwrap_or_else(|| panic!("--{name} is missing")))
     .collect();
     assert_eq!(radii, ["6px", "8px", "10px", "12px", "16px"]);
-    assert_eq!(declared(TOKENS, "accent"), Some("#2559cc"));
-    assert_eq!(declared(TOKENS, "accent-solid"), Some("#2559cc"));
+    assert_eq!(declared(TOKENS, "accent"), Some("#b4451f"));
+    assert_eq!(declared(TOKENS, "accent-solid"), Some("#b4451f"));
     assert_eq!(declared(TOKENS, "radius-pill"), Some("999px"));
 }
 

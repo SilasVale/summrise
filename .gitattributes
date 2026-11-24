@@ -19,3 +19,13 @@ device/console/web/** text eol=lf
 # The wasm artifact itself is binary and is never rewritten; saying so keeps Git from guessing.
 # (This rule comes last: for one path, the last matching pattern wins.)
 device/console/web/src/wasm/console_logic_bg.wasm binary
+
+# THE SIGNED TOOLING INVENTORY HASHES THESE CHECKOUT BYTES ON BOTH PLATFORMS.
+# Windows CRLF made all six pins differ from the Linux verifier's LF sources.
+# Keep the helper's exact source set LF so the same signed pins verify everywhere.
+device/Cargo.lock text eol=lf
+device/release/src/verify.rs text eol=lf
+device/release/src/lib.rs text eol=lf
+device/release/src/document.rs text eol=lf
+device/release/src/bin/summrise-release.rs text eol=lf
+device/release/tests/cli.rs text eol=lf

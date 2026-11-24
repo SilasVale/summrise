@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <title>Summrise — a workspace for AI on your real machines</title>
 <style>
-  :root { --paper: #f4f7fb; --surface: #ffffff; --ink: #172c38; --muted: #4c5d73; --accent: #2559cc; --line: #e1e7f0; --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  :root { --paper: #f7f4ee; --surface: #ffffff; --ink: #17161a; --muted: #5c5952; --accent: #bf3a0a; --line: rgba(23, 22, 26, 0.09); --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
   * { box-sizing: border-box; }
   html, body { width: 1200px; height: 630px; margin: 0; }
   body { display: grid; grid-template-columns: 740px 460px; font-family: var(--font); color: var(--ink); background: var(--surface); }
@@ -30,7 +30,11 @@
 </head>
 <body>
   <div class="promise">
-    <div class="brand"><svg viewBox="0 0 48 48" aria-hidden="true"><rect width="48" height="48" rx="11" fill="currentColor"/><circle cx="21" cy="14" r="4" fill="#ffffff"/><path fill="#ffffff" d="M14 41Q26 16 44 41Z" opacity=".7"/><path fill="#ffffff" d="M2 41Q12 20 24 41Z"/></svg>Summrise</div>
+    <div class="brand"><svg viewBox="0 0 48 48" aria-hidden="true"><defs>
+        <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f59f00"/><stop offset="1" stop-color="#e8590c"/></linearGradient>
+        <radialGradient id="glowg" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#fff8e1" stop-opacity=".55"/><stop offset="1" stop-color="#ffe8a3" stop-opacity="0"/></radialGradient>
+        <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".25"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#7c2d12" stop-opacity=".10"/></linearGradient>
+      </defs><rect width="48" height="48" rx="11" fill="url(#sky)"/><circle cx="21" cy="14" r="7.5" fill="url(#glowg)"/><circle cx="21" cy="14" r="4" fill="#fff8e1"/><path fill="#fff" opacity=".78" d="M14 41Q26 16 44 41Z"/><path fill="#fff" d="M2 41Q12 20 24 41Z"/><rect width="48" height="48" rx="11" fill="url(#sheen)"/></svg>Summrise</div>
     <p class="eyebrow">AI tools. Real machines. Your control.</p>
     <h1>Your machines.<br><span>Your AI’s<br>workspace.</span></h1>
     <p class="description">The machine, its tools and the call record.<br>One place to work. A way to take over.</p>

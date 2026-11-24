@@ -41,7 +41,7 @@ test("the_shell_paints_paper_before_the_page", () => {
     const shell = read(source);
     assert.doesNotMatch(shell, /#111/, `${source} paints no ink-black first frame`);
     assert.equal(
-      shell.match(/backgroundColor:\s*"#f4f7fb"/g)?.length,
+      shell.match(/backgroundColor:\s*"#f3f0e8"/g)?.length,
       2,
       `${source} paints BOTH windows in the sheet's canvas`,
     );

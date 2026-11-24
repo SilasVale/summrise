@@ -1,22 +1,22 @@
 /* Owned desktop frame. Website and harness content stay inside their native slot views. */
 :root {
   color-scheme: light;
-  --bg: #f4f7fb;
-  --surface: #ffffff;
-  --ink: #172c38;
-  --secondary: #4c5d73;
-  --helper: #60718b;
-  --accent: #2559cc;
-  --line: #e1e7f0;
-  --control-line: #8190a5;
-  --sidebar: #ffffff;
-  --sidebar-ink: #172c38;
-  --sidebar-secondary: #4c5d73;
-  --sidebar-selected: #edf2ff;
-  --sidebar-focus: #2559cc;
+  --bg: #f3f0e8;
+  --surface: #fbf9f4;
+  --ink: #1d1c1a;
+  --secondary: #6f6a61;
+  --helper: #6b6252;
+  --accent: #b4451f;
+  --line: #ddd6c9;
+  --control-line: #8b8070;
+  --sidebar: #fbf9f4;
+  --sidebar-ink: #1d1c1a;
+  --sidebar-secondary: #6f6a61;
+  --sidebar-selected: #f6e5d8;
+  --sidebar-focus: #b4451f;
   --danger: #934f3b;
   --warning: #765b25;
-  --accent-wash: #edf2ff;
+  --accent-wash: #f6e5d8;
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -67,7 +67,7 @@ button:disabled, select:disabled, input:disabled { opacity: 1; cursor: default; 
 button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 #browser-url { user-select: text; }
 .primary { background: var(--accent); border-color: var(--accent); color: #ffffff; font-weight: 600; }
-.primary:hover:not(:disabled) { background: #1d48aa; }
+.primary:hover:not(:disabled) { background: #9a3716; }
 .primary:disabled { background: var(--bg); color: var(--helper); border-color: var(--line); }
 .stage-heading { display: flex; flex: 0 1 auto; min-height: 0; align-items: center; padding: 10px 16px; overflow: hidden; }
 .stage-heading h2 { margin: 0; font-size: 18px; line-height: 26px; font-weight: 600; }

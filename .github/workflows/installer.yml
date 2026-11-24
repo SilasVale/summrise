@@ -217,14 +217,20 @@ jobs:
             Start-Sleep -Seconds 30
           }
           if (-not (Test-Path $makensis)) {
-            $package = "$env:RUNNER_TEMP\nsis.3.13.0.nupkg"
-            Invoke-WebRequest -Uri 'https://community.chocolatey.org/api/v2/package/nsis/3.13.0' -OutFile $package
-            $expected = '10d47195455d7f42d4ef89396a70eae0edf66be46af5d0f83e2c2b4c5a99c770'
+            # THE INSTALL PACKAGE EMBEDS THE INSTALLER AND HAS NO DEPENDENCIES. The small
+            # nsis wrapper depends on nsis.install, which would query the failed feed again.
+            $packageDir = Join-Path $env:RUNNER_TEMP 'nsis-offline-3.13.0'
+            New-Item -ItemType Directory -Path $packageDir -ErrorAction Stop | Out-Null
+            $package = Join-Path $packageDir 'nsis.install.3.13.0.nupkg'
+            Invoke-WebRequest -Uri 'https://community.chocolatey.org/api/v2/package/nsis.install/3.13.0' -OutFile $package
+            $expected = 'cefd57d4ebbc56d3ab104034044f54d61918642d51f6fcc44ff8d6c960533f91'
             $actual = (Get-FileHash -Algorithm SHA256 -Path $package).Hash.ToLowerInvariant()
-            if ($actual -ne $expected) { throw "the nsis package hash is $actual, not $expected" }
-            choco install $package --yes --no-progress
+            if ($actual -ne $expected) { throw "the nsis install package hash is $actual, not $expected" }
+            choco install nsis.install --version=3.13.0 --source $packageDir --yes --no-progress
+            if ($LASTEXITCODE -notin @(0, 3010)) { throw "NSIS package install failed: $LASTEXITCODE" }
           }
           & $makensis -VERSION
+          if ($LASTEXITCODE -ne 0) { throw "makensis failed: $LASTEXITCODE" }
 
       - name: build the installer
         shell: bash

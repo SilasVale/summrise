@@ -103,6 +103,14 @@
   box-shadow: inset 3px 0 var(--accent);
 }
 
+.files-page .files-row:has([aria-pressed="true"]) .files-name:hover {
+  color: var(--accent-on-soft);
+}
+
+.files-page .files-row:has([aria-pressed="true"]) :is(.files-kind, .files-size) {
+  color: var(--ink-faint);
+}
+
 .files-page .files-kind,
 .files-page .files-size {
   min-width: 0;
@@ -325,6 +333,10 @@
   box-shadow: inset 3px 0 var(--accent);
 }
 
+.runs-page .runs-history .runs-row-active .runs-open:hover {
+  color: var(--accent-on-soft);
+}
+
 .runs-page .runs-fact-label {
   display: block;
   margin-bottom: var(--sp-0-5);
@@ -485,6 +497,10 @@
   color: var(--accent);
 }
 
+.memory-panel .memory-entry-selected .memory-open:hover {
+  color: var(--accent-on-soft);
+}
+
 .memory-panel .memory-title {
   flex: 1;
   font-size: var(--fs-md);
@@ -507,6 +523,10 @@
 
 .memory-panel .memory-meta {
   margin: var(--sp-1) 0 0;
+}
+
+.memory-panel .memory-entry-selected .memory-meta {
+  color: var(--ink-faint);
 }
 
 .memory-panel .memory-detail {
@@ -696,6 +716,11 @@
 
   .runs-page .runs-history tr {
     gap: var(--sp-2) var(--sp-3);
+  }
+
+  .runs-page .runs-row-active .runs-fact-label,
+  .runs-page .runs-row-active .runs-started .hint {
+    color: var(--ink-faint);
   }
 
   .runs-exec .runs-field input {

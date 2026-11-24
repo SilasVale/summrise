@@ -248,7 +248,7 @@ function createHostWindow(): BrowserWindow {
     height: 800,
     title: "Summrise Browser",
     show: false,
-    backgroundColor: "#f4f7fb",
+    backgroundColor: "#f3f0e8",
     ...(windowIcon() ? { icon: windowIcon() } : {}),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -676,7 +676,7 @@ if (gotTheLock) {
       // NO WHITE FLASH: created hidden, shown on the first paint. backgroundColor paints that first
       // frame in the page's own paper instead of Chromium's white.
       show: false,
-      backgroundColor: "#f4f7fb",
+      backgroundColor: "#f3f0e8",
       // Taskbar + title-bar icon: without this Windows shows the stock electron.exe icon. PNG —
       // Chromium's ICO parser has choked on PNG-compressed 256px entries.
       ...(windowIcon() ? { icon: windowIcon() } : {}),

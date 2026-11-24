@@ -18,28 +18,28 @@ use maud::{html, Markup};
 pub const TOKENS: &str = r#":root {
   color-scheme: light;
   /* A3: navigation, context and work area have distinct visual planes. */
-  --bg:#f4f7fb; --panel:#ffffff;
+  --bg:#f3f0e8; --panel:#fbf9f4;
   --panel-2:color-mix(in srgb, var(--ink) 3%, var(--panel));
   --panel-3:color-mix(in srgb, var(--ink) 5%, var(--panel));
-  --ink:#172c38; --muted:#4c5d73; --faint:#60718b;
-  --line:#e1e7f0; --line-strong:#8190a5;
+  --ink:#1d1c1a; --muted:#6f6a61; --faint:#6b6252;
+  --line:#e5e1da; --line-strong:#8b8070;
   --line-soft:color-mix(in srgb, var(--ink) 7%, var(--panel));
-  --accent:#2559cc; --accent-solid:#2559cc; --accent-hover:#1c47a8;
+  --accent:#b4451f; --accent-solid:#b4451f; --accent-hover:#9a3716;
   /* Concrete wash and selection colors also serve the terminal consumer. */
-  --accent-soft:#edf2fc; --accent-fg:#ffffff; --accent-on-soft:#1c47a8;
+  --accent-soft:#f6e5d8; --accent-fg:#ffffff; --accent-on-soft:#9a3716;
   --ok:#23704b; --warn:#80590e; --danger:#a53a37;
   --ok-soft:color-mix(in srgb, var(--ok) 8%, var(--panel));
   --warn-soft:color-mix(in srgb, var(--warn) 9%, var(--panel));
   --danger-soft:color-mix(in srgb, var(--danger) 8%, var(--panel));
-  --focus-ring:#2559cc;
-  --sidebar:#fff; --sidebar-ink:#172c38; --sidebar-muted:#60718b;
-  --sidebar-selected:#edf2ff; --sidebar-focus:#2559cc;
+  --focus-ring:#b4451f;
+  --sidebar:#fbf9f4; --sidebar-ink:#1d1c1a; --sidebar-muted:#6b6252;
+  --sidebar-selected:#f6e5d8; --sidebar-focus:#b4451f;
   --dur-interaction:120ms;
-  --shadow:0 1px 3px rgba(23,44,56,.05);
-  --shadow-pop:0 8px 32px -8px rgba(16,29,48,.2),0 2px 8px rgba(16,29,48,.08);
-  --shadow-1:var(--shadow); --shadow-2:0 8px 24px -16px rgba(16,29,48,.2);
-  --elev-segment:0 1px 3px rgba(23,44,56,.12);
-  --elev-2:0 24px 64px -20px rgba(16,29,48,.3),0 2px 8px rgba(16,29,48,.08);
+  --shadow:0 1px 3px rgba(29,28,26,.05);
+  --shadow-pop:0 8px 32px -8px rgba(29,28,26,.2),0 2px 8px rgba(29,28,26,.08);
+  --shadow-1:var(--shadow); --shadow-2:0 8px 24px -16px rgba(29,28,26,.2);
+  --elev-segment:0 1px 3px rgba(29,28,26,.12);
+  --elev-2:0 24px 64px -20px rgba(29,28,26,.3),0 2px 8px rgba(29,28,26,.08);
   --ring:0 0 0 2px var(--focus-ring);
   --radius:12px; --radius-sm:10px; --radius-sm2:8px; --radius-xs:6px;
   --radius-lg:16px; --radius-pill:999px;
@@ -55,11 +55,11 @@ pub const TOKENS: &str = r#":root {
   --sp-0-5:2px; --sp-1:4px; --sp-1-5:6px; --sp-2:8px; --sp-2-5:10px;
   --sp-3:12px; --sp-3-5:14px; --sp-4:16px; --sp-5:24px; --sp-6:32px;
   --control-h:32px; --control-pad-y:5px;
-  --scrim:color-mix(in srgb, #101d30 36%, transparent);
+  --scrim:color-mix(in srgb, #1d1c1a 36%, transparent);
   --lh-body:1.5; --lh-tight:1.3; --lh-mark:1;
   --lh-page:36px; --lh-section:26px; --lh-metric:40px;
   --measure:66ch;
-  --term-canvas:#ffffff; --term-selection:rgba(37,89,204,.2);
+  --term-canvas:#fbf9f4; --term-selection:rgba(180,69,31,.18);
   --term-black:#1d1d1f; --term-white:#44403c;
   --term-red:#b3261e; --term-green:#1d7a3c; --term-yellow:#a8620a;
   --term-blue:#1f5fbf; --term-magenta:#8a3ffc; --term-cyan:#0e7490;
@@ -121,7 +121,7 @@ body.local-workspace { display:grid; grid-template-columns:232px minmax(0,1fr); 
 .local-nav { display:flex; flex-direction:column; gap:var(--sp-2); }
 .local-nav a { display:flex; align-items:center; gap:var(--sp-3); min-height:40px; padding:var(--sp-2) var(--sp-3); border:1px solid transparent; border-radius:var(--radius-xs); color:var(--sidebar-muted); font-size:var(--fs-md); font-weight:var(--fw-medium); text-decoration:none; }
 .local-nav a:hover { background:var(--sidebar-selected); color:var(--sidebar-ink); }
-.local-nav a[aria-current="page"] { background:var(--sidebar-selected); color:var(--accent); }
+.local-nav a[aria-current="page"] { background:var(--sidebar-selected); color:var(--accent-on-soft); }
 .local-nav-icon { display:grid; place-items:center; width:20px; flex:none; font-family:var(--font-mono); font-size:var(--fs-base); }
 .local-mobile-menu { display:none; }
 .local-workspace .device-skip { position:absolute; width:1px; height:1px; margin:-1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }

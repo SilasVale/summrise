@@ -39,6 +39,8 @@ pub(crate) const DEFAULT_LIMIT: usize = 50;
 /// The transcript's stylesheet, rendered through [`summrise_ui::style`] after the shared tokens.
 pub(crate) const STYLES: &str = r##"
   body.activity-page { font-size:var(--fs-md); line-height:var(--lh-body); font-variant-numeric:tabular-nums; }
+  :where(body.activity-page) a { color:var(--accent); }
+  :where(body.activity-page) a:hover { color:var(--accent-hover); }
 
   .activity-brand { display:flex; align-items:baseline; flex-wrap:wrap; gap:var(--sp-2); }
   .activity-brand .brand-name { font-family:var(--font); font-size:17px; font-weight:650; }
@@ -64,7 +66,9 @@ pub(crate) const STYLES: &str = r##"
   .rail-session:has([aria-current="page"]) { border-color:var(--accent); background:var(--accent-soft); }
   .rail-session-name { min-width:0; font-weight:600; overflow-wrap:anywhere; }
   .rail-session-name a { display:inline-block; min-height:32px; padding:4px 0; overflow-wrap:anywhere; }
+  .rail-session-name a[aria-current="page"] { color:var(--accent-on-soft); }
   .rail-holder { max-width:100%; color:var(--muted); font-size:12px; overflow-wrap:anywhere; }
+  .rail-session:has([aria-current="page"]) .rail-holder { color:var(--sidebar-muted); }
   .record-guide { margin-top:var(--sp-2); color:var(--muted); }
   .record-guide summary { font-size:13px; }
   .rail-note, .rail-none, .rail-record, .rail-legend { margin:var(--sp-2) 0; font-size:13px; color:var(--muted); }
@@ -91,7 +95,7 @@ pub(crate) const STYLES: &str = r##"
   .ledger-receipt-link { display:inline-block; min-height:32px; padding:4px 0; font-size:13px; }
   .chip { display:inline-flex; align-items:center; padding:2px var(--sp-2); border:1px solid var(--line); border-radius:var(--radius-xs); font-size:13px; overflow-wrap:anywhere; }
   .chip.status-failed, .chip.decision-deny, .state-aborted { color:var(--error); background:var(--error-soft); }
-  .chip.status-ok, .state-committed { color:var(--accent); background:var(--accent-soft); }
+  .chip.status-ok, .state-committed { color:var(--accent-on-soft); background:var(--accent-soft); }
   .chip.status-running, .state-working { color:var(--muted); background:var(--panel-2); }
   .ledger-spark { display:inline-flex; gap:3px; }
   .ledger-spark i { display:block; width:5px; height:5px; border-radius:50%; background:var(--accent); }

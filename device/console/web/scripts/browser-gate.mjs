@@ -1219,7 +1219,7 @@ async function selectConnectionSection(scope, label) {
   }
   return panel;
 }
-async function renderedAcceptance(label, surface, density, { overlay = false, selector = null, forcedColors = false, cssZoom = 1, expectedMachine = DEVICE.name } = {}) {
+async function renderedAcceptance(label, surface, density, { overlay = false, selector = null, forcedColors = false, cssZoom = 1, expectedMachine = DEVICE.name, requiredText = null } = {}) {
   await page.mouse.move(0, 0);
   await page.waitForTimeout(200); // Finish the existing interaction/sheet transition before reading its paint.
   const focusRoot = selector || (overlay ? '[role="dialog"]' : 'main#main, .login-wrap');
@@ -1229,7 +1229,7 @@ async function renderedAcceptance(label, surface, density, { overlay = false, se
   await page.keyboard.press('Tab');
   await first.focus();
   await first.scrollIntoViewIfNeeded();
-  const { value: facts, evidence: textPaintScope } = await withAuthorPaintScope(page, (authorPaintScope) => page.evaluate(({ surface, density, overlay, selector, expectedMachine, authorPaintScope }) => {
+  const { value: facts, evidence: textPaintScope } = await withAuthorPaintScope(page, (authorPaintScope) => page.evaluate(({ surface, density, overlay, selector, expectedMachine, requiredText, authorPaintScope }) => {
     const visible = (el) => el.getClientRects().length > 0 &&
       el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) &&
       !el.closest('[hidden], [aria-hidden="true"]');
@@ -1656,11 +1656,16 @@ async function renderedAcceptance(label, surface, density, { overlay = false, se
     };
     const lum = (c) => [c.r, c.g, c.b].map((v) => v / 255).map((v) => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4).reduce((sum, v, i) => sum + v * [.2126, .7152, .0722][i], 0);
     const contrast = (a, b) => (Math.max(lum(a), lum(b)) + .05) / (Math.min(lum(a), lum(b)) + .05);
+    const requiredTextPaint = [];
     const lowContrast = text.flatMap((el) => {
       const cs = style(el), pixels = compositePixels(el, rgba(cs.color));
       const ratio = contrast(pixels.foreground, pixels.background);
       const minimum = parseFloat(cs.fontSize) >= 24 || (parseFloat(cs.fontSize) >= 18.6667 && Number(cs.fontWeight) >= 700) ? 3 : 4.5;
-      return ratio + .005 < minimum ? [{ text: el.textContent.trim().slice(0, 50), ratio, minimum }] : [];
+      const sample = { text: el.textContent.trim().slice(0, 50), ratio, minimum };
+      if (requiredText && el.matches(requiredText.selector) && measuredShadowRegions(el, 'text').length) {
+        requiredTextPaint.push({ ...sample, ...pixels });
+      }
+      return ratio + .005 < minimum ? [sample] : [];
     });
     const nonTextContrast = controls.flatMap((el) => {
       const cs = style(el);
@@ -1703,14 +1708,14 @@ async function renderedAcceptance(label, surface, density, { overlay = false, se
       return nodes.map((node) => [role, node, property, want]);
     };
     const whitePlane = (selector) => [
-      ...requiredRole(selector, 'surface', 'backgroundColor', 'rgb(255, 255, 255)'),
-      ...requiredRole(selector, 'border', 'borderTopColor', 'rgb(225, 231, 240)')
+      ...requiredRole(selector, 'surface', 'backgroundColor', 'rgb(251, 249, 244)'),
+      ...requiredRole(selector, 'border', 'borderTopColor', 'rgb(229, 225, 218)')
     ];
     let surfaceRoles;
     if (surface === 'machine' && !overlay && !selector) {
       surfaceRoles = [
         ...whitePlane('.system-section'),
-        ...requiredRole('.system-section .card.system-update', 'system update canvas', 'backgroundColor', 'rgb(244, 247, 251)'),
+        ...requiredRole('.system-section .card.system-update', 'system update canvas', 'backgroundColor', 'rgb(243, 240, 232)'),
         ...['Top', 'Right', 'Bottom', 'Left'].flatMap((side) => requiredRole('.system-section .card.system-update', 'system update border', `border${side}Width`, '0px'))
       ];
     } else if (surface === 'activity' && !overlay && (!selector || root.matches('.activity-inspector'))) {
@@ -1723,20 +1728,22 @@ async function renderedAcceptance(label, surface, density, { overlay = false, se
       ];
     } else {
       surfaceRoles = [
-        ['surface', root.querySelector('.card, .panel') ?? (overlay ? root : null), 'backgroundColor', 'rgb(255, 255, 255)'],
-        ['border', root.querySelector('.card:not(.is-current), .panel'), 'borderTopColor', 'rgb(225, 231, 240)']
+        ['surface', root.querySelector('.card, .panel') ?? (overlay ? root : null), 'backgroundColor', 'rgb(251, 249, 244)'],
+        ['border', root.querySelector('.card:not(.is-current), .panel'), 'borderTopColor', 'rgb(229, 225, 218)']
       ];
     }
+    const secondary = root.querySelector('.hint, .page-description, .page-sub');
+    const selectedRunAge = innerWidth < 640 && secondary?.matches('.runs-row-active .runs-started .hint');
     const roles = [
-      ['canvas', document.body, 'backgroundColor', 'rgb(244, 247, 251)'],
-      ['ink', document.body, 'color', 'rgb(23, 44, 56)'],
-      ['secondary', root.querySelector('.hint, .page-description, .page-sub'), 'color', 'rgb(76, 93, 115)'],
-      ['helper', root.querySelector('.session-card-age, .plugin-path, .token-id code, .audit-age, .fleet-empty'), 'color', 'rgb(96, 113, 139)'],
+      ['canvas', document.body, 'backgroundColor', 'rgb(243, 240, 232)'],
+      ['ink', document.body, 'color', 'rgb(29, 28, 26)'],
+      ['secondary', secondary, 'color', selectedRunAge ? 'rgb(107, 98, 82)' : 'rgb(111, 106, 97)'],
+      ['helper', root.querySelector('.session-card-age, .plugin-path, .token-id code, .audit-age, .fleet-empty'), 'color', 'rgb(107, 98, 82)'],
       ...surfaceRoles,
-      ['accent', root.querySelector('button.primary:not(:disabled)'), 'backgroundColor', 'rgb(37, 89, 204)'],
+      ['accent', root.querySelector('button.primary:not(:disabled)'), 'backgroundColor', 'rgb(180, 69, 31)'],
       ['error', root.querySelector('.error'), 'color', 'rgb(165, 58, 55)'],
-      ['sidebar', rail, 'backgroundColor', 'rgb(255, 255, 255)'],
-      ['sidebar ink', rail, 'color', 'rgb(23, 44, 56)']
+      ['sidebar', rail, 'backgroundColor', 'rgb(251, 249, 244)'],
+      ['sidebar ink', rail, 'color', 'rgb(29, 28, 26)']
     ].filter(([, el]) => el && visible(el)).map(([role, el, property, want]) => ({ role, actual: style(el)[property], want }));
     return { surface, density, forcedColors: forced, reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
       goalFonts: [...root.querySelectorAll('.session-card-goal-text')].filter(visible).map((el) => style(el).fontFamily),
@@ -1745,8 +1752,16 @@ async function renderedAcceptance(label, surface, density, { overlay = false, se
       rail: railRect ? { width: railRect.width / zoom, left: railRect.left / zoom, right: railRect.right / zoom, top: railRect.top / zoom } : null,
       main: { width: main.clientWidth, height: main.clientHeight, left: mainRect.left / zoom, bottom: mainRect.bottom / zoom }, frames, bodyFont: style(document.body).fontFamily, bodySize: style(document.body).fontSize,
       headings, toolHeadings, browserMode: !!main.querySelector('.browser-pane')?.checkVisibility({ checkVisibilityCSS: true }), expectedHeading, navigation, navigationToggle: toggle && visible(toggle), minimumControl,
-      textNodes: text.length, controls: controls.length, paintedTextNodes, paintedControls, short, small, serif, status, meta, roles, lowContrast, nonTextContrast };
-  }, { surface, density, overlay, selector, expectedMachine, authorPaintScope }));
+      textNodes: text.length, controls: controls.length, paintedTextNodes, paintedControls, short, small, serif, status, meta, roles, lowContrast, nonTextContrast,
+      ...(requiredText ? { requiredTextPaint } : {}) };
+  }, { surface, density, overlay, selector, expectedMachine, requiredText, authorPaintScope }));
+  if (requiredText && facts.requiredTextPaint.length !== requiredText.count) {
+    throw new Error(`${label}: expected ${requiredText.count} painted text nodes matching ${requiredText.selector}, got ${JSON.stringify(facts.requiredTextPaint)}`);
+  }
+  if (requiredText?.background && facts.requiredTextPaint.some(({ background }) =>
+    [background.r, background.g, background.b].join(',') !== requiredText.background.join(','))) {
+    throw new Error(`${label}: unexpected background behind ${requiredText.selector}: ${JSON.stringify(facts.requiredTextPaint)}`);
+  }
   if (facts.forcedColors !== forcedColors || facts.cssZoom !== cssZoom) throw new Error(`${label}: measured media/zoom differs from the requested scene: ${facts.forcedColors}/${facts.cssZoom}`);
   if (!overlay && !selector && facts.globalClip.length) throw new Error(`${label}: global horizontal clipping on ${facts.globalClip.join(', ')}`);
   if (facts.documentWidth > facts.viewport + 1) throw new Error(`${label}: document overflows ${facts.documentWidth}/${facts.viewport}`);
@@ -2279,7 +2294,7 @@ try {
     const accentButtons = [...document.querySelectorAll('.page-actions a, .page-actions button')]
       .filter((element) => {
         const style = getComputedStyle(element);
-        return /accent-solid|primary/.test(element.className) || style.backgroundColor === 'rgb(37, 89, 204)';
+        return /accent-solid|primary/.test(element.className) || style.backgroundColor === 'rgb(180, 69, 31)';
       })
       .map((element) => (element.textContent ?? '').trim());
     const style = link ? getComputedStyle(link) : null;
@@ -7500,6 +7515,40 @@ try {
         if (entry.name === 'activity') await inspectActivity(`activity-evidence-${width}`);
       }
     }
+    const selectedWash = [246, 229, 216];
+    for (const width of [390, 1280]) {
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 960 });
+      await openSurface(scene('activity'));
+      await page.locator('.timeline-row button.timeline-line').filter({ hasText: LIVE_CLIENT_TEXT }).click();
+      const activityInspector = page.locator('.activity-inspector:not(.is-empty)');
+      await activityInspector.getByRole('button', { name: 'Manage', exact: true }).click();
+      const managedToken = '.token-table .token-row.is-managed';
+      const tokenSheet = page.getByRole('dialog', { name: 'Tokens', exact: true });
+      await tokenSheet.locator(managedToken).getByRole('button', { name: /gate-laptop/ }).waitFor({ state: 'visible' });
+      await collectRenderedAcceptance(`managed-token-facts-${width}`, 'activity', 'workspace', {
+        overlay: true, requiredText: { selector: `${managedToken} .token-facts`, count: 1, background: selectedWash }
+      });
+      await page.keyboard.press('Escape');
+      await tokenSheet.waitFor({ state: 'detached' });
+      await activityInspector.getByRole('button', { name: 'Close evidence', exact: true }).click();
+
+      await openSurface(scene('memory'));
+      await page.locator('.memory-open').click();
+      const selectedMemory = '.memory-entry-selected';
+      await page.locator(`${selectedMemory} .memory-meta`).waitFor({ state: 'visible' });
+      await collectRenderedAcceptance(`memory-selected-metadata-${width}`, 'memory', 'overview', {
+        selector: selectedMemory, requiredText: { selector: '.memory-meta', count: 1, background: selectedWash }
+      });
+    }
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openSurface(scene('runs'));
+    await page.getByRole('button', { name: 'echo hello', exact: true }).click();
+    const selectedRun = '.runs-row-active';
+    await page.locator(selectedRun).getByRole('button', { name: 'echo hello', exact: true, expanded: true }).waitFor({ state: 'visible' });
+    await page.locator(selectedRun).evaluate((row) => row.scrollIntoView({ block: 'center', behavior: 'instant' }));
+    await collectRenderedAcceptance('runs-selected-card-labels-390', 'runs', 'workspace', {
+      selector: selectedRun, requiredText: { selector: '.runs-fact-label, .runs-started .hint', count: 5, background: selectedWash }
+    });
     // Boundary checks exercise the rail/tab/sheet layout, without replaying the business legs.
     for (const width of [639, 640, 767, 768, 1100, 1101]) {
       await page.setViewportSize({ width, height: 960 });

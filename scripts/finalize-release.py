@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Revision-8 Root finalizer: publish on GitHub, then deliver the same bytes to the same host.
+"""Revision-8 Root finalizer: prove same-host delivery, then publish the same bytes on GitHub.
 
 Revision-8 merges the two halves that review task-114 found unjoined. The bundle that is staged
 and the bundle that the delivery chain reads are now the same bytes: one helper (the revision-8
@@ -279,6 +279,7 @@ def run(c,evidence,api,mirror,verifier,execute=False,phase='finalize',transport=
  def save(name,value):
   with (root/name).open('x') as out:json.dump(value,out,indent=2,sort_keys=True);out.write('\n');out.flush();os.fsync(out.fileno())
  lock=None
+ promotion_attempted=False
  try:
   if phase=='finalize':
    lock=PublicationLock(Path(c.get('publication_lock','')))
@@ -293,15 +294,8 @@ def run(c,evidence,api,mirror,verifier,execute=False,phase='finalize',transport=
   second=api.snapshot(c);validate_authority(c,second,draft=True);save('authority-after-download.json',second)
   need(asset_map(second['release']['assets'])==asset_map(before['release']['assets']),'second authority asset changes')
   if phase=='draft':save('draft-verified.json',{'state':'DRAFT_VERIFIED','published':False,'inventory':pin(draft/'inventory.json')});return {'state':'DRAFT_VERIFIED','published':False,'evidence':str(root)}
-  third=api.snapshot(c);validate_authority(c,third,draft=True);save('authority-before-publish.json',third)
-  published=api.publish(c);need(published.get('id')==c['release_id'] and published.get('draft') is False,'publish API result differs');save('publish.json',{'id':published['id'],'draft':False})
-  public=root/'public';public.mkdir(mode=0o700)
-  for name,info in sorted(draft_pins.items()):
-   raw=api.public_asset(c['proof_base']+'/'+quote(name),info['bytes']);need(sha(raw)==info['sha256'],'public GitHub bytes differ');(public/name).write_bytes(raw)
-  need(verifier.verify(public,'public')==draft_pins,'public signed bundle differs')
-  fourth=api.snapshot(c);validate_authority(c,fourth,draft=False);save('authority-public.json',fourth)
   mirror=mirror(root) if callable(mirror) else mirror
-  save('mirror-stage.json',mirror.stage(public))
+  save('mirror-stage.json',mirror.stage(draft))
   proof=SameHostProof(transport)
   save('same-host-files.json',proof.files(c['artifact_base'],draft_pins))
   native=root/'native';native.mkdir(mode=0o700)
@@ -309,14 +303,22 @@ def run(c,evidence,api,mirror,verifier,execute=False,phase='finalize',transport=
    raw=fetch_public(c['artifact_base']+'/'+quote(name),info['bytes'],transport,native=True);(native/name).write_bytes(raw)
   need(verifier.verify(native,'native')==draft_pins,'same-host signed bundle differs')
   save('same-host-revocations.json',proof.absence(c['artifact_base']+'/revocations.json'))
+  third=api.snapshot(c);validate_authority(c,third,draft=True);save('authority-before-publish.json',third)
+  published=api.publish(c);need(published.get('id')==c['release_id'] and published.get('draft') is False,'publish API result differs');save('publish.json',{'id':published['id'],'draft':False})
+  public=root/'public';public.mkdir(mode=0o700)
+  for name,info in sorted(draft_pins.items()):
+   raw=api.public_asset(c['proof_base']+'/'+quote(name),info['bytes']);need(sha(raw)==info['sha256'],'public GitHub bytes differ');(public/name).write_bytes(raw)
+  need(verifier.verify(public,'public')==draft_pins,'public signed bundle differs')
+  fourth=api.snapshot(c);validate_authority(c,fourth,draft=False);save('authority-public.json',fourth)
   document=public/f'release-{c["version"]}-{c["channel"]}.json'
   receipt={'state':'PUBLIC_BUNDLE_VERIFIED','release_id':c['release_id'],'source_sha':c['source_sha'],'inventory_sha256':c['inventory_sha256']}
+  promotion_attempted=True
   save('pointer-promote.json',mirror.promote(document,c.get('pointer_previous'),receipt))
   save('pointer-public.json',proof.document(c['mapping']['pointer_url'],document.read_bytes()))
   save('result.json',{'state':'PUBLISHED_DELIVERED_AND_POINTER_VERIFIED','source_sha':c['source_sha'],'release_id':c['release_id'],'files':draft_pins,'inventory':pin(public/'inventory.json'),'pointer_last':True})
   return {'state':'PUBLISHED_DELIVERED_AND_POINTER_VERIFIED','evidence':str(root),'pointer_last':True}
- except Refusal as error:save('failure.json',{'state':'STOPPED','reason':str(error),'no_old_files_deleted':True,'pointer_unchanged':True});raise
- except Exception as error:save('failure.json',{'state':'STOPPED','reason':'operation failed: '+type(error).__name__+': '+str(error),'no_old_files_deleted':True,'pointer_unchanged':True});raise Refusal('finalization operation failed: '+type(error).__name__+': '+str(error)) from None
+ except Refusal as error:save('failure.json',{'state':'STOPPED','reason':str(error),'no_old_files_deleted':True,'pointer_unchanged':None if promotion_attempted else True});raise
+ except Exception as error:save('failure.json',{'state':'STOPPED','reason':'operation failed: '+type(error).__name__+': '+str(error),'no_old_files_deleted':True,'pointer_unchanged':None if promotion_attempted else True});raise Refusal('finalization operation failed: '+type(error).__name__+': '+str(error)) from None
  finally:
   if lock is not None:lock.release()
 

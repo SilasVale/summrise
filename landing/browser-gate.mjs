@@ -783,16 +783,16 @@ async function browserGate() {
     assert.ok(result.overflow.every((value) => value !== "hidden" && value !== "clip"), "global clipping cannot mask overflow");
     assert.ok(result.measures.length >= 7, "navigation, story and footer keep independent readable content areas");
     for (const measure of result.measures) assert.ok(measure.width > 0 && measure.x > 0 && measure.right < result.width, `content stays inside its full-width plane: ${JSON.stringify(measure)}`);
-    assert.deepEqual(result.sections.map(({ id, heading }) => [id, heading]), [["hero", "H1"], ["surfaces", "H2"], ["capabilities", "H2"], ["trust", "H2"], ["setup", "H2"], ["download", "H2"]], "one product story with labelled sections and a separate download destination");
+    assert.deepEqual(result.sections.map(({ id, heading }) => [id, heading]), [["hero", "H1"], ["download", "H2"], ["surfaces", "H2"], ["capabilities", "H2"], ["trust", "H2"], ["setup", "H2"]], "labelled sections with the download immediately after the hero");
     for (const plane of result.planes) {
       assert.equal(plane.missing, undefined, `${plane.selector}: required story plane exists`);
       assert.ok(Math.abs(plane.width - result.width) <= 1, `${plane.selector}: full-width story plane`);
       assert.equal(plane.image, "none", `${plane.selector}: readable plane has no background image or gradient`);
     }
     if (!result.forcedColors) {
-      const expected = { body: "rgb(244, 247, 251)", ".masthead": "rgb(255, 255, 255)", ".hero": "rgb(244, 247, 251)", ".product-section": "rgb(255, 255, 255)", ".capabilities-section": "rgba(0, 0, 0, 0)", ".control-section": "rgb(237, 242, 255)", ".setup-section": "rgb(255, 255, 255)", ".download-section": "rgba(0, 0, 0, 0)", ".site-footer": "rgb(255, 255, 255)" };
-      for (const plane of result.planes) assert.equal(plane.background, expected[plane.selector], `${plane.selector}: A3 light plane from the design`);
-      assert.equal(result.planes[0].color, "rgb(23, 44, 56)", "A3 ink on the light canvas");
+      const expected = { body: "rgb(247, 244, 238)", ".masthead": "rgb(255, 255, 255)", ".hero": "rgb(247, 244, 238)", ".product-section": "rgb(255, 255, 255)", ".capabilities-section": "rgba(0, 0, 0, 0)", ".control-section": "rgb(255, 240, 230)", ".setup-section": "rgb(255, 255, 255)", ".download-section": "rgba(0, 0, 0, 0)", ".site-footer": "rgb(255, 255, 255)" };
+      for (const plane of result.planes) assert.equal(plane.background, expected[plane.selector], `${plane.selector}: warm brand plane`);
+      assert.equal(result.planes[0].color, "rgb(23, 22, 26)", "warm ink on the light canvas");
     }
     for (const role of ["guide", "stage", "intro", "proof", "download", "resources"]) assert.ok(result.hierarchy[role]?.width > 0 && result.hierarchy[role].height > 0, `${role}: nonempty product area`);
     for (const [support, primary] of [["guide", "stage"], ["intro", "proof"], ["download", "resources"]]) {
@@ -885,7 +885,8 @@ async function browserGate() {
         assert.ok(focused.outline >= 2 && focused.visible, `visible 2px keyboard focus: ${JSON.stringify(focused)}`);
       }
       for (const id of ["lang-toggle", "dl-installer", "art-installer", "art-doc", "art-sums", "footer"]) assert.ok(reached.has(id), `keyboard reaches ${id}`);
-      await page.locator('.nav-actions a[href="#download"]').focus(); await page.keyboard.press("Enter");
+      const navDownload = page.locator('.nav-links > a:first-child.btn-accent[href="#download"]');
+      await navDownload.focus(); await page.keyboard.press("Enter");
       assert.equal(new URL(page.url()).hash, "#download");
     }));
     for (const lang of ["en", "zh"]) {

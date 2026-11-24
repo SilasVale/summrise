@@ -473,8 +473,10 @@ describe("RunsPage", () => {
       render(<RunsPage grant={GRANT} />);
       fireEvent.click(await screen.findByRole("button", { name: "echo hello" }));
       await screen.findByRole("heading", { name: "Command" });
-      expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest", behavior: "auto" });
-      expect(document.querySelector(".runs-detail")).toHaveFocus();
+      await waitFor(() => {
+        expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest", behavior: "auto" });
+        expect(document.querySelector(".runs-detail")).toHaveFocus();
+      });
     } finally {
       if (originalMedia) Object.defineProperty(window, "matchMedia", originalMedia);
       else delete (window as { matchMedia?: unknown }).matchMedia;
