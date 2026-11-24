@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Summrise Browser</title>
+<link rel="stylesheet" href="host.css">
+</head>
+<body>
+<div class="desktop-frame">
+  <aside class="host-sidebar" aria-label="Desktop tools">
+    <div class="identity"><span class="brand-mark" aria-hidden="true">S</span><span class="identity-word"><strong>Summrise</strong><small>Desktop workspace</small></span></div>
+    <div class="tool-navigation">
+      <p class="nav-label">Workspace tools</p>
+      <div class="tabs" role="tablist" aria-label="Panes" aria-orientation="vertical">
+        <button id="tab-browser" class="tab" role="tab" aria-selected="true" aria-controls="browser-pane" tabindex="0" title="Browser" type="button"><span class="nav-icon" aria-hidden="true">↗</span><span class="tab-label">Browser</span></button>
+        <button id="tab-harness" class="tab" role="tab" aria-selected="false" aria-controls="harness-pane" tabindex="-1" title="Harness" type="button"><span class="nav-icon" aria-hidden="true">⌘</span><span class="tab-label">Harness</span></button>
+      </div>
+    </div>
+    <p class="sidebar-foot">Choose a tool to work with its page in this desktop window.</p>
+  </aside>
+  <div class="workspace-shell">
+    <header class="utility-header"><span>Desktop workspace <span class="breadcrumb-separator" aria-hidden="true">/</span> <strong>Tools</strong></span><span class="utility-note">Summrise</span></header>
+    <p id="bridge-missing" class="notice" role="alert" hidden></p>
+    <main>
+      <section id="browser-pane" class="pane" role="tabpanel" aria-labelledby="tab-browser">
+        <header class="workspace-heading"><div><p class="eyebrow">Page workspace</p><h1>Browser</h1><p class="lede">Navigate a page and keep its controls close to your work.</p></div></header>
+        <div class="work-layout">
+          <div class="viewport-column">
+            <div class="toolbar" role="group" aria-label="Browser page controls">
+              <div class="location-row">
+                <div class="navigation" role="group" aria-label="Browser navigation">
+                  <button id="browser-back" type="button" title="Back" aria-label="Back">&#8592;</button>
+                  <button id="browser-fwd" type="button" title="Forward" aria-label="Forward">&#8594;</button>
+                  <button id="browser-reload" type="button" title="Reload" aria-label="Reload">&#8635;</button>
+                </div>
+                <label class="location-field" for="browser-url">Page address<input id="browser-url" type="text" spellcheck="false" autocomplete="off" placeholder="Enter an address" aria-label="Address"></label>
+                <button id="browser-go" class="primary" type="button">Go</button>
+              </div>
+              <div class="page-actions"><label class="zoom-control" for="browser-zoom">Page zoom<select id="browser-zoom" aria-label="Zoom"><option value="0.9">90%</option><option value="1" selected>100%</option><option value="1.1">110%</option></select></label></div>
+            </div>
+            <div class="stage-heading"><h2>Page viewport</h2></div>
+            <div id="browser-slot" class="slot"></div>
+          </div>
+          <aside class="recovery-panel" aria-label="Browser state and recovery">
+            <section class="support-section"><h2>Page state</h2>
+              <div id="browser-status" class="status" data-state="hidden">
+                <div class="status-summary"><span id="browser-status-state" class="state" role="status" aria-live="polite" aria-atomic="true">hidden</span><span id="browser-status-visibility" class="visibility">View hidden</span></div>
+                <span id="browser-status-title" class="title"></span>
+                <span id="browser-status-url" class="url">(none)</span>
+                <span id="browser-status-detail" class="detail"></span>
+                <div class="retry-context"><button id="browser-retry" type="button" disabled>Retry</button><p class="helper">Retry is available when a page load fails.</p></div>
+              </div>
+            </section>
+            <section class="support-section"><h3>View controls</h3><div class="view-actions" role="group" aria-label="Browser view"><button id="browser-toggle" type="button">Hide</button><button id="browser-recover" type="button">Recover</button></div><p class="helper">Recover reopens the page view at its saved address.</p></section>
+          </aside>
+        </div>
+      </section>
+      <section id="harness-pane" class="pane" role="tabpanel" aria-labelledby="tab-harness" hidden>
+        <header class="workspace-heading"><div><p class="eyebrow">Local tool workspace</p><h1>Harness</h1><p class="lede">Open the configured harness and work in its own page view.</p></div><button id="harness-open" class="primary" type="button">Open</button></header>
+        <div class="work-layout">
+          <div class="viewport-column">
+            <div class="toolbar" role="group" aria-label="Harness page controls">
+              <div class="target-row"><label class="location-field" for="harness-target">Configured harness<select id="harness-target" aria-label="Harness target"></select></label><button id="harness-go" type="button">Go</button><button id="harness-reload" type="button">Reload</button></div>
+            </div>
+            <div class="stage-heading"><h2>Harness viewport</h2></div>
+            <div id="harness-slot" class="slot"></div>
+          </div>
+          <aside class="recovery-panel" aria-label="Harness state and recovery">
+            <section class="support-section"><h2>Page state</h2>
+              <div id="harness-status" class="status" data-state="hidden">
+                <div class="status-summary"><span id="harness-status-state" class="state" role="status" aria-live="polite" aria-atomic="true">hidden</span><span id="harness-status-visibility" class="visibility">View hidden</span></div>
+                <span id="harness-status-title" class="title"></span>
+                <span id="harness-status-url" class="url">(none)</span>
+                <span id="harness-status-detail" class="detail"></span>
+                <div class="retry-context"><button id="harness-retry" type="button" disabled>Retry</button><p class="helper">Retry is available when a page load fails.</p></div>
+              </div>
+            </section>
+            <section class="support-section"><h3>View controls</h3><div class="view-actions" role="group" aria-label="Harness view"><button id="harness-toggle" type="button">Hide</button><button id="harness-recover" type="button">Recover</button></div><p class="helper">Recover reopens the configured harness page.</p></section>
+          </aside>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+<script src="host.js"></script>
+</body>
+</html>

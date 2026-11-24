@@ -28,6 +28,11 @@ pub(crate) fn decode_64(hex: &str) -> Option<[u8; 64]> {
     raw.try_into().ok()
 }
 
+/// Decode lowercase or uppercase hex of any even length: the grant header is one such blob.
+pub(crate) fn decode_bytes(text: &str) -> Option<Vec<u8>> {
+    decode(text)
+}
+
 fn decode(hex: &str) -> Option<Vec<u8>> {
     let digits = hex.as_bytes();
     if !digits.len().is_multiple_of(2) {

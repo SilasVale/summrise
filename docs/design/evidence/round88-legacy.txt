@@ -1,0 +1,12 @@
+The legacy React panel, captured from the installed app on 9VH (CDP Page.navigate + /screenshot.png)
+  round88-legacy-empty.png     /desktop/ — icon rail, Terminal page, empty state, footer "connecting…"
+  round88-legacy-terminal.png  /desktop/ with a live session — PowerShell, tabs Terminal/Timeline/Steps/
+                               Session, chips "Take control" / "Set a goal" / "Ask before each command",
+                               footer 127.0.0.1:50696 · 1 session · v2.0.0
+
+Surface facts for the redesign:
+  - warm-neutral cards (#fff) on a light gray page, accent orange (#e8622c family) — the transcript's
+    new system is cool-gray with #c2410c;
+  - icon-only rail (no labels), 14px radius cards, empty-state card floats in the middle;
+  - type is system sans, but sizes/weights differ from the transcript's scale;
+  - its source is not in this repo, so matching means a theme layer the shim injects.

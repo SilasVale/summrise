@@ -1,0 +1,102 @@
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { DeviceSelfView } from "./DeviceSelfView";
+import { callTool, type Grant } from "./terminal";
+
+vi.mock("./terminal", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./terminal")>();
+  return { ...actual, callTool: vi.fn() };
+});
+
+const mocked = vi.mocked(callTool);
+const GRANT: Grant = { deviceId: "device-1", envelope: { token: "envelope" } };
+
+/// `state.get`'s answer, read from the LIVE device 2026-11-12: health and release beside the last events it recorded.
+const LIVE = {
+  status: "ok",
+  release: "0.3.292",
+  pid: 4242,
+  state: { anything: true },
+  events: [
+    { event: "begin", id: 987, tool: "plugins.list", decision: "allow", transport: "console", ts_ms: 1_794_477_517_671 },
+    { event: "end", id: 987, ok: true, transport: "console", ts_ms: 1_794_477_517_672 }
+  ]
+};
+
+beforeEach(() => { mocked.mockReset(); });
+
+describe("DeviceSelfView — what the machine says about itself", () => {
+  it("reads once when shown, then draws the health line and its events", async () => {
+    mocked.mockResolvedValue(JSON.stringify(LIVE));
+    render(<DeviceSelfView grant={GRANT} />);
+    await waitFor(() => expect(screen.getByText(/release 0\.3\.292/)).toBeInTheDocument());
+    expect(mocked).toHaveBeenCalledWith(GRANT, "state.get", {});
+    expect(screen.getByText("begin plugins.list")).toBeInTheDocument();
+    expect(screen.getByText(/console · ok/)).toBeInTheDocument();
+    expect(screen.getByText(/allow · console/)).toBeInTheDocument();
+  });
+
+  it("reads the NESTED health the shipped device answers with", async () => {
+    // Measured live 2026-11-12: 0.3.292 answers {health: {pid, poisoned, status, version}, state, events} and the page drew
+    // `unknown` beside ten real events.
+    mocked.mockResolvedValue(
+      JSON.stringify({ health: { pid: 20072, poisoned: false, status: "ok", version: "0.3.292" }, state: {}, events: [] })
+    );
+    render(<DeviceSelfView grant={GRANT} />);
+    await waitFor(() => expect(screen.getByText(/release 0\.3\.292/)).toBeInTheDocument());
+    expect(screen.getByText(/pid 20072/)).toBeInTheDocument();
+    expect(screen.queryByText(/unknown/)).toBeNull();
+  });
+
+  it("draws a poisoned document as a degradation, not as an error", async () => {
+    mocked.mockResolvedValue(
+      JSON.stringify({ status: "degraded", release: "0.3.292", pid: 7, state: null, events: [] })
+    );
+    render(<DeviceSelfView grant={GRANT} />);
+    await waitFor(() =>
+      expect(screen.getByText(/its state document could not be read/)).toBeInTheDocument()
+    );
+    expect(screen.getByText("The machine has recorded no events yet.")).toBeInTheDocument();
+  });
+
+  it("drops the previous machine's record when the next selection is offline", async () => {
+    mocked.mockResolvedValue(JSON.stringify(LIVE));
+    const view = render(<DeviceSelfView grant={GRANT} online />);
+    await screen.findByText(/release 0\.3\.292/);
+    const next: Grant = { deviceId: "device-2", envelope: { token: "next-envelope" } };
+    view.rerender(<DeviceSelfView grant={next} online={false} />);
+    expect(screen.queryByText(/release 0\.3\.292/)).not.toBeInTheDocument();
+    expect(screen.getByText(/offline, so its own record cannot be read/)).toBeInTheDocument();
+    expect(mocked).toHaveBeenCalledTimes(1);
+  });
+
+  it("invalidates an unfinished own-record read when the machine disconnects", async () => {
+    let finish!: (value: string) => void;
+    mocked.mockReturnValue(new Promise<string>((resolve) => { finish = resolve; }));
+    const view = render(<DeviceSelfView grant={GRANT} online />);
+    view.rerender(<DeviceSelfView grant={GRANT} online={false} />);
+    await act(async () => { finish(JSON.stringify(LIVE)); });
+    expect(screen.queryByText(/release 0\.3\.292/)).not.toBeInTheDocument();
+    expect(screen.getByText(/offline, so its own record cannot be read/)).toBeInTheDocument();
+    expect(mocked).toHaveBeenCalledTimes(1);
+  });
+
+  it("retains the last record offline and disables another read", async () => {
+    mocked.mockResolvedValue(JSON.stringify(LIVE));
+    const view = render(<DeviceSelfView grant={GRANT} online />);
+    await screen.findByText(/release 0\.3\.292/);
+    view.rerender(<DeviceSelfView grant={GRANT} online={false} />);
+    expect(screen.getByText("begin plugins.list")).toBeInTheDocument();
+    const read = screen.getByRole("button", { name: "Read again" });
+    expect(read).toBeDisabled();
+    fireEvent.click(read);
+    expect(mocked).toHaveBeenCalledTimes(1);
+  });
+
+  it("says a refused read in the device's words and offers the retry", async () => {
+    mocked.mockResolvedValueOnce(JSON.stringify({ ok: false, error: "state is unreadable" }));
+    render(<DeviceSelfView grant={GRANT} />);
+    await waitFor(() => expect(screen.getByText(/state is unreadable/)).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+  });
+});

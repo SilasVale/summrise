@@ -1,3 +1,14 @@
+# THE FACTS A TREE CANNOT SHOW (moved here when AGENTS.md was deleted, 2026-11-12):
+#   · PASS LINES DIFFER PER SUITE. cargo: `test result: ok. N passed`; gateway `npm test`: `ℹ pass N`;
+#     panel-react `npx vitest run`: `Tests N passed`. Grep the wrong line and a silent suite looks green.
+#   · WINDOWS IS THE TARGET. The lifecycle suite runs on `windows-latest` only; on Linux
+#     `cargo xwin check --workspace --target x86_64-pc-windows-msvc` is a compile check, not execution proof.
+#   · THE PAGE'S LOOK IS CHECKED BY EYE AS WELL AS BY GATE: `node device/console/web/scripts/screenshot.mjs <tag>`
+#     writes light/dark/390 renders to /tmp/console-react-shot/<tag>/ — look at them.
+#   · THE DISK IS THE CONSTRAINT (one HDD). `device/target` grows after a full run; clean it.
+#   · THE PAGE'S PURE DECISIONS ARE RUST-RUN. `cargo test --manifest-path device/console-logic/Cargo.toml` and
+#     `node scripts/check-console-logic.mjs` — the wasm artifact is committed and the check fails when it is stale.
+
 name: ci
 
 on:
@@ -16,25 +27,226 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      # THE LAYERING GATE IS NODE, NOT CARGO (I8/S5). This job had no Node setup because every other
+      # step is Rust; the gate reads `cargo metadata --no-deps` and needs both tools. Node 22 is the
+      # console-web job's version, so the workflow has one Node line rather than two.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.98.1
+      # **THE GATE RUNS BEFORE THE CACHE AND ANY BUILD.** `cargo metadata --no-deps` reads manifests
+      # only: no registry, no lockfile, no compilation. An upward edge fails in seconds and by name,
+      # instead of after forty-five minutes of tests.
+      - name: dependencies point one way
+        run: node scripts/check-architecture.mjs
+      - name: the device UI behavior regressions
+        timeout-minutes: 5
+        run: node --test scripts/device-ui-a11y.test.mjs scripts/device-terminal.test.mjs scripts/device-activity.test.mjs scripts/device-ui-browser.test.mjs
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: device
       # **THE STEPS NAME THE WORKSPACE BY `--manifest-path` RATHER THAN `working-directory: device`.**
-      # `scripts/test/all-gates.bash` derives every bare `cargo test/clippy/fmt` line out of this file
-      # and runs it from `agent/` (its runner was built for the agent's workspace); a command that
-      # names its manifest is the exemption that runner already honours, and it runs from the repo
-      # root, where `device/Cargo.toml` resolves. `working-directory: device` would make this job pass
-      # here and the scheduled all-gates run fail there — the two ends disagreeing, which is the one
-      # thing that script exists to prevent.
+      # A command that resolves its own manifest runs the same from the repository root, from
+      # `device/`, or from a script that stands somewhere else — which is what keeps a local run and
+      # this job from drifting apart. `working-directory: device` would make the command correct only
+      # in this file, and the same command pasted into a terminal would fail.
       - name: the device workspace (unit tests)
-        run: cargo test --manifest-path device/Cargo.toml -p summrise-core -p summrise-device -p summrise-launch -p summrise-mesh -p summrise-release -p summrise-console -p summrise-winsec
+        run: cargo test --manifest-path device/Cargo.toml -p summrise-core -p summrise-protocol -p summrise-record -p summrise-bus -p summrise-plugin-host -p summrise-console-page -p summrise-device -p summrise-launch -p summrise-mesh -p summrise-release -p summrise-console -p summrise-ui -p summrise-winsec -p summrise-winsys -p summrise-shell
+      - name: the complete signed release bundle regressions
+        env:
+          SUMMRISE_RELEASE_TEST_SIGNER: ${{ github.workspace }}/device/target/debug/summrise-release
+          SUMMRISE_RELEASE_TEST_ROOT: ${{ runner.temp }}/release-bundle-tests
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python3 scripts/test-stage-release-bundle.py
+      # **PHASE 2'S FLOOR, RUN RATHER THAN UNIT-TESTED.** The same binary the Windows service runs
+      # starts with a throwaway install/data pair and serves `/api/health` and its panel on Linux.
+      # The Windows job still owns the service, installer and swap; this owns "the portable half
+      # boots", which no test that only calls functions can prove.
+      - name: the device core serves on Linux
+        run: ./scripts/device-unix-smoke.sh
+      # **THE PRODUCT LOOP, NOT A UNIT TEST.** The smoke above proves the device boots; this one adds
+      # the console binary, the panel's meta token, an MCP initialize/tools/list/tools/call over
+      # streamable HTTP, the audit lines for that call and the journal's device.started. It catches
+      # wiring that the in-process tests cannot, and it is the same script a developer runs locally.
+      - name: the product loop, the real binaries
+        run: ./scripts/smoke-local.sh
+      # **THE OPERATOR'S LOOP, WHICH NO UNIT TEST OWNS.** This enrolls a real device into a real
+      # console through the one-time code, mints a token, calls host.facts through the console's
+      # /mcp/<device>, and reads the call out of both audits — the journey §11 describes, executed.
+      - name: the operator loop, enrol and call through the console
+        run: ./scripts/smoke-enroll.sh
+      # The systemd unit is what makes that binary a service; verify its syntax and ExecStart with
+      # the binary this job just built, without root or a running systemd.
+      - name: the Linux service unit is valid
+        run: ./scripts/verify-linux-unit.sh
+      # The macOS LaunchDaemon is the other half of the service adapter; its plist is XML and its
+      # required keys are checkable on Linux.
+      - name: the macOS LaunchDaemon plist is valid
+        run: ./scripts/verify-macos-plist.sh
+      # The browser pack is a product asset on every platform. This checks the Unix installer's
+      # layout with a fake archive; the Windows installer has its own BROWSER_SOURCE path.
+      - name: the browser pack installer lays out current
+        run: ./scripts/test-browser-pack-install.sh
+      # THE CONSOLE DEPLOY'S FIRST STEP IS THE HOST DEVICE'S DOOR. The fetch and the swap are
+      # `runs.exec` calls on DESKTOP-9VH92BJ, so an offline device stops a console deploy even
+      # though the console serves its page. The script must refuse by name before it builds, not
+      # after a full build ends in a bare `HTTP Error 503`. The loopback stub touches no real
+      # console or device.
+      - name: the console deploy refuses a closed host door
+        run: ./scripts/test-console-deploy-preflight.sh
+
+      # The console page's pure decisions are a Rust crate outside the device workspace (its
+      # artifact is wasm). Its parity tests are Rust, so they run here rather than in a JS job.
+      - name: the console logic's Rust tests
+        run: |
+          cargo fmt --manifest-path device/console-logic/Cargo.toml -- --check
+          cargo test --manifest-path device/console-logic/Cargo.toml
       - name: the device workspace formats
         run: cargo fmt --manifest-path device/Cargo.toml --all -- --check
       - name: the device workspace is clippy-clean
-        run: cargo clippy --manifest-path device/Cargo.toml -p summrise-core -p summrise-device -p summrise-launch -p summrise-mesh -p summrise-release -p summrise-console -p summrise-winsec --all-targets -- -D warnings
+        run: cargo clippy --manifest-path device/Cargo.toml -p summrise-core -p summrise-protocol -p summrise-record -p summrise-bus -p summrise-plugin-host -p summrise-console-page -p summrise-device -p summrise-launch -p summrise-mesh -p summrise-release -p summrise-console -p summrise-ui -p summrise-winsec -p summrise-winsys -p summrise-shell --all-targets -- -D warnings
+
+      # **A FORWARD IS A RULE, AND THE ONLY HONEST PROOF OF A FORWARDED CHANNEL IS A REAL sshd.**
+      # `capabilities::forward`'s unit tests drive an IN-PROCESS SSH server, and that fixture cannot
+      # be the authority for a forwarded channel's byte order (measured: with the fixture dialling
+      # nothing and replying nothing, a client still read its own bytes back, which a real sshd does
+      # not do). This step starts the runner's own sshd on a throwaway port with its own host key and
+      # its own authorized_keys, and drives `device/tests/forward_wire.rs` against it — the rule
+      # binds, `forward.list` reports it listening, an HTTP answer crosses the SSH connection byte for
+      # byte, and `forward.remove` closes the listener.
+      #
+      # IT IS `--ignored`, NOT CONDITIONALLY SKIPPED (I8): the test needs an sshd it did not start,
+      # and this step is what satisfies that. Deleting this step turns the test into a silent skip
+      # instead of a red, which is why the step exists rather than a `#[ignore]` nothing runs.
+      - name: a forward rule carries a real answer through a real sshd
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/forward"
+          rm -rf "$work"
+          mkdir -p "$work/keys"
+          ssh-keygen -q -t ed25519 -N '' -f "$work/hostkey"
+          ssh-keygen -q -t ed25519 -N '' -f "$work/client"
+          cp "$work/client.pub" "$work/keys/authorized_keys"
+          chmod 700 "$work/keys"
+          chmod 600 "$work/keys/authorized_keys"
+          port=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')
+          cat > "$work/sshd_config" <<CONF
+          Port $port
+          ListenAddress 127.0.0.1
+          HostKey $work/hostkey
+          PidFile $work/sshd.pid
+          AuthorizedKeysFile $work/keys/authorized_keys
+          PubkeyAuthentication yes
+          PasswordAuthentication no
+          AllowTcpForwarding yes
+          StrictModes no
+          UsePAM no
+          CONF
+          /usr/sbin/sshd -f "$work/sshd_config" -E "$work/sshd.log"
+          trap 'kill "$(cat "$work/sshd.pid" 2>/dev/null)" 2>/dev/null || true' EXIT
+          SUMMRISE_FORWARD_VIA="$(whoami)@127.0.0.1:$port" \
+            SUMMRISE_FORWARD_KEY="$work/client" \
+            cargo test --manifest-path device/Cargo.toml -p summrise-device --test forward_wire \
+              -- --ignored --nocapture
+
+      # **EVERY `#[ignore]` IS EITHER NAMED BY A STEP HERE OR SAYS `manual`.** The convention (I8) is
+      # that a test which needs something this workspace cannot provide is `#[ignore]`d AND run by
+      # exact name, "so deleting the CI step turns the proof red instead of silently green" — but
+      # nothing checked the two halves against each other. A `#[ignore]` with a reason nobody wired is
+      # a test that never runs and never complains, and this gate reads the tree for them.
+      - name: every ignored test has a runner
+        run: cargo test --manifest-path device/Cargo.toml -p summrise-device --test ignored_tests_have_a_runner
+
+      # The panel is the device's own page, and it is the only surface a person sees without the
+      # console; it gets the same measurement.
+      - name: the device panel fits the window
+        run: |
+          export SUMMRISE_PANEL_DIR="$RUNNER_TEMP/panel-pages"
+          rm -rf "$SUMMRISE_PANEL_DIR"
+          mkdir -p "$SUMMRISE_PANEL_DIR"
+          cargo test --quiet --manifest-path device/Cargo.toml -p summrise-device --bin summrise-device -- --ignored render_panel_for_review
+          node scripts/layout-gate.mjs "$SUMMRISE_PANEL_DIR" 390 1280
+
+      # The device pages and their interactions use the runner's Node and Chrome, like the panel
+      # gate above. The ignored Rust test owns its loopback fixture; missing tools fail the gate.
+      - name: the device UI passes browser acceptance
+        timeout-minutes: 10
+        env:
+          SUMMRISE_DEVICE_UI_OUT: ${{ runner.temp }}/device-ui-browser-acceptance
+        run: cargo test --manifest-path device/Cargo.toml -p summrise-device --bin summrise-device device_ui_browser_acceptance -- --ignored --nocapture
+      - name: the device UI browser evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: device-ui-browser-acceptance
+          path: ${{ runner.temp }}/device-ui-browser-acceptance
+          if-no-files-found: error
+          retention-days: 7
+
+  device-macos:
+    name: device (macOS smoke, provisional)
+    runs-on: macos-latest
+    timeout-minutes: 45
+    # **PROVISIONAL UNTIL THERE IS A GREEN RUN.** The code paths are `cfg(unix)` and the unit and
+    # smoke are shared with Linux, but this project has not executed on macOS yet. The job is here to
+    # produce the first evidence, not to claim it; it does not block a merge while that is true.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+      - name: build the device for macOS
+        run: cargo build --manifest-path device/Cargo.toml -p summrise-device
+      - name: the core serves on macOS
+        run: ./scripts/device-unix-smoke.sh
+
+  console-web:
+    name: console web (the React page)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: device/console/web/package-lock.json
+      - name: install the page's build dependencies
+        working-directory: device/console/web
+        run: npm ci
+      # The gate is a browser proof, not a jsdom one; the browser is installed explicitly so the
+      # cache does not have to carry it and the version is the one package-lock pins.
+      - name: install the browser the gate drives
+        working-directory: device/console/web
+        run: npx playwright install --with-deps chromium
+      # THE LOGIC IS RUST, AND ITS ARTIFACT IS COMMITTED. This check needs only Node: it recomputes
+      # the source stamp and decodes the inlined base64 back to the committed wasm, so a source edit
+      # with no rebuild fails here. `build-web.sh --check` runs it again; this step names the failure.
+      - name: the wasm logic matches its sources
+        run: node scripts/check-console-logic.mjs
+      - name: the page typechecks
+        working-directory: device/console/web
+        run: npm run typecheck
+      # **THE JSDOM SUITE IS A REQUIRED GATE.** Its tests assert the markup, labels and component
+      # decisions that typecheck cannot see (an empty state's sentence, a rename that must not
+      # freeze a generated label). Run it before the build check so a red suite fails on its own
+      # name, not as a stale page.
+      - name: the page's suite
+        working-directory: device/console/web
+        run: npm test
+      # The page is embedded in the console binary with include_str!, so a source change that does
+      # not update dist/index.html still compiles and still ships yesterday's UI. This is the gate.
+      - name: the committed page is this source
+        run: ./scripts/build-web.sh --check
+      # SIGN IN → DEVICE → PTY → MARKER → CONNECT → TOKENS. The `/mcp` answer is an echo, not a
+      # shell; the gate fails on any console error, which is how the missing saved-connections stub
+      # was found.
+      - name: sign in, open a pty, read the marker back, and count the token rows
+        working-directory: device/console/web
+        run: npm run gate:browser
 
   device-windows:
     name: device (the Windows lifecycle)
@@ -63,15 +275,31 @@ jobs:
       # side of that trade.
       - name: build the binaries the lifecycle test drives
         run: cargo build --manifest-path device/Cargo.toml --workspace
-      # THE SUITE IS SPLIT SO A HANG NAMES ITS BINARY. A test process that never exits used to
-      # hold the whole job for its 45-minute ceiling with no way to tell which suite it was; two
-      # steps and a per-step timeout turn that into a red step with the suite in its name.
-      - name: the device workspace (unit tests, everything but the launcher)
+      # **THE PORTABLE HALF RUNS ONCE.** The Linux `device` job already runs core, console, mesh and
+      # release; repeating them here was a second copy of the same tests on a slower runner. Windows
+      # runs the crates whose behaviour is OS-specific (ConPTY/serial, ACLs, sessions/tray) and the
+      # lifecycle below, which is the only proof of the service, installer and update swap.
+      - name: the Windows-specific crates
         timeout-minutes: 20
-        run: cargo test --manifest-path device/Cargo.toml --workspace --exclude summrise-launch
-      - name: the launcher's unit tests
-        timeout-minutes: 10
-        run: cargo test --manifest-path device/Cargo.toml -p summrise-launch --lib
+        run: cargo test --manifest-path device/Cargo.toml -p summrise-device -p summrise-winsec -p summrise-winsys -p summrise-shell
+      # **THE LINUX JOB CANNOT SEE A TEST THAT DOES NOT COMPILE ON WINDOWS.** `device`'s tests are
+      # `cfg(unix)` in places and plain elsewhere, and the code paths are shared: a
+      # `use std::os::unix::…` written without the gate compiles on Linux, refuses on Windows, and
+      # turns THIS job red for a file the Linux job called green. That is what found the two in
+      # `capabilities::forward` before the first Windows run would have.
+      #
+      # **IT RUNS ON THIS RUNNER, NATIVELY — NOT AS A LINUX CROSS-BUILD.** The command it replaces was
+      # `cargo check --target x86_64-pc-windows-msvc`, which cannot work from Linux without
+      # `cargo-xwin` (ring's cc build), and that is why the cross-check was done by hand here and not
+      # in CI. On `windows-latest` no target is needed at all: `--all-targets` on the host IS the
+      # check the Linux job cannot perform. `device` declares no `[[bench]]` or `[[example]]`, so this
+      # adds nothing to the `cargo test` above it beyond the honest label.
+      - name: the device crate's tests are compiled on Windows too
+        run: cargo check --manifest-path device/Cargo.toml -p summrise-device --all-targets
+      # **THE LAUNCHER'S UNIT TESTS RUN UNKEYED, AT THE END.** They sign their fixtures with a
+      # fixed seed and verify against the key this build embedded; in a keyed build the fixture
+      # signature cannot match that key, so they belong to the placeholder build beside the
+      # fail-closed test. (They were run here and were red on Windows for exactly that reason.)
       # THE LIFECYCLE, IN ONE PROCESS. It hung here on 2026-10-21 after its first test printed
       # `ok`; the cause was `Command::output()` waiting for a pipe that a restored app inherited,
       # fixed on 2026-10-22 (`72e24bfe`). The shared-process run is green again (verified by the
@@ -109,4 +337,21 @@ jobs:
           unset SUMMRISE_LAUNCHER_PUBKEY SUMMRISE_RELEASE_PUBKEY
           cargo clean --manifest-path device/Cargo.toml -p summrise-launch -p summrise-device
           cargo build --manifest-path device/Cargo.toml --workspace
+          cargo test --manifest-path device/Cargo.toml -p summrise-launch --lib
           cargo test --manifest-path device/Cargo.toml -p summrise-launch --test windows_lifecycle -- --ignored --exact a_build_without_a_release_key_refuses_updates_by_name --nocapture
+
+  landing:
+    name: landing (one page, two languages, measured contrast)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      # NO `setup-node`: the page's gate uses only `node:` builtins, and the runner's own Node is
+      # enough. The command below is the same one a person runs locally — a local check that is not
+      # CI's check is not the same check.
+      - name: the page, its two languages, its contrast and its social card
+        run: node landing/check.mjs
+      # The same measurement the console's pages get: at a phone's width the front door must not
+      # scroll sideways, and it must keep one h1.
+      - name: the page fits a phone
+        run: node scripts/layout-gate.mjs landing/public 390 768 1280

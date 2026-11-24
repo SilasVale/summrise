@@ -1,0 +1,110 @@
+/* A3 fleet geometry. Palette, type, controls and shared dashboard planes belong to the theme. */
+.home-page .home-section-heading { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: var(--sp-3); margin: 0 0 var(--sp-4); }
+.home-page .home-section-heading h2 { margin: 0; }
+.home-page .home-fleet-verdict { margin: var(--sp-1) 0 0; }
+.home-dashboard .dashboard-main { display: grid; align-content: start; gap: var(--sp-5); }
+.home-dashboard .dashboard-aside { display: grid; align-content: start; gap: var(--sp-5); }
+.home-dashboard .machine-work-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); gap: var(--sp-4); }
+.home-dashboard .machine-work-card { min-width: 0; gap: var(--sp-4); }
+.home-dashboard .machine-work-card header { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--sp-3); }
+.home-dashboard .machine-work-card h3 { min-width: 0; overflow-wrap: anywhere; }
+.home-dashboard .machine-work-icon { display: grid; place-items: center; width: 40px; height: 40px; }
+.home-dashboard .machine-work-presence { margin: 0; overflow-wrap: anywhere; }
+.home-dashboard .machine-work-facts > div { gap: var(--sp-1) var(--sp-3); }
+.home-dashboard .machine-work-card footer { gap: var(--sp-2); justify-content: space-between; }
+.home-dashboard .machine-summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--sp-3); }
+.home-dashboard .machine-summary-identity { display: grid; gap: var(--sp-1); min-width: 0; }
+.home-dashboard .machine-summary-name { overflow-wrap: anywhere; }
+.home-dashboard .machine-summary-counts { max-width: 100%; white-space: normal; }
+.home-dashboard .machine-summary-actions { justify-content: flex-end; grid-column: 2; grid-row: 1 / span 3; }
+.home-dashboard .machine-summary-who { grid-column: 1; }
+.home-dashboard .attention-body { min-width: 0; flex: 1 1 10rem; }
+.home-dashboard .attention-row { align-items: flex-start; padding-inline: 0; gap: var(--sp-2); }
+.home-dashboard .attention-list { max-height: 28rem; overflow: auto; }
+.home-dashboard .attention-clear-line { flex-wrap: wrap; align-items: flex-start; }
+.home-dashboard .attention-clear-line .hint { flex-basis: 100%; }
+.home-page .home-setup { min-width: 0; }
+.home-page .home-setup > .hint { margin: 0; }
+.home-page .home-setup .installer.installer-strip { display: grid; gap: var(--sp-3); min-width: 0; }
+.home-page .home-setup .installer-strip .hint { margin: 0; overflow-wrap: anywhere; }
+.home-page .home-setup .installer-strip .btn { width: 100%; white-space: normal; }
+.home-page .home-pulse { display: grid; gap: var(--sp-3); min-width: 0; }
+.home-page .home-pulse:empty { display: none; }
+.home-page .home-pulse > * { margin: 0; min-width: 0; max-width: var(--measure); }
+.home-page .home-services { overflow-wrap: anywhere; }
+.home-page .fleet-inventory { gap: var(--sp-4); }
+.home-page .fleet-toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--sp-4); }
+.home-page .fleet-search { display: grid; gap: var(--sp-2); flex: 1 1 16rem; min-width: 0; }
+.home-page .fleet-search input { width: 100%; }
+.home-page .fleet-status-filters { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.home-page .fleet-results { margin: 0; }
+.home-page .fleet-table-wrap { overflow: visible; min-width: 0; }
+.home-page .fleet-table { table-layout: fixed; }
+.home-page .fleet-open { position: static; inset: auto; width: 100%; padding: 0; }
+.home-page .fleet-name { min-width: 0; white-space: normal; overflow: visible; overflow-wrap: anywhere; text-overflow: clip; }
+.home-page .fleet-chevron { flex: none; margin-left: auto; }
+.home-page .fleet-table td.fleet-status { display: table-cell; white-space: normal; }
+.home-page .fleet-presence { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
+.home-page .fleet-state { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+.home-page .fleet-failed { margin-top: var(--sp-1); max-width: 100%; }
+.home-page .fleet-verdict { white-space: normal; overflow: visible; overflow-wrap: anywhere; text-overflow: clip; }
+.home-page .enroll { padding: var(--sp-5); margin: 0; gap: var(--sp-4); }
+.home-page .enroll-head { align-items: baseline; justify-content: space-between; gap: var(--sp-2) var(--sp-4); }
+.home-page .enroll .code { margin: 0; min-width: 0; }
+.home-page .enroll-actions { margin-left: 0; }
+.home-page .enroll-instructions { max-width: var(--measure); }
+
+.overview-page { display: grid; gap: var(--sp-5); }
+.overview-page .overview-main { display: grid; align-content: start; gap: var(--sp-5); }
+.overview-page .overview-head { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); }
+.overview-page .overview-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: var(--sp-4); }
+.overview-page .overview-facts > div { flex-direction: column; align-items: flex-start; justify-content: flex-start; padding: 0 0 var(--sp-3); gap: var(--sp-2); }
+.overview-page .overview-facts dd { margin: 0; max-width: 100%; text-align: left; }
+.overview-page .overview-facts .hint { margin: 0; }
+.overview-page .overview-facts .counts-line { max-width: 100%; white-space: normal; }
+.overview-page .overview-head .overview-start { margin-left: 0; text-align: left; gap: var(--sp-2); }
+.overview-page .overview-start:empty { display: none; }
+.overview-page .overview-head .started-line { margin: 0; }
+.overview-page .device-overview-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(14rem, 0.42fr); align-items: start; gap: var(--sp-5); }
+.overview-page .overview-quick-work { display: grid; gap: var(--sp-4); min-width: 0; }
+.overview-page .overview-quick-work .overview-doors { display: grid; grid-template-columns: minmax(0, 1fr); margin: 0; gap: var(--sp-3); }
+.overview-page .overview-door { align-content: start; gap: var(--sp-2); }
+.overview-page .live-now { display: grid; grid-template-columns: minmax(0, 1fr) minmax(7rem, 0.4fr); align-items: center; gap: var(--sp-3); }
+.overview-page .live-now-head { flex-direction: column; align-items: flex-start; gap: var(--sp-2); }
+.overview-page .live-now-verdict { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-1) var(--sp-3); }
+.overview-page .live-spark { margin: 0; }
+.overview-page .live-running { grid-column: 1 / -1; min-width: 0; }
+.overview-page .live-running .live-sentence { white-space: normal; overflow-wrap: anywhere; }
+.picker.fleet-picker li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; min-width: 0; }
+.fleet-picker .picker-machine { display: grid; gap: var(--sp-1); min-width: 0; }
+.fleet-picker .picker-machine strong { min-width: 0; overflow-wrap: anywhere; }
+.fleet-picker .picker-details { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-1) var(--sp-2); }
+@media (max-width: 1000px) {
+  .overview-page .device-overview-grid { grid-template-columns: minmax(0, 1fr); }
+  .overview-page .overview-quick-work .overview-doors { grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); }
+}
+@media (max-width: 639px) {
+  .home-dashboard .machine-summary { grid-template-columns: minmax(0, 1fr); }
+  .home-dashboard .machine-summary-actions { grid-column: auto; grid-row: auto; justify-content: flex-start; }
+  .home-page .fleet-status-filters { width: 100%; }
+  .overview-page .live-now { grid-template-columns: minmax(0, 1fr); }
+}
+@container fleet-table (max-width: 639px) {
+  .home-page .fleet-table { table-layout: auto; }
+  .home-page .fleet-open::after { content: ""; position: absolute; inset: 0; border-radius: var(--radius-sm); }
+  .home-page .fleet-failed { position: relative; z-index: 1; }
+  .home-page .fleet-table td.fleet-status { display: block; }
+}
+
+/* Respond to actual component width, including CSS zoom within a desktop viewport. */
+.home-dashboard { container: home-dashboard / inline-size; }
+.overview-page { container: overview-page / inline-size; }
+@container home-dashboard (max-width: 40rem) {
+  .home-dashboard .dashboard-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@container overview-page (max-width: 36rem) {
+  .overview-page .device-overview-grid { grid-template-columns: minmax(0, 1fr); }
+  .overview-page .overview-quick-work .overview-doors {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+  }
+}

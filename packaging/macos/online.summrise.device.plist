@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>online.summrise.device</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/summrise/summrise-device</string>
+        <string>--install</string>
+        <string>/opt/summrise</string>
+        <string>--data</string>
+        <string>/var/lib/summrise</string>
+        <string>--port</string>
+        <string>18090</string>
+    </array>
+    <key>UserName</key>
+    <string>_summrise</string>
+    <key>GroupName</key>
+    <string>_summrise</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/var/log/summrise-device.log</string>
+    <key>StandardErrorPath</key>
+    <string>/var/log/summrise-device.log</string>
+    <key>ProcessType</key>
+    <string>Interactive</string>
+</dict>
+</plist>

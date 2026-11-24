@@ -99,7 +99,13 @@ impl DeviceLock {
     /// The lock is tried without blocking: waiting would turn a misconfiguration into a hang, and
     /// the operator asking for a second app wants to be told, not queued.
     pub fn acquire(data: &Path) -> Result<DeviceLock, LockError> {
-        fs::create_dir_all(data).map_err(|source| LockError::Io {
+        // **THIS IS THE FIRST WRITER OF `<data>`, SO THIS IS WHERE ITS MODE IS DECIDED.** Everything
+        // the device keeps under it — the state document, the audit, memory, the forward table — is
+        // created after this call, and on Unix a file's mode is its umask's, not its directory's: a
+        // `0755` directory leaves `memory.jsonl` world-readable. Windows protects the directory from
+        // the installer (`launch/src/win.rs`'s `protect_data_dir`); this is the Unix half, and it is
+        // here rather than in the installer because the installer is not what runs on every start.
+        crate::fsutil::create_private_dir(data).map_err(|source| LockError::Io {
             path: data.to_path_buf(),
             source,
         })?;
@@ -156,6 +162,55 @@ fn read_pid(path: &Path) -> Option<u32> {
 mod tests {
     use super::*;
     use crate::test_support::TempDir;
+
+    /// **THE DATA DIRECTORY IS CREATED OWNER-ONLY, BECAUSE IT IS WHAT PROTECTS THE FILES INSIDE IT.**
+    /// On Unix a file's mode comes from the umask, not from the directory: a fresh `<data>` at `0755`
+    /// left `memory.jsonl` — which holds whatever a session asked the device to remember — readable
+    /// by every account on the machine (measured on a running device, 2026-11-10). Windows gets the
+    /// same protection from the installer's `protect_data_dir`; this is the Unix half, and it has to
+    /// be here rather than there because the installer is not what runs on every start.
+    ///
+    /// A directory that ALREADY EXISTS keeps its mode: narrowing an operator's deliberate choice is
+    /// not this function's job.
+    ///
+    /// MUTATION (run, not asserted): with `create_dir_all` restored, this went `FAILED` with
+    /// `a fresh data directory is owner-only, not 755` — the mode a running device was measured
+    /// creating. Restored, green.
+    #[cfg(unix)]
+    #[test]
+    fn the_data_directory_is_created_owner_only_and_an_old_one_keeps_its_mode() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new("lock-mode");
+        let data = dir.join("data");
+        let _lock = DeviceLock::acquire(&data).expect("the first lock is free");
+        let mode = std::fs::metadata(&data)
+            .expect("the data directory exists")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(
+            mode, 0o700,
+            "a fresh data directory is owner-only, not {mode:o}"
+        );
+        drop(_lock);
+
+        // AN EXISTING DIRECTORY IS LEFT ALONE, including one an operator opened wider on purpose.
+        let wide = dir.join("wide");
+        std::fs::create_dir_all(&wide).expect("the directory is creatable");
+        std::fs::set_permissions(&wide, std::fs::Permissions::from_mode(0o755))
+            .expect("the test sets a mode");
+        let _lock = DeviceLock::acquire(&wide).expect("the second lock is free");
+        let mode = std::fs::metadata(&wide)
+            .expect("the widened directory exists")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(
+            mode, 0o755,
+            "an existing directory keeps the mode it was given, not {mode:o}"
+        );
+    }
 
     #[test]
     fn the_holder_records_its_pid_for_the_refused_second_instance() {

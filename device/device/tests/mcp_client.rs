@@ -340,7 +340,20 @@ async fn a_real_mcp_client_proves_the_registry_surface() {
         "a write needs both the destination and its bytes"
     );
 
-    // 4. A fresh device's root exists (created at startup), and `files.mkdir` is how a client
+    // 4. Every machine call needs a working transaction, so the client begins one explicitly: the
+    //    direct `/mcp` door is `install`, which has no device-scope slot to inherit from. This is
+    //    the contract a product client follows; the audit below counts its begin/end pair too.
+    let begun = call(
+        &client,
+        "txn.begin",
+        json!({ "purpose": "the real client's interop pass" }),
+    )
+    .await;
+    assert_eq!(begun.is_error, Some(false), "{begun:?}");
+    let begun: Value = serde_json::from_str(text_of(&begun)).expect("begin answers JSON");
+    let txn = begun["txn"].as_str().expect("a transaction id").to_owned();
+
+    // 4a. A fresh device's root exists (created at startup), and `files.mkdir` is how a client
     //    creates the first directory: no fixture made `notes` for it.
     let workspace = device.dir.join("data").join("workspace");
     assert!(
@@ -349,14 +362,19 @@ async fn a_real_mcp_client_proves_the_registry_surface() {
         workspace.display()
     );
     assert!(!workspace.join("notes").exists());
-    let root = call(&client, "files.list", json!({ "path": "" })).await;
+    let root = call(&client, "files.list", json!({ "path": "", "txn": txn })).await;
     assert_eq!(
         root.is_error,
         Some(false),
         "the fresh root lists as an empty directory rather than NotFound: {root:?}"
     );
     assert_eq!(text_of(&root), "[]");
-    let made = call(&client, "files.mkdir", json!({ "path": "notes" })).await;
+    let made = call(
+        &client,
+        "files.mkdir",
+        json!({ "path": "notes", "txn": txn }),
+    )
+    .await;
     assert_eq!(made.is_error, Some(false), "{made:?}");
     assert!(workspace.join("notes").is_dir());
 
@@ -365,11 +383,16 @@ async fn a_real_mcp_client_proves_the_registry_surface() {
     let written = call(
         &client,
         "files.write",
-        json!({ "path": "notes/client.txt", "content": content }),
+        json!({ "path": "notes/client.txt", "content": content, "txn": txn }),
     )
     .await;
     assert_eq!(written.is_error, Some(false), "{written:?}");
-    let read = call(&client, "files.read", json!({ "path": "notes/client.txt" })).await;
+    let read = call(
+        &client,
+        "files.read",
+        json!({ "path": "notes/client.txt", "txn": txn }),
+    )
+    .await;
     assert_eq!(read.is_error, Some(false), "{read:?}");
     assert_eq!(
         text_of(&read),
@@ -381,11 +404,16 @@ async fn a_real_mcp_client_proves_the_registry_surface() {
     let appended = call(
         &client,
         "memory.append",
-        json!({ "text": "the rmcp client remembers this", "tags": ["interop"] }),
+        json!({ "text": "the rmcp client remembers this", "tags": ["interop"], "txn": txn }),
     )
     .await;
     assert_eq!(appended.is_error, Some(false), "{appended:?}");
-    let found = call(&client, "memory.search", json!({ "query": "remembers" })).await;
+    let found = call(
+        &client,
+        "memory.search",
+        json!({ "query": "remembers", "txn": txn }),
+    )
+    .await;
     assert_eq!(found.is_error, Some(false), "{found:?}");
     let entries: Value = serde_json::from_str(text_of(&found)).expect("search answers JSON");
     assert_eq!(entries[0]["text"], "the rmcp client remembers this");
@@ -401,7 +429,7 @@ async fn a_real_mcp_client_proves_the_registry_surface() {
         .expect("the fixture path is UTF-8")
         .to_owned();
     for path in ["../outside.txt".to_owned(), absolute] {
-        let refused = call(&client, "files.read", json!({ "path": path })).await;
+        let refused = call(&client, "files.read", json!({ "path": path, "txn": txn })).await;
         assert_eq!(
             refused.is_error,
             Some(true),
@@ -419,20 +447,21 @@ async fn a_real_mcp_client_proves_the_registry_surface() {
     }
 
     // 7. The audit records both halves of every call: a begin line before dispatch and an end line
-    //    after it. Eight calls above, so eight of each; a refused read ends with `ok: false`.
+    //    after it. Nine calls above (the client's own `txn.begin` and eight work calls), so nine of
+    //    each; a refused read ends with `ok: false`.
     let audit = fs::read_to_string(device.dir.join("data").join("events.jsonl"))
-        .expect("the audit file exists after eight tool calls");
+        .expect("the audit file exists after nine tool calls");
     let lines: Vec<Value> = audit
         .lines()
         .map(|line| serde_json::from_str(line).expect("an audit line is JSON"))
         .collect();
     assert_eq!(
         lines.iter().filter(|line| line["event"] == "begin").count(),
-        8,
+        9,
         "one begin line per tool call: {lines:?}"
     );
     let ends: Vec<&Value> = lines.iter().filter(|line| line["event"] == "end").collect();
-    assert_eq!(ends.len(), 8, "one end line per tool call: {lines:?}");
+    assert_eq!(ends.len(), 9, "one end line per tool call: {lines:?}");
     assert_eq!(
         lines
             .iter()
@@ -445,5 +474,51 @@ async fn a_real_mcp_client_proves_the_registry_surface() {
         "begins and ends pair by id in call order"
     );
 
+    client.cancel().await.expect("the client closes cleanly");
+}
+
+/// The direct `/mcp` door authenticates the install token, and that is what a session it opens
+/// records — not a client token id the wire never carried. The contract and the UI say
+/// `install token`; no test pretends a direct client is a token holder.
+#[tokio::test]
+async fn the_direct_door_records_the_install_token() {
+    let device = Device::start("mcp-client-holder");
+    let http = reqwest::Client::new();
+    device.wait_healthy(&http).await;
+    let client = device.connect().await;
+
+    let created = call(&client, "terminal.create", json!({ "kind": "pty" })).await;
+    assert_eq!(created.is_error, Some(false), "{created:?}");
+    let created: Value = serde_json::from_str(text_of(&created)).expect("create answers JSON");
+    let id = created["id"].as_str().expect("a session id").to_owned();
+
+    let listed = call(&client, "terminal.list", json!({})).await;
+    assert_eq!(listed.is_error, Some(false), "{listed:?}");
+    let sessions: Value = serde_json::from_str(text_of(&listed)).expect("list answers JSON");
+    let session = sessions
+        .as_array()
+        .and_then(|sessions| sessions.iter().find(|session| session["id"] == id.as_str()))
+        .unwrap_or_else(|| panic!("the session is listed: {sessions}"));
+    assert_eq!(
+        session["holder"]["kind"], "install",
+        "the direct /mcp door is the install token's door: {session}"
+    );
+    assert!(
+        session["holder"]["token_id"].is_null(),
+        "the install door carries no token record id: {session}"
+    );
+    assert!(session["goal"].is_null(), "no goal was declared: {session}");
+
+    // The close is a machine call on a session, so the client begins that session's transaction.
+    let begun = call(
+        &client,
+        "txn.begin",
+        json!({ "session": id, "purpose": "close the session this test opened" }),
+    )
+    .await;
+    assert_eq!(begun.is_error, Some(false), "{begun:?}");
+
+    let closed = call(&client, "terminal.close", json!({ "id": id })).await;
+    assert_eq!(closed.is_error, Some(false), "{closed:?}");
     client.cancel().await.expect("the client closes cleanly");
 }

@@ -1,0 +1,92 @@
+/* A3 operations layout; shared theme owns palette, type, controls and focus. */
+.tools-tab, .system-page { display: grid; min-width: 0; gap: var(--sp-6); }
+.tools-workbench { display: grid; min-width: 0; gap: var(--sp-6); }
+.tools-action-area, .tools-catalogue, .tools-plugins { min-width: 0; }
+.tools-section-header { display: grid; gap: var(--sp-1); }
+.tools-section-header > :is(h3, p) { margin: 0; }
+.tools-tab .tools-section { align-content: start; gap: var(--sp-4); }
+.tools-tab .tools-command { height: fit-content; }
+.tools-tab .tools-section-head { align-items: center; }
+.tools-tab .tools-section-head .search-field { flex: 1 1 16rem; }
+.tools-tab .search-field input { width: 100%; }
+.tools-tab .tools-catalogue .cap-groups { grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: var(--sp-3); max-height: 34rem; overflow: auto; overscroll-behavior: contain; padding: 2px; }
+.tools-tab .cap-group { align-content: start; gap: var(--sp-2); }
+.tools-tab .cap-group-head { align-items: center; }
+.tools-tab .cap-group-head .cap-summary { flex-basis: 100%; }
+.tools-tab .tool-list { margin: 0; }
+.tools-tab .tool-name { overflow-wrap: anywhere; }
+.tools-tab .runs-exec { display: grid; min-width: 0; gap: var(--sp-4); }
+.tools-tab .runs-form { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; }
+.tools-tab .runs-field.command, .tools-tab .runs-submit-row { grid-column: 1 / -1; }
+.tools-tab .runs-submit-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--sp-3); }
+.tools-tab .runs-submit-row .runs-shell { margin: 0; }
+.tools-tab .runs-result { min-width: 0; }
+.tools-tab .runs-streams { grid-template-columns: minmax(0, 1fr); }
+.plugin-management { display: grid; min-width: 0; gap: var(--sp-4); }
+.plugin-management .plugin-list { display: grid; gap: var(--sp-3); border: 0; background: transparent; overflow: visible; }
+.plugin-management .plugin-row { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: var(--sp-4); margin: 0; }
+.plugin-management .plugin-main { gap: var(--sp-2); }
+.plugin-management .plugin-inspection { display: grid; min-width: 0; align-content: start; gap: var(--sp-3); }
+.plugin-management .plugin-source { display: grid; min-width: 0; gap: var(--sp-1); }
+.plugin-management .plugin-path { margin: 0; white-space: normal; overflow-wrap: anywhere; }
+.plugin-management .plugin-actions { align-items: center; flex-wrap: wrap; gap: var(--sp-2); }
+.tool-detail .tool-detail-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--sp-2); }
+.tool-detail .schema-fields li > .mono, .tool-detail .schema-help { overflow-wrap: anywhere; }
+.machine-runtime-area, .machine-work-area, .machine-main, .machine-aside { display: grid; min-width: 0; align-content: start; gap: var(--sp-6); }
+.system-page .system-section { min-width: 0; align-content: start; }
+.system-page .system-section .panel-head { align-items: start; flex-wrap: wrap; gap: var(--sp-3); }
+.system-page .system-section .panel-head > :is(h3, p) { margin: 0; }
+.system-page .machine-runtime-area .system-section { height: fit-content; }
+.system-page .system-table { min-width: 0; max-height: 35rem; }
+.system-page .system-net { display: grid; grid-template-columns: minmax(0, 1fr) minmax(6rem, .6fr); align-items: end; }
+.system-page .system-net .system-field.host { grid-column: 1 / -1; }
+.system-page .system-net > button { justify-self: start; }
+.system-page .host-overview { display: grid; min-width: 0; gap: var(--sp-4); }
+.system-page .host-fact-sheet .facts { margin: 0; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: var(--sp-4); }
+.system-page .host-fact-sheet .facts > div { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: var(--sp-1); }
+.system-page .host-fact-sheet .facts dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.system-page .host-history, .system-page .vitals { min-width: 0; margin: 0; }
+.system-page .self-view { margin: 0; }
+.system-page .self-event { flex-wrap: wrap; }
+.system-page .self-what, .system-page .forward-route { overflow-wrap: anywhere; }
+.system-page .system-status { margin: 0; }
+.service-workspace { display: grid; min-width: 0; gap: var(--sp-4); }
+.service-compose, .service-observations { min-width: 0; }
+.system-page .service-add { margin: 0; }
+.system-page .service-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); align-items: end; gap: var(--sp-3); }
+.system-page .service-form label, .system-page .service-form input { width: 100%; min-width: 0; }
+.system-page .service-form > .hint { grid-column: 1 / -1; }
+.system-page .service-form > button { justify-self: start; }
+.system-page .service-list { display: grid; gap: var(--sp-3); margin: 0; }
+.system-page .service-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-3); padding-block: var(--sp-3); }
+.system-page .service-address { flex: 1 1 15rem; min-width: 0; overflow-wrap: anywhere; }
+.system-page .service-actions, .system-page .service-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+@media (min-width: 1180px) {
+  .tools-workbench { grid-template-columns: minmax(0, 1fr) minmax(18rem, 22rem); grid-template-areas: "catalogue command" "plugins plugins"; align-items: start; }
+  .tools-action-area { grid-area: command; }
+  .tools-catalogue { grid-area: catalogue; }
+  .tools-plugins { grid-area: plugins; }
+  .plugin-management .plugin-row { grid-template-columns: minmax(0, 1.2fr) minmax(16rem, .8fr); }
+  .plugin-management .plugin-inspection { border-inline-start: 1px solid var(--line); padding-inline-start: var(--sp-4); }
+  .machine-runtime-area { grid-template-columns: minmax(0, 1.2fr) minmax(0, .8fr); align-items: start; }
+  .machine-work-area { grid-template-columns: minmax(0, 1fr) minmax(19rem, .48fr); align-items: start; }
+}
+@media (max-width: 639px) {
+  .tools-tab .tools-section-head .search-field { flex-basis: 100%; margin-left: 0; }
+  .tools-tab .runs-submit-row > button { width: 100%; }
+  .system-page .system-net { grid-template-columns: minmax(0, 1fr); }
+  .system-page .service-actions { gap: var(--sp-3); }
+}
+
+.tools-tab { container: tools-tab / inline-size; }
+@container tools-tab (max-width: 42rem) {
+  .tools-tab .tools-workbench {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "command" "catalogue" "plugins";
+  }
+  .tools-tab .plugin-management .plugin-row { grid-template-columns: minmax(0, 1fr); }
+  .tools-tab .plugin-management .plugin-inspection {
+    border-inline-start: 0;
+    padding-inline-start: 0;
+  }
+}

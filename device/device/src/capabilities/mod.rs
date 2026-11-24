@@ -8,13 +8,151 @@
 
 pub mod browser;
 pub mod files;
+pub mod forward;
+pub mod host;
+pub mod journal;
 pub mod memory;
 pub mod monitor;
+pub(crate) mod owned;
+pub mod plugins;
 pub mod runs;
+pub mod screen;
 pub mod ssh;
+pub mod state;
+pub mod system;
 pub mod terminal;
+pub mod txn;
 
 /// The `destructive` question, answered by the registry and not by this crate.
 ///
 /// Kept as a name the HTTP handler already calls; the value is `core`'s.
 pub use summrise_core::registry::is_destructive as destructive;
+
+/// The context a migrated capability's tools need. A capability takes exactly what it reads, so a
+/// module cannot reach for the device's config, its audit or another capability.
+pub struct Ctx<'a> {
+    /// The door the call arrived through: the author of anything the capability writes on the
+    /// caller's behalf (a session's holder, a goal's author). Attribution only; it gates nothing.
+    pub holder: summrise_core::Holder,
+    /// The `workspace` root `files` is sandboxed to.
+    pub files_root: &'a std::path::Path,
+    /// The optional `shared` root.
+    pub files_shared_root: Option<&'a std::path::Path>,
+    /// This machine's memory store.
+    pub memory: &'a memory::Memory,
+    /// The live sessions, one registry per device.
+    pub terminal: &'a terminal::PtyRegistry,
+    /// The declared units of work, one registry per process.
+    pub txns: &'a crate::txns::TxnRegistry,
+    /// The one headless browser this machine starts lazily.
+    pub browser: &'a browser::BrowserRegistry,
+    /// The reachability watches.
+    pub monitor: &'a std::sync::Arc<monitor::MonitorRegistry>,
+    /// The run history.
+    pub runs: &'a std::sync::Arc<runs::Runs>,
+    /// The forward rules.
+    pub forwards: &'a std::sync::Arc<forward::ForwardRegistry>,
+    /// Where the device keeps its files (the facts read the boot journal there).
+    pub data_dir: &'a std::path::Path,
+    /// Whether the launcher started this process, and the hook that asks it to restart.
+    pub supervised: bool,
+    pub restart: &'a crate::restart::Hook,
+    /// This process's live record, when it has one.
+    pub bus: Option<&'a summrise_bus::Bus>,
+    /// The plugin host.
+    pub plugins: &'a std::sync::Arc<crate::plugins::host::PluginHost>,
+    /// The device's own state document.
+    pub store: &'a crate::store::Store,
+    /// The release version the health answer reports.
+    pub release_version: &'a str,
+}
+
+/// Whether a migrated capability declares `tool`.
+pub fn owns(tool: &str) -> bool {
+    files::owns(tool)
+        || memory::owns(tool)
+        || terminal::owns(tool)
+        || txn::owns(tool)
+        || browser::owns(tool)
+        || monitor::owns(tool)
+        || runs::owns(tool)
+        || system::owns(tool)
+        || forward::owns(tool)
+        || host::owns(tool)
+        || journal::owns(tool)
+        || plugins::owns(tool)
+        || screen::owns(tool)
+        || state::owns(tool)
+}
+
+/// Every tool a migrated capability declares, for the registry-alignment test.
+#[cfg(test)]
+pub fn names() -> impl Iterator<Item = &'static str> {
+    files::names()
+        .chain(memory::names())
+        .chain(terminal::names())
+        .chain(txn::names())
+        .chain(browser::names())
+        .chain(monitor::names())
+        .chain(runs::names())
+        .chain(system::names())
+        .chain(forward::names())
+        .chain(host::names())
+        .chain(journal::names())
+        .chain(plugins::names())
+        .chain(screen::names())
+        .chain(state::names())
+}
+
+/// Run a migrated capability's tool.
+pub async fn call(
+    tool: &str,
+    arguments: serde_json::Map<String, serde_json::Value>,
+    ctx: &Ctx<'_>,
+) -> Result<String, crate::mcp::ToolError> {
+    if files::owns(tool) {
+        return files::call(tool, arguments, ctx);
+    }
+    if memory::owns(tool) {
+        return memory::call(ctx.memory, tool, arguments);
+    }
+    if terminal::owns(tool) {
+        return terminal::call(ctx.terminal, &ctx.holder, tool, arguments).await;
+    }
+    if txn::owns(tool) {
+        return txn::call(tool, arguments, ctx);
+    }
+    if browser::owns(tool) {
+        return browser::call(ctx.browser, tool, arguments).await;
+    }
+    if monitor::owns(tool) {
+        return monitor::call(ctx.monitor, tool, arguments).await;
+    }
+    if runs::owns(tool) {
+        return runs::call(ctx.runs, tool, arguments).await;
+    }
+    if system::owns(tool) {
+        return system::call(tool, arguments).await;
+    }
+    if forward::owns(tool) {
+        return forward::call(ctx.forwards, tool, arguments);
+    }
+    if host::owns(tool) {
+        return host::call(tool, arguments, ctx.data_dir, ctx.supervised, ctx.restart);
+    }
+    if journal::owns(tool) {
+        return journal::call(tool, arguments, ctx.bus);
+    }
+    if plugins::owns(tool) {
+        return plugins::call(ctx.plugins, tool, arguments).await;
+    }
+    if screen::owns(tool) {
+        return screen::call(tool, arguments).await;
+    }
+    if state::owns(tool) {
+        return state::call(tool, arguments, ctx.store, ctx.release_version, ctx.bus);
+    }
+    Err(crate::mcp::ToolError::Internal(format!(
+        "{tool}: no migrated capability declares it"
+    )))
+}

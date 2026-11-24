@@ -1,0 +1,105 @@
+# v1 verification sweep
+
+What the Linux build host can prove about `hub/v1`, run once before the Windows handoff. HEAD at the
+time of the sweep: `e61ff51` (the clippy fix below is included). Every command ran from the repository
+root unless it says otherwise.
+
+| # | Check | Command | Result |
+|---|---|---|---|
+| 1 | Tests, every shipped crate | `cargo test --manifest-path device/Cargo.toml -p summrise-core -p summrise-bus -p summrise-plugin-host -p summrise-console-page -p summrise-device -p summrise-launch -p summrise-mesh -p summrise-release -p summrise-console -p summrise-ui -p summrise-winsec -p summrise-winsys -p summrise-shell` | **1 487 passed, 0 failed, 4 ignored**, exit 0 |
+| 2 | Clippy, same list | the same `-p` list with `--all-targets -- -D warnings` | clean, exit 0 |
+| 3 | Formatting | `cargo fmt --manifest-path device/Cargo.toml --all -- --check` | clean |
+| 4 | Dependency gate | `node scripts/check-architecture.mjs` | 14 packages, 22 edges, **0 upward** |
+| 5 | The gate's own test | `node scripts/check-architecture.mjs --self-test` | clean accepted; `core -> bus` rejected |
+| 6 | The page is not stale | `bash scripts/build-web.sh --check` | ok — the committed `dist/index.html` is the built page |
+| 7 | Page tests | `cd device/console/web && npx vitest run` | 70 files, **1 182 passed** |
+| 8 | Page types | `cd device/console/web && npx tsc --noEmit` | clean |
+| 9 | The product loop, real binaries | `bash scripts/smoke-local.sh` (also a CI step in the device job) | **22 PASS**, `SMOKE OK` |
+| 10 | The update path | `bash scripts/rehearse-release.sh --version 0.3.994 --out /tmp/v1-sweep-rehearsal` | five `ok` lines, including *the device accepts the signed document*; installer built; **PASS in 32 s** |
+| 11 | The operator loop, real binaries | `bash scripts/smoke-enroll.sh` (also a CI step) | all PASS, **`ENROLL SMOKE OK`**: the device self-enrolls from the one-time code, is online in `/fleet`, the console mints a token, `host.facts` runs through the console, and both audits carry the call with no secret |
+
+## What the sweep itself found
+
+- **A real CI failure:** `device/console/src/audit.rs` had `map_or(false, …)`, which clippy rejects
+  under `-D warnings`; the console lib was the only crate the CI clippy list could not finish. Fixed
+  as `is_some_and` in `e61ff51`, and the full list is green.
+- **Formatting slipped after the sweep:** `scripts/check.sh` (extended this round to the whole
+  portable device job) caught `cargo fmt --check` red on the clippy fix's line wrapping. Fixed — the
+  one-command gate is what would have caught it a round earlier.
+- **One flake, not a regression:** the page suite reported 5 failures the first time it ran
+  *concurrently with the cargo suite* on this box, and passed 1 182/1 182 on two clean runs. The
+  failing files then were timing-sensitive; the suite is not run in parallel with the Rust build in
+  CI (different jobs, different machines). Worth remembering if a page test fails alone under load.
+
+## Release gate on `main`
+
+After `main` was fast-forwarded to the v1 tree (`67e08cf` on both branches), the whole gate ran once
+more on that commit:
+
+| check | result |
+|---|---|
+| `scripts/check.sh` (full: tests, fmt, clippy, gate, device smoke, product smoke, enrol smoke, linux unit, macOS plist, browser pack, deploy preflight) | exit 0; `SMOKE OK`, `ENROLL SMOKE OK`, gate 14/22/0 |
+| `npx vitest run` | 70 files, 1 182 passed |
+| `npx tsc --noEmit` | clean |
+| `bash scripts/build-web.sh --check` | the committed page is current |
+| `bash scripts/rehearse-release.sh --version 0.3.993` | five `ok` lines including device acceptance; installer built; PASS in 133 s |
+
+## The Windows runner, measured (2026-11-13)
+
+The first half of the handoff is no longer a proxy. `installer.yml` was dispatched on `hub/v1` at
+`e52fd6e` (`https://github.com/SilasVale/summrise/actions/runs/43344130298`, 2026-11-13T01:20:08Z) and
+its job **`the Windows installer` passed every step on `windows-latest`** in 9 min 51 s:
+
+| step | result |
+|---|---|
+| derive the build keys from the seeds | success |
+| build the runtime (the four exes) | success |
+| sign the four exes, when a certificate is configured | success (the step ran; whether a certificate was configured is not visible in the run's metadata) |
+| sign the first-generation sidecar | success |
+| install NSIS | success |
+| build the installer | success |
+| sign the installer, when a certificate is configured | success (same) |
+| **install it on the runner** (`/S /D=C:\SummriseCI`, then `Get-Service SummriseLaunch` = Running, `GET /api/health` = `ok`) | success |
+| **uninstall it on the runner** (`/S`, then the service must be gone) | success |
+| upload `SummriseSetup-0.3.993` (6,827,406 B) | success |
+| attach to the tag release | skipped (not a tag) |
+
+So the checklist's first three Windows items are answered with a run rather than a person: the four
+`+crt-static` exes link on Windows, the NSIS installer compiles, a silent install leaves the service
+running and `/api/health` saying `ok`, and a silent uninstall removes it.
+
+What remains for the handoff is the second half, and it is the half a headless runner cannot do:
+
+- `summrise-shell.exe --check-window` in an **interactive** session (the runner is session 0, which the
+  shell refuses by name) with the console down (must open `/panel`) and up (must open the console);
+- the visual judgement: does the panel render and read properly in WebView2;
+- Authenticode verification of the five artifacts: the signing steps passed, but a green "when a
+  certificate is configured" step does not say whether one was, so `Get-AuthenticodeSignature` on the
+  installed exes is the check that answers it.
+
+## What this machine cannot prove
+
+The Windows handoff — the exact procedure and the evidence to keep are in
+[`windows-handoff.md`](windows-handoff.md):
+
+- ~~the four `+crt-static` exes link and the NSIS installer compiles on a Windows runner~~ — measured
+  above (`installer.yml`, run 43344130298, green);
+- ~~a silent install/uninstall leaves the service and the tray correct~~ — measured above (the install
+  and uninstall steps assert the service and `/api/health`);
+- `summrise-shell.exe --check-window` opens `/panel` in an interactive session when the console is
+  down, and the console when it is up;
+- Authenticode signing of the four exes — the signing steps did not fail, but whether a certificate
+  was configured is not in the run's metadata; `Get-AuthenticodeSignature` is the evidence.
+
+Linux-side proxies already exist for the parts that are portable: `cargo xwin check` and
+`--target x86_64-pc-windows-gnu` build the workspace, the shell's 24 tests pass, and the rehearsal
+above exercises the publish and the device's acceptance of the signed document.
+
+## Re-running it
+
+`scripts/check.sh` now runs the device job's portable steps — the cargo test/fmt/clippy commands, the
+layer gate, the device smoke, the product smoke, the enrol smoke and the other shell steps — so it is
+the one command to start with. The page suite (`npx vitest run` + `npx tsc --noEmit`) and the release
+rehearsal are the two parts it does not cover. The one prerequisite is a built workspace
+(`cargo build --manifest-path device/Cargo.toml --workspace`); the smokes and the rehearsal build what
+they need themselves.

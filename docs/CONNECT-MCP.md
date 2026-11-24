@@ -1,0 +1,363 @@
+# Connecting an AI client
+
+> In a hurry? [`QUICKSTART.md`](QUICKSTART.md) is the five-minute path from an installed device to a working client; this document is the long form.
+
+The console carries a standard streamable-HTTP MCP endpoint for each device, plus one aggregate endpoint for a token that spans several. It is **not** the page's
+`POST /mcp` envelope: that route belongs to the console's own page and requires an operator session.
+This endpoint is for an MCP client (DeepSeek Harness, any `StreamableHTTPClientTransport`), and its
+credential is a bearer the console accepts: a console-signed grant for a session, or a permanent token
+for a configuration that must not change.
+
+The hub did not change that contract: the path and the bearer are the same. What can appear behind the
+endpoint is larger. The device advertises its built-in tools plus every running plugin's tools; the
+console reads that live list for the page and the token form, and the endpoint forwards `tools/list`
+to the device so the client sees the same catalogue. A plugin tool is called exactly like a built-in,
+with the same token scope and the same audit row.
+
+## The endpoint
+
+```
+POST https://<console>/mcp/<device-id>
+Authorization: Bearer <lowercase hex of the GrantEnvelope JSON, or srm_… for a token>
+Content-Type: application/json
+Accept: application/json, text/event-stream
+```
+
+The path is the device id: 64 lowercase hex characters, the registered public key. The endpoint speaks
+MCP `2025-06-18`; it answers JSON (no SSE), and every request carries a grant, or a token the console
+turns into one. HTTP is stateless: there is no **MCP transport session** or `Mcp-Session-Id`. Terminal
+sessions and work transactions still exist on the device; they are separate from the transport.
+
+The console page has the same flow without the curl for the token half: **Access → Tokens**, or
+**Connect a client → Tokens** from Overview, Device or the account menu, mints a permanent token
+through the page's own operator session and shows the endpoint and the header. Access and the quick
+sheet both have **Endpoint**, **Clients** and **Tokens** sections. They do not mint grants — those
+are one API call with the operator session, below. The curl is for a script or an operator on a
+machine without the page.
+
+## Mint a grant
+
+A grant is minted by the console and signed with its grant key. It names one device, the tools the
+client may call, an expiry and whether destructive tools are pre-approved. Use the operator token:
+
+```bash
+CONSOLE=https://console.example.com
+SESSION=$(curl -sS -X POST "$CONSOLE/auth" \
+  -H 'content-type: application/json' \
+  -d '{"token":"<the 64-hex operator token>"}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
+
+GRANT_JSON=$(curl -sS -X POST "$CONSOLE/grants" \
+  -H "authorization: Bearer $SESSION" -H 'content-type: application/json' \
+  -d '{"device_id":"<device-id>","tools":["host.facts"],
+       "expires_in_s":3600,"allow_destructive":false}')
+
+GRANT_HEX=$(printf '%s' "$GRANT_JSON" | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin),separators=(",",":")).encode().hex())')
+```
+
+The hex is the envelope's JSON bytes. Re-serializing the JSON is safe: the signature is over the
+grant's canonical message, not over this byte encoding. The grant is a **bearer**: whoever holds the
+hex until `expires_at_ms` can call the tools it names on that one device. A one-hour grant is a
+reasonable interactive session; a seven-day grant is not.
+
+`allow_destructive` is the operator's signed consent. Leave it `false` and a destructive tool still
+reaches the device, which answers with its `Ask` refusal naming the flag; set it `true` only for the
+window in which you want a destructive call to run without a per-call prompt.
+
+This minimal grant can call `host.facts` with `{}` without a terminal session or transaction. File
+work needs a different scope and the full
+[`QUICKSTART.md` lifecycle](QUICKSTART.md#5-make-the-first-call): allow `terminal.create`,
+`terminal.close` and the file tools you need, with destructive consent for creating the session;
+then call `terminal.create`, `txn.begin` with `session` and `purpose`, and pass the returned `txn`
+explicitly to `files.read` or another Required tool that names no terminal session. Close the
+terminal while the transaction is working, then commit, or abort on failure. Abort declares
+non-success and undoes nothing. The `txn.begin`, `txn.commit` and `txn.abort` control tools are
+admitted independently of the capability allowlist; bootstrap and file tools still need scope.
+A client token or grant cannot use a device-scope `txn.begin` without `session` (`session_required`).
+Exempt reads such as `host.facts`, `runs.list` and `runs.get` take no extra `txn` argument.
+
+## Permanent tokens
+
+A grant expires, so a configuration built around one has to be rebuilt. A **permanent token** is the
+console's answer for a client whose configuration must stay fixed: the console issues it once, the
+client sends it on every request, and the console turns it into a short grant each time.
+
+Create it in the console: **Access → Tokens** or **Connect a client → Tokens**. Choose **this machine**
+for `/mcp/<device-id>`, name it, choose the tools it names,
+tick the destructive consent (the same `allow_destructive` a grant carries — unticked means a
+destructive call is refused immediately, and the refusal names the consent it needs), and press
+**Create token**. The token is `srm_` followed by 64 lowercase hex characters (68 in all), returned
+once at creation:
+
+```
+srm_<64 lowercase hex characters>
+```
+
+The console stores only the token's SHA-256 hash, so the page cannot show it again — not in the list,
+not in a later session, not in the audit. It is a **bearer**: treat it like a password. Do not commit
+it, and keep it out of a URL, a shell history and a screenshot.
+
+The endpoint is the same; only the bearer changes:
+
+```
+POST https://<console>/mcp/<device-id>
+Authorization: Bearer srm_<64 lowercase hex characters>
+```
+
+The console hashes the token, finds the record and checks that the record's device is the path's
+device. It then mints a **60-second grant** naming exactly the token's tools and carrying the token's
+destructive consent, and runs the existing grant path. The device receives an ordinary signed grant
+and verifies it offline; a token never reaches it. An unknown or revoked token, or one created for
+another device, is a `401`, and no frame is forwarded.
+
+### A fixed DeepSeek Harness configuration
+
+```yaml
+- id: mcp-summrise-device
+  name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    serverName: summrise-device
+    transport: streamable-http
+    url: https://console.example.com/mcp/<device-id>
+    headers:
+      Authorization: Bearer srm_<64 lowercase hex characters>
+```
+
+Replace the placeholder with the token the console showed you. The value is fixed: it does not change
+when a grant expires, because this configuration holds no grant — the console mints one per request,
+so there is nothing here to renew. The only edit it ever needs is a new value after you revoke a token
+and create another. Keep the file that holds it out of the repository (or have the deployment inject
+the literal from a secret); the header is the password. Behind Cloudflare Access, add the same
+`CF-Access-*` headers as the grant configuration below — the token is the endpoint's credential, not
+the edge's.
+
+### Scope and revocation
+
+A **device** token is bound to **one device**, a **non-empty tool set**, and the destructive consent
+it was created with. An **aggregate** token is bound to the list of devices it was created with; see
+[One endpoint for several devices](#one-endpoint-for-several-devices). The path must match: a device token for device A sent to `/mcp/<device B>` is refused with `401`, and
+a tool outside its set never reaches the device, because the minted grant does not name it.
+A token is not an operator session: it cannot mint grants, list devices, read the audit, or create
+another token. The console accepts at most 64 tokens.
+
+### Plugin tools in the scope
+
+A plugin tool enters a token's scope the same way a built-in does, with one device-side fact the
+console checks first. When a token names a tool outside the built-in registry, the console reads the
+device's live `tools/list` at mint time: the name is accepted only if the device advertises it. If
+the machine is offline the request is refused with `unknown_tool` and "connect the machine, then mint
+the token" — rather than minting a scope that may be a typo. An **aggregate** token stays on the
+static registry in v1: a plugin tool is per-device, so it is refused with a sentence that says so.
+
+The same live read is what the page shows. `GET /fleet/:id/tools` returns the device's `tools/list`
+with `source` (`builtin` or `plugin:<namespace>`), `capability` and `destructive`; Overview's counts,
+**Device → Tools** and the token form share it. An offline device answers `503`, a channel timeout `504`,
+and the page labels a stale catalogue instead of hiding it. The static `GET /tools` registry remains
+the fallback for the built-in flag, not the list the page renders.
+
+A token is **permanent by default**. Creation may give it an **expiry** between one hour and 365
+days; the sheet's **Expires** select offers never, 30, 90 and 365 days, and the list's Expires column
+says the date (with its year) or `never`. An expired token is refused with `401` (the denial log keeps `expired_api_token`) before it
+can mint a grant; expiry is checked before the device match. **Rotate** keeps the lifetime policy —
+the new value gets the same duration counted from the rotation, not the old absolute date.
+
+Revocation is the only withdrawal for a permanent token. Connect's token list shows each token's
+name, creation date, tool set, expiry and **last use** (`last used <date>`, or `never used`) —
+never the token — and **Revoke** asks for confirmation. The in-memory list is current; the file is
+written at most once a minute, so a reload may show a last-use value up to a minute old. After it, the next request with that token is
+`401` and the token is gone from the list: neither the page nor the audit can show it again.
+
+The audit names the token's **record id** (`token_id`, not the secret) on every MCP line that token
+authenticated, so a call can be attributed to the credential that made it; the grant-authenticated
+path and the page's operator route carry no `token_id`. The audit table resolves that id to the
+token's name when the token list has it, shows the short id otherwise, and its **Token** filter
+narrows the window to one credential. The `srm_…` value never enters the audit.
+
+**Rotate** on the same row replaces a token in one action: the new value keeps the name, device,
+tools and destructive consent, the old value stops working the moment the replacement succeeds, and
+the new value is shown once. The audit records the change as a `token` creation and a `token_revoke`
+with detail `rotated`, both naming the device. Rotation writes the new record and drops the old in a
+single atomic file replacement.
+
+### Which one to use
+
+- **Grant** — an interactive session you start and end. It expires on its own, so there is no
+  revocation step, and a short lifetime limits a leak. Mint a fresh one when it expires; the config
+  changes, and that is the cost.
+- **Permanent token** — a client whose configuration cannot be rewritten: an unattended agent, a CI
+  job, a workstation assistant. Configure once, then manage access by creating and revoking tokens. It
+  is a long-lived password, so scope it narrowly and revoke it when the client is retired.
+
+If the client can be handed a fresh grant each session, that is the safer default. A token is for the
+configurations that cannot.
+
+## One endpoint for several devices
+
+`POST https://<console>/mcp/all` is the aggregate transport: one MCP server whose tools take a
+required `device` argument. Its bearer is an **aggregate token** (`srm_…`) whose scope is a list of
+devices. `initialize` answers from the token's device list; `tools/list` is answered by the first
+allowed device that is online and every tool's schema gains the required `device` property; a
+`tools/call` resolves `device` — an id, or a name unique among the token's devices — strips it, and
+signs an ordinary sixty-second grant for that device. The device sees exactly the grant `/mcp/<id>`
+sends; the token never reaches it.
+
+Create one with the operator session from the previous section:
+
+```bash
+curl -sS -X POST "$CONSOLE/tokens" \
+  -H "authorization: Bearer $SESSION" -H 'content-type: application/json' \
+  -d '{"name":"dsh","device_ids":["<id>","<id>"],"tools":["host.facts"],
+       "allow_destructive":false}'
+```
+
+The answer carries the plaintext once. Use it as the bearer on `/mcp/all`:
+
+```json
+{"mcpServers": {"summrise": {
+  "type": "http",
+  "url": "https://<console>/mcp/all",
+  "headers": {"Authorization": "Bearer srm_…"}
+}}}
+```
+
+The device list is the scope: a call naming a device outside it is refused before a frame is sent,
+and a name shared by two allowed devices is ambiguous and refused, never guessed. A device token is
+refused on `/mcp/all`; an aggregate token is refused on `/mcp/<device-id>`. In **Access → Tokens** or
+**Connect a client → Tokens**, choose **all machines** to mint an aggregate token for the machines
+enrolled now; choose **this machine** for a one-device token. The account menu's **Tokens** opens
+the same controls. The API operations are `POST /tokens` with `device_ids`, `GET /tokens` and
+`DELETE /tokens/<id>`. Grants remain limited to one device.
+
+## Older devices
+
+A device running a build without the plugin host advertises no `plugins.*` tools. The endpoint, the
+bearer and the built-in tools are unchanged; **Device → Tools → Plugins** says *This machine
+needs a newer Summrise to host plugins* and shows no Add button. A token cannot name a plugin tool,
+because the device never advertises one. Nothing about `/mcp/<device-id>` or `/mcp/all` changes.
+
+## DeepSeek Harness
+
+Below is the grant path, for a session. For the same client with a fixed credential, see
+[A fixed DeepSeek Harness configuration](#a-fixed-deepseek-harness-configuration) above.
+
+```yaml
+- id: mcp-summrise-device
+  name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    serverName: summrise-device
+    transport: streamable-http
+    url: https://console.example.com/mcp/<device-id>
+    headers:
+      Authorization: !!js '`Bearer ${process.env.SUMMRISE_GRANT}`'
+```
+
+Put the hex in `SUMMRISE_GRANT` for that process; do not commit it. The tools appear under
+`mcp__summrise-device__<tool>`. A new grant means a new `SUMMRISE_GRANT`; the token form above has no
+grant to renew.
+
+Both forms need the two edge headers if the console is behind Cloudflare Access with a
+**service-token** policy for the endpoint:
+
+```yaml
+      CF-Access-Client-Id: <the service-token id>
+      CF-Access-Client-Secret: <the service-token secret>
+```
+
+## Cloudflare Access
+
+The endpoint must be its own Access application for `console.example.com/mcp/*` — the wildcard path,
+**not** the exact `/mcp`, which is the console page's own envelope and must keep its operator-session
+gate:
+
+- **bypass** — the bearer (a signed grant or an `srm_` token) is the credential; the client sends no
+  Access headers; or
+- **service token** — the client sends the two `CF-Access-*` headers, and the bearer is still required.
+
+Do **not** add the AI client to the operator application. Any verified Access JWT, including a
+service token, is a full operator in this console: it can mint any grant, read the audit and delete
+devices. The bearer would then be a hint rather than a boundary. The endpoint's app-level authorization
+is the bearer — grant or token — never the Access identity.
+
+A loopback or tunnel deployment without Access needs no dashboard step.
+
+## Security
+
+- **A grant or a device token names one device.** A grant names the device id and the path must
+  match it; a device token is bound to one device at creation, and the console refuses a path that
+  names another. An aggregate token names a list and is accepted only on `/mcp/all`.
+- **Tool scope is enforced twice:** the console refuses a `tools/call` outside the grant before the
+  frame leaves (for a token, outside the token's tool set), and the device re-verifies the same signed
+  bytes offline.
+- **Grants cannot be revoked before expiry.** Rotate by minting a new grant and letting the old one
+  expire. A token is permanent unless created with an expiry; **Revoke** in Connect withdraws
+  it, and its next request is
+  `401`.
+- **A plugin tool has no separate policy.** It is authorized by the same token scope and destructive
+  flag as a built-in, and the audit names the namespaced tool (`hello.greet`), so the call is
+  attributable. Installing the plugin is the trust decision; the token is the runtime brake.
+- **HTTPS only.** The bearer is a secret in a header; never put it in a URL, a shell history, a
+  repository or a screenshot.
+- **A frame runs once.** Every grant carries a signed nonce; the device remembers the ones it has
+  admitted and refuses a repeat (`error_kind:"replay"`), so a captured frame cannot re-run a call.
+  A grant signed before this existed (no nonce) is still accepted.
+- **The device checks, in order:** the grant's signature against the console's key, that the grant
+  names this device, the expiry (with five minutes of clock skew), the tool against the grant's list,
+  and the nonce. A failure in any of them is a JSON-RPC `-32001` and a `deny` line in
+  `events.jsonl`; none of them reaches the capability.
+- **The device's audit names the credential.** A console-channel call authorized by a permanent token
+  records that token's `id` (never the secret); calls through the device's own page record
+  `transport:"panel"`; a mesh peer records its public key.
+
+## Limits
+
+- A per-device endpoint reaches one device; `/mcp/all` reaches the aggregate token's device list.
+- No SSE: a `GET` on the path is `405`, and the official client tolerates that.
+- `tools/list` is answered by the device, so an offline device cannot list its tools. A plugin's
+  tools are in that list only while it is `running`.
+- A plugin call is one at a time per plugin and times out after 120 s with `PLUGIN_TIMEOUT`; the
+  device stays healthy and the plugin is not killed for a slow call.
+- The body cap is 8 MiB (the device's own `/mcp` cap); files are base64 and capped at 1 MiB.
+- `runs.exec` may block for its own timeout, up to ten minutes.
+
+## A quick check
+
+```bash
+curl -sS -X POST "https://console.example.com/mcp/<device-id>" \
+  -H "authorization: Bearer $GRANT_HEX" \
+  -H 'content-type: application/json' \
+  -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"0"}}}'
+```
+
+The result carries `"protocolVersion":"2025-06-18"`, `"serverInfo":{"name":"summrise-console",...}`,
+and instructions naming the one device. Send `tools/list` to see the grant's capability tools
+(for a token, the token's tools) and the transaction control tools. Then make the standalone read
+permitted by the minimal grant above:
+
+```bash
+curl -sS -X POST "https://console.example.com/mcp/<device-id>" \
+  -H "authorization: Bearer $GRANT_HEX" \
+  -H 'content-type: application/json' \
+  -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"host.facts","arguments":{}}}'
+```
+
+For `files.read`, first complete the authorized session bootstrap and begin described above; while
+that transaction is working, the file call's arguments include both `path` and `txn`. A bare file
+read is not the first-call path for this inspection-only grant.
+
+The credential above is a grant. Send an `srm_…` token instead to exercise the permanent-token path:
+the console mints the 60-second grant behind the request, and the response is the same.
+
+The transport shape was verified with the official DeepSeek Harness MCP client
+(`@modelcontextprotocol/client`, `StreamableHTTPClientTransport`) against this endpoint itself, with a
+fake device behind it: `initialize`, `tools/list` (filtered to the grant) and `tools/call` all
+succeeded, with no `Mcp-Session-Id` and with the client's post-initialize `GET` (SSE) answered `405`
+and tolerated. The canary is the `#[ignore]`d `the_official_mcp_client_can_connect` test in the
+console suite; it prints the endpoint and a short-lived grant for the client.
+
+The deployed endpoint was verified with the same client against a real device on 2026-10-26:
+`initialize`, `tools/list` (filtered to the grant) and `tools/call host.facts` answered through the
+console's public Access edge, with the operator's service token for the test and the grant still the
+endpoint's authorization. The first public call failed at the edge and the same grant answered on
+retry; see `RELEASE.md` for the tunnel caveat. The AI client's own gate is the separate `/mcp/*`
+application described above.

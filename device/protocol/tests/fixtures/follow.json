@@ -1,0 +1,10 @@
+{
+  "id": 11,
+  "mcp": {
+    "jsonrpc": "2.0",
+    "id": 11,
+    "method": "tools/call",
+    "params": { "name": "terminal.read", "arguments": { "id": "term-1", "cursor": 1050 } }
+  },
+  "subscribe": { "session_id": "term-1", "from": 1050 }
+}

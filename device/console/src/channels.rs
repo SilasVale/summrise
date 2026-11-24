@@ -12,6 +12,12 @@
 //! disconnected. This is what makes a device reconnect after a network change without a stale
 //! channel swallowing its answers.
 //!
+//! **THE TWO BOUNDARIES ARE AUDIT LINES.** A channel that becomes live appends `device.joined`, and
+//! one that genuinely ends appends `device.left` — `kind: "device"`, `caller: "console"`, and the
+//! event in `tool`. The pair is what `/fleet` subtracts to say how long a machine was away, and it
+//! lives in the audit rather than in this registry so the answer survives a console restart between
+//! the close and the reopen. A replacement writes only a join: the device stayed up.
+//!
 //! **Every queue is bounded.** One frame may wait for one socket, but no more than
 //! [`CHANNEL_CAPACITY`] may; a producer that finds the queue full gets [`RequestError::Busy`] instead
 //! of adding a request body the device may never read. At most [`MAX_IN_FLIGHT_PER_DEVICE`] requests
@@ -24,18 +30,56 @@
 //! refused at once. The proxy turns that timeout into a retryable 503, so an operator's client can
 //! retry rather than lose the call.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use axum::extract::ws::{close_code, CloseFrame, Message, WebSocket};
-use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, oneshot, Notify};
 
+use crate::audit::{self, Audit, Caller};
 use crate::grants::GrantEnvelope;
+
+/// What authorizes one request on the wire: the legacy signed grant, or the console's permanent
+/// token scope. The device accepts both (`remote::Admitted`); the console sends whichever the
+/// caller's credential is.
+// The Token arm lands before the /mcp handlers switch to it (both ship together); until then only
+// the tests construct it.
+pub(crate) enum RequestAuth<'a> {
+    Grant(&'a GrantEnvelope),
+    Token(&'a TokenScope),
+}
+
+impl RequestAuth<'_> {
+    /// The tool patterns this request authorizes, in the order the credential named them.
+    pub(crate) fn tools(&self) -> &[String] {
+        match self {
+            RequestAuth::Grant(grant) => &grant.grant.tools,
+            RequestAuth::Token(scope) => &scope.scopes,
+        }
+    }
+}
+
+pub(crate) use summrise_protocol::TokenScope;
+
+/// How often a connected device reports on its channel.
+///
+/// The device's side is `device/device/src/console.rs`: it sends one host frame every 60 s, and the
+/// first tick fires as the socket opens. The console keeps its own copy of that promise instead of
+/// reading a value across the wire, so a device build cannot shorten the window it is judged by.
+pub(crate) const DEVICE_REPORT_INTERVAL: Duration = Duration::from_secs(60);
+
+/// How recently a frame must have arrived for a channel to count as online.
+///
+/// 150 s is **2.5 × the device's 60 s report**: two missed reports fit inside it, so one slow report
+/// is not an outage, while a machine that has gone to sleep behind a half-open TCP connection stops
+/// claiming presence after two and a half minutes. This is the whole of `online`: a socket that
+/// exists but has been silent past this window is offline.
+pub(crate) const PRESENCE_WINDOW: Duration =
+    Duration::from_secs(DEVICE_REPORT_INTERVAL.as_secs() * 5 / 2);
 
 /// How long a request waits for a channel to exist before it is refused as retryable.
 pub(crate) const RECONNECT_WAIT: Duration = Duration::from_secs(2);
@@ -65,13 +109,13 @@ pub(crate) enum Reply {
     Error(Value),
 }
 
-/// Why a request could not be put on a channel.
+/// Why a device exchange ended without an answer.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum RequestError {
     /// No live channel for this device; nothing was written, so a retry is safe.
     Offline,
-    /// The frame was written, but the channel closed before an answer arrived. The device may have
-    /// executed the request; a blind retry could execute it twice.
+    /// The channel failed during or after writing the frame, so delivery is uncertain. The device
+    /// may have executed the request; a blind retry could execute it twice.
     Disconnected,
     /// The device's outbound queue or in-flight cap is full; nothing was written.
     Busy,
@@ -87,7 +131,19 @@ pub(crate) enum RequestError {
 }
 
 /// The answer a waiter receives: the device's reply, or the reason it will never arrive.
-type Answer = Result<Reply, RequestError>;
+/// One machine answer, with the position it names for this call's outcome half.
+///
+/// The device puts the journal `seq` on the frame (never inside the JSON-RPC body, which an MCP
+/// client sees). The console's proxied path writes it on its audit line, so a row can be read back
+/// from the machine by its own sequence instead of guessed from two clocks.
+#[derive(Debug)]
+pub(crate) struct Answered {
+    pub(crate) reply: Reply,
+    /// The machine journal's `seq` for the outcome half, when the device named one.
+    pub(crate) journal_seq: Option<u64>,
+}
+
+type Answer = Result<Answered, RequestError>;
 
 /// A frame queued for the socket.
 enum Outbound {
@@ -105,16 +161,59 @@ struct Live {
     generation: u64,
     outbound: mpsc::Sender<Outbound>,
     pending: Pending,
+    /// When a frame last arrived on THIS socket, or `None` until one does.
+    ///
+    /// The clock belongs to the channel, not the device: a replacement starts empty, because the
+    /// old socket's last frame is not evidence that the new one is alive.
+    last_frame_ms: Option<u64>,
 }
 
 /// The requests waiting for an answer, keyed by the envelope id.
 type Pending = Arc<Mutex<HashMap<u64, oneshot::Sender<Answer>>>>;
 
-/// Every live channel, keyed by device id.
+/// Milliseconds since the Unix epoch, for a registry with no console clock of its own.
+fn system_now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// This process's prefix for the `trace.call` values it mints: eight random bytes as hex.
+///
+/// Randomness, not a pid or a clock: a console that restarts must not mint a trace an earlier
+/// process already used, or the device journal would show two different calls under one id.
+fn mint_trace_prefix() -> String {
+    use rand_core::{OsRng, RngCore};
+
+    let mut bytes = [0u8; 8];
+    OsRng.fill_bytes(&mut bytes);
+    let mut text = String::with_capacity(20);
+    for byte in bytes {
+        text.push_str(&format!("{byte:02x}"));
+    }
+    format!("console-{text}")
+}
+
+/// How the attempt before a device's current one ended, as that device reported it on connecting.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RetryNote {
+    /// How many attempts had failed before the one that carried this note.
+    pub attempts: u8,
+    /// The failure in a sentence, or empty when the device sent none.
+    pub reason: String,
+}
+
 pub(crate) struct ChannelRegistry {
     next_request: AtomicU64,
     next_generation: AtomicU64,
     live: Mutex<HashMap<String, Live>>,
+    /// The moment the console last saw any frame from each device, since it started.
+    ///
+    /// This outlives a channel: closing the socket must not erase when the device was last heard.
+    /// It is a record, not a presence claim — [`online`](Self::online) asks the live channel, so a
+    /// reopened channel that has sent nothing still reads offline even while this moment is recent.
+    last_frames: Mutex<HashMap<String, u64>>,
     /// Requests in flight per device, including the wait for a channel.
     in_flight: Mutex<HashMap<String, usize>>,
     /// The deepest the outbound queues have ever been, for the operator's health route.
@@ -123,11 +222,63 @@ pub(crate) struct ChannelRegistry {
     versions: Mutex<HashMap<String, String>>,
     /// The machine name each device announced, for an operator list that reads like a list of machines.
     names: Mutex<HashMap<String, String>>,
+    /// The last host facts each device sent over its channel: the machine, its sessions, and where
+    /// the per-user helper landed. Kept after a channel closes, because "last known" is what an
+    /// operator needs to read a device that is down.
+    hosts: Mutex<HashMap<String, serde_json::Value>>,
+    /// The last update story each device sent, as the device wrote it: the version it runs, its last
+    /// start's verdict and the updater's last answer. A separate map from `hosts` because it is a
+    /// separate section of the frame, and the console carries it through unchanged; a device that
+    /// has never sent one has no entry, which is what lets the page draw nothing new for it.
+    updates: Mutex<HashMap<String, serde_json::Value>>,
+    /// How the attempt before the current channel ended, per device. It arrives ON the next connect:
+    /// a device cannot report a failure over the connection that failed, so the story is one attempt
+    /// behind, and the label in the page says so.
+    retries: Mutex<HashMap<String, RetryNote>>,
+    /// Where a channel's two boundaries are written, when the console gave the registry a sink.
+    ///
+    /// **THE OUTAGE IS NOT KEPT HERE.** The registry used to hold the pair in a map, so a console
+    /// restarted between a close and the reopen forgot the start and the fleet could not say how long
+    /// the machine was gone. The two moments are audit lines ([`Audit`]) now, and the registry's only
+    /// job is to write them at the moment each happens.
+    audit: Option<Audit>,
+    /// The console's clock, so a boundary line carries the same time as the audit's other lines.
+    now: std::sync::Arc<dyn Fn() -> u64 + Send + Sync>,
+    /// The capability list each device announced. The console offers a terminal stream only to a
+    /// device that names `terminal.stream`; an older build would fail to parse the frame and say
+    /// nothing, which is a hung stream rather than a fallback.
+    caps: Mutex<HashMap<String, Vec<String>>>,
+    /// The live terminal subscriptions, by the frame id that opened each one. A `term` frame on the
+    /// channel is delivered here and never mistaken for an answer.
+    streams: Mutex<HashMap<u64, mpsc::Sender<Value>>>,
+    /// The last device journal sequence seen per device, so a reconnect asks for the row after it
+    /// rather than starting live-only. This outlives a channel: the socket closing is not the
+    /// device's journal ending.
+    event_seqs: Mutex<HashMap<String, u64>>,
     /// Wakes a request waiting for a channel to open.
     changed: Notify,
     send_timeout: Duration,
     reply_timeout: Duration,
+    /// This process's prefix for the `trace.call` it mints: unique per console, so a trace from a
+    /// console that restarted is not mistaken for one of this process's own.
+    trace_prefix: String,
+    /// How many traces this process has minted; the second half of an id, always increasing.
+    next_trace: AtomicU64,
+    /// The traces this process minted, newest last, bounded.
+    ///
+    /// A device relays every journal event it publishes, including the `call.*` pair of a call this
+    /// console proxied. That call is already a row from the console's own audit, so relaying the
+    /// device's half as well would show one call twice; this set is how the relay tells its own
+    /// calls from the panel's, a mesh peer's and a direct loopback client's, which must still reach
+    /// the page.
+    minted_traces: Mutex<VecDeque<String>>,
 }
+
+/// How many of this process's traces the relay remembers.
+///
+/// The window only has to outlive the device's relay of a call's own pair, which happens within the
+/// call itself; a thousand is many minutes of the busiest fleet measured, and keeps the set small.
+const MINTED_TRACES: usize = 1024;
 
 impl ChannelRegistry {
     pub(crate) fn new() -> Self {
@@ -146,13 +297,75 @@ impl ChannelRegistry {
             next_request: AtomicU64::new(0),
             next_generation: AtomicU64::new(0),
             live: Mutex::new(HashMap::new()),
+            last_frames: Mutex::new(HashMap::new()),
             in_flight: Mutex::new(HashMap::new()),
             peak_queued: AtomicUsize::new(0),
             versions: Mutex::new(HashMap::new()),
             names: Mutex::new(HashMap::new()),
+            retries: Mutex::new(HashMap::new()),
+            hosts: Mutex::new(HashMap::new()),
+            updates: Mutex::new(HashMap::new()),
+            caps: Mutex::new(HashMap::new()),
+            streams: Mutex::new(HashMap::new()),
+            event_seqs: Mutex::new(HashMap::new()),
+            audit: None,
+            now: std::sync::Arc::new(system_now_ms),
             changed: Notify::new(),
             send_timeout,
             reply_timeout,
+            trace_prefix: mint_trace_prefix(),
+            next_trace: AtomicU64::new(0),
+            minted_traces: Mutex::new(VecDeque::new()),
+        }
+    }
+
+    /// The `trace.call` for one proxied exchange: this process's prefix, a counter, and nothing that
+    /// can repeat after a restart.
+    ///
+    /// The console mints it, sends it on the frame, and writes it on the audit line; the device puts
+    /// it on both halves of its journal pair. That one value is the only join the two records have —
+    /// two clocks are not the same fact — and it is also how the relay recognises a call it already
+    /// shows (see [`Self::relays_call`]).
+    pub(crate) fn mint_trace(&self) -> String {
+        let n = self.next_trace.fetch_add(1, Ordering::Relaxed);
+        let trace = format!("{}-{n}", self.trace_prefix);
+        let mut minted = lock(&self.minted_traces);
+        minted.push_back(trace.clone());
+        while minted.len() > MINTED_TRACES {
+            minted.pop_front();
+        }
+        trace
+    }
+
+    /// Whether `trace.call` on a relayed journal event is one this console minted.
+    ///
+    /// True means the console's own audit line is already the operator's record of that call, so the
+    /// device's half must not be relayed as well. False — including a trace this console did not
+    /// mint — means the call came from the panel, a mesh peer or a loopback client, and the relay is
+    /// the only way the page ever sees it.
+    fn relays_call(&self, event: &Value) -> bool {
+        let call = event
+            .pointer("/event/trace/call")
+            .or_else(|| event.pointer("/trace/call"))
+            .and_then(Value::as_str);
+        match call {
+            Some(call) => !lock(&self.minted_traces).iter().any(|trace| trace == call),
+            None => true,
+        }
+    }
+
+    /// The registry that records each channel's two boundaries in `audit`, on the console's clock.
+    ///
+    /// Without one (every unit test that only drives requests) a boundary is not written anywhere:
+    /// the registry still works, it just leaves no record a restart can read.
+    pub(crate) fn recording(
+        audit: Audit,
+        now: std::sync::Arc<dyn Fn() -> u64 + Send + Sync>,
+    ) -> Self {
+        Self {
+            audit: Some(audit),
+            now,
+            ..Self::new()
         }
     }
 
@@ -169,6 +382,16 @@ impl ChannelRegistry {
         lock(&self.versions).insert(device_id.to_owned(), version.to_owned());
     }
 
+    /// Record how the attempt before this channel ended.
+    pub(crate) fn announce_retry(&self, device_id: &str, note: RetryNote) {
+        lock(&self.retries).insert(device_id.to_owned(), note);
+    }
+
+    /// How the attempt before the last one ended, if the device has said.
+    pub(crate) fn retry(&self, device_id: &str) -> Option<RetryNote> {
+        lock(&self.retries).get(device_id).cloned()
+    }
+
     /// Record the name the device announced on its channel URL, when the registry has none.
     pub(crate) fn announce_name(&self, device_id: &str, name: &str) {
         lock(&self.names).insert(device_id.to_owned(), name.to_owned());
@@ -179,19 +402,144 @@ impl ChannelRegistry {
         lock(&self.names).get(device_id).cloned()
     }
 
+    /// Record the host facts a device sent on its channel.
+    pub(crate) fn announce_host(&self, device_id: &str, facts: serde_json::Value) {
+        let caps: Vec<String> = facts
+            .get("caps")
+            .and_then(Value::as_array)
+            .map(|list| {
+                list.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default();
+        self.announce_caps(device_id, caps);
+        lock(&self.hosts).insert(device_id.to_owned(), facts);
+    }
+
+    /// The host facts the device last sent, if it has sent any.
+    pub(crate) fn host(&self, device_id: &str) -> Option<serde_json::Value> {
+        lock(&self.hosts).get(device_id).cloned()
+    }
+
+    /// Record the update story a device sent in its host frame.
+    ///
+    /// The section is opaque here: the console does not rename its fields, fill in a missing one or
+    /// decide what an outcome means. It holds the device's own words for the page, and the newest
+    /// frame replaces the previous story whole. A frame without the section is not stored as an
+    /// empty one — a device that sends nothing must read as "never said", not "said nothing".
+    pub(crate) fn announce_update(&self, device_id: &str, update: serde_json::Value) {
+        if update.is_object() {
+            lock(&self.updates).insert(device_id.to_owned(), update);
+        }
+    }
+
+    /// The update story the device last sent, if it has sent one.
+    pub(crate) fn update(&self, device_id: &str) -> Option<serde_json::Value> {
+        lock(&self.updates).get(device_id).cloned()
+    }
+
     /// The version the device announced, if it did.
     pub(crate) fn version(&self, device_id: &str) -> Option<String> {
         lock(&self.versions).get(device_id).cloned()
     }
 
-    /// Whether a channel is open right now.
+    /// Record the capabilities a device announced in its host frame.
+    pub(crate) fn announce_caps(&self, device_id: &str, caps: Vec<String>) {
+        lock(&self.caps).insert(device_id.to_owned(), caps);
+    }
+
+    /// Whether the device announced a capability by name.
+    pub(crate) fn has_cap(&self, device_id: &str, cap: &str) -> bool {
+        lock(&self.caps)
+            .get(device_id)
+            .is_some_and(|caps| caps.iter().any(|name| name == cap))
+    }
+
+    /// Whether a frame arrived on the live channel within [`PRESENCE_WINDOW`].
+    ///
+    /// **A SOCKET IS A CONNECTION, NOT PRESENCE.** The console used to answer this by asking whether
+    /// a channel existed, so a half-open TCP connection to a sleeping machine kept claiming it was
+    /// there (measured on DESKTOP-14RJCR8, offline on the tailnet for 7+ minutes while `/fleet`
+    /// served `"online": true`). The device reports every [`DEVICE_REPORT_INTERVAL`], so a channel
+    /// that has sent nothing for 2.5 reports is offline even though its socket still exists.
     pub(crate) fn online(&self, device_id: &str) -> bool {
-        lock(&self.live).contains_key(device_id)
+        let now = (self.now)();
+        let window_ms = PRESENCE_WINDOW.as_millis() as u64;
+        lock(&self.live).get(device_id).is_some_and(|channel| {
+            channel
+                .last_frame_ms
+                .is_some_and(|at| now.saturating_sub(at) <= window_ms)
+        })
+    }
+
+    /// When the console last saw a frame from this device, or `None` when it has seen none since it
+    /// started.
+    ///
+    /// This is the moment `/fleet` serves as `last_frame_ms`, and the page's "seen 7m ago" reads it.
+    /// A device the console never heard has no moment, so the key is omitted rather than defaulted
+    /// to zero or to the time the socket opened.
+    pub(crate) fn last_frame(&self, device_id: &str) -> Option<u64> {
+        lock(&self.last_frames).get(device_id).copied()
+    }
+
+    /// The sequence a reopening subscription should ask the device for: one after the last row
+    /// this console saw, or [`u64::MAX`] when it has seen none (a first connect is live-only).
+    fn events_from(&self, device_id: &str) -> u64 {
+        lock(&self.event_seqs)
+            .get(device_id)
+            .map_or(u64::MAX, |seq| seq.saturating_add(1))
+    }
+
+    /// Remember the last journal sequence a device pushed, so its next channel resumes after it.
+    ///
+    /// The sequence is monotonic, so a late frame from a replaced socket cannot move the cursor
+    /// backwards.
+    fn record_event_seq(&self, device_id: &str, seq: u64) {
+        let mut seqs = lock(&self.event_seqs);
+        let entry = seqs.entry(device_id.to_owned()).or_insert(seq);
+        if *entry < seq {
+            *entry = seq;
+        }
+    }
+
+    /// Note that a frame arrived on the channel `generation` opened.
+    ///
+    /// Any frame counts — a host report, an answer, a ping — because presence is transport-level:
+    /// the device spoke, whatever it said. The generation is the guard: a replaced socket can still
+    /// deliver a frame while it closes, and that frame must not prove the replacement alive.
+    fn record_frame(&self, device_id: &str, generation: u64) {
+        let at = (self.now)();
+        let mut live = lock(&self.live);
+        let Some(channel) = live.get_mut(device_id) else {
+            return;
+        };
+        if channel.generation != generation {
+            return;
+        }
+        channel.last_frame_ms = Some(at);
+        lock(&self.last_frames).insert(device_id.to_owned(), at);
     }
 
     /// Serve one upgraded socket until it closes or is replaced.
     pub(crate) async fn serve(&self, device_id: String, mut socket: WebSocket) {
-        let mut open = self.open(&device_id);
+        let mut open = self.open(&device_id).await;
+
+        // Subscribe to the device's own journal before serving requests: every session event the
+        // device publishes arrives as a `{"evt":...}` frame and is relayed to the page's stream.
+        // A first connect is live-only; a reconnect resumes one past the last row this console saw,
+        // so the rows written while the socket was down are not lost. A cursor retention has passed
+        // is answered by the device with a reset frame.
+        let events_id = self.next_request.fetch_add(1, Ordering::SeqCst);
+        let from_seq = self.events_from(&device_id);
+        let subscribe =
+            serde_json::to_string(&summrise_protocol::Frame::events(events_id, from_seq))
+                .expect("the frame serializes");
+        if socket.send(Message::Text(subscribe)).await.is_err() {
+            self.close(&device_id, open.generation, &open.pending).await;
+            return;
+        }
 
         loop {
             tokio::select! {
@@ -207,12 +555,12 @@ impl ChannelRegistry {
                                 let _ = accepted.send(Ok(()));
                             }
                             Ok(Err(_)) => {
-                                // Nothing reached the wire: safe to retry on the next channel.
-                                let _ = accepted.send(Err(RequestError::Offline));
+                                // A send error does not prove that no bytes reached the device.
+                                let _ = accepted.send(Err(RequestError::Disconnected));
                                 break;
                             }
                             Err(_) => {
-                                // A socket that accepted no bytes for the whole bound is wedged.
+                                // The socket did not finish accepting the frame inside the bound.
                                 let _ = accepted.send(Err(RequestError::SendTimeout));
                                 break;
                             }
@@ -229,18 +577,73 @@ impl ChannelRegistry {
                     None => break,
                 },
                 incoming = socket.recv() => match incoming {
-                    Some(Ok(Message::Text(text))) => deliver(&open.pending, &text),
+                    Some(Ok(message)) => {
+                        // Every inbound frame is evidence the device is there: the host report, an
+                        // answer, a ping. Record it before the content is parsed, so a malformed
+                        // frame still proves the socket is alive.
+                        self.record_frame(&device_id, open.generation);
+                        if let Message::Text(text) = message {
+                            if let Some(frame) = deliver(&open.pending, &self.streams, &text) {
+                                if let Some(facts) = frame.host {
+                                    self.announce_host(&device_id, facts);
+                                }
+                                if let Some(update) = frame.update {
+                                    self.announce_update(&device_id, update);
+                                }
+                                if let Some(reset) = frame.reset {
+                                    // Retention took a range the page can no longer replay from
+                                    // the journal; the reset names what is missing, so the page
+                                    // can refetch rather than silently show a gap.
+                                    let value = json!({
+                                        "device_reset": { "device": device_id, "reset": reset }
+                                    });
+                                    if let Some(audit) = &self.audit {
+                                        audit.publish(value);
+                                    }
+                                }
+                                if let Some(event) = frame.events {
+                                    if let Some(seq) =
+                                        event.pointer("/event/seq").and_then(Value::as_u64)
+                                    {
+                                        self.record_event_seq(&device_id, seq);
+                                    }
+                                    // A call this console proxied is already a row from its own
+                                    // audit; the device's half of the same call is the journal's
+                                    // record, not a second row on the page. Every other call event
+                                    // — the panel's, a mesh peer's, a direct loopback client's — is
+                                    // work only the journal knows about, so it is relayed.
+                                    let call = event.get("call").is_some()
+                                        || event
+                                            .get("event")
+                                            .and_then(|envelope| envelope.get("type"))
+                                            .and_then(Value::as_str)
+                                            .is_some_and(|kind| kind.starts_with("call."));
+                                    if call && !self.relays_call(&event) {
+                                        continue;
+                                    }
+                                    let value = json!({
+                                        "device_event": { "device": device_id, "event": event }
+                                    });
+                                    // The audit owns the live broadcast and the page's bounded
+                                    // reconnect buffer; the channel is only the producer.
+                                    if let Some(audit) = &self.audit {
+                                        audit.publish(value);
+                                    }
+                                }
+                            }
+                        }
+                    }
                     Some(Err(_)) | None => break,
-                    _ => {}
                 },
             }
         }
 
         // Close first, then fail whatever this channel was waiting for. Removing the channel from
         // the registry before clearing its pending set closes the window in which a request could
-        // find the dying channel and register a waiter whose sender then nobody drops.
-        self.close(&device_id, open.generation);
-        lock(&open.pending).clear();
+        // find the dying channel and register a waiter whose sender then nobody drops. The close
+        // also writes the `device.left` line the fleet needs, after the pending set is cleared so no
+        // waiter waits on the audit's disk.
+        self.close(&device_id, open.generation, &open.pending).await;
     }
 
     /// Forward `mcp` and the grant that authorizes it, then wait for the device's own answer.
@@ -252,8 +655,44 @@ impl ChannelRegistry {
         &self,
         device_id: &str,
         mcp: Value,
-        grant: &GrantEnvelope,
+        auth: &RequestAuth<'_>,
+        trace: &str,
     ) -> Result<Reply, RequestError> {
+        self.request_within_acknowledged(device_id, mcp, auth, trace, self.reply_timeout)
+            .await
+            .map(|answered| answered.reply)
+    }
+
+    /// Forward an exchange and keep the machine position the answer names.
+    ///
+    /// The proxied path is the one caller that needs it: its audit line records the same call, and
+    /// the position is what lets a reader fetch the machine's own row later.
+    pub(crate) async fn request_acknowledged(
+        &self,
+        device_id: &str,
+        mcp: Value,
+        auth: &RequestAuth<'_>,
+        trace: &str,
+    ) -> Result<Answered, RequestError> {
+        self.request_within_acknowledged(device_id, mcp, auth, trace, self.reply_timeout)
+            .await
+    }
+
+    /// Forward `mcp` and wait `reply` for the device's answer.
+    ///
+    /// [`request`](Self::request) uses [`REPLY_TIMEOUT`], which is right for a tool that answers in
+    /// milliseconds. `runs.exec` is the exception: it blocks on the device for the command's own
+    /// timeout, so the proxy passes the run's wait here — otherwise the console would answer 504 while
+    /// the command kept running and its history row was still written.
+    /// Forward an exchange, wait `reply` for an answer, and keep the machine's position for it.
+    pub(crate) async fn request_within_acknowledged(
+        &self,
+        device_id: &str,
+        mcp: Value,
+        auth: &RequestAuth<'_>,
+        trace: &str,
+        reply: Duration,
+    ) -> Result<Answered, RequestError> {
         let _in_flight = InFlight::begin(self, device_id)?;
         let id = self.next_request.fetch_add(1, Ordering::Relaxed);
         let (outbound, pending, receiver) = self
@@ -267,7 +706,13 @@ impl ChannelRegistry {
         };
 
         let (accepted, accepted_rx) = oneshot::channel();
-        let frame = json!({ "id": id, "mcp": mcp, "grant": grant }).to_string();
+        let mut frame = summrise_protocol::Frame::call(id, mcp);
+        frame.trace = Some(trace.to_owned());
+        match auth {
+            RequestAuth::Grant(grant) => frame.grant = Some((*grant).clone()),
+            RequestAuth::Token(scope) => frame.token = Some((*scope).clone()),
+        }
+        let frame = serde_json::to_string(&frame).expect("the frame serializes");
         let queued = outbound.max_capacity().saturating_sub(outbound.capacity());
         match outbound.try_send(Outbound::Text {
             id,
@@ -295,12 +740,125 @@ impl ChannelRegistry {
 
         // The answer has its own bound: a device that accepted the frame and then stopped working
         // must not hold the operator's request open forever.
-        match tokio::time::timeout(self.reply_timeout, receiver).await {
+        match tokio::time::timeout(reply, receiver).await {
             Err(_) => Err(RequestError::ReplyTimeout),
             Ok(Ok(answer)) => answer,
             // The sender was dropped: the channel closed without answering.
             Ok(Err(_)) => Err(RequestError::Disconnected),
         }
+    }
+
+    /// Open a terminal subscription on a device's channel.
+    ///
+    /// The frame carries a `terminal.read` as its request: that is what the device authorizes, what
+    /// it executes once (the ack is the first read), and what its audit records. What follows is
+    /// pushed — `{"term": {...}}` frames with no request id — until the caller drops the receiver
+    /// and [`ChannelRegistry::unsubscribe`] stops it.
+    pub(crate) async fn subscribe(
+        &self,
+        device_id: &str,
+        session_id: &str,
+        from: u64,
+        mcp: Value,
+        auth: &RequestAuth<'_>,
+        trace: &str,
+    ) -> Result<(u64, mpsc::Receiver<Value>, Reply), RequestError> {
+        let _in_flight = InFlight::begin(self, device_id)?;
+        let id = self.next_request.fetch_add(1, Ordering::Relaxed);
+        let (outbound, pending, receiver) = self
+            .wait_for_channel(device_id, id)
+            .await
+            .ok_or(RequestError::Offline)?;
+        // The sink exists before the frame is sent: a device may push before the ack is read.
+        let (sink, stream) = mpsc::channel::<Value>(CHANNEL_CAPACITY);
+        lock(&self.streams).insert(id, sink);
+        let guard = StreamSubscription {
+            streams: &self.streams,
+            id,
+            armed: true,
+        };
+        let _pending = PendingGuard {
+            pending: pending.clone(),
+            id,
+        };
+        let (accepted, accepted_rx) = oneshot::channel();
+        let mut frame = summrise_protocol::Frame::follow(id, mcp, session_id.to_owned(), from);
+        frame.trace = Some(trace.to_owned());
+        match auth {
+            RequestAuth::Grant(grant) => frame.grant = Some((*grant).clone()),
+            RequestAuth::Token(scope) => frame.token = Some((*scope).clone()),
+        }
+        let frame = serde_json::to_string(&frame).expect("the frame serializes");
+        match outbound.try_send(Outbound::Text {
+            id,
+            frame,
+            accepted,
+        }) {
+            Ok(()) => {}
+            Err(TrySendError::Full(_)) => return Err(RequestError::Busy),
+            Err(TrySendError::Closed(_)) => return Err(RequestError::Offline),
+        }
+        match tokio::time::timeout(self.send_timeout, accepted_rx).await {
+            Err(_) => return Err(RequestError::SendTimeout),
+            Ok(Ok(Ok(()))) => {}
+            Ok(Ok(Err(error))) => return Err(error),
+            Ok(Err(_)) => return Err(RequestError::Disconnected),
+        }
+        match tokio::time::timeout(self.reply_timeout, receiver).await {
+            Err(_) => Err(RequestError::ReplyTimeout),
+            Ok(Ok(answer)) => answer.map(|answered| {
+                guard.disarm();
+                (id, stream, answered.reply)
+            }),
+            Ok(Err(_)) => Err(RequestError::Disconnected),
+        }
+    }
+
+    /// Stop a terminal subscription: drop its sink and tell the device to stop following.
+    ///
+    /// It is deliberately not awaited: a closed tab must not wait on a device, and the frames that
+    /// race the unsubscribe find no sink and are dropped.
+    pub(crate) fn unsubscribe(&self, device_id: &str, sub: u64) {
+        lock(&self.streams).remove(&sub);
+        let outbound = lock(&self.live)
+            .get(device_id)
+            .map(|live| live.outbound.clone());
+        let Some(outbound) = outbound else {
+            return;
+        };
+        let id = self.next_request.fetch_add(1, Ordering::Relaxed);
+        let frame = serde_json::to_string(&summrise_protocol::Frame::unsubscribe(id, sub))
+            .expect("the frame serializes");
+        let (accepted, _dropped) = oneshot::channel();
+        let _ = outbound.try_send(Outbound::Text {
+            id,
+            frame,
+            accepted,
+        });
+    }
+
+    /// Close a device's live channel, because the operator revoked it.
+    ///
+    /// The socket is asked to close and then removed from the registry, which fails every request
+    /// waiting on it. A device that reconnects is refused by the registry's token check: removing the
+    /// registration is what makes the revocation stick, this is what makes it immediate.
+    pub(crate) fn disconnect(&self, device_id: &str) {
+        let removed = lock(&self.live).remove(device_id);
+        if let Some(live) = removed {
+            // The serve loop treats a full queue as "already wedged" and closes on its own bound.
+            let _ = live
+                .outbound
+                .try_send(Outbound::Close("the operator revoked this device"));
+            // Pending includes frames already accepted by the socket; their outcome is unknown.
+            for (_, sender) in lock(&live.pending).drain() {
+                let _ = sender.send(Err(RequestError::Disconnected));
+            }
+        }
+        lock(&self.versions).remove(device_id);
+        lock(&self.names).remove(device_id);
+        // A removed device's last-seen moment belonged to a registration that no longer exists; a
+        // later registration under the same key must not inherit it.
+        lock(&self.last_frames).remove(device_id);
     }
 
     /// Wait for a live channel and claim a waiter slot on it, or `None` when the bound expires.
@@ -342,21 +900,29 @@ impl ChannelRegistry {
     }
 
     /// Register a socket as the device's live channel, replacing and closing any predecessor.
-    fn open(&self, device_id: &str) -> OpenChannel {
+    ///
+    /// **THE JOIN IS A LINE, NOT A MEMORY.** The moment this channel becomes the live one is what
+    /// the fleet subtracts the previous `device.left` from, so it is recorded where a restart can
+    /// read it. A replacement writes a second `device.joined` with no `device.left` between: the
+    /// device was up the whole time, and the derivation reads that as no absence.
+    async fn open(&self, device_id: &str) -> OpenChannel {
+        let joined_at = (self.now)();
         let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
         let (outbound, commands) = mpsc::channel(CHANNEL_CAPACITY);
         let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
 
-        let mut live = lock(&self.live);
-        let replaced = live.insert(
-            device_id.to_owned(),
-            Live {
-                generation,
-                outbound,
-                pending: pending.clone(),
-            },
-        );
-        drop(live);
+        let replaced = {
+            let mut live = lock(&self.live);
+            live.insert(
+                device_id.to_owned(),
+                Live {
+                    generation,
+                    outbound,
+                    pending: pending.clone(),
+                    last_frame_ms: None,
+                },
+            )
+        };
 
         if let Some(replaced) = replaced {
             // Fail the old requests now; the old socket is closed by its own task. A full queue
@@ -368,6 +934,8 @@ impl ChannelRegistry {
         }
 
         self.changed.notify_waiters();
+        self.record_boundary(device_id, audit::DEVICE_JOINED, joined_at)
+            .await;
 
         OpenChannel {
             generation,
@@ -376,14 +944,53 @@ impl ChannelRegistry {
         }
     }
 
-    /// Forget the channel if it is still the one this task opened.
-    fn close(&self, device_id: &str, generation: u64) {
-        let mut live = lock(&self.live);
-        if live.get(device_id).map(|channel| channel.generation) == Some(generation) {
-            live.remove(device_id);
-        }
-        drop(live);
+    /// Forget the channel if it is still the one this task opened, and record that it left.
+    ///
+    /// A replaced channel never reaches the record: its generation is not the live one any more, and
+    /// the replacement already announced the join that says the device stayed up.
+    async fn close(&self, device_id: &str, generation: u64, pending: &Pending) {
+        let left_at = (self.now)();
+        let closed = {
+            let mut live = lock(&self.live);
+            let closed = live.get(device_id).map(|channel| channel.generation) == Some(generation);
+            if closed {
+                live.remove(device_id);
+            }
+            closed
+        };
         self.changed.notify_waiters();
+        // Remove the channel before clearing its waiters, so a request cannot find the dying channel
+        // and register a waiter nobody will drop. The audit write comes after the waiters are told.
+        lock(pending).clear();
+        if closed {
+            self.record_boundary(device_id, audit::DEVICE_LEFT, left_at)
+                .await;
+        }
+    }
+
+    /// Append one channel boundary to the audit, when the console gave the registry a sink.
+    ///
+    /// `kind: "device"` (not `mcp`), `caller: "console"` and the event in `tool`: the page's
+    /// client-call rule sees the console and never counts it, and the timeline drops the marker.
+    async fn record_boundary(&self, device_id: &str, tool: &'static str, ts_ms: u64) {
+        let Some(audit) = &self.audit else {
+            return;
+        };
+        audit
+            .append(&audit::Entry {
+                ts_ms,
+                kind: "device",
+                device_id: Some(device_id),
+                status: 200,
+                detail: None,
+                tool: Some(tool),
+                token_id: None,
+                caller: Some(Caller::Console),
+                trace: None,
+                txn: None,
+                machine_seq: None,
+            })
+            .await;
     }
 }
 
@@ -438,45 +1045,121 @@ struct PendingGuard {
     id: u64,
 }
 
+/// Removes a subscription's sink when the subscription is not handed to its caller.
+struct StreamSubscription<'a> {
+    streams: &'a Mutex<HashMap<u64, mpsc::Sender<Value>>>,
+    id: u64,
+    armed: bool,
+}
+
+impl<'a> StreamSubscription<'a> {
+    fn disarm(mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for StreamSubscription<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            lock(self.streams).remove(&self.id);
+        }
+    }
+}
+
 impl Drop for PendingGuard {
     fn drop(&mut self) {
         lock(&self.pending).remove(&self.id);
     }
 }
 
-/// The fields of a device answer. `untagged` makes `{"id","result"}` and `{"id","error"}` the two
-/// accepted shapes; a frame with neither is malformed and logged.
-#[derive(Deserialize)]
-struct DeviceFrame {
-    id: u64,
-    #[serde(flatten)]
-    body: DeviceBody,
+/// The two sections an unsolicited status frame may carry: the machine facts and the device's own
+/// update story. Either may be absent; a frame with neither is simply not stored.
+struct Unsolicited {
+    host: Option<serde_json::Value>,
+    update: Option<serde_json::Value>,
+    /// A pushed event from the device's own journal, relayed to the page's stream.
+    events: Option<serde_json::Value>,
+    /// The range retention took from a subscription, which is not an event: it carries no journal
+    /// sequence and is published as its own notice.
+    reset: Option<serde_json::Value>,
 }
 
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum DeviceBody {
-    Result { result: Value },
-    Error { error: Value },
-}
-
-fn deliver(pending: &Mutex<HashMap<u64, oneshot::Sender<Answer>>>, text: &str) {
-    let frame: DeviceFrame = match serde_json::from_str(text) {
+/// Hand one inbound text frame to whoever is waiting for it.
+///
+/// Two kinds arrive on this socket: answers to the console's requests (keyed by envelope id), and the
+/// device's own status reports, which have no id and are what the console shows without asking. A
+/// status frame comes back to the caller to store; an answer is delivered to its waiter.
+fn deliver(
+    pending: &Mutex<HashMap<u64, oneshot::Sender<Answer>>>,
+    streams: &Mutex<HashMap<u64, mpsc::Sender<Value>>>,
+    text: &str,
+) -> Option<Unsolicited> {
+    let value: serde_json::Value = match serde_json::from_str(text) {
+        Ok(value) => value,
+        Err(error) => {
+            eprintln!("summrise-console: device sent a malformed frame: {error}");
+            return None;
+        }
+    };
+    // A pushed terminal frame is neither an answer nor a host report: it belongs to the
+    // subscription it names, and a subscriber that is gone drops it (the sender is removed, so the
+    // next frame is not even tried).
+    if let Some(term) = value.get("term") {
+        if let Some(sub) = term.get("sub").and_then(Value::as_u64) {
+            let mut sinks = lock(streams);
+            match sinks.get(&sub) {
+                Some(sink) if sink.try_send(term.clone()).is_ok() => {}
+                Some(_) => {
+                    sinks.remove(&sub);
+                }
+                None => {}
+            }
+        }
+        return None;
+    }
+    if let Some(event) = value.get("evt") {
+        if let Some(reset) = event.get("reset") {
+            return Some(Unsolicited {
+                host: None,
+                update: None,
+                events: None,
+                reset: Some(reset.clone()),
+            });
+        }
+        return Some(Unsolicited {
+            host: None,
+            update: None,
+            events: Some(event.clone()),
+            reset: None,
+        });
+    }
+    if value.get("id").is_none() {
+        return Some(Unsolicited {
+            host: value.get("host").cloned(),
+            update: value.get("update").cloned(),
+            events: None,
+            reset: None,
+        });
+    }
+    let frame: summrise_protocol::Answer = match serde_json::from_value(value) {
         Ok(frame) => frame,
         Err(error) => {
             eprintln!("summrise-console: device sent a malformed frame: {error}");
-            return;
+            return None;
         }
     };
 
     let reply = match frame.body {
-        DeviceBody::Result { result } => Reply::Result(result),
-        DeviceBody::Error { error } => Reply::Error(error),
+        summrise_protocol::Body::Result { result } => Reply::Result(result),
+        summrise_protocol::Body::Error { error } => Reply::Error(error),
     };
 
     match lock(pending).remove(&frame.id) {
         Some(sender) => {
-            let _ = sender.send(Ok(reply));
+            let _ = sender.send(Ok(Answered {
+                reply,
+                journal_seq: frame.journal_seq,
+            }));
         }
         None => {
             eprintln!(
@@ -485,6 +1168,7 @@ fn deliver(pending: &Mutex<HashMap<u64, oneshot::Sender<Answer>>>, text: &str) {
             );
         }
     }
+    None
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -505,6 +1189,7 @@ mod tests {
                 tools: vec!["files.read".to_owned()],
                 expires_at_ms: u64::MAX,
                 allow_destructive: false,
+                nonce: String::new(),
             },
             signature: "00".repeat(64),
         }
@@ -512,6 +1197,101 @@ mod tests {
 
     fn device_id() -> String {
         "ab".repeat(32)
+    }
+
+    /// A registry whose clock the test moves by hand, so presence is a number rather than a sleep.
+    fn registry_with_clock(start_ms: u64) -> (ChannelRegistry, Arc<AtomicU64>) {
+        let clock = Arc::new(AtomicU64::new(start_ms));
+        let reader = clock.clone();
+        let mut registry = ChannelRegistry::new();
+        registry.now = Arc::new(move || reader.load(Ordering::Relaxed));
+        (registry, clock)
+    }
+
+    /// The unit-level truth the fleet row reads: a socket alone is not an observation.
+    #[tokio::test]
+    async fn a_socket_alone_is_not_presence() {
+        let (registry, _clock) = registry_with_clock(1_000_000);
+        let id = device_id();
+        let _open = registry.open(&id).await;
+
+        assert!(!registry.online(&id), "an open channel is not a frame");
+        assert_eq!(
+            registry.last_frame(&id),
+            None,
+            "the console has seen nothing, so it has no moment to serve"
+        );
+    }
+
+    /// A frame ten seconds ago is inside the window, and the moment it arrived is what `/fleet`
+    /// would serve.
+    #[tokio::test]
+    async fn a_frame_ten_seconds_ago_is_online() {
+        let (registry, clock) = registry_with_clock(1_000_000);
+        let id = device_id();
+        let open = registry.open(&id).await;
+        registry.record_frame(&id, open.generation);
+
+        clock.fetch_add(10_000, Ordering::Relaxed);
+        assert!(
+            registry.online(&id),
+            "10 s is inside the {PRESENCE_WINDOW:?} window"
+        );
+        assert_eq!(registry.last_frame(&id), Some(1_000_000));
+    }
+
+    /// Past the window the channel is offline, and the moment is left where it was rather than
+    /// moved to now: the console saw the frame then, not later.
+    #[tokio::test]
+    async fn a_channel_silent_for_two_hundred_seconds_is_offline_with_the_same_moment() {
+        let (registry, clock) = registry_with_clock(1_000_000);
+        let id = device_id();
+        let open = registry.open(&id).await;
+        registry.record_frame(&id, open.generation);
+
+        clock.fetch_add(200_000, Ordering::Relaxed);
+        assert!(!registry.online(&id), "200 s is past the window");
+        assert_eq!(
+            registry.last_frame(&id),
+            Some(1_000_000),
+            "the last moment is unchanged"
+        );
+    }
+
+    /// A replacement starts with an empty presence clock: the old socket's frame is not evidence
+    /// that the new one is alive. The console's last-seen moment survives the close, because it
+    /// happened.
+    #[tokio::test]
+    async fn a_reopened_channel_has_no_presence_until_a_frame() {
+        let (registry, _clock) = registry_with_clock(1_000_000);
+        let id = device_id();
+        let first = registry.open(&id).await;
+        registry.record_frame(&id, first.generation);
+        assert!(registry.online(&id));
+
+        let second = registry.open(&id).await;
+        assert!(
+            !registry.online(&id),
+            "the new channel has received no frame yet"
+        );
+        assert_eq!(
+            registry.last_frame(&id),
+            Some(1_000_000),
+            "the moment the console saw is a fact about the past"
+        );
+        // A frame from the replaced socket must not count for the replacement either.
+        registry.record_frame(&id, first.generation);
+        assert!(!registry.online(&id), "a stale generation is not presence");
+
+        registry.record_frame(&id, second.generation);
+        assert!(registry.online(&id), "the new channel's own frame is");
+    }
+
+    /// The window is derived from the device's report cadence rather than chosen independently.
+    #[test]
+    fn the_presence_window_is_two_and_a_half_host_reports() {
+        assert_eq!(PRESENCE_WINDOW, DEVICE_REPORT_INTERVAL * 5 / 2);
+        assert_eq!(PRESENCE_WINDOW, Duration::from_secs(150));
     }
 
     /// What the operator's device list reads: a channel that is open now, and what the device said
@@ -531,21 +1311,336 @@ mod tests {
             Some("desktop-9vh92bj")
         );
 
-        let _open = registry.open(&device_id());
-        assert!(registry.online(&device_id()), "the channel is open");
+        let open = registry.open(&device_id()).await;
+        assert!(
+            !registry.online(&device_id()),
+            "a channel that has sent no frame is not presence"
+        );
+        registry.record_frame(&device_id(), open.generation);
+        assert!(
+            registry.online(&device_id()),
+            "the frame is what makes it online"
+        );
+    }
+
+    #[test]
+    fn a_status_frame_is_not_an_answer_and_is_handed_back() {
+        let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
+        let streams: Mutex<HashMap<u64, mpsc::Sender<Value>>> = Mutex::new(HashMap::new());
+        let stored = deliver(
+            &pending,
+            &streams,
+            r#"{"host":{"machine":"desktop-9vh92bj","sessions":[{"id":2,"state":"disconnected"}]}}"#,
+        )
+        .expect("a status frame comes back for storage");
+        assert_eq!(
+            stored.host.as_ref().map(|host| &host["machine"]),
+            Some(&serde_json::json!("desktop-9vh92bj"))
+        );
+        assert!(
+            stored.update.is_none(),
+            "this frame carried no update story"
+        );
+        assert!(
+            pending.lock().expect("the pending set").is_empty(),
+            "a status frame must not be mistaken for an answer"
+        );
+    }
+
+    /// A pushed journal event is carried back to the stream, never mistaken for an answer.
+    #[test]
+    fn a_pushed_event_comes_back_for_the_stream() {
+        let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
+        let streams: Mutex<HashMap<u64, mpsc::Sender<Value>>> = Mutex::new(HashMap::new());
+        let frame = deliver(
+            &pending,
+            &streams,
+            r#"{"evt":{"sub":3,"event":{"v":1,"seq":5,"type":"session.opened"}}}"#,
+        )
+        .expect("a pushed event comes back for the stream");
+        let event = frame.events.expect("the event section is carried");
+        assert_eq!(event["sub"], 3);
+        assert_eq!(event["event"]["seq"], 5);
+    }
+
+    /// A reset names what retention took; it has no journal sequence, so it must not be handed to
+    /// the page as an event with a made-up one.
+    #[test]
+    fn a_reset_frame_comes_back_apart_from_an_event() {
+        let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
+        let streams: Mutex<HashMap<u64, mpsc::Sender<Value>>> = Mutex::new(HashMap::new());
+        let frame = deliver(
+            &pending,
+            &streams,
+            r#"{"evt":{"sub":3,"reset":{"snapshot_seq":4,"lost":{"from":1,"to":4}}}}"#,
+        )
+        .expect("a reset comes back for the stream");
+        assert!(frame.events.is_none(), "a reset is not a journal event");
+        let reset = frame.reset.expect("the reset section is carried");
+        assert_eq!(reset["snapshot_seq"], 4);
+        assert_eq!(reset["lost"]["from"], 1);
+        assert_eq!(reset["lost"]["to"], 4);
+    }
+
+    /// The event cursor outlives a channel: a first connect is live-only, and every later one asks
+    /// for the row after the last sequence this console saw.
+    #[test]
+    fn the_event_cursor_resumes_after_the_last_sequence_seen() {
+        let registry = ChannelRegistry::new();
+        let id = device_id();
+        assert_eq!(
+            registry.events_from(&id),
+            u64::MAX,
+            "a first connect is live-only"
+        );
+        registry.record_event_seq(&id, 5);
+        assert_eq!(registry.events_from(&id), 6);
+        registry.record_event_seq(&id, 4);
+        assert_eq!(
+            registry.events_from(&id),
+            6,
+            "the cursor never moves backwards"
+        );
+    }
+
+    /// **THE MACHINE'S POSITION RIDES THE FRAME, NOT THE BODY (round 9).** A device answer may name
+    /// the outcome half's journal `seq` beside its JSON-RPC body; the waiter receives it, and an
+    /// answer that names none is the shape every older device sends.
+    #[test]
+    fn an_answer_carries_the_machines_sequence_beside_its_body() {
+        let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
+        let streams: Mutex<HashMap<u64, mpsc::Sender<Value>>> = Mutex::new(HashMap::new());
+        let (sender, receiver) = oneshot::channel();
+        lock(&pending).insert(7, sender);
+
+        assert!(deliver(
+            &pending,
+            &streams,
+            r#"{"id":7,"result":{"jsonrpc":"2.0","id":7,"result":{}},"journal_seq":814}"#,
+        )
+        .is_none());
+        let answered = receiver
+            .blocking_recv()
+            .expect("the waiter gets an answer")
+            .expect("the exchange answered");
+        assert_eq!(answered.journal_seq, Some(814));
+        assert_eq!(
+            answered.reply,
+            Reply::Result(serde_json::json!({ "jsonrpc": "2.0", "id": 7, "result": {} }))
+        );
+
+        let (sender, receiver) = oneshot::channel();
+        lock(&pending).insert(8, sender);
+        assert!(deliver(
+            &pending,
+            &streams,
+            r#"{"id":8,"result":{"jsonrpc":"2.0","id":8,"result":{}}}"#,
+        )
+        .is_none());
+        let answered = receiver
+            .blocking_recv()
+            .expect("the waiter gets an answer")
+            .expect("the exchange answered");
+        assert_eq!(
+            answered.journal_seq, None,
+            "an older device names no position"
+        );
+    }
+
+    /// The update section has its own slot on the stored frame. It is not folded into the host facts
+    /// and it is not composed here: a device that sends both keeps them apart on the way through.
+    #[test]
+    fn a_status_frames_update_section_comes_back_beside_its_host_facts() {
+        let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
+        let streams: Mutex<HashMap<u64, mpsc::Sender<Value>>> = Mutex::new(HashMap::new());
+        let stored = deliver(
+            &pending,
+            &streams,
+            concat!(
+                r#"{"host":{"machine":"workshop"},"#,
+                r#""update":{"current":"0.3.275","verdict":{"outcome":"ok","detail":"started 0.3.275"}}}"#,
+            ),
+        )
+        .expect("a status frame comes back for storage");
+        assert_eq!(
+            stored.host.as_ref().map(|host| &host["machine"]),
+            Some(&serde_json::json!("workshop"))
+        );
+        assert_eq!(
+            stored.update.as_ref().map(|update| &update["current"]),
+            Some(&serde_json::json!("0.3.275"))
+        );
+    }
+
+    #[test]
+    fn an_answer_with_no_waiter_is_dropped_without_panicking() {
+        let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
+        let streams: Mutex<HashMap<u64, mpsc::Sender<Value>>> = Mutex::new(HashMap::new());
+        assert!(deliver(&pending, &streams, r#"{"id":7,"result":{}}"#).is_none());
+    }
+
+    /// The frame the console writes carries the call's `trace.call`, which is what the device puts
+    /// on its journal pair and what the console's audit line names: the join is one value, sent.
+    #[tokio::test]
+    async fn a_request_carries_the_callers_trace_on_the_wire() {
+        let registry =
+            ChannelRegistry::with_timeouts(Duration::from_millis(500), Duration::from_millis(500));
+        let open = registry.open(&device_id()).await;
+        let mut commands = open.commands;
+        let frame = tokio::spawn(async move {
+            let Some(Outbound::Text {
+                frame, accepted, ..
+            }) = commands.recv().await
+            else {
+                panic!("the registry writes one frame");
+            };
+            let _ = accepted.send(Ok(()));
+            frame
+        });
+        let _answer = tokio::spawn(async move {
+            // The device answers, so the request returns instead of timing out.
+            tokio::time::sleep(Duration::from_millis(300)).await;
+        });
+
+        tokio::spawn({
+            let registry = Arc::new(registry);
+            let registry_clone = Arc::clone(&registry);
+            async move {
+                let _ = registry_clone
+                    .request(
+                        &device_id(),
+                        json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call" }),
+                        &RequestAuth::Grant(&grant()),
+                        "console-abc-7",
+                    )
+                    .await;
+            }
+        });
+
+        let written: Value = serde_json::from_str(&frame.await.expect("the frame is written"))
+            .expect("the frame is JSON");
+        assert_eq!(written["trace"], json!("console-abc-7"), "{written}");
+        assert_eq!(written["mcp"]["method"], json!("tools/call"), "{written}");
+    }
+
+    /// A call this console proxied is already a row from its own audit; the device's half of the
+    /// same call must not be relayed as a second row. A call the console never proxied — the
+    /// panel's, a mesh peer's, a direct loopback client's — must be, or the page never sees it.
+    #[test]
+    fn the_relay_drops_a_call_this_console_minted_and_keeps_a_foreign_one() {
+        let registry = ChannelRegistry::new();
+        let own = registry.mint_trace();
+        // The frame's shape: the subscription's envelope under `event`, as `deliver` stores it.
+        let relayed = |kind: &str, trace: Value| {
+            json!({ "seq": 4, "event": { "v": 1, "plane": "control", "seq": 4, "type": kind,
+                                        "ts": "2026-11-13T00:00:00Z", "trace": trace,
+                                        "payload": {} } })
+        };
+        assert!(
+            !registry.relays_call(&relayed("call.finished", json!({ "call": own }))),
+            "the console's own call is not relayed twice"
+        );
+        assert!(
+            registry.relays_call(&relayed("call.finished", json!({ "call": "panel-3" }))),
+            "a call from another door reaches the page"
+        );
+        assert!(
+            registry.relays_call(&relayed("session.opened", Value::Null)),
+            "an event that is not a call has no trace and is still relayed"
+        );
+        // A trace minted by an earlier console process is not this process's: the prefix is random.
+        assert!(
+            registry.relays_call(&relayed(
+                "call.finished",
+                json!({ "call": "console-00000000-1" })
+            )),
+            "only this process's traces are dropped"
+        );
+    }
+
+    /// Drive the real request producer through socket acceptance, then revoke before any reply.
+    async fn accept_then_revoke(registry: &ChannelRegistry, open: &mut OpenChannel) -> Value {
+        let Some(Outbound::Text {
+            id,
+            frame,
+            accepted,
+        }) = open.commands.recv().await
+        else {
+            panic!("the real request must queue a frame before revocation");
+        };
+        let frame: Value = serde_json::from_str(&frame).expect("the queued frame is JSON");
+        assert_eq!(frame["id"], json!(id));
+        assert!(lock(&open.pending).contains_key(&id));
+        accepted
+            .send(Ok(()))
+            .expect("the request is still waiting for socket acceptance");
+        registry.disconnect(&device_id());
+        assert!(matches!(
+            open.commands.recv().await,
+            Some(Outbound::Close("the operator revoked this device"))
+        ));
+        frame
+    }
+
+    #[tokio::test]
+    async fn revoking_an_accepted_request_is_disconnected() {
+        let registry =
+            ChannelRegistry::with_timeouts(Duration::from_secs(2), Duration::from_secs(2));
+        let device_id = device_id();
+        let mut open = registry.open(&device_id).await;
+        let grant = grant();
+        let auth = RequestAuth::Grant(&grant);
+        let request = registry.request_acknowledged(
+            &device_id,
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                "params": { "name": "runs.exec", "arguments": { "command": "stub-only" } } }),
+            &auth,
+            "accepted-request-revoked",
+        );
+        let (result, frame) = tokio::join!(request, accept_then_revoke(&registry, &mut open));
+        assert_eq!(frame["mcp"]["params"]["name"], json!("runs.exec"));
+        assert_eq!(result.unwrap_err(), RequestError::Disconnected);
+        assert!(lock(&open.pending).is_empty());
+        assert!(lock(&registry.in_flight).is_empty());
+    }
+
+    #[tokio::test]
+    async fn revoking_an_accepted_subscription_is_disconnected_and_cleans_its_sink() {
+        let registry =
+            ChannelRegistry::with_timeouts(Duration::from_secs(2), Duration::from_secs(2));
+        let device_id = device_id();
+        let mut open = registry.open(&device_id).await;
+        let grant = grant();
+        let auth = RequestAuth::Grant(&grant);
+        let subscription = registry.subscribe(
+            &device_id,
+            "session-revoked",
+            0,
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                "params": { "name": "terminal.read", "arguments": { "session": "session-revoked" } } }),
+            &auth,
+            "accepted-subscription-revoked",
+        );
+        let (result, frame) = tokio::join!(subscription, accept_then_revoke(&registry, &mut open));
+        assert_eq!(frame["mcp"]["params"]["name"], json!("terminal.read"));
+        assert_eq!(result.err().unwrap(), RequestError::Disconnected);
+        assert!(lock(&registry.streams).is_empty());
+        assert!(lock(&open.pending).is_empty());
+        assert!(lock(&registry.in_flight).is_empty());
     }
 
     #[tokio::test]
     async fn a_socket_that_never_accepts_a_frame_is_a_send_timeout() {
         let registry = ChannelRegistry::with_send_timeout(Duration::from_millis(50));
         // A channel exists, but no serving task ever accepts the frame: the socket is wedged.
-        let _open = registry.open(&device_id());
+        let _open = registry.open(&device_id()).await;
 
         let result = registry
             .request(
                 &device_id(),
                 json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }),
-                &grant(),
+                &RequestAuth::Grant(&grant()),
+                "test-trace",
             )
             .await;
 
@@ -566,7 +1661,7 @@ mod tests {
             Duration::from_millis(50),
             Duration::from_millis(50),
         ));
-        let open = registry.open(&device_id());
+        let open = registry.open(&device_id()).await;
         let commands = open.commands;
         // A device that accepts every frame and answers none.
         let acceptor = tokio::spawn(async move {
@@ -580,7 +1675,8 @@ mod tests {
             .request(
                 &device_id(),
                 json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }),
-                &grant(),
+                &RequestAuth::Grant(&grant()),
+                "test-trace",
             )
             .await;
 
@@ -588,12 +1684,77 @@ mod tests {
         acceptor.abort();
     }
 
+    /// A run's channel wait follows the run, not the general answer bound. Without this, a command
+    /// that outlives [`REPLY_TIMEOUT`] would be answered 504 by the channel while the device was still
+    /// running it — the exact case the Runs page's timeout field made visible.
+    #[tokio::test]
+    async fn a_run_waits_past_the_general_reply_bound() {
+        // The general bound is 20 ms; this device answers after 120 ms.
+        let registry = Arc::new(ChannelRegistry::with_timeouts(
+            Duration::from_millis(50),
+            Duration::from_millis(20),
+        ));
+        let open = registry.open(&device_id()).await;
+        let mut commands = open.commands;
+        let pending = open.pending.clone();
+        let streams: Arc<Mutex<HashMap<u64, mpsc::Sender<Value>>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+        let device = tokio::spawn(async move {
+            while let Some(Outbound::Text {
+                accepted, frame, ..
+            }) = commands.recv().await
+            {
+                let _ = accepted.send(Ok(()));
+                let pending = pending.clone();
+                let streams = Arc::clone(&streams);
+                tokio::spawn(async move {
+                    tokio::time::sleep(Duration::from_millis(120)).await;
+                    let id = serde_json::from_str::<serde_json::Value>(&frame)
+                        .ok()
+                        .and_then(|value| value.get("id").cloned())
+                        .unwrap_or(serde_json::Value::Null);
+                    let answer =
+                        format!(r#"{{"jsonrpc":"2.0","id":{id},"result":{{"answered":true}}}}"#);
+                    let _ = deliver(&pending, &streams, &answer);
+                });
+            }
+        });
+
+        // The general bound gives up first.
+        let general = registry
+            .request(
+                &device_id(),
+                json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }),
+                &RequestAuth::Grant(&grant()),
+                "test-trace",
+            )
+            .await;
+        assert_eq!(general, Err(RequestError::ReplyTimeout));
+
+        // A run's own wait lets the same device answer.
+        let run = registry
+            .request_within_acknowledged(
+                &device_id(),
+                json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/call" }),
+                &RequestAuth::Grant(&grant()),
+                "test-trace",
+                Duration::from_millis(500),
+            )
+            .await
+            .map(|answered| answered.reply);
+        assert!(
+            matches!(run, Ok(Reply::Result(ref value)) if value["answered"] == json!(true)),
+            "the run's wait reads the late answer: {run:?}"
+        );
+        device.abort();
+    }
+
     #[tokio::test]
     async fn the_in_flight_cap_refuses_rather_than_grows() {
         let registry = Arc::new(ChannelRegistry::with_send_timeout(Duration::from_millis(
             100,
         )));
-        let _open = registry.open(&device_id());
+        let _open = registry.open(&device_id()).await;
 
         let mut calls = Vec::new();
         for _ in 0..MAX_IN_FLIGHT_PER_DEVICE {
@@ -603,7 +1764,8 @@ mod tests {
                     .request(
                         &device_id(),
                         json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }),
-                        &grant(),
+                        &RequestAuth::Grant(&grant()),
+                        "test-trace",
                     )
                     .await
             }));
@@ -627,7 +1789,8 @@ mod tests {
             .request(
                 &device_id(),
                 json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" }),
-                &grant(),
+                &RequestAuth::Grant(&grant()),
+                "test-trace",
             )
             .await;
         assert_eq!(

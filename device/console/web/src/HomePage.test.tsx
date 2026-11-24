@@ -1,0 +1,1240 @@
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Device, LiveTool } from "./api";
+import { HomePage } from "./HomePage";
+
+const installerApi = vi.hoisted(() => ({ installer: vi.fn() }));
+vi.mock("./api", () => ({
+  api: { installer: installerApi.installer }
+}));
+
+const monitors = vi.hoisted(() => ({ read: vi.fn() }));
+vi.mock("./monitorApi", () => ({
+  readMonitors: monitors.read,
+  monitorFailure: (e: unknown) => String(e)
+}));
+
+const live = vi.hoisted(() => ({ value: {} as Record<string, unknown> }));
+vi.mock("./useLiveTools", () => ({ useLiveTools: () => live.value }));
+
+const workshop: Device = {
+  id: "dev-workshop",
+  name: "workshop",
+  online: true,
+  version: "0.3.246",
+  last_seen_ms: 1
+};
+
+function tool(name: string, capability: string): LiveTool {
+  return {
+    name,
+    description: "",
+    inputSchema: { type: "object", properties: {} },
+    source: "builtin",
+    capability,
+    destructive: false
+  };
+}
+
+const tools = [
+  tool("terminal.create", "terminal"),
+  tool("terminal.write", "terminal"),
+  tool("files.list", "files"),
+  tool("files.read", "files"),
+  tool("screen.capture", "screen"),
+  tool("plugins.list", "plugins")
+];
+
+/** The installer facts the console answers with, as a fleet test's `/installer` would. */
+const installerFacts = {
+  available: true as const,
+  filename: "SummriseSetup-0.3.9.exe",
+  version: "0.3.9",
+  size_bytes: 6_638_339,
+  sha256: "26d39c12" + "a".repeat(56)
+};
+
+beforeEach(() => {
+  live.value = { tools, stale: false, error: null, offline: false, loading: false, retry: vi.fn() };
+  // A page that always reads the fleet's watches must have an answer in every test that does not care about them.
+  monitors.read.mockReset();
+  monitors.read.mockResolvedValue({ targets: [], intervalSecs: null });
+});
+
+/**
+ * Render Home with no machine chosen: the fleet, where the Add-a-machine flow lives. This is the
+ * state the gate signs in to and the item is about.
+ */
+function drawFleet(extra: Record<string, unknown> = {}) {
+  const onTokens = vi.fn();
+  const onRetryFleet = vi.fn();
+  const onAddMachine = vi.fn();
+  const onOpen = vi.fn();
+  const onOpenMachine = vi.fn();
+  const onConnect = vi.fn();
+  const onTools = vi.fn();
+  const onNotice = vi.fn();
+  const onActivity = vi.fn();
+  const onDevice = vi.fn();
+  const fleetProps = {
+    device: null,
+    devices: [],
+    selectedId: null,
+    code: null,
+    enrollCommand: "",
+    busy: false,
+    onOpen,
+    onOpenMachine,
+    onRename: vi.fn(),
+    onRemove: vi.fn(),
+    onDiagnostics: vi.fn(),
+    onAddMachine,
+    onTokens,
+    onDismissCode: vi.fn(),
+    onNotice,
+    onConnect,
+    onTools,
+    onActivity,
+    onDevice,
+    onRetryFleet
+  };
+  const page = (overrides: Record<string, unknown> = {}) => (
+    <HomePage {...fleetProps} {...overrides} />
+  );
+  const view = render(page(extra));
+  return {
+    ...view,
+    onTokens,
+    onRetryFleet,
+    onAddMachine,
+    onOpen,
+    onOpenMachine,
+    onConnect,
+    onTools,
+    onNotice,
+    onActivity,
+    onDevice,
+    rerenderFleet: (overrides: Record<string, unknown>) =>
+      view.rerender(page({ ...extra, ...overrides }))
+  };
+}
+
+/** One machine in the new fleet's table shape: online and on the staged installer unless it says. */
+function machine(overrides: Partial<Device> = {}): Device {
+  return {
+    id: `dev-${overrides.name ?? "machine"}`,
+    name: "machine",
+    online: true,
+    version: installerFacts.version,
+    last_seen_ms: Date.now() - 5_000,
+    ...overrides
+  };
+}
+
+describe("Home — the fleet's installer", () => {
+  beforeEach(() => {
+    installerApi.installer.mockReset();
+  });
+
+  it("offers the installer the console was given, with its own filename, size and hash", async () => {
+    installerApi.installer.mockResolvedValue(installerFacts);
+    drawFleet();
+
+    const heading = await screen.findByRole("heading", {
+      name: "Install the device runtime"
+    });
+    const link = screen.getByRole("link", { name: "Download Windows installer" });
+    expect(link).toHaveAttribute("href", "/installer/download");
+    expect(link).toHaveAttribute("download");
+    // Every value on the muted line is the /installer answer: the filename, the size at the scale
+    // runFormat states it, and the first eight hex characters of the hash it computed.
+    // The digest sits in its own element so it can carry the full value in a title; the line is
+    // still one sentence, asserted whole rather than by its separate text nodes.
+    expect(
+      screen.getByText(
+        (_, node) =>
+          node?.tagName === "P" &&
+          node.textContent === "SummriseSetup-0.3.9.exe · 6.3 MB · sha256 26d39c12…"
+      )
+    ).toBeInTheDocument();
+    expect(
+      heading.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it("keeps the full digest one gesture from the short hash, with a copy control", async () => {
+    installerApi.installer.mockResolvedValue(installerFacts);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true
+    });
+    const { onNotice } = drawFleet();
+
+    // **THE STRIP'S SHORT HASH IS A PREFIX, NOT THE WHOLE CHECK.** `/installer` carries the 64 hex
+    // characters; the page shows the first eight and keeps the full value in the title and on one
+    // press, so a 6.6 MB download can be checked without knowing the JSON endpoint.
+    const short = await screen.findByText("sha256 26d39c12…");
+    expect(short).toHaveAttribute("title", installerFacts.sha256);
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy digest" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(installerFacts.sha256));
+    expect(onNotice).toHaveBeenCalledWith("Digest copied.");
+  });
+
+  it("sends a machine behind the staged installer to Needs attention", async () => {
+    // The measured fleet: 84T3LIN read v0.3.280 while the same page offered the 0.3.284
+    // installer, and the row gave the operator no way to notice without comparing two surfaces.
+    installerApi.installer.mockResolvedValue(installerFacts);
+    drawFleet({ devices: [{ ...workshop, version: "0.3.8" }] });
+
+    // The installer LEADS here (0.3.9 against a machine on 0.3.8), so the sentence names the
+    // installer — the case this test was written for.
+    expect(
+      await screen.findByText("The release is 0.3.9; the machines below are not on it.")
+    ).toBeInTheDocument();
+    // The staged installer is the RELEASE; the console's own build is another version scheme and
+    // the page may not call both "the console" (audit-40 F10).
+    expect(screen.queryByText(/the console has/)).toBeNull();
+    expect(screen.queryByText("behind 0.3.9")).toBeNull();
+  });
+
+  it("stops inviting an install when the fleet has outrun the file", async () => {
+    // **THE LIVE STATE (the thirty-sixth list).** On `0.3.273-ux137` the strip read
+    // `Install the device runtime` over an accent `Download Windows installer`, directly above its
+    // own sentence `The fleet is already past this file: the newest build any machine reports is
+    // 0.3.292.` — the page's loudest control inviting a press whose answer it had given. The strip
+    // now says what the file is FOR when the fleet has outrun it, and its download is neutral.
+    installerApi.installer.mockResolvedValue({ ...installerFacts, version: "0.3.291" });
+    drawFleet({
+      devices: [
+        { ...workshop, id: "a", name: "DESKTOP-9VH92BJ", version: "0.3.292" },
+        { ...workshop, id: "b", name: "DESKTOP-84T3LIN", version: "0.3.291" }
+      ]
+    });
+
+    const strip = await screen.findByRole("region", { name: "Install the device runtime" });
+    expect(within(strip).getByRole("heading")).toHaveTextContent(
+      "Installer for a new or returning machine"
+    );
+    const link = within(strip).getByRole("link", { name: "Download Windows installer" });
+    expect(link).toHaveClass("installer-spare");
+    expect(link).not.toHaveClass("primary");
+    // And it still says what it is for, in the page's own numbers.
+    expect(within(strip).getByText(/installs a machine that is not in the fleet yet/)).toBeInTheDocument();
+  });
+
+  it("names the fleet's own newest build when the machines have outrun the installer", async () => {
+    // **THE LIVE PAGE ON 0.3.273-ux129 (the thirty-third list).** The fleet ran
+    // `0.3.292 / 0.3.275 / 0.3.292 / 0.3.291` while the staged installer was `0.3.291`, and Home said
+    // `The release is 0.3.291; the machines below are not on it.` — three of those four machines
+    // were ON or PAST it. The block measures against the newer of the two and says which it is.
+    installerApi.installer.mockResolvedValue({ ...installerFacts, version: "0.3.291" });
+    drawFleet({
+      devices: [
+        { ...workshop, id: "a", name: "DESKTOP-9VH92BJ", version: "0.3.292" },
+        { ...workshop, id: "b", name: "DESKTOP-14RJCR8", version: "0.3.275" },
+        { ...workshop, id: "c", name: "DESKTOP-CPH4KB2", version: "0.3.292" },
+        { ...workshop, id: "d", name: "DESKTOP-84T3LIN", version: "0.3.291" }
+      ]
+    });
+
+    expect(
+      await screen.findByText(
+        "The newest build in the fleet is 0.3.292; the machines below are behind it."
+      )
+    ).toBeInTheDocument();
+    // Exactly one machine is behind — the one on 0.3.275 — and the two on 0.3.292 are NOT called
+    // behind, which is the error the old sentence made in the opposite direction.
+    const attention = screen.getByRole("region", { name: "Needs attention" });
+    // **TWO ARE BEHIND, AND THE TWO ON 0.3.292 ARE NOT.** 14R is on 0.3.275 and 84T on 0.3.291;
+    // both are behind the fleet's newest build. The machines ON that build are absent, which is the
+    // error the old installer-target sentence made in the opposite direction (it excluded them and
+    // described the ones that were ahead).
+    expect(attention.querySelectorAll(".attention-row")).toHaveLength(2);
+    expect(within(attention).getByText("On v0.3.275 · behind 0.3.292.")).toBeInTheDocument();
+    // And the installer's own line says the file is behind the fleet.
+    expect(screen.getByText(/The fleet is already past this file/)).toBeInTheDocument();
+  });
+
+  it("draws no fleet cue when the console staged no installer", async () => {
+    installerApi.installer.mockResolvedValue({ available: false });
+    drawFleet({ devices: [{ ...workshop, version: "0.3.8" }] });
+
+    await screen.findByText(/No installer is published/);
+    expect(screen.queryByText(/behind/)).not.toBeInTheDocument();
+  });
+
+  it("says plainly when the release carries no installer, and draws no door", async () => {
+    installerApi.installer.mockResolvedValue({ available: false });
+    drawFleet();
+
+    expect(
+      await screen.findByText(
+        "No installer is published for this console yet. Install it from the release, then add the machine for its enrollment command."
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "Download Windows installer" })
+    ).toBeNull();
+    expect(
+      screen.queryByRole("heading", { name: "Install the device runtime" })
+    ).toBeNull();
+  });
+
+  it("says the read failed instead of drawing nothing (the fortieth list)", async () => {
+    // **MEASURED ON THE LIVE CONSOLE: `/installer` answering 500 left Home 100 px shorter with no
+    // sentence and no retry.** The hook's `catch` set the same `null` that "not read yet" used, and
+    // the render was `{installer !== null && …}` — so a console that failed to ask and an account
+    // with no file were one state, and the page drew neither. The panel's Memory, Settings and
+    // Plugins pages already answer a failed read with their own subject and a Retry.
+    installerApi.installer.mockRejectedValueOnce(new Error("the installer could not be read"));
+    drawFleet();
+
+    await waitFor(() => expect(installerApi.installer).toHaveBeenCalledTimes(1));
+    // The block is still there — with its own subject and what it cannot do. On a fleet of zero it
+    // is the first-run card's door (the fortieth list), so the card is what carries the sentence.
+    expect(screen.getByText(/The installer could not be read/)).toBeInTheDocument();
+    // It does NOT offer a download it does not have, and it does not claim the account has none.
+    expect(screen.queryByRole("link", { name: "Download Windows installer" })).toBeNull();
+    expect(screen.queryByText(/No installer is published/)).toBeNull();
+    // And it offers the retry the panel's pages already offer.
+    installerApi.installer.mockResolvedValueOnce(installerFacts);
+    await act(async () => {
+      screen.getByRole("button", { name: "Try the installer again" }).click();
+    });
+    await screen.findByRole("link", { name: "Download Windows installer" });
+  });
+
+  it("reads the installer once, not on every redraw", async () => {
+    installerApi.installer.mockResolvedValue(installerFacts);
+    const { rerenderFleet } = drawFleet();
+    await screen.findByRole("heading", { name: "Install the device runtime" });
+
+    rerenderFleet({ busy: true });
+    await act(async () => {});
+
+    expect(installerApi.installer).toHaveBeenCalledTimes(1);
+  });
+
+  it("puts the block before the enrollment command in the Add-a-machine panel", async () => {
+    installerApi.installer.mockResolvedValue(installerFacts);
+    drawFleet({
+      code: { code: "code-1", expires_at_ms: Date.now() + 15 * 60_000 },
+      enrollCommand:
+        "summrise-device.exe --enroll https://console.test code-1 --data C:\\ProgramData\\Summrise"
+    });
+
+    const heading = await screen.findByRole("heading", {
+      name: "Install the device runtime"
+    });
+    const command = screen.getByText(
+      "summrise-device.exe --enroll https://console.test code-1 --data C:\\ProgramData\\Summrise"
+    );
+    // The command assumes the binary is installed; the door that installs it comes first.
+    expect(
+      heading.compareDocumentPosition(command) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      screen.getAllByRole("heading", { name: "Install the device runtime" })
+    ).toHaveLength(1);
+  });
+});
+
+/**
+ * THE OPERATOR'S SENTENCE, NOT A SECOND LIST. Home's first fact is whether anything needs a person:
+ * one large verdict from the fleet read, then one row per problem with the door that opens that
+ * machine. The per-row client-call counters are Activity's noun and must not be on this page.
+ */
+describe("Home — the verdict and what needs attention", () => {
+  beforeEach(() => {
+    installerApi.installer.mockResolvedValue(installerFacts);
+  });
+
+  it("says all four online and nothing to do when the fleet is healthy", async () => {
+    drawFleet({
+      devices: [
+        machine({ id: "a", name: "alpha" }),
+        machine({ id: "b", name: "bravo" }),
+        machine({ id: "c", name: "charlie" }),
+        machine({ id: "d", name: "delta" })
+      ],
+      fleetRead: { state: "ready", at: Date.now() }
+    });
+
+    expect(
+      await screen.findByText("4 of 4 online · nothing to do")
+    ).toBeInTheDocument();
+  });
+
+  it("counts one offline machine in the verdict and states when it was last seen", async () => {
+    drawFleet({
+      devices: [
+        machine({ id: "a", name: "alpha" }),
+        machine({ id: "b", name: "bravo" }),
+        machine({ id: "c", name: "charlie" }),
+        machine({
+          id: "r14",
+          name: "DESKTOP-14RJCR8",
+          online: false,
+          last_frame_ms: Date.now() - (2 * 24 + 5) * 3_600_000
+        })
+      ],
+      fleetRead: { state: "ready", at: Date.now() }
+    });
+
+    expect(
+      await screen.findByText("3 of 4 online · 1 needs attention")
+    ).toBeInTheDocument();
+    // The row's heading is the machine and the problem is a line under it (audit-40 F6).
+    const attention = screen.getByRole("region", { name: "Needs attention" });
+    expect(
+      within(attention).getByRole("heading", { name: "DESKTOP-14RJCR8", level: 3 })
+    ).toBeInTheDocument();
+    // The attention line uses the fleet row's one phrase, not a second spelling (audit-43 F2).
+    expect(
+      within(attention).getByText("offline · last seen 2d 5h ago")
+    ).toBeInTheDocument();
+  });
+
+  it("counts a machine behind the staged installer even while every machine is online", async () => {
+    drawFleet({
+      devices: [
+        machine({ id: "a", name: "alpha" }),
+        machine({ id: "b", name: "bravo" }),
+        machine({ id: "c", name: "charlie" }),
+        machine({ id: "old", name: "old", version: "0.3.8" })
+      ],
+      fleetRead: { state: "ready", at: Date.now() }
+    });
+
+    expect(
+      await screen.findByText("4 of 4 online · 1 needs attention")
+    ).toBeInTheDocument();
+    const attention = screen.getByRole("region", { name: "Needs attention" });
+    expect(within(attention).getByRole("heading", { name: "old", level: 3 })).toBeInTheDocument();
+    // The release is stated once by the block; the row names the machine, its own build and the
+    // distance (the twenty-eighth list, item 4), which is the fact the block alone could not give.
+    expect(
+      within(attention).getByText("The newest build in the fleet is 0.3.9; the machines below are behind it.")
+    ).toBeInTheDocument();
+    expect(within(attention).getByText("On v0.3.8 · behind 0.3.9.")).toBeInTheDocument();
+  });
+
+  it("draws one row per machine, its problems listed, with one button that opens it", async () => {
+    // The real 14R shape: offline and behind at once. The verdict counts machines (one), so the
+    // block draws one row with both problems listed and ONE door — four rows and four identical
+    // buttons over two machines made the count and the block disagree (audit-40 F6).
+    installerApi.installer.mockResolvedValue({ ...installerFacts, version: "0.3.289" });
+    const { onOpenMachine } = drawFleet({
+      devices: [
+        machine({ id: "a", name: "alpha", version: "0.3.289" }),
+        machine({ id: "b", name: "bravo", version: "0.3.289" }),
+        machine({ id: "c", name: "charlie", version: "0.3.289" }),
+        machine({
+          id: "r14",
+          name: "DESKTOP-14RJCR8",
+          online: false,
+          version: "0.3.275",
+          last_frame_ms: Date.now() - (2 * 24 + 5) * 3_600_000
+        })
+      ],
+      fleetRead: { state: "ready", at: Date.now() }
+    });
+
+    expect(
+      await screen.findByText("3 of 4 online · 1 needs attention")
+    ).toBeInTheDocument();
+    const attention = screen.getByRole("region", { name: "Needs attention" });
+    expect(attention.querySelectorAll(".attention-row")).toHaveLength(1);
+    expect(
+      within(attention).getByRole("heading", { name: "DESKTOP-14RJCR8", level: 3 })
+    ).toBeInTheDocument();
+    const problems = attention.querySelectorAll(".attention-problems li");
+    expect(Array.from(problems, (problem) => problem.textContent)).toEqual([
+      "offline · last seen 2d 5h ago",
+      "On v0.3.275 · behind 0.3.289."
+    ]);
+    // One release position: the block's sentence names the target once. The row names THIS machine's
+    // build, because a reader told "behind" without a number has to hunt the table for it.
+    expect(
+      within(attention).getAllByText("The newest build in the fleet is 0.3.289; the machines below are behind it.")
+    ).toHaveLength(1);
+    expect(within(attention).getAllByText(/0\.3\.275/)).toHaveLength(1);
+    // One door for one machine; the name appears once, not in every problem line. The visible verb
+    // is `Open`, the same one the fleet row and the picker use (audit-44 F9).
+    const doors = within(attention).getAllByRole("button", {
+      name: "Open machine for DESKTOP-14RJCR8"
+    });
+    expect(doors).toHaveLength(1);
+    expect(doors[0]).toHaveTextContent(/^Open$/);
+    expect(within(attention).getAllByText(/DESKTOP-14RJCR8/)).toHaveLength(1);
+    fireEvent.click(doors[0]);
+    expect(onOpenMachine).toHaveBeenCalledWith("r14");
+  });
+
+  it("folds two machines' four problems into two rows, each with its own door", async () => {
+    // The measured 390 page: 14R and CPH each away and behind, four problems and four buttons in
+    // four rows. The block keeps every fact and loses the duplicate door: two rows, two doors
+    // (audit-40 F6).
+    installerApi.installer.mockResolvedValue({ ...installerFacts, version: "0.3.290" });
+    const { onOpenMachine } = drawFleet({
+      devices: [
+        machine({
+          id: "r14",
+          name: "DESKTOP-14RJCR8",
+          online: false,
+          version: "0.3.275",
+          last_frame_ms: Date.now() - (2 * 24 + 11) * 3_600_000
+        }),
+        machine({
+          id: "cph",
+          name: "DESKTOP-CPH4KB2",
+          online: false,
+          version: "0.3.289",
+          last_frame_ms: Date.now() - (9 * 60 + 29) * 60_000
+        })
+      ],
+      fleetRead: { state: "ready", at: Date.now() }
+    });
+
+    expect(
+      await screen.findByText("0 of 2 online · 2 need attention")
+    ).toBeInTheDocument();
+    const attention = screen.getByRole("region", { name: "Needs attention" });
+    const rows = Array.from(attention.querySelectorAll(".attention-row"));
+    expect(rows).toHaveLength(2);
+    expect(rows.map((row) => row.querySelector(".attention-machine")?.textContent)).toEqual([
+      "DESKTOP-14RJCR8",
+      "DESKTOP-CPH4KB2"
+    ]);
+    expect(rows.map((row) => row.querySelectorAll(".attention-problems li").length)).toEqual([
+      2, 2
+    ]);
+    // One door per machine, named for that machine — the four identical buttons are gone.
+    expect(
+      within(attention).getAllByRole("button", { name: "Open machine for DESKTOP-14RJCR8" })
+    ).toHaveLength(1);
+    expect(
+      within(attention).getAllByRole("button", { name: "Open machine for DESKTOP-CPH4KB2" })
+    ).toHaveLength(1);
+    fireEvent.click(
+      within(attention).getByRole("button", { name: "Open machine for DESKTOP-CPH4KB2" })
+    );
+    expect(onOpenMachine).toHaveBeenCalledWith("cph");
+  });
+
+  it("says nothing needs attention, with the fleet read's age, when the fleet is healthy", async () => {
+    drawFleet({
+      devices: [machine({ id: "a", name: "alpha" })],
+      fleetRead: { state: "ready", at: Date.now() - 12_000 }
+    });
+
+    expect(await screen.findByText("Nothing needs attention.")).toBeInTheDocument();
+    expect(screen.getByText(/^Fleet read \d+s ago\.$/)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "Needs attention" })
+    ).toBeNull();
+  });
+
+  it("draws no client-call counters on Home", async () => {
+    drawFleet({
+      devices: [
+        machine({
+          id: "a",
+          name: "alpha",
+          today: { client_calls: 283, failed: 38 }
+        }),
+        machine({ id: "b", name: "bravo", today: { client_calls: 84, failed: 2 } })
+      ],
+      fleetRead: { state: "ready", at: Date.now() }
+    });
+
+    await screen.findByText("2 of 2 online · nothing to do");
+    expect(screen.queryByText(/client call/)).toBeNull();
+    expect(screen.queryByText(/failed/)).toBeNull();
+    expect(screen.queryByText("283 client calls · 38 failed")).toBeNull();
+    expect(document.querySelector(".fleet-work")).toBeNull();
+  });
+
+  it("draws the compact Machine / Status / Version / Started table, installer below it", async () => {
+    const booted = Date.now() - 3 * 3_600_000;
+    drawFleet({
+      view: "machines",
+      devices: [
+        machine({
+          id: "a",
+          name: "alpha",
+          version: "0.3.9",
+          update: {
+            current: "0.3.9",
+            verdict: { outcome: "ok", detail: "started 0.3.9" }
+          },
+          host: {
+            restarts: [{ at_ms: booted, version: "0.3.9", channel: "canary", pid: 42 }]
+          }
+        }),
+        machine({ id: "b", name: "bravo", online: false })
+      ],
+      fleetRead: { state: "ready", at: Date.now() }
+    });
+
+    const table = await screen.findByRole("table", { name: "The fleet" });
+    const headers = within(table)
+      .getAllByRole("columnheader")
+      .map((header) => header.textContent?.trim());
+    expect(headers).toEqual(["Machine", "Status", "Version", "Started", "Actions"]);
+    expect(within(table).getAllByRole("row")).toHaveLength(3);
+    expect(within(table).getByRole("button", { name: "Open alpha" })).toBeInTheDocument();
+    expect(within(table).getAllByText("v0.3.9")).toHaveLength(2);
+    expect(within(table).getByText(/^3h ago$/)).toBeInTheDocument();
+    // The coloured dot is beside the status word, not the name.
+    const alphaRow = within(table).getByRole("button", { name: "Open alpha" }).closest("tr");
+    expect(alphaRow?.querySelector(".fleet-status .dot.dot-ok")).not.toBeNull();
+    expect(alphaRow?.querySelector(".fleet-status .fleet-state")).toHaveTextContent("online");
+
+    const installerHeading = await screen.findByRole("heading", {
+      name: "Install the device runtime"
+    });
+    // The installer is the last surface, not the first card: the fleet comes before it.
+    expect(
+      table.compareDocumentPosition(installerHeading) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(installerHeading.closest(".installer")).toHaveClass("installer-strip");
+  });
+});
+
+/**
+ * THE SELECTION IS THE FLEET'S, NOT THE PAGE'S. Choosing a machine must not turn Home into that
+ * machine's page: the verdict, the attention rows and the table are claims about the whole fleet
+ * whichever machine is in context, and the machine itself is one section beside them — never a
+ * second Activity. The machine's own page is Device.
+ */
+describe("Home — the selected machine", () => {
+  beforeEach(() => {
+    installerApi.installer.mockResolvedValue(installerFacts);
+  });
+
+  function twoMachines() {
+    return [
+      machine({ id: "w", name: "workshop", version: workshop.version }),
+      machine({
+        id: "r14",
+        name: "DESKTOP-14RJCR8",
+        online: false,
+        last_frame_ms: Date.now() - (2 * 24 + 5) * 3_600_000
+      })
+    ];
+  }
+
+  it("keeps the fleet's verdict, attention and machine workspaces while a machine is selected", async () => {
+    drawFleet({
+      device: workshop,
+      selectedId: workshop.id,
+      devices: twoMachines(),
+      fleetRead: { state: "ready", at: Date.now() }
+    });
+
+    expect(await screen.findByText("1 of 2 online · 1 needs attention")).toBeInTheDocument();
+    // 59d6b377's grouped block: one row per machine, the name as its heading and the problem as a
+    // line under it. The selection must not remove it.
+    const attention = screen.getByRole("region", { name: "Needs attention" });
+    expect(
+      within(attention).getByRole("heading", { name: "DESKTOP-14RJCR8", level: 3 })
+    ).toBeInTheDocument();
+    expect(attention).toHaveTextContent("offline · last seen 2d 5h ago");
+    expect(screen.getByRole("region", { name: "Your machines" })).toBeInTheDocument();
+    // One destination, one heading: the selected state does not become a second page.
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(screen.getByRole("heading", { name: "Overview", level: 1 })).toBeInTheDocument();
+  });
+
+  it("summarises the selected machine's capabilities in one section of Home", async () => {
+    const { onDevice, onConnect, onTools } = drawFleet({
+      device: workshop,
+      selectedId: workshop.id,
+      devices: twoMachines(),
+      fleetRead: { state: "ready", at: Date.now() }
+    });
+
+    const summary = await screen.findByRole("region", { name: "Selected machine" });
+    // **THE HEADING IS THE SUBJECT (the thirty-fifth list).** The card used to carry a generic
+    // `Selected machine` label AND a line repeating the name, the presence word and the build —
+    // three facts the topbar picker and the highlighted row below already stated, on a card that
+    // exists for the catalogue counts and the two doors. The machine's own name is the heading now.
+    expect(
+      within(summary).getByRole("heading", { name: "workshop", level: 2 })
+    ).toBeInTheDocument();
+    // **AN ONLINE MACHINE SAYS NOTHING ELSE ABOUT ITSELF.** Its presence is the row's dot and the
+    // row's `online · seen Ns ago`; the card does not repeat it. An OFFLINE machine keeps one line,
+    // because its last-seen age is why the counts below are absent (asserted in its own test).
+    expect(within(summary).queryByText("online")).toBeNull();
+    // The version is stated once on the page (the topbar chip and the table's column), never here.
+    expect(within(summary).queryByText(/^v\d/)).toBeNull();
+    expect(within(summary).queryByText(/last seen|seen \d/)).toBeNull();
+    // THE VERSION IS NOT SAID THREE TIMES. The topbar's chip states what runs and the table's
+    // Version column repeats it for the fleet; the summary adds no third copy (task 79's rule for
+    // the Machine tab's started line).
+    expect(within(summary).queryByText(/^v\d/)).toBeNull();
+
+    // What it can do is the hub's counts line, shortened: tools and capabilities, from the live
+    // catalogue. The line is still a door to the machine's Tools tab.
+    const counts = await within(summary).findByRole(
+      "button",
+      { name: "6 tools · 4 capabilities" },
+      { timeout: 3_000 }
+    );
+    fireEvent.click(counts);
+    expect(onTools).toHaveBeenCalledTimes(1);
+
+    // The machine's own page is Device; the summary hands off instead of becoming it. **ONE
+    // VERB, ONE NAME (audit-44 F9):** the button was `Open Device`, now `Open` with the machine as
+    // its accessible subject, the same verb as the fleet row and the picker.
+    const open = within(summary).getByRole("button", { name: "Open workshop" });
+    expect(open).toHaveTextContent(/^Open$/);
+    fireEvent.click(open);
+    expect(onDevice).toHaveBeenCalledTimes(1);
+    fireEvent.click(within(summary).getByRole("button", { name: "Connect a client" }));
+    expect(onConnect).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the selected machine identifiable in its work card and resume context", async () => {
+    const { container } = drawFleet({
+      device: workshop,
+      selectedId: workshop.id,
+      devices: [
+        machine({ id: workshop.id, name: "workshop", version: workshop.version }),
+        machine({ id: "a", name: "attic" })
+      ],
+      fleetRead: { state: "ready", at: Date.now() }
+    });
+
+    const summary = await screen.findByRole("region", { name: "Selected machine" });
+    // The name is the row's AND the summary's, because the summary is the section that names its
+    // subject (audit-45 F1); "once" now means the table does not repeat the selection a third time.
+    expect(within(summary).getByText("workshop")).toHaveClass("machine-summary-name");
+    expect(screen.getAllByText("workshop")).toHaveLength(2);
+    const workspaces = screen.getByRole("region", { name: "Your machines" });
+    expect(within(workspaces).getAllByRole("article")).toHaveLength(2);
+    const card = within(workspaces).getByRole("article", { name: "workshop" });
+    expect(card).toHaveClass("is-current");
+    expect(within(card).getByRole("button", { name: "Open workshop" })).toHaveAttribute("aria-current", "true");
+    expect(screen.queryByText("Running")).toBeNull();
+    expect(container.querySelector(".machine-summary-head")).toBeNull();
+  });
+
+  it("sends the work card to Overview and the attention door to the machine tab", async () => {
+    const { onOpen, onOpenMachine } = drawFleet({
+      device: workshop,
+      selectedId: workshop.id,
+      devices: [
+        machine({ id: "w", name: "workshop", version: workshop.version }),
+        machine({
+          id: "r14",
+          name: "DESKTOP-14RJCR8",
+          online: false,
+          last_frame_ms: Date.now() - 3 * 3_600_000
+        })
+      ],
+      fleetRead: { state: "ready", at: Date.now() }
+    });
+
+    const workspaces = screen.getByRole("region", { name: "Your machines" });
+    fireEvent.click(within(workspaces).getByRole("button", { name: "Open workshop" }));
+    expect(onOpen).toHaveBeenCalledWith("w");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open machine for DESKTOP-14RJCR8" })
+    );
+    expect(onOpenMachine).toHaveBeenCalledWith("r14");
+    // The two doors are different verbs: the row opens the machine's Overview, the attention row
+    // its Machine tab. Neither is a selection-only press (audit-43 F1).
+    expect(onOpen).not.toHaveBeenCalledWith("r14");
+    expect(onOpenMachine).not.toHaveBeenCalledWith("w");
+  });
+
+  it("draws no second Activity on Home when a machine is selected", async () => {
+    drawFleet({
+      device: workshop,
+      selectedId: workshop.id,
+      devices: [machine({ id: "w", name: "workshop", version: workshop.version })],
+      fleetRead: { state: "ready", at: Date.now() }
+    });
+
+    await screen.findByRole("region", { name: "Selected machine" });
+    // The old selected Home was Activity in another place: a Now band over a day timeline. The
+    // selection adds a summary, not the record.
+    expect(screen.queryByRole("region", { name: "This machine's activity" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Now" })).toBeNull();
+    expect(document.querySelectorAll(".timeline-row")).toHaveLength(0);
+    expect(screen.queryByText(/client calls?/)).toBeNull();
+    expect(screen.queryByText(/Today no client calls/)).toBeNull();
+  });
+
+  it("says the selected machine is offline and draws no fake counts", async () => {
+    const offline = { ...workshop, online: false };
+    live.value = {
+      tools: [],
+      stale: false,
+      error: "this machine is not connected; connect it, then try again",
+      offline: true,
+      loading: false,
+      retry: vi.fn()
+    };
+    drawFleet({
+      device: offline,
+      selectedId: offline.id,
+      devices: [offline],
+      fleetRead: { state: "ready", at: Date.now() }
+    });
+
+    const summary = await screen.findByRole("region", { name: "Selected machine" });
+    // **AN OFFLINE MACHINE KEEPS ITS FULL PHRASE (audit-45 F1).** The card's next sentence is about
+    // counts it cannot read, so the why belongs here: the fleet row's own `offline · last seen …`
+    // phrasing, not a second spelling. An online machine states `online` alone and leaves the age to
+    // the row below it.
+    expect(within(summary).getByText(/^offline · last seen/)).toHaveClass(
+      "machine-summary-presence"
+    );
+    expect(
+      within(summary).getByText("Tool counts are unavailable while the machine is offline.")
+    ).toBeInTheDocument();
+    expect(within(summary).queryByText(/^0 tools/)).toBeNull();
+  });
+});
+
+/**
+ * The enrollment command names only `summrise-device.exe`, and the console cannot know a machine's
+ * install root, so the sentence must carry what the command cannot: the folder chosen on the
+ * installer's directory page (its default is C:\Program Files\Summrise). An elevated prompt opened
+ * anywhere else fails with "not recognized".
+ */
+describe("Home — the enrollment sentence", () => {
+  beforeEach(() => {
+    installerApi.installer.mockResolvedValue(installerFacts);
+  });
+
+  it("sends the elevated prompt to the folder where Summrise was installed", () => {
+    drawFleet({
+      code: { code: "code-1", expires_at_ms: Date.now() + 15 * 60_000 },
+      enrollCommand:
+        "summrise-device.exe --enroll https://console.test code-1 --data C:\\ProgramData\\Summrise"
+    });
+
+    const panel = screen.getByRole("region", { name: "Enrollment command" });
+    expect(panel).toHaveTextContent(
+      "On the Windows machine, open an elevated Command Prompt in the folder you chose on the installer's directory page (the default is C:\\Program Files\\Summrise), run this command, then restart the SummriseLaunch service."
+    );
+    // The old sentence sent the person to a prompt whose cwd was not the install folder.
+    expect(panel).not.toHaveTextContent("run this in an elevated Command Prompt");
+    expect(within(panel).getByText("SummriseLaunch").tagName).toBe("CODE");
+    expect(within(panel).getByText("C:\\Program Files\\Summrise").tagName).toBe("CODE");
+  });
+});
+
+/**
+ * The credential's door. Tokens used to live only under Account → Tokens, so a person adding a
+ * machine never met the thing a client needs; the fleet header and the Add-a-machine panel each
+ * open the same Connect sheet on its Tokens section. There is no second token surface to test.
+ */
+describe("Home — the fleet's Tokens door", () => {
+  beforeEach(() => {
+    installerApi.installer.mockResolvedValue(installerFacts);
+  });
+
+  it("opens the Connect sheet's Tokens section from the fleet header", async () => {
+    const { onTokens } = drawFleet({ devices: [workshop] });
+
+    const door = screen.getByRole("button", { name: "Tokens" });
+    // The accent belongs to Add a machine; the credential is the secondary control beside it.
+    expect(door).not.toHaveClass("primary");
+    fireEvent.click(door);
+    expect(onTokens).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the door in the fleet's zero state", () => {
+    drawFleet();
+
+    expect(screen.getByRole("heading", { name: "Overview", level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Tokens" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add a machine" })).toBeInTheDocument();
+  });
+
+  it("puts a Tokens control in the Add-a-machine panel", () => {
+    const { onTokens } = drawFleet({
+      code: { code: "code-1", expires_at_ms: Date.now() + 15 * 60_000 },
+      enrollCommand:
+        "summrise-device.exe --enroll https://console.test code-1 --data C:\\ProgramData\\Summrise"
+    });
+
+    const panel = screen.getByRole("region", { name: "Enrollment command" });
+    expect(
+      within(panel).getByRole("heading", { name: "Enrollment command" })
+    ).toBeInTheDocument();
+    fireEvent.click(within(panel).getByRole("button", { name: "Tokens" }));
+    expect(onTokens).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * THE FLEET IS A READ BEFORE IT IS A LIST. A pending `/fleet` said `0 machines · 0 online` and
+ * `No machines yet`, and a failed one said the same under a dismissable banner. These fixtures are
+ * the whole state machine — reading, failed, and the successful empty answer that is the only zero
+ * state. The setup doors do not wait for the read: adding a machine mints a code and the installer
+ * is a file the console serves, so the read's state never takes them away (task 72).
+ */
+describe("Home — the fleet's read", () => {
+  beforeEach(() => {
+    // The installer answer lands while the fleet is pending too, so its absence below is the page's
+    // rule rather than a fixture that had not resolved.
+    installerApi.installer.mockResolvedValue(installerFacts);
+  });
+
+  it("says it is reading the machine list instead of claiming the fleet is empty", async () => {
+    drawFleet({ fleetRead: { state: "reading" } });
+
+    expect(screen.getByText("Reading the machine list…")).toBeInTheDocument();
+    expect(
+      screen.getByRole("status", { name: "Reading the machine list" })
+    ).toBeInTheDocument();
+    expect(screen.queryByText("No machines yet")).toBeNull();
+    expect(screen.queryByText("0 machines · 0 online")).toBeNull();
+    // The reading sentence is the page's claim about the fleet; the setup doors are the account's
+    // and do not wait for that claim. A person on a slow link may be adding the machine now.
+    expect(screen.getByRole("button", { name: "Add a machine" })).toBeInTheDocument();
+    await waitFor(() => expect(installerApi.installer).toHaveBeenCalledTimes(1));
+    expect(
+      screen.getByRole("heading", { name: "Install the device runtime" })
+    ).toBeInTheDocument();
+    // The credential door is not the setup action; it stays too.
+    expect(screen.getByRole("button", { name: "Tokens" })).toBeInTheDocument();
+  });
+
+  it("names a failed read with its reason and offers a retry", async () => {
+    const { onRetryFleet } = drawFleet({
+      fleetRead: { state: "failed", reason: "Failed to fetch" }
+    });
+
+    // ONE FAILURE, ONE STATEMENT, ONE RETRY, ON THIS PAGE (audit-44 F3). The shell's banner no
+    // longer repeats the read: this notice names the failure, keeps the cause in its title, and is
+    // the one control that reads it again.
+    const notice = screen
+      .getByText("The console could not read the machine list.")
+      .closest(".notice");
+    expect(notice).not.toBeNull();
+    expect(notice).not.toHaveTextContent("Failed to fetch");
+    expect(within(notice as HTMLElement).getByTitle("Failed to fetch")).toBeInTheDocument();
+    expect(screen.getAllByText("The console could not read the machine list.")).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Retry" })).toHaveLength(1);
+    expect(document.body.textContent).not.toContain("Failed to fetch");
+    expect(screen.queryByText("No machines yet")).toBeNull();
+    // The failed read states its own failure; it does not take away the next step.
+    expect(screen.getByRole("button", { name: "Add a machine" })).toBeInTheDocument();
+    await waitFor(() => expect(installerApi.installer).toHaveBeenCalledTimes(1));
+    expect(
+      screen.getByRole("heading", { name: "Install the device runtime" })
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(onRetryFleet).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the last list it read below a failed read, and does not call it empty", () => {
+    drawFleet({
+      devices: [workshop],
+      fleetRead: { state: "failed", reason: "503 device_unavailable" }
+    });
+
+    expect(
+      screen.getByText(
+        "The console could not read the machine list; the machines below are the last list it read."
+      )
+    ).toBeInTheDocument();
+    // The stale clause is part of the one statement; the console's status is the title's.
+    expect(screen.getByTitle("503 device_unavailable")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("503 device_unavailable");
+    expect(screen.getByText("workshop")).toBeInTheDocument();
+    expect(screen.queryByText("No machines yet")).toBeNull();
+    // A stale list is still not a clean page: the door to add another machine is there.
+    expect(screen.getByRole("button", { name: "Add a machine" })).toBeInTheDocument();
+  });
+
+  it("keeps Add a machine and the installer doors while the machine list is pending", async () => {
+    const { onAddMachine } = drawFleet({ fleetRead: { state: "reading" } });
+
+    // The read's own sentence stays: the doors are drawn beside it, not instead of it.
+    expect(screen.getByText("Reading the machine list…")).toBeInTheDocument();
+    // Neither door reads `/fleet`: adding a machine mints a code with a POST, and the installer is
+    // a file this console serves. A slow list is when a person may need them most.
+    const add = screen.getByRole("button", { name: "Add a machine" });
+    expect(add).toBeEnabled();
+    fireEvent.click(add);
+    expect(onAddMachine).toHaveBeenCalledTimes(1);
+    expect(
+      await screen.findByRole("heading", { name: "Install the device runtime" })
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Download Windows installer" })).toHaveAttribute(
+      "href",
+      "/installer/download"
+    );
+    // A door is not a fleet: the page still does not claim the list is empty.
+    expect(screen.queryByText("No machines yet")).toBeNull();
+    expect(screen.queryByText("0 machines · 0 online")).toBeNull();
+  });
+
+  it("keeps Add a machine and the installer doors while the machine list failed", async () => {
+    const { onAddMachine, onRetryFleet } = drawFleet({
+      fleetRead: { state: "failed", reason: "Failed to fetch" }
+    });
+
+    // The missing list and its one Retry stay; the doors are the next step beside them.
+    expect(
+      screen.getByText("The console could not read the machine list.")
+    ).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("Failed to fetch");
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(onRetryFleet).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Add a machine" }));
+    expect(onAddMachine).toHaveBeenCalledTimes(1);
+    expect(
+      await screen.findByRole("heading", { name: "Install the device runtime" })
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Download Windows installer" })).toHaveAttribute(
+      "href",
+      "/installer/download"
+    );
+    expect(screen.queryByText("No machines yet")).toBeNull();
+  });
+
+  it("offers enrollment only when a successful read returned no machines", async () => {
+    drawFleet({ fleetRead: { state: "ready" } });
+
+    // THE ZERO STATE IS ONE SENTENCE. `No machines yet` and `0 machines · 0 online` said the same
+    // thing twice; the fleet's size is the sentence, not a second line.
+    expect(screen.getByText("No machines yet")).toBeInTheDocument();
+    expect(screen.queryByText("0 machines · 0 online")).toBeNull();
+    expect(screen.getByRole("button", { name: "Add a machine" })).toBeInTheDocument();
+    // **THE NEXT STEP IS ONE BLOCK, AND IT IS THE ONE A PERSON CAN PRESS (the fortieth list).**
+    // Measured on a fleet of zero at 1440: the page drew the empty state (100 px) ABOVE the installer
+    // strip (66 px) and told the reader to "start with the installer below" — the next step was the
+    // page's smallest block, drawn last, described by the block above it. On a zero fleet the two are
+    // one card now: the download door, its file's facts, and the order to do it in.
+    const firstRun = screen.getByTestId("first-run");
+    // The installer read is a separate request, so the card's heading follows it: await it.
+    expect(
+      await screen.findByRole("heading", { name: "Install the device runtime" })
+    ).toBeInTheDocument();
+    expect(within(firstRun).getByRole("link", { name: "Download Windows installer" })).toBeInTheDocument();
+    // ONE installer door on the whole page, not the card's and the strip's.
+    expect(screen.getAllByRole("link", { name: "Download Windows installer" })).toHaveLength(1);
+    expect(screen.queryByText(/Run the command/)).toBeNull();
+  });
+
+  it("puts the installer before the labelled enrollment command", async () => {
+    drawFleet({
+      fleetRead: { state: "ready" },
+      code: { code: "code-1", expires_at_ms: Date.now() + 15 * 60_000 },
+      enrollCommand:
+        "summrise-device.exe --enroll https://console.test code-1 --data C:\\ProgramData\\Summrise"
+    });
+
+    const install = await screen.findByRole("heading", { name: "Install the device runtime" });
+    const enroll = screen.getByRole("heading", { name: "Enrollment command" });
+    expect(
+      install.compareDocumentPosition(enroll) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+});
+
+describe("Home — opening the enrollment panel", () => {
+  beforeEach(() => {
+    installerApi.installer.mockResolvedValue(installerFacts);
+  });
+
+  it("brings the panel into view and focuses its heading when the code arrives", async () => {
+    // **A PRESS WHOSE PANEL IS BELOW THE FOLD LOOKS DEAD (audit-44 F7).** At 390 with a populated
+    // fleet the Add-a-machine panel opened at y=1045 with scrollTop still 0, so the screen did not
+    // move and the operator could not tell the press had worked. The panel is scrolled in and its
+    // heading focused, which is also where a keyboard reader starts.
+    const scrollIntoView = vi.fn();
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrollIntoView;
+    try {
+      const fleet = drawFleet({
+        devices: [
+          machine({ id: "a", name: "alpha" }),
+          machine({ id: "b", name: "bravo" }),
+          machine({ id: "c", name: "charlie" }),
+          machine({ id: "d", name: "delta" })
+        ],
+        fleetRead: { state: "ready", at: Date.now() },
+        code: null,
+        enrollCommand: ""
+      });
+
+      fleet.rerenderFleet({
+        code: { code: "code-1", expires_at_ms: Date.now() + 15 * 60_000 },
+        enrollCommand:
+          "summrise-device.exe --enroll https://console.test code-1 --data C:\\ProgramData\\Summrise"
+      });
+
+      const heading = await screen.findByRole("heading", { name: "Enrollment command" });
+      expect(heading).toHaveAttribute("tabindex", "-1");
+      expect(heading).toHaveFocus();
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: "start" });
+      expect(scrollIntoView.mock.instances[0]).toBe(heading);
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
+  });
+  it("puts a DOWN watched service in Needs attention, with the machine that watches it", async () => {
+    monitors.read.mockResolvedValue({
+      targets: [
+        {
+          id: "10.0.0.5:443/health",
+          host: "10.0.0.5",
+          port: 443,
+          path: "/health",
+          summary: { probes: 12, up: 11, down: 1, upPct: 92, upNow: false, sinceMs: Date.now() - 60_000, lastStatus: 502, drops: 1 }
+        }
+      ],
+      intervalSecs: 15
+    });
+    drawFleet({ devices: [machine({ name: "workshop" })] });
+    // The clause names the target; the row's heading names the machine.
+    expect(await screen.findByText(/A watched service is down: 10\.0\.0\.5:443\/health\./)).toBeInTheDocument();
+  });
+});
+
+describe("A3 fleet navigation", () => {
+  beforeEach(() => {
+    installerApi.installer.mockResolvedValue(installerFacts);
+  });
+
+  it("searches machine names and ids without changing the inventory it can restore", () => {
+    drawFleet({ view: "machines", devices: [
+      machine({ id: "a", name: "Alpha workshop" }),
+      machine({ id: "dev-backup-42", name: "Beta" }),
+      machine({ id: "c", name: "Gamma" })
+    ] });
+    const search = screen.getByRole("searchbox", { name: "Search machines" });
+    const table = screen.getByRole("table", { name: "The fleet" });
+    fireEvent.change(search, { target: { value: "  ALPHA  " } });
+    expect(within(table).getByRole("button", { name: "Open Alpha workshop" })).toBeInTheDocument();
+    expect(within(table).queryByRole("button", { name: "Open Beta" })).toBeNull();
+    fireEvent.change(search, { target: { value: "BACKUP-42" } });
+    expect(within(table).getByRole("button", { name: "Open Beta" })).toBeInTheDocument();
+    expect(within(table).queryByRole("button", { name: "Open Alpha workshop" })).toBeNull();
+    fireEvent.change(search, { target: { value: "no-such-machine" } });
+    expect(screen.getByText("No machines match these filters.")).toBeInTheDocument();
+    expect(screen.queryByText("No machines yet")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+    expect(search).toHaveValue("");
+    expect(table.querySelectorAll("tbody tr")).toHaveLength(3);
+  });
+
+  it("combines actual online, offline and attention filters with the current search", async () => {
+    drawFleet({ view: "machines", devices: [
+      machine({ id: "a", name: "Alpha" }),
+      machine({ id: "b", name: "Beta", online: false }),
+      machine({ id: "c", name: "Gamma", version: "0.3.8" })
+    ] });
+    const filters = screen.getByRole("group", { name: "Machine status" });
+    const table = screen.getByRole("table", { name: "The fleet" });
+    fireEvent.click(within(filters).getByRole("button", { name: "Online" }));
+    expect(within(table).queryByRole("button", { name: "Open Beta" })).toBeNull();
+    expect(within(table).getByRole("button", { name: "Open Gamma" })).toBeInTheDocument();
+    fireEvent.click(within(filters).getByRole("button", { name: "Offline" }));
+    expect(within(table).getByRole("button", { name: "Open Beta" })).toBeInTheDocument();
+    expect(within(table).queryByRole("button", { name: "Open Alpha" })).toBeNull();
+    fireEvent.click(within(filters).getByRole("button", { name: "Needs attention" }));
+    await waitFor(() => expect(within(table).getByRole("button", { name: "Open Gamma" })).toBeInTheDocument());
+    expect(within(table).getByRole("button", { name: "Open Beta" })).toBeInTheDocument();
+    expect(within(table).queryByRole("button", { name: "Open Alpha" })).toBeNull();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search machines" }), { target: { value: "gamma" } });
+    expect(within(table).getAllByRole("row")).toHaveLength(2);
+    fireEvent.click(within(filters).getByRole("button", { name: "All" }));
+    expect(within(table).getAllByRole("row")).toHaveLength(2);
+  });
+
+  it("opens the searched machine with its own id and keeps current selection identifiable", () => {
+    const { onOpen } = drawFleet({ view: "machines", selectedId: "b", devices: [
+      machine({ id: "a", name: "Alpha" }), machine({ id: "b", name: "Beta" })
+    ] });
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search machines" }), { target: { value: "beta" } });
+    const open = within(screen.getByRole("table", { name: "The fleet" })).getByRole("button", { name: "Open Beta" });
+    expect(open).toHaveAttribute("aria-current", "true");
+    fireEvent.click(open);
+    expect(onOpen).toHaveBeenCalledExactlyOnceWith("b");
+  });
+
+  it("filters watched-service failures using the machine that reported the down probe", async () => {
+    monitors.read.mockImplementation(({ deviceId }: { deviceId: string }) => Promise.resolve({
+      intervalSecs: 15,
+      targets: deviceId === "b" ? [{ id: "web:443", host: "web", port: 443, kind: "tcp", path: "/", expect: "", summary: { probes: 1, up: 0, down: 1, upPct: 0, upNow: false, sinceMs: Date.now(), lastStatus: 502, drops: 1 } }] : []
+    }));
+    drawFleet({ view: "machines", devices: [machine({ id: "a", name: "Alpha" }), machine({ id: "b", name: "Beta" })] });
+    fireEvent.click(within(screen.getByRole("group", { name: "Machine status" })).getByRole("button", { name: "Needs attention" }));
+    const table = screen.getByRole("table", { name: "The fleet" });
+    await waitFor(() => expect(within(table).getByRole("button", { name: "Open Beta" })).toBeInTheDocument());
+    expect(within(table).queryByRole("button", { name: "Open Alpha" })).toBeNull();
+  });
+
+  it("retains the last inventory if an active attention filter loses its current fleet read", () => {
+    const { rerenderFleet } = drawFleet({ view: "machines", devices: [
+      machine({ id: "a", name: "Alpha" }), machine({ id: "b", name: "Beta", online: false })
+    ] });
+    const filters = screen.getByRole("group", { name: "Machine status" });
+    fireEvent.click(within(filters).getByRole("button", { name: "Needs attention" }));
+    expect(within(screen.getByRole("table", { name: "The fleet" })).getByRole("button", { name: "Open Beta" })).toBeInTheDocument();
+    rerenderFleet({ fleetRead: { state: "failed", reason: "connection lost" } });
+    const table = screen.getByRole("table", { name: "The fleet" });
+    expect(within(table).getByRole("button", { name: "Open Beta" })).toBeInTheDocument();
+    expect(within(table).getByRole("button", { name: "Open Alpha" })).toBeInTheDocument();
+    expect(within(filters).getByRole("button", { name: "Needs attention" })).toBeDisabled();
+    expect(within(filters).getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByText("No machines match these filters.")).toBeNull();
+  });
+
+  it.each([
+    { state: "reading" as const, note: "Reading the machine list…" },
+    { state: "failed" as const, reason: "unavailable", note: "The machine count is unavailable." }
+  ])("does not count an unread $state inventory as a confirmed zero", ({ note, ...fleetRead }) => {
+    drawFleet({ view: "machines", devices: [], fleetRead });
+    const inventory = screen.getByRole("region", { name: "Machine inventory" });
+    expect(within(inventory).queryByText(/^0 of 0 machines/)).toBeNull();
+    expect(within(inventory).getByText(note)).toBeInTheDocument();
+    expect(screen.queryByText("No machines yet")).toBeNull();
+  });
+
+  it("counts an authoritative empty inventory as zero", () => {
+    drawFleet({ view: "machines", devices: [], fleetRead: { state: "ready" } });
+    const inventory = screen.getByRole("region", { name: "Machine inventory" });
+    expect(within(inventory).getByText("0 of 0 machines")).toBeInTheDocument();
+  });
+
+  it("counts a retained inventory even when a failed read and search leave no matches", () => {
+    drawFleet({ view: "machines", devices: [machine({ name: "Alpha" })], fleetRead: { state: "failed", reason: "unavailable" } });
+    const inventory = screen.getByRole("region", { name: "Machine inventory" });
+    expect(within(inventory).getByText("1 of 1 machines · last known list")).toBeInTheDocument();
+    fireEvent.change(within(inventory).getByRole("searchbox", { name: "Search machines" }), { target: { value: "absent" } });
+    expect(within(inventory).getByText("0 of 1 machines · last known list")).toBeInTheDocument();
+  });
+
+  it("reports four fleet metrics without counting a machine twice", () => {
+    drawFleet({ devices: [machine({ id: "a", name: "Alpha" }), machine({ id: "b", name: "Beta", online: false, version: "0.3.8" })] });
+    const metrics = screen.getByRole("region", { name: "Fleet summary" });
+    expect(within(metrics).getByText("Online").nextElementSibling).toHaveTextContent("1");
+    expect(within(metrics).getByText("Offline").nextElementSibling).toHaveTextContent("1");
+    expect(within(metrics).getByText("Needs attention").nextElementSibling).toHaveTextContent("1");
+    expect(within(metrics).getByText("Machines").nextElementSibling).toHaveTextContent("2");
+  });
+
+  it("keeps unavailable fleet metrics unknown while retaining the last inventory", () => {
+    drawFleet({ devices: [machine({ id: "a", name: "Alpha" })], fleetRead: { state: "failed", reason: "unavailable" } });
+    const metrics = screen.getByRole("region", { name: "Fleet summary" });
+    for (const label of ["Online", "Offline", "Needs attention", "Machines"]) {
+      expect(within(metrics).getByText(label).nextElementSibling).toHaveTextContent("—");
+    }
+    expect(screen.getByRole("button", { name: "Open Alpha" })).toBeInTheDocument();
+  });
+});

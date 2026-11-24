@@ -114,6 +114,9 @@ pub(crate) fn sign(
         tools,
         expires_at_ms,
         allow_destructive,
+        // Sixteen random bytes per signed grant: the device refuses a nonce it has already admitted,
+        // which is what turns a captured frame into one that runs once.
+        nonce: crate::hex::encode(&crate::auth::random_32()[..16]),
     };
     let signature = grant_key.sign(canonical_message(&grant).as_bytes());
 
@@ -139,14 +142,55 @@ mod tests {
             !signed.grant.allow_destructive,
             "destructive consent is off unless the request asked for it"
         );
+        // The nonce is the fifth signed field: sixteen random bytes, hex.
+        assert_eq!(signed.grant.nonce.len(), 32, "{}", signed.grant.nonce);
+        assert!(
+            signed
+                .grant
+                .nonce
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit()),
+            "the nonce is hex: {}",
+            signed.grant.nonce
+        );
         let message = canonical_message(&signed.grant);
         assert_eq!(
             message,
-            "grant\nab12\nfiles.read,memory.search\n61000\nfalse"
+            format!(
+                "grant\nab12\nfiles.read,memory.search\n61000\nfalse\n{}",
+                signed.grant.nonce
+            )
         );
         key.verifying_key()
             .verify_strict(message.as_bytes(), &signed.signature)
             .expect("the signature covers exactly the canonical string");
+    }
+
+    #[test]
+    fn two_grants_for_the_same_request_carry_different_nonces() {
+        let key = SigningKey::from_bytes(&SEED);
+        let first = sign(
+            &key,
+            "ab12",
+            vec!["files.read".to_owned()],
+            60,
+            false,
+            1_000,
+        )
+        .expect("a valid grant");
+        let second = sign(
+            &key,
+            "ab12",
+            vec!["files.read".to_owned()],
+            60,
+            false,
+            1_000,
+        )
+        .expect("a valid grant");
+        assert_ne!(
+            first.grant.nonce, second.grant.nonce,
+            "a nonce that repeated would let one consent cover two calls"
+        );
     }
 
     #[test]
@@ -165,7 +209,10 @@ mod tests {
         assert!(signed.grant.allow_destructive);
         assert_eq!(
             canonical_message(&signed.grant),
-            "grant\nab12\nfiles.write\n61000\ntrue"
+            format!(
+                "grant\nab12\nfiles.write\n61000\ntrue\n{}",
+                signed.grant.nonce
+            )
         );
         key.verifying_key()
             .verify_strict(

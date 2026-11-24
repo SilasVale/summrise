@@ -11,9 +11,10 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::Deserialize;
+use summrise_core::manifest::Version;
 use summrise_core::{
     Baseline, Install, LastVerdict, RolledBackArtifact, Service, ServiceState, State, Update,
-    UpdateOutcome, UpdatePhase, VerdictOutcome, SCHEMA_VERSION,
+    UpdateCheck, UpdateCheckTrigger, UpdateOutcome, UpdatePhase, VerdictOutcome, SCHEMA_VERSION,
 };
 
 use crate::config::Release;
@@ -40,6 +41,12 @@ pub const SWAP_REQUEST_FILE: &str = "swap.request.json";
 /// lines at start. It is the machine record cutover gate 1 asks for, and the launcher — not the app
 /// — is its one writer.
 pub const REPAIR_LOG_FILE: &str = "repair.log";
+
+/// How many trailing `events.jsonl` lines the local panel and `state.get` both show.
+///
+/// One number for both surfaces: the console's events page and the device's own `/api/panel` must
+/// show the same tail, and a divergence here would be invisible from either side alone.
+pub const EVENT_TAIL: usize = 10;
 
 /// How often the running app folds a swap request and a swap result into the state document.
 ///
@@ -178,6 +185,7 @@ impl Store {
                 to: None,
                 outcome: None,
                 last_result_at_ms: None,
+                last_check: None,
             },
             rolled_back: Vec::new(),
             repair_offset: 0,
@@ -190,7 +198,14 @@ impl Store {
     /// document keeps describing the previous run. The release facts are identity: a restart under a
     /// new release must replace the version, channel, baseline and verdict too, or `state.json` keeps
     /// naming a binary (and a channel) that is no longer on disk.
+    ///
+    /// **A LOCATION IS NOT A RELEASE CLAIM.** The measured 2.0.10 document still named
+    /// `C:\SummriseInstall`, a tree that does not exist, because only `initial()` ever wrote
+    /// `install.dir`; every later start refreshed the release facts and left the location as the
+    /// first document found it. The directory is where this process runs, so a claimed start records
+    /// it beside the release it claims.
     pub fn refresh_start(&self, state: &mut State) {
+        state.install.dir = self.install.display().to_string();
         state.install.version = self.release.version.clone();
         state.install.channel = self.release.channel.clone();
         state.baseline = self.baseline_facts();
@@ -204,14 +219,76 @@ impl Store {
         state.service.started_at = now_rfc3339();
     }
 
+    /// Record the apply this start proves: the release it claims differs from the version the
+    /// document named before it started.
+    ///
+    /// **THE VERSIONED HANDOFF WRITES NO SWAP RESULT.** `--install-version` and `--apply` move
+    /// `current.txt` and restart the owner; there is no `swap.result.json` for `apply_swap_result`
+    /// to fold in, so the document kept naming the last answer a supervisor happened to write —
+    /// measured on 0.3.289 devices as `applied to 0.3.273` two days and six starts behind. The
+    /// start itself is the evidence: the launcher boots the release the pointer names, so a claimed
+    /// release different from the previous document's version was applied between the two starts.
+    ///
+    /// The moment is the boot's own (`started_at_ms`, the same value the restart journal records),
+    /// not a guessed apply time. Returns whether the document changed.
+    pub fn record_version_change(
+        &self,
+        state: &mut State,
+        previous_version: &str,
+        started_at_ms: u64,
+    ) -> bool {
+        if state.install.version == previous_version {
+            return false;
+        }
+        // **A DOWNGRADE IS NOT AN APPLIED UPDATE.** Two failed starts roll `current.txt` back to the
+        // previous version; the state still names the candidate (it wrote its own start before it
+        // died). Recording the restored, older version as applied would turn a rollback into a
+        // success. A version this build cannot parse is no evidence either: leave the document.
+        let (Ok(previous), Ok(running)) = (
+            Version::parse(previous_version),
+            Version::parse(&state.install.version),
+        ) else {
+            return false;
+        };
+        if running <= previous {
+            return false;
+        }
+        // **AN EXACT ANSWER WINS OVER THE INFERENCE.** `apply_swap_result` has already folded a
+        // result for this start. When it names the running version as applied, its moment is the
+        // supervisor's own apply time and is the record; replacing it with the later boot would
+        // invent a second, wrong time. A result that names a DIFFERENT (older) version is history
+        // and does not stop this start's version change from being recorded.
+        if state.update.to.as_deref() == Some(state.install.version.as_str())
+            && state.update.outcome == Some(UpdateOutcome::Applied)
+            && state.update.last_result_at_ms.is_some()
+        {
+            return false;
+        }
+        let last_check = state.update.last_check;
+        state.update = Update {
+            phase: UpdatePhase::Idle,
+            to: Some(state.install.version.clone()),
+            outcome: Some(UpdateOutcome::Applied),
+            last_result_at_ms: Some(started_at_ms),
+            last_check,
+        };
+        true
+    }
+
     /// Record this process's start without claiming a release: liveness and the verdict only.
     ///
     /// A process started without `--release-version` claims no release pair — it is a development
     /// run, not the supervised app. It must not overwrite the identity facts the launcher recorded:
     /// doing so rewrote `state.json` to the crate version with an empty digest, and the next
     /// scheduled update then judged a release against a version the device does not run. The
-    /// document keeps its install and baseline; only the facts about *this process* change.
+    /// document keeps its install version, channel and baseline; only the facts about *this process*
+    /// change.
+    ///
+    /// **A LOCATION IS NOT A RELEASE CLAIM.** The directory is where this process runs, so an
+    /// unclaimed start records it too: the measured 2.0.10 document still named
+    /// `C:\SummriseInstall` because only `initial()` ever wrote it.
     pub fn refresh_liveness(&self, state: &mut State) {
+        state.install.dir = self.install.display().to_string();
         state.last_verdict = LastVerdict {
             ts: now_rfc3339(),
             outcome: VerdictOutcome::Ok,
@@ -230,6 +307,30 @@ impl Store {
             sha256: self.release.sha256.clone(),
             exe: self.baseline_exe_path().display().to_string(),
         }
+    }
+
+    /// The last `limit` lines of `events.jsonl`, oldest first, each as JSON when it parses as JSON.
+    ///
+    /// Missing file is an empty list, not an error: a device that has never repaired anything has no
+    /// events, and the panel says "none" rather than showing a failure.
+    pub fn tail_events(&self, limit: usize) -> Result<Vec<serde_json::Value>, StoreError> {
+        let text = match std::fs::read_to_string(self.data.join("events.jsonl")) {
+            Ok(text) => text,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(StoreError::Io(error)),
+        };
+        let mut events: Vec<serde_json::Value> = text
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(|line| {
+                serde_json::from_str(line)
+                    .unwrap_or_else(|_| serde_json::Value::String(line.to_owned()))
+            })
+            .collect();
+        if events.len() > limit {
+            events.drain(..events.len() - limit);
+        }
+        Ok(events)
     }
 
     /// Read the state document, or a fresh one when there is no file yet.
@@ -276,6 +377,19 @@ impl Store {
             return Err(error);
         }
         Ok(())
+    }
+
+    /// Record that an update check started, and what asked for it, keeping every other fact.
+    ///
+    /// The state document is the app's one write; a check that finds nothing must not stage an
+    /// artifact, write a sidecar or change a phase, but it must leave this one line. Without it a
+    /// person cannot tell "it checked when it woke" from "it never checked at all".
+    pub fn record_update_check(&self, at_ms: u64, trigger: UpdateCheckTrigger) -> io::Result<()> {
+        let mut state = self
+            .load()
+            .map_err(|error| io::Error::other(error.to_string()))?;
+        state.update.last_check = Some(UpdateCheck { at_ms, trigger });
+        self.save(&state)
     }
 
     /// `<install>/swap.result.json` — the supervisor's answer to a swap request.
@@ -828,6 +942,7 @@ mod tests {
             to: Some("2.0.4".to_owned()),
             outcome: None,
             last_result_at_ms: None,
+            last_check: None,
         };
         state
     }
@@ -953,6 +1068,33 @@ mod tests {
         assert_eq!(stale.service.pid, std::process::id());
     }
 
+    /// **THE DOCUMENT NAMES THE TREE THIS PROCESS RUNS FROM.** The measured 2.0.10 device still said
+    /// `C:\SummriseInstall`, a tree that does not exist, because only `initial()` ever wrote
+    /// `install.dir`; every later start refreshed the release facts and left the location alone.
+    #[test]
+    fn a_claimed_start_records_the_install_root_it_runs_from() {
+        let dir = TempDir::new("store-claimed-install-root");
+        let install_root = dir.join("Program Files").join("Summrise");
+        let store = Store::new(
+            &install_root,
+            dir.join("data"),
+            release("2.0.11", &"ab".repeat(32)),
+        );
+        let mut state = store.initial();
+        state.install.dir = r"C:\SummriseInstall".to_owned();
+        // A claim the document predates, so the version assertion below cannot pass on `initial()`.
+        state.install.version = "2.0.3".to_owned();
+
+        store.refresh_start(&mut state);
+
+        assert_eq!(
+            state.install.dir,
+            install_root.display().to_string(),
+            "the location is where this process runs, not the tree the first document named"
+        );
+        assert_eq!(state.install.version, "2.0.11");
+    }
+
     #[test]
     fn a_canary_start_records_the_channel_the_sidecar_names() {
         let dir = TempDir::new("canary-channel");
@@ -1005,6 +1147,8 @@ mod tests {
         );
         let mut state = recorded.initial();
         state.install.channel = "canary".to_owned();
+        // The measured 2.0.10 document named the retired tree; the location is not a claim.
+        state.install.dir = r"C:\SummriseInstall".to_owned();
         state.service.pid = 111;
         state.service.started_at = "2026-01-01T00:00:00Z".to_owned();
 
@@ -1024,6 +1168,11 @@ mod tests {
         );
         assert_ne!(state.service.pid, 111, "the liveness is this process");
         assert_eq!(state.last_verdict.outcome, VerdictOutcome::Ok);
+        assert_eq!(
+            state.install.dir,
+            dir.join("install").display().to_string(),
+            "the location this process runs from is corrected even when no release is claimed"
+        );
         assert!(
             state.last_verdict.detail.contains("unclaimed"),
             "the verdict says what kind of start this was: {}",

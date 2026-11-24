@@ -29,19 +29,25 @@ use rustls::{DigitallySignedStruct, Error as TlsError, SignatureScheme};
 
 use crate::cert;
 use crate::frame::{self, FrameError};
-use crate::hello::{Challenge, Hello, HelloError, PinResolver, PublicKey};
+use crate::hello::{
+    Challenge, Hello, HelloError, PinResolver, PublicKey, BINDING_BYTES, BINDING_CONTEXT,
+    BINDING_LABEL,
+};
 use crate::keys::{hex_encode, pkcs8_ed25519, Identity, PUBLIC_KEY_BYTES};
 
 /// The mesh wire version.
 ///
 /// Version 2 is the server challenge: the accepting side sends a
 /// [`Challenge`] first and the dialer signs it, replacing version 1's signed
-/// nonce. A change to the frame or hello wire bumps this and [`ALPN`].
-pub const PROTOCOL_VERSION: u32 = 2;
+/// nonce. **Version 3 binds that signature to the TLS channel**: the signed
+/// message carries the connection's exporter, so a hello made on one
+/// connection cannot authenticate another. A change to the frame or hello wire
+/// bumps this and [`ALPN`].
+pub const PROTOCOL_VERSION: u32 = 3;
 
 /// The ALPN the mesh speaks. A peer that does not offer it is not a mesh peer.
 /// The name carries [`PROTOCOL_VERSION`].
-pub const ALPN: &[u8] = b"summrise/mesh/2";
+pub const ALPN: &[u8] = b"summrise/mesh/3";
 
 /// The name given to the TLS stack. It is not authenticated — the pin is — but
 /// QUIC's TLS layer insists on one.
@@ -73,6 +79,8 @@ pub enum EndpointError {
     Frame(FrameError),
     /// The first client frame was not an acceptable hello.
     Hello(HelloError),
+    /// The TLS exporter that binds a hello to its connection could not be derived.
+    Exporter(String),
 }
 
 impl std::fmt::Display for EndpointError {
@@ -88,6 +96,7 @@ impl std::fmt::Display for EndpointError {
             Self::Closed => f.write_str("the mesh endpoint is closed"),
             Self::Frame(error) => write!(f, "{error}"),
             Self::Hello(error) => write!(f, "{error}"),
+            Self::Exporter(message) => write!(f, "the mesh connection binding failed: {message}"),
         }
     }
 }
@@ -396,6 +405,7 @@ impl MeshEndpoint {
             return Err(EndpointError::MissingPin);
         };
         let connection = self.connect(peer, Some(peer_key)).await?;
+        let binding = connection_binding(&connection)?;
 
         // The server opens the stream and speaks first on it. Nothing is
         // signed until this connection's challenge has been read, so a hello
@@ -406,7 +416,7 @@ impl MeshEndpoint {
             .map_err(|error| EndpointError::Stream(error.to_string()))?;
         let first = frame::read(&mut recv).await?;
         let challenge = Challenge::from_frame(&first)?;
-        let hello = Hello::sign(&self.identity, peer_id, &challenge);
+        let hello = Hello::sign(&self.identity, peer_id, &challenge, &binding);
         frame::write(&mut send, &hello.to_frame()?).await?;
         Ok(PeerSession {
             connection,
@@ -507,6 +517,9 @@ impl MeshEndpoint {
             .open_bi()
             .await
             .map_err(|error| EndpointError::Stream(error.to_string()))?;
+        // BEFORE THE CHALLENGE: the binding is derived from a finished handshake, and the hello that
+        // answers this challenge will be checked against it.
+        let binding = connection_binding(&connection)?;
         let challenge = Challenge::generate();
         frame::write(&mut send, &challenge.to_frame()?).await?;
 
@@ -524,7 +537,7 @@ impl MeshEndpoint {
                 HelloError::UnknownPeer(hello.peer_id_hex.clone()),
             ));
         };
-        if let Err(error) = hello.verify(&peer, &challenge) {
+        if let Err(error) = hello.verify(&peer, &challenge, &binding) {
             return Err(refuse_hello(&connection, error));
         }
 
@@ -594,6 +607,21 @@ impl PeerSession {
     }
 }
 
+/// Derive the hello binding from a QUIC connection's TLS session.
+///
+/// Both ends call this with the same label and context and get the same 32 bytes; any other connection
+/// (the malicious peer's own, for instance) gets different ones. The handshake is complete by the time
+/// this is called, which is what the exporter requires.
+pub(crate) fn connection_binding(
+    connection: &quinn::Connection,
+) -> Result<[u8; BINDING_BYTES], EndpointError> {
+    let mut binding = [0u8; BINDING_BYTES];
+    connection
+        .export_keying_material(&mut binding, BINDING_LABEL, BINDING_CONTEXT)
+        .map_err(|error| EndpointError::Exporter(format!("{error:?}")))?;
+    Ok(binding)
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -633,11 +661,14 @@ mod tests {
         quinn::SendStream,
         quinn::RecvStream,
         Challenge,
+        [u8; BINDING_BYTES],
     ) {
         let connection = timeout(test_timeout(), client.connect(address, Some(server_key)))
             .await
             .expect("the handshake timed out")
             .expect("the right pin connects");
+        let binding =
+            connection_binding(&connection).expect("the live connection exports a binding");
         let (send, mut recv) = connection
             .accept_bi()
             .await
@@ -648,7 +679,7 @@ mod tests {
             .expect("the challenge arrives");
         let challenge =
             Challenge::from_frame(&first).expect("the server's first frame is a challenge");
-        (connection, send, recv, challenge)
+        (connection, send, recv, challenge, binding)
     }
 
     #[test]
@@ -778,9 +809,9 @@ mod tests {
         let address = server.local_addr().expect("a bound port");
         let server_task = tokio::spawn(async move { server.accept_authenticated(&resolver).await });
 
-        let (_connection, mut send, _recv, challenge) =
+        let (_connection, mut send, _recv, challenge, binding) =
             raw_client(&client, address, server_key).await;
-        let hello = Hello::sign(&Identity::generate(), "stranger", &challenge);
+        let hello = Hello::sign(&Identity::generate(), "stranger", &challenge, &binding);
         frame::write(&mut send, &hello.to_frame().expect("a hello frame"))
             .await
             .expect("write the hello");
@@ -810,9 +841,9 @@ mod tests {
         let address = server.local_addr().expect("a bound port");
         let server_task = tokio::spawn(async move { server.accept_authenticated(&resolver).await });
 
-        let (_connection, mut send, _recv, challenge) =
+        let (_connection, mut send, _recv, challenge, binding) =
             raw_client(&client, address, server_key).await;
-        let hello = Hello::sign(&attacker, "client-1", &challenge);
+        let hello = Hello::sign(&attacker, "client-1", &challenge, &binding);
         frame::write(&mut send, &hello.to_frame().expect("a hello frame"))
             .await
             .expect("write the hello");
@@ -838,7 +869,7 @@ mod tests {
         let address = server.local_addr().expect("a bound port");
         let server_task = tokio::spawn(async move { server.accept_authenticated(&resolver).await });
 
-        let (_connection, mut send, _recv, challenge) =
+        let (_connection, mut send, _recv, challenge, binding) =
             raw_client(&client, address, server_key).await;
         let first = Frame {
             kind: Kind::Ping,
@@ -850,7 +881,7 @@ mod tests {
             .expect("write a non-hello first frame");
         // The server must refuse on the first frame; a hello that follows it
         // must not be read. The write may race the close, which is fine.
-        let hello = Hello::sign(&client_identity, "client-1", &challenge);
+        let hello = Hello::sign(&client_identity, "client-1", &challenge, &binding);
         let _ = frame::write(&mut send, &hello.to_frame().expect("a hello frame")).await;
 
         let error = timeout(test_timeout(), server_task)
@@ -879,9 +910,9 @@ mod tests {
         let (_client_result, server_result) = timeout(test_timeout(), async {
             tokio::join!(
                 async {
-                    let (connection, mut send, _recv, _challenge) =
+                    let (connection, mut send, _recv, _challenge, binding) =
                         raw_client(&client, address, server_key).await;
-                    let hello = Hello::sign(&client_identity, "client-1", &wrong);
+                    let hello = Hello::sign(&client_identity, "client-1", &wrong, &binding);
                     frame::write(&mut send, &hello.to_frame().expect("a hello frame"))
                         .await
                         .expect("write the hello");
@@ -917,9 +948,9 @@ mod tests {
         let (_client_result, server_result) = timeout(test_timeout(), async {
             tokio::join!(
                 async {
-                    let (connection, mut send, _recv, challenge) =
+                    let (connection, mut send, _recv, challenge, binding) =
                         raw_client(&client, address, server_key).await;
-                    let hello = Hello::sign(&client_identity, "client-1", &challenge);
+                    let hello = Hello::sign(&client_identity, "client-1", &challenge, &binding);
                     let mut value = serde_json::to_value(&hello).expect("a hello is serializable");
                     value
                         .as_object_mut()
@@ -967,9 +998,9 @@ mod tests {
         let (client_a, server_a) = timeout(test_timeout(), async {
             tokio::join!(
                 async {
-                    let (connection, mut send, _recv, challenge) =
+                    let (connection, mut send, _recv, challenge, binding) =
                         raw_client(&client, address, server_key).await;
-                    let hello = Hello::sign(&client_identity, "client-1", &challenge);
+                    let hello = Hello::sign(&client_identity, "client-1", &challenge, &binding);
                     let encoded = frame::encode(&hello.to_frame().expect("a hello frame"))
                         .expect("the hello's wire bytes");
                     frame::write(&mut send, &hello.to_frame().expect("a hello frame"))
@@ -990,7 +1021,7 @@ mod tests {
         let (client_b, server_b) = timeout(test_timeout(), async {
             tokio::join!(
                 async {
-                    let (connection, mut send, _recv, challenge) =
+                    let (connection, mut send, _recv, challenge, _binding) =
                         raw_client(&client, address, server_key).await;
                     let _ = send.write_all(&replayed).await;
                     let _ = send.flush().await;
@@ -1016,6 +1047,71 @@ mod tests {
         assert!(
             closed.is_ok(),
             "the server must close a connection whose hello it refused"
+        );
+    }
+
+    /// **THE REFLECTION ATTACK AT THE TRANSPORT LEVEL.** A malicious peer that is the dialer's TLS server
+    /// relays a third peer's live challenge to the dialer and forwards the dialer's hello there. The
+    /// challenge echo is perfect and the signature is real; the hello is bound to the OTHER connection.
+    #[tokio::test]
+    async fn a_hello_bound_to_another_connection_is_refused() {
+        let server_identity = Identity::generate();
+        let client_identity = Identity::generate();
+        let server_key = server_identity.public_bytes();
+        let resolver = resolver(&[("client-1", client_identity.public_bytes())]);
+
+        let server = MeshEndpoint::server(server_identity, loopback()).expect("a server endpoint");
+        let client =
+            MeshEndpoint::client(client_identity.clone(), loopback()).expect("a client endpoint");
+        let address = server.local_addr().expect("a bound port");
+
+        // Connection A: a complete, valid handshake. Its binding is the value an attacker would try to
+        // reuse on connection B, where the challenge is right but the channel is not.
+        let client_a = timeout(test_timeout(), async {
+            tokio::join!(
+                async {
+                    let (connection, mut send, _recv, challenge, binding) =
+                        raw_client(&client, address, server_key).await;
+                    let hello = Hello::sign(&client_identity, "client-1", &challenge, &binding);
+                    frame::write(&mut send, &hello.to_frame().expect("a hello frame"))
+                        .await
+                        .expect("write the hello");
+                    (connection, binding)
+                },
+                server.accept_authenticated(&resolver),
+            )
+        })
+        .await
+        .expect("A's handshake timed out");
+        let ((_connection_a, binding_a), server_a) = client_a;
+        assert!(
+            server_a.is_ok(),
+            "connection A's valid hello must be accepted before B tests the binding"
+        );
+
+        let (connection_b, server_b) = timeout(test_timeout(), async {
+            tokio::join!(
+                async {
+                    let (connection, mut send, _recv, challenge, _binding) =
+                        raw_client(&client, address, server_key).await;
+                    // The right challenge for THIS connection, the wrong channel's binding.
+                    let hello = Hello::sign(&client_identity, "client-1", &challenge, &binding_a);
+                    frame::write(&mut send, &hello.to_frame().expect("a hello frame"))
+                        .await
+                        .expect("write the hello");
+                    connection
+                },
+                server.accept_authenticated(&resolver),
+            )
+        })
+        .await
+        .expect("B's handshake timed out");
+
+        let _ = connection_b;
+        assert_eq!(
+            server_b.expect_err("a hello bound to another connection must be refused"),
+            EndpointError::Hello(HelloError::BindingMismatch),
+            "the signature is valid and the challenge is right; the channel binding is not"
         );
     }
 

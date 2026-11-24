@@ -1,0 +1,25 @@
+[Unit]
+Description=Summrise device runtime
+Documentation=https://github.com/summrise/summrise
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=summrise
+Group=summrise
+ExecStart=/opt/summrise/summrise-device --install /opt/summrise --data /var/lib/summrise --port 18090
+Restart=on-failure
+RestartSec=3
+# `terminal.create` starts PTYs, and `runs.exec` starts process groups. The service must stop the
+# whole group, not only the parent, or a shell outlives a stop and keeps the port's state open.
+KillMode=mixed
+TimeoutStopSec=20
+LimitNOFILE=65536
+# The device owns its data directory and reads its install directory. It does not need the host's
+# home directories; the files capability is already sandboxed to <data>/workspace.
+ProtectHome=true
+PrivateTmp=false
+
+[Install]
+WantedBy=multi-user.target

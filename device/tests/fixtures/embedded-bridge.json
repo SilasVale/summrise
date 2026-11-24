@@ -1,0 +1,35 @@
+{
+  "_why": "THE TWO HOST-ONLY BRIDGES, pinned from both sides. `summrise-desktop-electron/src/preload.ts` exposes exactly two objects to the thin host page (`src/host.html`) via contextBridge: `summriseBrowser` (the native browser view) and `summriseHarness` (the harness view on this machine's loopback). The page and the preload are written separately \u2014 an object literal in the preload, plain functions in the page \u2014 so each works while a renamed member breaks the shell silently, and ONLY there: these surfaces exist behind a contextBridge global that a plain browser does not have, so no rendered sweep has ever seen them. This fixture cannot render them either. It pins their NAMES, which is the part that drifts without any test noticing; behaviour still needs the desktop app.",
+  "_verdict": "A member present here must exist on BOTH sides. Adding one to the preload without the host page (or vice versa) fails a test; renaming fails both. The preload may expose NO OTHER GLOBAL: a third `exposeInMainWorld` call fails the bridge test even if it has no fixture entry.",
+  "bridges": {
+    "summriseBrowser": [
+      "navigate",
+      "back",
+      "fwd",
+      "reload",
+      "zoom",
+      "place",
+      "state",
+      "recover",
+      "onNav",
+      "onGone"
+    ],
+    "summriseHarness": [
+      "targets",
+      "open",
+      "place",
+      "go",
+      "state",
+      "reload",
+      "recover",
+      "onGone"
+    ]
+  },
+  "_notes": {
+    "summriseBrowser": "the browser view: the host page reports its placeholder bounds (place) and the main process positions the native WebContentsView over them, which is why this surface cannot be rendered in a plain browser; navigate is decided by the shell's ONE load door, never by the page",
+    "summriseHarness": "the harness view: the harness's own UI on THIS machine's loopback, a SECOND native view beside the browser one. The page reports the slot's bounds (place) and asks the MAIN process to open it (open), so the page never learns the harness port; targets is the policy's door list and go is re-checked against it",
+    "onNav/onGone": "these SUBSCRIBE and return an unsubscribe function \u2014 a member that must return a function, not a promise (the harness view's onGone matters as much as the browser's: a crashed view with no signal shows a stale pane forever)",
+    "summriseBrowser.onNav": "navigation pushes: url, canBack, canFwd and title after every real navigation, so the address bar tracks the actual page",
+    "summriseBrowser.onGone/summriseHarness.onGone": "the view's renderer crashed (reason + exitCode); the pane shows a recovery state instead of a dead picture"
+  }
+}

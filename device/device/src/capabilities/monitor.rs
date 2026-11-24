@@ -33,8 +33,8 @@ use crate::fsutil::create_new_sibling;
 /// The most targets one device watches.
 pub const MAX_TARGETS: usize = 16;
 
-/// The shortest interval a target may be probed at, in milliseconds.
-pub const MIN_INTERVAL_MS: u64 = 5_000;
+/// The declaration's cap: the schema and this implementation read the same number.
+pub use summrise_core::capabilities::monitor::MIN_INTERVAL_MS;
 
 /// How long a TCP connect may take before the probe is DOWN.
 pub const TCP_TIMEOUT_MS: u64 = 3_000;
@@ -1492,4 +1492,125 @@ mod tests {
         assert_eq!(http.id, "127.0.0.1:80/health");
         assert_eq!(http.path.as_deref(), Some("/health"));
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The declaration's implementation: the device side of `summrise_core::capabilities::monitor`.
+// ---------------------------------------------------------------------------------------------
+
+use serde_json::{Map, Value};
+
+use crate::mcp::{parse, ToolError};
+use summrise_core::capabilities::monitor::CAPABILITY;
+
+/// Whether `tool` is one this capability declares.
+pub fn owns(tool: &str) -> bool {
+    CAPABILITY
+        .tools
+        .iter()
+        .any(|declared| declared.name == tool)
+}
+
+/// Every tool this capability declares, for the registry-alignment test.
+#[cfg(test)]
+pub fn names() -> impl Iterator<Item = &'static str> {
+    CAPABILITY.tools.iter().map(|tool| tool.name)
+}
+
+/// Run one of this capability's tools against the watch registry.
+pub async fn call(
+    monitors: &std::sync::Arc<MonitorRegistry>,
+    tool: &str,
+    arguments: Map<String, Value>,
+) -> Result<String, ToolError> {
+    match tool {
+        "monitor.add" => {
+            let arguments: MonitorAddArgs = parse(arguments, tool)?;
+            let target = monitors
+                .add(TargetSpec {
+                    kind: arguments.kind,
+                    host: arguments.host,
+                    port: arguments.port,
+                    path: arguments.path,
+                    expect: arguments.expect,
+                    interval_ms: arguments.interval_ms,
+                })
+                .map_err(|error| refused(tool, error))?;
+            Ok(json!(target).to_string())
+        }
+        "monitor.remove" => {
+            let arguments: MonitorIdArgs = parse(arguments, tool)?;
+            let removed = monitors
+                .remove(&arguments.id)
+                .map_err(|error| refused(tool, error))?;
+            Ok(json!({ "removed": removed }).to_string())
+        }
+        "monitor.list" => {
+            let targets: Vec<Value> = monitors
+                .list()
+                .iter()
+                .map(|target| {
+                    json!({
+                        "id": target.id,
+                        "kind": target.kind,
+                        "host": target.host,
+                        "port": target.port,
+                        "path": target.path,
+                        "expect": target.expect,
+                        "interval_ms": target.interval_ms,
+                        "summary": monitors.summary(&target.id).unwrap_or_default(),
+                    })
+                })
+                .collect();
+            Ok(Value::Array(targets).to_string())
+        }
+        "monitor.probe" => {
+            let arguments: MonitorIdArgs = parse(arguments, tool)?;
+            let sample = monitors
+                .probe(&arguments.id)
+                .await
+                .map_err(|error| refused(tool, error))?;
+            Ok(json!(sample).to_string())
+        }
+        "monitor.status" => {
+            let arguments: MonitorIdArgs = parse(arguments, tool)?;
+            let summary = monitors.summary(&arguments.id).ok_or_else(|| {
+                refused(
+                    tool,
+                    MonitorError::UnknownTarget {
+                        id: arguments.id.clone(),
+                    },
+                )
+            })?;
+            Ok(json!(summary).to_string())
+        }
+        other => Err(ToolError::Internal(format!(
+            "{other}: the monitor capability does not declare this tool"
+        ))),
+    }
+}
+
+fn refused(tool: &str, error: impl std::fmt::Display) -> ToolError {
+    ToolError::Refused(format!("{tool}: {error}"))
+}
+
+/// The arguments `monitor.add` takes.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MonitorAddArgs {
+    kind: Kind,
+    host: String,
+    port: u16,
+    path: Option<String>,
+    expect: Option<String>,
+    interval_ms: u64,
+}
+
+/// The arguments `monitor.remove`, `monitor.probe` and `monitor.status` take.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MonitorIdArgs {
+    id: String,
 }

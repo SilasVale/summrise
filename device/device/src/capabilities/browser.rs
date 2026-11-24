@@ -19,8 +19,16 @@
 //! Each launch's profile directory is fresh, which matters when a device was killed: its Chrome may
 //! still be running and still hold the old profile's lock. A launch sweeps directories a dead
 //! process left behind (by age, or by a lock that names no live process), and a graceful [`Browser`]
-//! `Drop` removes its own directory after killing the child — and on Unix its whole process group,
-//! which includes the renderers — so dropping the device does not leave a browser behind.
+//! `Drop` removes its own directory after ending the child's tree. The tree is the operating
+//! system's to end, not only this process's: on Unix the browser leads its own process group and the
+//! group is killed on drop; on Windows it is assigned to a Job Object with
+//! `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, so a device terminated by a restart or a crash (where no
+//! destructor runs) still takes its browser with it.
+//!
+//! **The browser is shut down, not only killed.** A page may hold a Web Serial port, and a port is
+//! released by the page's own teardown; [`BrowserRegistry::shutdown`] closes every page target
+//! before it kills the browser. The device's run loop calls it after the listener stops, so a tab a
+//! tool opened and never closed releases its handle even when no client remembers it.
 //!
 //! **The client is deliberately small.** One command is one `{id, method, params}` message and one
 //! matching `{id, result}` reply; events are ignored except for the navigation commit (a main
@@ -50,8 +58,9 @@ use std::fmt;
 use std::fs;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use futures_util::{SinkExt, StreamExt};
@@ -62,8 +71,10 @@ use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{connect_async_with_config, MaybeTlsStream, WebSocketStream};
 
+use super::owned::OwnedChild;
+
 #[cfg(unix)]
-use nix::sys::signal::{kill, killpg, Signal};
+use nix::sys::signal::kill;
 #[cfg(unix)]
 use nix::unistd::Pid;
 
@@ -76,14 +87,49 @@ pub const EVAL_MAX_BYTES: usize = 1024 * 1024;
 /// The largest screenshot `browser.screenshot` returns, as the decoded PNG's length.
 pub const SCREENSHOT_MAX_BYTES: usize = 8 * 1024 * 1024;
 
+/// The largest screencast frame `browser.cast` returns, as the base64 JPEG's length. Chrome's frames
+/// are smaller than its screenshots by construction (JPEG, one frame), but the cap is the same
+/// service: a frame is JSON the caller has to hold.
+pub const CAST_MAX_BYTES: usize = 8 * 1024 * 1024;
+
+/// How long `cast` waits for a frame after the screencast starts, and how often it looks.
+const CAST_WAIT_MS: u64 = 2_000;
+const CAST_POLL_MS: u64 = 20;
+
+/// How long a screencast may go unpolled before its task stops Chrome's stream: a console tab that
+/// was closed or navigated away should not leave Chrome encoding frames nobody reads.
+pub const CAST_IDLE_MS: u64 = 60_000;
+
+/// One screencast frame: a base64 JPEG Chrome produced for a page, with its size and arrival time.
+#[derive(Clone)]
+pub struct CastFrame {
+    /// The base64-encoded JPEG.
+    pub data: String,
+    /// The page's width in device pixels, as the frame's metadata reports it.
+    pub width: u64,
+    /// The page's height in device pixels.
+    pub height: u64,
+    /// When the device received the frame, in Unix milliseconds.
+    pub at_ms: u64,
+}
+
 /// How long one CDP command, one HTTP target-list read, or one CDP connect may take.
 pub const COMMAND_TIMEOUT_MS: u64 = 10_000;
 
+/// How long shutdown may spend closing pages before it kills the browser anyway.
+///
+/// Closing is what lets a page release a Web Serial handle itself, so it deserves a real moment; a
+/// wedged page must not hold the device's exit open, so the bound is short and the kill is the
+/// fallback.
+const SHUTDOWN_CLOSE_TIMEOUT_MS: u64 = 2_000;
+
 /// How long Chrome may take to answer its DevTools HTTP endpoint before an attempt fails.
 ///
-/// Cold CI runners are slow; 30 s is deliberately generous, and this is a launch bound rather than
-/// a command bound. The capability's tests shorten it through the registry.
-const READINESS_TIMEOUT_MS: u64 = 30_000;
+/// This is a launch bound, not a command bound, and it is generous on purpose: on 2026-10-28 a CI
+/// runner started Chrome, Chrome printed "DevTools listening", and its HTTP endpoint did not answer
+/// for the whole 30 s under load — the re-run passed. The bound is 60 s now; a browser that has
+/// genuinely failed still exits and is caught by `try_wait` long before it.
+const READINESS_TIMEOUT_MS: u64 = 60_000;
 
 /// How many launch attempts a port taken between choosing it and Chrome binding it may cost.
 const MAX_LAUNCH_ATTEMPTS: u8 = 3;
@@ -139,15 +185,26 @@ const MAX_URL_IN_ERROR_BYTES: usize = 512;
 /// Comparing the encoded prefix avoids decoding a megabyte only to throw it away.
 const PNG_BASE64_PREFIX: &str = "iVBORw0KGgo";
 
-/// The Chrome executables [`discover_chrome`] tries, in order, when `SUMMRISE_CHROME` names none.
+/// The Chromium executables [`discover_chrome`] tries, in order, when `SUMMRISE_CHROME` names none.
+///
+/// Edge is Chromium: it takes the same `--headless=new` flags and the same CDP, and Windows 11
+/// carries it without Chrome. A machine with only Edge used to answer ChromeNotFound; that is a
+/// missing candidate, not a missing browser.
 ///
 /// Paths for both platforms are listed unconditionally: a path for the other platform simply does
 /// not exist, so the check stays one `is_file` per candidate and the function is not a `cfg` maze.
 const CHROME_CANDIDATES: &[&str] = &[
     "/usr/bin/google-chrome",
+    "/usr/bin/google-chrome-stable",
     "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+    "/snap/bin/chromium",
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Chromium.app/Contents/MacOS/Chromium",
     r"C:\Program Files\Google\Chrome\Application\chrome.exe",
     r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+    r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
 ];
 
 /// One target, as `browser.list` reports it.
@@ -284,7 +341,7 @@ impl fmt::Display for BrowserError {
         match self {
             BrowserError::ChromeNotFound => write!(
                 f,
-                "no Chrome or Chromium was found; set SUMMRISE_CHROME to its executable"
+                "no Chrome, Chromium or Edge was found; install one or set SUMMRISE_CHROME to its executable"
             ),
             BrowserError::Spawn { path, message } => {
                 write!(f, "cannot start {path}: {message}")
@@ -354,17 +411,44 @@ impl std::error::Error for BrowserError {
 ///
 /// The environment variable wins only when it names an existing file; otherwise the search falls
 /// through, so a stale variable on an operator's shell does not hide an installed browser.
-pub fn discover_chrome() -> Option<PathBuf> {
+pub fn discover_chrome(install: Option<&Path>) -> Option<PathBuf> {
     if let Some(configured) = std::env::var_os("SUMMRISE_CHROME") {
         let path = PathBuf::from(configured);
         if path.is_file() {
             return Some(path);
         }
     }
+    if let Some(install) = install {
+        if let Some(managed) = managed_chrome(install) {
+            return Some(managed);
+        }
+    }
     CHROME_CANDIDATES
         .iter()
         .map(PathBuf::from)
         .find(|path| path.is_file())
+}
+
+/// The browser the installer put under `<install>rowser\current`.
+///
+/// The pack is the product's own browser: it does not depend on what the machine happens to have
+/// installed, and on a service account it is the only Chromium that can be trusted to start. The
+/// installer preserves `current` across upgrades; a missing pack is a fallback, not an error here.
+fn managed_chrome(install: &Path) -> Option<PathBuf> {
+    let current = install.join("browser").join("current");
+    // The Windows pack carries `.exe`; the Unix packs do not. Both spellings are listed on every
+    // platform (a name that is not there costs one `is_file`), so the same resolver serves all three
+    // and an installer that lays down either layout is found.
+    [
+        "chrome-headless-shell.exe",
+        "chrome.exe",
+        "chrome-headless-shell",
+        "chrome",
+        "Chromium",
+    ]
+    .into_iter()
+    .map(|name| current.join(name))
+    .find(|path| path.is_file())
 }
 
 /// One target as `/json/list` spells it.
@@ -773,12 +857,31 @@ struct Browser {
     /// The browser endpoint Chrome named in `/json/version`, e.g.
     /// `ws://127.0.0.1:<port>/devtools/browser/<uuid>`.
     browser_ws: String,
-    child: Child,
+    /// `None` when the browser was launched by the per-user helper: this process did not start it, so
+    /// it must not kill it. The helper owns that browser and replaces it on the next launch. When
+    /// this app started the browser, the type owns its whole tree (a process group on Unix, a
+    /// kill-on-close Job Object on Windows), so a device restart cannot leave it behind.
+    child: Option<OwnedChild>,
     /// This launch's private profile directory; `Drop` removes it after killing the browser.
+    /// The profile directory this capability created, or empty for a helper-launched browser (the
+    /// helper owns that directory, in the user's `LocalAppData`).
     profile: PathBuf,
     http: reqwest::Client,
     /// The browser endpoint connection, opened on the first target command.
     socket: Option<CdpClient>,
+}
+
+/// Whether the operator asked for the visible, user-session browser.
+fn visible_by_request() -> bool {
+    visible_from(std::env::var_os("SUMMRISE_BROWSER_VISIBLE").as_deref())
+}
+
+/// The flag's value as a decision: set and not "0" means yes, absent means headless.
+fn visible_from(value: Option<&std::ffi::OsStr>) -> bool {
+    match value {
+        Some(value) => value != "0",
+        None => false,
+    }
 }
 
 impl Browser {
@@ -790,11 +893,24 @@ impl Browser {
     async fn launch(
         data: &Path,
         chrome: Option<&Path>,
+        managed: Option<&Path>,
         readiness_timeout_ms: u64,
     ) -> Result<Browser, BrowserError> {
+        // **HEADLESS UNLESS SOMEONE ASKED TO WATCH.** The user-session browser is the one the person at
+        // the machine can see, take over, and whose profile has their cookies — which is exactly why it
+        // is the wrong default for automation: it opens windows on their desktop, needs an unlocked
+        // session, and lets any page the tool visits read their signed-in state. `SUMMRISE_BROWSER_VISIBLE`
+        // asks for it; without that the service's own headless Chrome serves every call and nobody's
+        // screen changes. If the flag is set and the helper cannot start it, the headless path below is
+        // still there: the feature degrades, it does not fail.
+        if visible_by_request() {
+            if let Some(browser) = launch_in_the_user_session(readiness_timeout_ms).await {
+                return Ok(browser);
+            }
+        }
         let executable = match chrome {
             Some(path) => path.to_owned(),
-            None => discover_chrome().ok_or(BrowserError::ChromeNotFound)?,
+            None => discover_chrome(managed).ok_or(BrowserError::ChromeNotFound)?,
         };
         // A killed device leaves its Chrome (and the profile lock) behind. Every launch gets its
         // own directory so an old lock can never wedge this one; the sweep runs before this
@@ -817,7 +933,12 @@ impl Browser {
 
     /// Whether the browser process is still running; `try_wait` also reaps an exited child.
     fn alive(&mut self) -> bool {
-        matches!(self.child.try_wait(), Ok(None))
+        match self.child.as_mut() {
+            Some(child) => matches!(child.try_wait(), Ok(None)),
+            // A helper-launched browser outlives this process's handle on it; the next command says
+            // whether it is still there.
+            None => true,
+        }
     }
 
     /// The targets Chrome reports over HTTP, in Chrome's order.
@@ -882,7 +1003,9 @@ impl Browser {
     }
 
     /// Connect to one page target's own endpoint.
-    async fn page_client(&mut self, target: &str) -> Result<CdpClient, BrowserError> {
+    /// The debugger endpoint of one page target, which is what both a command client and a
+    /// screencast connect to.
+    async fn page_url(&mut self, target: &str) -> Result<String, BrowserError> {
         let targets = self.targets().await?;
         let entry = targets
             .iter()
@@ -890,7 +1013,12 @@ impl Browser {
                 entry.id == target && entry.kind == "page" && !entry.web_socket_url.is_empty()
             })
             .ok_or(BrowserError::UnknownTarget)?;
-        CdpClient::connect(&entry.web_socket_url).await
+        Ok(entry.web_socket_url.clone())
+    }
+
+    async fn page_client(&mut self, target: &str) -> Result<CdpClient, BrowserError> {
+        let url = self.page_url(target).await?;
+        CdpClient::connect(&url).await
     }
 
     /// Create a tab and wait for its document to be parsed.
@@ -938,6 +1066,56 @@ impl Browser {
         self.load_target(target, url).await
     }
 
+    /// Whether a hostname is on a private network, matching the legacy shell's policy: loopback,
+    /// `.local`, and RFC1918 / link-local IPv4. The public internet is never in this set.
+    fn is_private_host(hostname: &str) -> bool {
+        let host = hostname.trim().to_ascii_lowercase();
+        if host.is_empty() {
+            return false;
+        }
+        if host == "localhost" || host == "::1" || host == "[::1]" {
+            return true;
+        }
+        if host.ends_with(".local") || host.ends_with(".local.") {
+            return true;
+        }
+        let parts: Vec<&str> = host.split('.').collect();
+        if parts.len() != 4 {
+            return false;
+        }
+        let mut octets = [0u8; 4];
+        for (index, part) in parts.iter().enumerate() {
+            if part.is_empty() || part.len() > 3 || !part.bytes().all(|byte| byte.is_ascii_digit())
+            {
+                return false;
+            }
+            let Ok(value) = part.parse::<u16>() else {
+                return false;
+            };
+            if value > 255 {
+                return false;
+            }
+            octets[index] = value as u8;
+        }
+        let [first, second, _, _] = octets;
+        first == 10
+            || (first == 172 && (16..=31).contains(&second))
+            || (first == 192 && second == 168)
+            || first == 127
+            || (first == 169 && second == 254)
+    }
+
+    /// Whether this URL may bypass certificate validation: `http`/`https` on a private host only.
+    fn cert_bypass_allowed(url: &str) -> bool {
+        let Ok(parsed) = reqwest::Url::parse(url) else {
+            return false;
+        };
+        if parsed.scheme() != "http" && parsed.scheme() != "https" {
+            return false;
+        }
+        Self::is_private_host(parsed.host_str().unwrap_or(""))
+    }
+
     /// Load `url` in `target` and return once the new document has finished parsing.
     ///
     /// `Page.navigate` returns when the navigation is *started*, not when it lands, and a
@@ -964,6 +1142,18 @@ impl Browser {
     async fn load_target(&mut self, target: &str, url: &str) -> Result<(), BrowserError> {
         let mut page = self.page_client(target).await?;
         page.command("Page.enable", json!({})).await?;
+        // Chrome validates every certificate by default. A lab device on a private network (an
+        // OpenWrt-style ONT, a router UI) ships a self-signed certificate; the legacy agent
+        // bypassed certificate errors for private hosts only, and the public internet kept full
+        // validation. Do the same per navigation, so a public page in the same tab is validated
+        // again immediately.
+        let ignore = Self::cert_bypass_allowed(url);
+        let _ = page.command("Security.enable", json!({})).await;
+        page.command(
+            "Security.setIgnoreCertificateErrors",
+            json!({ "ignore": ignore }),
+        )
+        .await?;
         let navigation = page.command("Page.navigate", json!({ "url": url })).await?;
 
         if let Some(message) = navigation.get("errorText").and_then(Value::as_str) {
@@ -1092,37 +1282,106 @@ impl Browser {
             Err(BrowserError::UnknownTarget)
         }
     }
+
+    /// Close every page target the browser lists; returns how many closes Chrome accepted.
+    ///
+    /// This is shutdown's first half. A page that opened a Web Serial port releases the handle when
+    /// the page is torn down; killing the process releases it too, but only by death, and the
+    /// contract here is that the page (not the signal) lets the port go. A tab a tool opened and
+    /// never closed is included: shutdown does not depend on the caller remembering it.
+    async fn close_all_targets(&mut self) -> usize {
+        let Ok(targets) = self.targets().await else {
+            // The browser is already unanswerable; the kill below is the only remaining action.
+            return 0;
+        };
+        let mut closed = 0;
+        for target in targets.into_iter().filter(|entry| entry.kind == "page") {
+            let reply = self
+                .browser_command("Target.closeTarget", json!({ "targetId": target.id }))
+                .await;
+            if matches!(
+                reply,
+                Ok(reply) if reply.get("success").and_then(Value::as_bool) == Some(true)
+            ) {
+                closed += 1;
+            }
+        }
+        closed
+    }
 }
 
 impl Drop for Browser {
     fn drop(&mut self) {
-        terminate(&mut self.child);
+        // Dropping the owner is the tree kill: the process group on Unix, the kill-on-close job on
+        // Windows. Taking it first means the profile directory is removed after the processes that
+        // hold it are gone.
+        drop(self.child.take());
         // Best effort: on Windows a renderer that has not finished exiting can still hold a file.
-        // A directory this call cannot remove is swept by a later launch.
-        let _ = fs::remove_dir_all(&self.profile);
-    }
-}
-
-/// Kill a Chrome child and reap it, signalling its whole process group on Unix.
-///
-/// `try_wait` is the ownership check: a child that already exited was reaped by a previous call,
-/// and its pid may have been recycled by the kernel, so its group is not safe to signal. The same
-/// reasoning as `terminal.close`'s session close.
-fn terminate(child: &mut Child) {
-    if matches!(child.try_wait(), Ok(Some(_))) {
-        return;
-    }
-    #[cfg(unix)]
-    {
-        if let Ok(pid) = i32::try_from(child.id()) {
-            let _ = killpg(Pid::from_raw(pid), Signal::SIGKILL);
+        // A directory this call cannot remove is swept by a later launch. A helper-launched browser
+        // has no directory here: its profile belongs to the helper and outlives this process.
+        if !self.profile.as_os_str().is_empty() {
+            let _ = fs::remove_dir_all(&self.profile);
         }
     }
-    let _ = child.kill();
-    let _ = child.wait();
 }
 
 /// One launch attempt: a fresh profile, a port this capability chose, and Chrome answering it.
+/// Launch the browser the logged-in user will see, through the per-user helper.
+///
+/// `None` when there is no helper this boot, when the helper has not registered yet, or when it could
+/// not start the browser — the caller then starts the service's own headless browser, which is the
+/// fallback the contract promises. The helper answers as soon as Chrome is spawned; the readiness
+/// wait is the same one a service launch uses.
+async fn launch_in_the_user_session(readiness_timeout_ms: u64) -> Option<Browser> {
+    let helper = crate::helper::current()?;
+    let helper_port = helper.port()?;
+    let port = free_port().ok()?;
+    let http = reqwest::Client::new();
+    let answer = http
+        .post(format!("http://127.0.0.1:{helper_port}/launch"))
+        .bearer_auth(helper.token())
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .body(format!("{{\"port\":{port}}}"))
+        .timeout(Duration::from_secs(20))
+        .send()
+        .await
+        .ok()?;
+    if !answer.status().is_success() {
+        return None;
+    }
+    let text = answer.text().await.ok()?;
+    let body: Value = serde_json::from_str(&text).ok()?;
+    if body.get("ok").and_then(Value::as_bool) != Some(true) {
+        return None;
+    }
+    let browser_ws = probe_browser_ws(&http, None, port, Path::new(""), readiness_timeout_ms)
+        .await
+        .ok()?;
+    Some(Browser {
+        port,
+        browser_ws,
+        child: None,
+        profile: PathBuf::new(),
+        http,
+        socket: None,
+    })
+}
+
+/// Whether the executable is `chrome-headless-shell`, which is already headless and rejects the
+/// flag that asks a full Chrome to become headless. The Unix pack has no `.exe`; both are the same
+/// binary under different names.
+fn is_headless_shell(executable: &Path) -> bool {
+    executable
+        .file_name()
+        .map(|name| {
+            name.to_string_lossy()
+                .to_ascii_lowercase()
+                .trim_end_matches(".exe")
+                == "chrome-headless-shell"
+        })
+        .unwrap_or(false)
+}
+
 async fn launch_once(
     executable: &Path,
     profiles: &Path,
@@ -1139,9 +1398,19 @@ async fn launch_once(
         .map_err(|error| (LaunchOutcome::Other, BrowserError::Io(error)))?;
     let port = free_port().map_err(|error| (LaunchOutcome::Other, BrowserError::Io(error)))?;
 
+    // The pack is `chrome-headless-shell`, which is already headless and rejects the flag that asks
+    // a full Chrome to become headless. The other flags are shared.
+    let headless_shell = is_headless_shell(executable);
     let mut command = Command::new(executable);
+    if !headless_shell {
+        command.arg("--headless=new");
+    }
     command
-        .arg("--headless=new")
+        // A headless window with no size lays a page out at the browser default (~764x485 in the
+        // field), so the console showed a narrow page scaled into a wide panel. 1280x800 is the
+        // viewport a desktop browser would give it; the console draws the frame at its own scale.
+        .arg("--window-size=1280,800")
+        .arg("--force-device-scale-factor=1")
         .arg(format!("--remote-debugging-port={port}"))
         .arg(format!("--user-data-dir={}", profile.display()))
         .arg("--no-first-run")
@@ -1150,15 +1419,11 @@ async fn launch_once(
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::from(stderr_log));
-    // Chrome's renderers and helpers inherit the process group. A kill of the group is what makes
-    // "shutdown leaves no chrome child" true even when a renderer outlives the browser.
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
-    }
 
-    let mut child = match command.spawn() {
+    // The ownership is the launched tree's: a process group on Unix, a kill-on-close job on
+    // Windows. Chrome's renderers and helpers inherit either one, which is what makes "the browser
+    // dies with the app" true even when a renderer outlives the browser process.
+    let mut child = match OwnedChild::spawn(command) {
         Ok(child) => child,
         Err(error) => {
             let _ = fs::remove_dir_all(&profile);
@@ -1173,19 +1438,27 @@ async fn launch_once(
     };
 
     let http = reqwest::Client::new();
-    match probe_browser_ws(&http, &mut child, port, &profile, readiness_timeout_ms).await {
+    match probe_browser_ws(
+        &http,
+        Some(&mut child),
+        port,
+        &profile,
+        readiness_timeout_ms,
+    )
+    .await
+    {
         Ok(browser_ws) => Ok(Browser {
             port,
             browser_ws,
-            child,
+            child: Some(child),
             profile,
             http,
             socket: None,
         }),
         Err(failure) => {
             // A failed attempt is still a process and a profile this capability started; neither
-            // may outlive the error.
-            terminate(&mut child);
+            // may outlive the error. Dropping the owner kills the tree and reaps the child.
+            drop(child);
             let _ = fs::remove_dir_all(&profile);
             Err(failure)
         }
@@ -1214,7 +1487,7 @@ async fn probe_version(http: &reqwest::Client, url: &str) -> Option<Value> {
 /// Probe `GET /json/version` until Chrome names its browser endpoint, or the attempt fails.
 async fn probe_browser_ws(
     http: &reqwest::Client,
-    child: &mut Child,
+    mut child: Option<&mut OwnedChild>,
     port: u16,
     profile: &Path,
     timeout_ms: u64,
@@ -1222,27 +1495,29 @@ async fn probe_browser_ws(
     let url = format!("http://127.0.0.1:{port}/json/version");
     let deadline = Instant::now() + Duration::from_millis(timeout_ms);
     loop {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                let bind_failure = looks_like_bind_failure(&read_tail(
-                    &profile.join(CHROME_STDERR),
-                    STDERR_TAIL_BYTES,
-                ));
-                let outcome = if bind_failure {
-                    LaunchOutcome::BindFailure
-                } else {
-                    LaunchOutcome::Exited
-                };
-                return Err((
-                    outcome,
-                    BrowserError::Launch(format!(
-                        "chrome exited with {status} before it answered {url}; {}",
-                        stderr_note(profile)
-                    )),
-                ));
+        if let Some(child) = child.as_deref_mut() {
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    let bind_failure = looks_like_bind_failure(&read_tail(
+                        &profile.join(CHROME_STDERR),
+                        STDERR_TAIL_BYTES,
+                    ));
+                    let outcome = if bind_failure {
+                        LaunchOutcome::BindFailure
+                    } else {
+                        LaunchOutcome::Exited
+                    };
+                    return Err((
+                        outcome,
+                        BrowserError::Launch(format!(
+                            "chrome exited with {status} before it answered {url}; {}",
+                            stderr_note(profile)
+                        )),
+                    ));
+                }
+                Ok(None) => {}
+                Err(error) => return Err((LaunchOutcome::Other, BrowserError::Io(error))),
             }
-            Ok(None) => {}
-            Err(error) => return Err((LaunchOutcome::Other, BrowserError::Io(error))),
         }
 
         let remaining = deadline.saturating_duration_since(Instant::now());
@@ -1251,7 +1526,10 @@ async fn probe_browser_ws(
                 LaunchOutcome::Timeout,
                 BrowserError::Launch(format!(
                     "chrome did not answer {url} within {timeout_ms} ms; {}",
-                    launch_diagnosis(child, profile)
+                    match child.as_deref_mut() {
+                        Some(child) => launch_diagnosis(child, profile),
+                        None => "the browser was started by the per-user helper".to_owned(),
+                    }
                 )),
             ));
         }
@@ -1375,7 +1653,7 @@ fn stderr_note(profile: &Path) -> String {
 ///
 /// A launch refusal that says only "timed out" leaves the reader guessing. This distinguishes "the
 /// process is still running" from a crash, and quotes what Chrome wrote.
-fn launch_diagnosis(child: &mut Child, profile: &Path) -> String {
+fn launch_diagnosis(child: &mut OwnedChild, profile: &Path) -> String {
     let state = match child.try_wait() {
         Ok(None) => "chrome is still running".to_owned(),
         Ok(Some(status)) => format!("chrome exited with {status}"),
@@ -1404,6 +1682,8 @@ fn truncate(text: &str, max: usize) -> String {
 /// waiting call can be held behind another.
 pub struct BrowserRegistry {
     data: PathBuf,
+    /// The install root whose `browser/current` pack is preferred over system browsers.
+    install: Option<PathBuf>,
     /// The discovered executable, or `None` to discover per launch. The tests name one so their
     /// skip decision is the one the launch uses.
     chrome: Option<PathBuf>,
@@ -1411,16 +1691,43 @@ pub struct BrowserRegistry {
     /// [`READINESS_TIMEOUT_MS`], a test can shorten it.
     readiness_timeout_ms: u64,
     browser: tokio::sync::Mutex<Option<Browser>>,
+    /// Screencasts by target id. Kept apart from `browser` so a running stream does not hold the
+    /// browser's lock while other tools use it.
+    casts: std::sync::Mutex<std::collections::HashMap<String, Cast>>,
+    /// Set by `shutdown` before the casts are drained, and cleared when a browser is launched, so a
+    /// stream cannot start in the window between the drain and the next launch.
+    closed: AtomicBool,
+}
+
+/// What a caller needs to read a running stream: the frame slot, the ask counter, and the reader it
+/// can watch for a death it did not cause.
+type CastSlot = (
+    Arc<std::sync::Mutex<Option<CastFrame>>>,
+    Arc<AtomicU64>,
+    tokio::task::AbortHandle,
+);
+
+/// One running screencast: the newest frame, the stop signal, and the task that reads Chrome.
+struct Cast {
+    latest: Arc<std::sync::Mutex<Option<CastFrame>>>,
+    stop: Arc<tokio::sync::Notify>,
+    /// When the console last asked for a frame, in Unix milliseconds. The task stops the stream
+    /// after [`CAST_IDLE_MS`] without an ask.
+    asked_at_ms: Arc<std::sync::atomic::AtomicU64>,
+    task: tokio::task::JoinHandle<()>,
 }
 
 impl BrowserRegistry {
     /// A registry that launches Chrome from `<data>`'s profile when a tool first needs it.
-    pub fn new(data: &Path) -> BrowserRegistry {
+    pub fn new(data: &Path, install: &Path) -> BrowserRegistry {
         BrowserRegistry {
             data: data.to_owned(),
+            install: Some(install.to_owned()),
             chrome: None,
             readiness_timeout_ms: READINESS_TIMEOUT_MS,
             browser: tokio::sync::Mutex::new(None),
+            casts: std::sync::Mutex::new(std::collections::HashMap::new()),
+            closed: AtomicBool::new(false),
         }
     }
 
@@ -1429,9 +1736,12 @@ impl BrowserRegistry {
     fn with_chrome(data: &Path, chrome: PathBuf) -> BrowserRegistry {
         BrowserRegistry {
             data: data.to_owned(),
+            install: None,
             chrome: Some(chrome),
             readiness_timeout_ms: READINESS_TIMEOUT_MS,
             browser: tokio::sync::Mutex::new(None),
+            casts: std::sync::Mutex::new(std::collections::HashMap::new()),
+            closed: AtomicBool::new(false),
         }
     }
 
@@ -1444,9 +1754,12 @@ impl BrowserRegistry {
     ) -> BrowserRegistry {
         BrowserRegistry {
             data: data.to_owned(),
+            install: None,
             chrome: Some(chrome),
             readiness_timeout_ms,
             browser: tokio::sync::Mutex::new(None),
+            casts: std::sync::Mutex::new(std::collections::HashMap::new()),
+            closed: AtomicBool::new(false),
         }
     }
 
@@ -1455,12 +1768,21 @@ impl BrowserRegistry {
         let mut slot = self.browser.lock().await;
         let running = slot.as_mut().map(Browser::alive).unwrap_or(false);
         if !running {
+            // A FRESH BROWSER CANNOT BE WATCHED BY THE OLD READERS. Their tabs died with the process
+            // that hosted them, so each entry is an 8 MiB last frame plus a task handle that nothing
+            // would ever collect; aborting them here is what keeps the table bounded across crashes.
+            for (_, cast) in self.casts.lock().expect("the cast table").drain() {
+                cast.task.abort();
+            }
+            // A fresh launch is a new life for streams too.
+            self.closed.store(false, Ordering::SeqCst);
             // Drop a crashed browser before replacing it: its Drop waits for the process.
             slot.take();
             *slot = Some(
                 Browser::launch(
                     &self.data,
                     self.chrome.as_deref(),
+                    self.install.as_deref(),
                     self.readiness_timeout_ms,
                 )
                 .await?,
@@ -1509,11 +1831,143 @@ impl BrowserRegistry {
         browser.screenshot(target).await
     }
 
+    /// The newest frame of a screencast for `target`, starting one if none is running.
+    ///
+    /// Chrome pushes frames; this returns the newest one, so the caller's cadence is its own and a
+    /// slow reader loses frames instead of falling behind. A stream nobody asks for stops itself
+    /// after CAST_IDLE_MS.
+    pub async fn cast(&self, target: &str) -> Result<CastFrame, BrowserError> {
+        let (latest, asked_at_ms, reader) = self.cast_slot(target).await?;
+        asked_at_ms.store(now_unix_ms(), Ordering::Relaxed);
+        let deadline = Instant::now() + Duration::from_millis(CAST_WAIT_MS);
+        loop {
+            if let Some(frame) = latest.lock().expect("the frame slot").clone() {
+                return Ok(frame);
+            }
+            // A reader that has already ended will never fill the slot: report that instead of
+            // waiting out the bound, which would stall the caller for nothing.
+            if reader.is_finished() {
+                return Err(BrowserError::WebSocket {
+                    message: "the screencast reader stopped before a frame arrived".to_owned(),
+                });
+            }
+            if Instant::now() >= deadline {
+                return Err(BrowserError::Timeout {
+                    method: "browser.cast",
+                    timeout_ms: CAST_WAIT_MS,
+                });
+            }
+            tokio::time::sleep(Duration::from_millis(CAST_POLL_MS)).await;
+        }
+    }
+
+    /// Stop one screencast; `false` when none was running.
+    pub async fn cast_stop(&self, target: &str) -> bool {
+        let cast = self.casts.lock().expect("the cast table").remove(target);
+        match cast {
+            Some(cast) => {
+                cast.stop.notify_one();
+                let _ = cast.task.await;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The live slot for `target`, starting the reader task when there is none.
+    ///
+    /// The map is checked before and after the async resolution, and the insert happens under the
+    /// same lock as the second check: two concurrent asks for one target must produce ONE reader,
+    /// because the loser's `Cast` (and its stop handle) would otherwise be dropped on the floor and
+    /// the orphan stream could only be ended by its own idle timer.
+    async fn cast_slot(&self, target: &str) -> Result<CastSlot, BrowserError> {
+        if let Some((latest, asked_at_ms, reader)) = self.live_cast(target) {
+            return Ok((latest, asked_at_ms, reader));
+        }
+        // No live stream: resolve the page's endpoint through the browser, then spawn its reader.
+        let url = {
+            let mut slot = self.browser().await?;
+            let browser = slot.as_mut().expect("the registry just made it live");
+            browser.page_url(target).await?
+        };
+        let mut casts = self.casts.lock().expect("the cast table");
+        // A shutdown that ran while the endpoint was resolved wins: no stream starts after it.
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(BrowserError::WebSocket {
+                message: "the browser is shutting down".to_owned(),
+            });
+        }
+        if let Some(cast) = casts.get(target) {
+            if !cast.task.is_finished() {
+                return Ok((
+                    cast.latest.clone(),
+                    cast.asked_at_ms.clone(),
+                    cast.task.abort_handle(),
+                ));
+            }
+        }
+        let latest = Arc::new(std::sync::Mutex::new(None));
+        let stop = Arc::new(tokio::sync::Notify::new());
+        let asked_at_ms = Arc::new(AtomicU64::new(now_unix_ms()));
+        let task = tokio::spawn(run_cast(
+            url,
+            latest.clone(),
+            stop.clone(),
+            asked_at_ms.clone(),
+        ));
+        let reader = task.abort_handle();
+        casts.insert(
+            target.to_owned(),
+            Cast {
+                latest: latest.clone(),
+                stop,
+                asked_at_ms: asked_at_ms.clone(),
+                task,
+            },
+        );
+        Ok((latest, asked_at_ms, reader))
+    }
+
+    /// The live cast for `target`, if its reader has not ended.
+    fn live_cast(&self, target: &str) -> Option<CastSlot> {
+        let mut casts = self.casts.lock().expect("the cast table");
+        let cast = casts.get(target)?;
+        if cast.task.is_finished() {
+            // The reader ended on its own: its last frame and its handle have no owner now, and a
+            // table that only grows is how a long-running device runs out of memory.
+            casts.remove(target);
+            return None;
+        }
+        Some((
+            cast.latest.clone(),
+            cast.asked_at_ms.clone(),
+            cast.task.abort_handle(),
+        ))
+    }
+
+    /// Stop every screencast, waiting for each reader to finish.
+    async fn stop_all_casts(&self) {
+        let casts: Vec<Cast> = {
+            let mut table = self.casts.lock().expect("the cast table");
+            table.drain().map(|(_, cast)| cast).collect()
+        };
+        for cast in casts {
+            cast.stop.notify_one();
+            let _ = cast.task.await;
+        }
+    }
+
     /// Close one page; the browser keeps running (and any other tab stays).
     pub async fn close(&self, target: &str) -> Result<(), BrowserError> {
         let mut slot = self.browser().await?;
         let browser = slot.as_mut().expect("the registry just made it live");
-        browser.close(target).await
+        let closed = browser.close(target).await;
+        drop(slot);
+        // A closed tab cannot be watched, and its reader would wait on a dead endpoint.
+        if closed.is_ok() {
+            self.cast_stop(target).await;
+        }
+        closed
     }
 
     /// Stop the browser this registry started; returns whether one was running.
@@ -1521,17 +1975,44 @@ impl BrowserRegistry {
     /// This is not an error when nothing is running: `shutdown` is the action a client takes to be
     /// sure no browser is left, and "already stopped" is that state, not a failure.
     pub async fn shutdown(&self) -> bool {
-        let stopped = self.browser.lock().await.take();
-        stopped.is_some()
+        self.shutdown_report().await.0
+    }
+
+    /// Shutdown, and how many page targets were closed before the kill.
+    ///
+    /// The order is the commitment: every page is closed first (a page releases its own Web Serial
+    /// handle on teardown), then the browser and its tree are killed. A kill first would close no
+    /// page, which is why the count is what the test asserts.
+    async fn shutdown_report(&self) -> (bool, usize) {
+        // Set before the drain: a stream that resolves its endpoint right now must not start after
+        // the table has been emptied.
+        self.closed.store(true, Ordering::SeqCst);
+        // The streams end before the browser does: their readers hold a connection to it.
+        self.stop_all_casts().await;
+        let mut slot = self.browser.lock().await;
+        let closed = match slot.as_mut() {
+            Some(browser) => tokio::time::timeout(
+                Duration::from_millis(SHUTDOWN_CLOSE_TIMEOUT_MS),
+                browser.close_all_targets(),
+            )
+            .await
+            .unwrap_or(0),
+            // Nothing was launched: there is no page this device opened to close.
+            None => 0,
+        };
+        // Taking the browser drops it (killing the tree) while the lock is still held, so a call
+        // that arrives during shutdown cannot see a half-shut browser.
+        let stopped = slot.take();
+        (stopped.is_some(), closed)
     }
 
     /// The running Chrome's pid, for the tests that prove it is reaped.
     #[cfg(all(test, target_os = "linux"))]
     fn pid(&self) -> Option<u32> {
-        self.browser
-            .try_lock()
-            .ok()
-            .and_then(|slot| slot.as_ref().map(|browser| browser.child.id()))
+        self.browser.try_lock().ok().and_then(|slot| {
+            slot.as_ref()
+                .and_then(|browser| browser.child.as_ref().map(|child| child.id()))
+        })
     }
 }
 
@@ -1551,7 +2032,7 @@ impl Drop for BrowserRegistry {
 /// the process's stderr descriptor: a plain `cargo test` shows it, not only `--nocapture`. The
 /// line is printed once per process however many tests then return.
 pub(crate) fn chrome_or_skip() -> Option<PathBuf> {
-    match discover_chrome() {
+    match discover_chrome(None) {
         Some(chrome) => Some(chrome),
         None => {
             if std::env::var_os("CI").is_some() {
@@ -1562,7 +2043,7 @@ pub(crate) fn chrome_or_skip() -> Option<PathBuf> {
             }
             static ANNOUNCED: std::sync::Once = std::sync::Once::new();
             ANNOUNCED.call_once(|| {
-                let line = "SKIP browser.cdp: no Chrome/Chromium was found (set \
+                let line = "SKIP browser.cdp: no Chrome/Chromium/Edge was found (set \
                             SUMMRISE_CHROME); the browser tests did not run\n";
                 if fs::write("/dev/stderr", line).is_err() {
                     eprintln!("{line}");
@@ -1587,12 +2068,204 @@ pub(crate) async fn launch_gate() -> tokio::sync::MutexGuard<'static, ()> {
     LAUNCH_GATE.lock().await
 }
 
+/// Read frames for one page endpoint until the stream is stopped, the page goes away, or nobody has
+/// asked for `CAST_IDLE_MS`.
+///
+/// Chrome requires an ack for every frame; without one it stops sending, so the ack is part of the
+/// loop rather than a courtesy.
+async fn run_cast(
+    url: String,
+    latest: Arc<std::sync::Mutex<Option<CastFrame>>>,
+    stop: Arc<tokio::sync::Notify>,
+    asked_at_ms: Arc<AtomicU64>,
+) {
+    let Ok(mut client) = CdpClient::connect(&url).await else {
+        return;
+    };
+    if client.command("Page.enable", json!({})).await.is_err() {
+        return;
+    }
+    let started = client
+        .command(
+            "Page.startScreencast",
+            json!({
+                "format": "jpeg",
+                "quality": 60,
+                "maxWidth": 1280,
+                "maxHeight": 800,
+                "everyNthFrame": 1,
+            }),
+        )
+        .await;
+    if started.is_err() {
+        return;
+    }
+    loop {
+        // Frames that landed while an ack was awaited were parked in the client's buffer by
+        // `command`: they were never shown and never acked, and an unacked frame is one Chrome is
+        // waiting on. Drain them first, then ack each.
+        let parked: Vec<Value> = {
+            let mut parked = Vec::new();
+            let mut keep = std::collections::VecDeque::new();
+            while let Some(message) = client.events.pop_front() {
+                if event_name(&message) == Some("Page.screencastFrame") {
+                    parked.push(message);
+                } else {
+                    keep.push_back(message);
+                }
+            }
+            client.events = keep;
+            parked
+        };
+        for message in parked {
+            if let Some(frame) = frame_from(&message) {
+                *latest.lock().expect("the frame slot") = Some(frame);
+            }
+            let session = message["params"]["sessionId"].as_i64().unwrap_or(0);
+            if client
+                .command("Page.screencastFrameAck", json!({ "sessionId": session }))
+                .await
+                .is_err()
+            {
+                return;
+            }
+        }
+        // The wait is bounded so the idle check runs even when Chrome sends nothing: a static page
+        // produces no frames, and without this the task would block on the socket forever.
+        let waited = tokio::select! {
+            _ = stop.notified() => break,
+            waited = tokio::time::timeout(Duration::from_millis(CAST_POLL_MS * 50), client.next_message()) => waited,
+        };
+        match waited {
+            Ok(Ok(message)) => {
+                if event_name(&message) == Some("Page.screencastFrame") {
+                    if let Some(frame) = frame_from(&message) {
+                        *latest.lock().expect("the frame slot") = Some(frame);
+                    }
+                    let session = message["params"]["sessionId"].as_i64().unwrap_or(0);
+                    // The ack keeps Chrome sending; a failed one ends the stream below.
+                    if client
+                        .command("Page.screencastFrameAck", json!({ "sessionId": session }))
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+            }
+            // A closed socket ends the stream; a quiet second is just no painting.
+            Ok(Err(_)) => break,
+            Err(_) => {}
+        }
+        if now_unix_ms().saturating_sub(asked_at_ms.load(Ordering::Relaxed)) > CAST_IDLE_MS {
+            break;
+        }
+    }
+    let _ = client.command("Page.stopScreencast", json!({})).await;
+}
+
+/// One `Page.screencastFrame` event as a frame, or `None` when it is not one this build can hand to
+/// a caller (no data, not a JPEG, or larger than [`CAST_MAX_BYTES`]).
+fn frame_from(message: &Value) -> Option<CastFrame> {
+    let params = message.get("params")?;
+    let data = params.get("data")?.as_str()?;
+    // A JPEG's base64 starts with the three bytes FF D8 FF.
+    if data.len() > CAST_MAX_BYTES || !data.starts_with("/9j/") {
+        return None;
+    }
+    let metadata = params.get("metadata");
+    Some(CastFrame {
+        data: data.to_owned(),
+        width: metadata
+            .and_then(|meta| meta.get("deviceWidth"))
+            .and_then(Value::as_u64)
+            .unwrap_or(0),
+        height: metadata
+            .and_then(|meta| meta.get("deviceHeight"))
+            .and_then(Value::as_u64)
+            .unwrap_or(0),
+        at_ms: now_unix_ms(),
+    })
+}
+
+fn now_unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as u64)
+        .unwrap_or(0)
+}
+
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
+
+    /// The installer owns the pack; a machine with no Chrome must use it before falling back.
+    #[test]
+    fn the_installer_pack_is_the_first_managed_candidate() {
+        let dir = TempDir::new("browser-managed-pack");
+        let install = dir.join("install");
+        let current = install.join("browser").join("current");
+        fs::create_dir_all(&current).expect("the pack directory is creatable");
+        let shell = current.join("chrome-headless-shell.exe");
+        fs::write(&shell, b"not a real browser").expect("the pack executable is writable");
+        assert_eq!(managed_chrome(&install), Some(shell));
+    }
+
+    /// The Unix pack has no `.exe`; the resolver must not depend on the Windows spelling.
+    #[test]
+    fn the_unix_pack_name_is_managed_too() {
+        let dir = TempDir::new("browser-managed-pack-unix");
+        let install = dir.join("install");
+        let current = install.join("browser").join("current");
+        fs::create_dir_all(&current).expect("the pack directory is creatable");
+        let shell = current.join("chrome-headless-shell");
+        fs::write(&shell, b"not a real browser").expect("the pack executable is writable");
+        assert_eq!(managed_chrome(&install), Some(shell.clone()));
+        assert!(is_headless_shell(&shell));
+        assert!(is_headless_shell(Path::new("chrome-headless-shell.exe")));
+        assert!(!is_headless_shell(Path::new("chrome")));
+    }
+
+    /// macOS carries Chrome in an application bundle, not `/usr/bin`; the path belongs in the list.
+    #[test]
+    fn macos_chrome_is_a_candidate() {
+        assert!(
+            CHROME_CANDIDATES
+                .iter()
+                .any(|path| path.contains("Google Chrome.app/Contents/MacOS/Google Chrome")),
+            "the macOS bundle path must be a candidate"
+        );
+    }
+
+    /// The visible browser is opt-in: absent means headless, `0` means headless, anything else means the
+    /// operator wants to watch.
+    #[test]
+    fn the_visible_browser_is_asked_for_by_name() {
+        let os = |text: &str| std::ffi::OsString::from(text);
+        assert!(!visible_from(None), "absent means headless");
+        assert!(!visible_from(Some(&os("0"))), "0 means headless");
+        assert!(visible_from(Some(&os("1"))), "1 asks for the window");
+        assert!(
+            visible_from(Some(&os("yes"))),
+            "any other value asks for it"
+        );
+    }
+    /// Edge is Chromium and Windows 11 carries it; dropping it from the candidates is how a
+    /// machine with a working browser answers ChromeNotFound again.
+    #[test]
+    fn edge_is_a_candidate_on_windows() {
+        assert!(
+            CHROME_CANDIDATES
+                .iter()
+                .any(|path| path.ends_with(r"Microsoft\Edge\Application\msedge.exe")),
+            "the Windows candidates must include Edge"
+        );
+    }
+
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::time::{Duration, Instant};
 
+    use nix::sys::signal::{killpg, Signal};
     use serde_json::json;
 
     use crate::test_support::TempDir;
@@ -1680,6 +2353,13 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn without_a_helper_the_user_session_launch_declines() {
+        // No `helper::install` in this process, so the preference must fall through to the service's
+        // own launch rather than block or panic.
+        assert!(launch_in_the_user_session(500).await.is_none());
+    }
+
+    #[tokio::test]
     async fn a_launch_lists_one_page_and_shutdown_stops_chrome() {
         let _gate = launch_gate().await;
         let Some((_dir, data, registry)) = fixture("browser-launch") else {
@@ -1733,6 +2413,51 @@ mod tests {
             Vec::<String>::new(),
             "a graceful shutdown removes the profile directory it created"
         );
+    }
+
+    /// A screencast is Chrome pushing JPEG frames; the tool returns the newest one, and a stream
+    /// nobody asks for can be stopped without waiting for an idle timeout.
+    #[tokio::test]
+    async fn a_cast_delivers_the_newest_frame_and_stops() {
+        let _gate = launch_gate().await;
+        let Some((_dir, _data, registry)) = fixture("browser-cast") else {
+            return;
+        };
+
+        let target = registry
+            .open(&data_url(FIRST_TITLE))
+            .await
+            .expect("a data URL opens");
+        let first = registry.cast(&target).await.expect("a frame arrives");
+        assert!(
+            first.data.starts_with("/9j/"),
+            "a base64 JPEG starts with the JPEG magic: {:?}",
+            &first.data[..first.data.len().min(16)]
+        );
+        assert!(
+            first.data.len() > 100,
+            "a real frame is more than 100 bytes: {}",
+            first.data.len()
+        );
+        assert!(first.at_ms > 0, "the frame says when it arrived");
+
+        // A second ask is answered by the live stream, not by a new connect: same frame or newer.
+        let second = registry
+            .cast(&target)
+            .await
+            .expect("a second frame arrives");
+        assert!(second.at_ms >= first.at_ms);
+
+        // Stopping is prompt even though the stream is idle rather than finished.
+        assert!(registry.cast_stop(&target).await);
+        assert!(
+            !registry.cast_stop(&target).await,
+            "a stopped stream is not running"
+        );
+
+        // Closing the tab ends its stream, and the browser then goes away cleanly.
+        registry.close(&target).await.expect("the tab closes");
+        assert!(registry.shutdown().await, "the browser was running");
     }
 
     #[tokio::test]
@@ -1948,7 +2673,11 @@ mod tests {
             .await
             .take()
             .expect("the first browser is running");
-        let leaked_pid = browser.child.id();
+        let leaked_pid = browser
+            .child
+            .as_ref()
+            .expect("the service started this browser")
+            .id();
         std::mem::forget(browser);
 
         // A failed assertion must not leave the leaked browser running: its own Drop was what was
@@ -2019,6 +2748,51 @@ mod tests {
             leftover_chrome(&profile).await,
             Vec::<u32>::new(),
             "dropping the registry kills the browser and its children"
+        );
+    }
+
+    /// A page a tool opened and never closed must not be left holding a port until the process is
+    /// killed. Shutdown closes every page first, then kills the browser; a kill first would have
+    /// closed none, which is what the count proves.
+    #[tokio::test]
+    async fn shutdown_closes_every_open_target_before_the_browser_dies() {
+        let _gate = launch_gate().await;
+        let Some((_dir, data, registry)) = fixture("browser-shutdown-targets") else {
+            return;
+        };
+        let profile = data.join("chrome-profile");
+
+        let first = registry
+            .open(&data_url("SUMMRISE_SHUTDOWN_FIRST"))
+            .await
+            .expect("the first page opens");
+        let second = registry
+            .open(&data_url("SUMMRISE_SHUTDOWN_SECOND"))
+            .await
+            .expect("the second page opens");
+        assert_ne!(first, second, "the two tool calls opened two pages");
+        let open_pages = page_count(&registry).await;
+        assert!(
+            open_pages >= 3,
+            "the initial page and the two opened pages are listed: {open_pages}"
+        );
+        let pid = registry.pid().expect("the browser is running");
+
+        let (stopped, closed) = registry.shutdown_report().await;
+        assert!(stopped, "a running browser was stopped");
+        assert_eq!(
+            closed, open_pages,
+            "shutdown closed every page while the browser was still alive; \
+             a kill before the closes would have closed none"
+        );
+        assert!(
+            !Path::new(&format!("/proc/{pid}")).exists(),
+            "the browser is killed after its pages are closed"
+        );
+        assert_eq!(
+            leftover_chrome(&profile).await,
+            Vec::<u32>::new(),
+            "shutdown leaves no chrome process behind"
         );
     }
 
@@ -2502,4 +3276,189 @@ mod tests {
             "the refusal names the failed start: {error}"
         );
     }
+    #[test]
+    fn certificate_bypass_is_private_only() {
+        for url in [
+            "https://localhost/",
+            "https://127.0.0.1:8443/",
+            "https://192.168.1.1/",
+            "https://10.2.3.4/",
+            "https://172.16.0.1/",
+            "https://169.254.10.1/",
+            "https://router.local/",
+            "https://[::1]/",
+            "http://192.168.0.1/",
+        ] {
+            assert!(Browser::cert_bypass_allowed(url), "{url} is private");
+        }
+        for url in [
+            "https://example.com/",
+            "https://192.168.1.1.evil.com/",
+            "https://172.15.0.1/",
+            "https://172.32.0.1/",
+            "https://8.8.8.8/",
+            "ftp://192.168.1.1/",
+            "file:///etc/passwd",
+            "https://",
+        ] {
+            assert!(!Browser::cert_bypass_allowed(url), "{url} must validate");
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The declaration's implementation: the device side of `summrise_core::capabilities::browser`.
+// ---------------------------------------------------------------------------------------------
+
+use serde_json::Map;
+
+use crate::mcp::{parse, ToolError};
+use summrise_core::capabilities::browser::CAPABILITY;
+
+/// Whether `tool` is one this capability declares.
+pub fn owns(tool: &str) -> bool {
+    CAPABILITY
+        .tools
+        .iter()
+        .any(|declared| declared.name == tool)
+}
+
+/// Every tool this capability declares, for the registry-alignment test.
+#[cfg(test)]
+pub fn names() -> impl Iterator<Item = &'static str> {
+    CAPABILITY.tools.iter().map(|tool| tool.name)
+}
+
+/// Run one of this capability's tools against the browser registry.
+pub async fn call(
+    browser: &BrowserRegistry,
+    tool: &str,
+    arguments: Map<String, Value>,
+) -> Result<String, ToolError> {
+    match tool {
+        "browser.list" => {
+            let targets = browser.list().await.map_err(|error| refused(tool, error))?;
+            let targets: Vec<Value> = targets
+                .iter()
+                .map(|target| {
+                    json!({
+                        "id": target.id,
+                        "title": target.title,
+                        "url": target.url,
+                        "type": target.kind,
+                    })
+                })
+                .collect();
+            Ok(Value::Array(targets).to_string())
+        }
+        "browser.open" => {
+            let arguments: BrowserOpenArgs = parse(arguments, tool)?;
+            let target = browser
+                .open(&arguments.url)
+                .await
+                .map_err(|error| refused(tool, error))?;
+            Ok(json!({ "target": target, "url": arguments.url }).to_string())
+        }
+        "browser.navigate" => {
+            let arguments: BrowserNavigateArgs = parse(arguments, tool)?;
+            browser
+                .navigate(&arguments.target, &arguments.url)
+                .await
+                .map_err(|error| refused(tool, error))?;
+            Ok(json!({ "navigated": true, "url": arguments.url }).to_string())
+        }
+        "browser.eval" => {
+            let arguments: BrowserEvalArgs = parse(arguments, tool)?;
+            let result = browser
+                .eval(&arguments.target, &arguments.expression)
+                .await
+                .map_err(|error| refused(tool, error))?;
+            let mut value = json!({ "type": result.kind });
+            if let Some(result) = result.value {
+                value["value"] = result;
+            }
+            Ok(value.to_string())
+        }
+        "browser.screenshot" => {
+            let arguments: BrowserTargetArgs = parse(arguments, tool)?;
+            let screenshot = browser
+                .screenshot(&arguments.target)
+                .await
+                .map_err(|error| refused(tool, error))?;
+            Ok(json!({
+                "format": "png",
+                "data": screenshot.data,
+                "bytes": screenshot.bytes,
+            })
+            .to_string())
+        }
+        "browser.cast" => {
+            let arguments: BrowserTargetArgs = parse(arguments, tool)?;
+            let frame = browser
+                .cast(&arguments.target)
+                .await
+                .map_err(|error| refused(tool, error))?;
+            Ok(json!({
+                "format": "jpeg",
+                "data": frame.data,
+                "width": frame.width,
+                "height": frame.height,
+                "at_ms": frame.at_ms,
+            })
+            .to_string())
+        }
+        "browser.close" => {
+            let arguments: BrowserTargetArgs = parse(arguments, tool)?;
+            browser
+                .close(&arguments.target)
+                .await
+                .map_err(|error| refused(tool, error))?;
+            Ok(json!({ "closed": true }).to_string())
+        }
+        "browser.shutdown" => {
+            let stopped = browser.shutdown().await;
+            Ok(json!({ "stopped": stopped }).to_string())
+        }
+        other => Err(ToolError::Internal(format!(
+            "{other}: the browser capability does not declare this tool"
+        ))),
+    }
+}
+
+fn refused(tool: &str, error: impl std::fmt::Display) -> ToolError {
+    ToolError::Refused(format!("{tool}: {error}"))
+}
+
+/// The arguments `browser.open` takes.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BrowserOpenArgs {
+    url: String,
+}
+
+/// The arguments `browser.close`, `browser.screenshot` and `browser.cast` take.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BrowserTargetArgs {
+    target: String,
+}
+
+/// The arguments `browser.navigate` takes.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BrowserNavigateArgs {
+    target: String,
+    url: String,
+}
+
+/// The arguments `browser.eval` takes.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BrowserEvalArgs {
+    target: String,
+    expression: String,
 }

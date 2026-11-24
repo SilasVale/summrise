@@ -4,8 +4,13 @@
 //! `authorize` asks are all readings of this one table. A tool that is not here is not a tool this
 //! device offers, and every caller treats `None` as a denial rather than a default.
 
-/// One tool a capability exposes, and the fact the decision's `Ask` rule consults.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+use serde_json::Value;
+
+/// One tool a capability exposes, and the facts the decision and the catalogue read.
+///
+/// No `PartialEq`: the schema field is a function pointer, and comparing two functions is not a
+/// question with a meaningful answer.
+#[derive(Clone, Copy, Debug)]
 pub struct ToolDef {
     /// The wire name a client calls, e.g. `files.read`.
     pub name: &'static str,
@@ -13,15 +18,20 @@ pub struct ToolDef {
     pub destructive: bool,
     /// One sentence a client shows a human; the MCP tool description is this string.
     pub description: &'static str,
+    /// The input schema, declared beside the tool. `None` is a capability that has not migrated to
+    /// the declaration module yet; the surface falls back to its own table, and a test counts them.
+    pub schema: Option<fn() -> Value>,
 }
 
-/// One capability: a name and the tools it declares.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// One capability: a name, the tools it declares, and its manual entry.
+#[derive(Clone, Copy, Debug)]
 pub struct Capability {
     /// The capability's own name, e.g. `files`. Every tool name is namespaced by it.
     pub name: &'static str,
     /// The tools the capability declares. The registry is the union of these lists.
     pub tools: &'static [ToolDef],
+    /// The manual entry, rendered by [`guide`]; empty until the capability migrates.
+    pub guide: &'static str,
 }
 
 /// Every capability this device offers.
@@ -29,226 +39,47 @@ pub struct Capability {
 /// The order is the order a client sees in `tools/list`; it is data, so reordering it is a wire
 /// change rather than a refactor.
 pub const CAPABILITIES: &[Capability] = &[
-    Capability {
-        name: "files",
-        tools: &[
-            ToolDef {
-                name: "files.read",
-                destructive: false,
-                description: "Read a file inside the device's files root.",
-            },
-            ToolDef {
-                name: "files.write",
-                destructive: true,
-                description: "Write a file inside the device's files root; its parent must exist.",
-            },
-            ToolDef {
-                name: "files.mkdir",
-                destructive: false,
-                description:
-                    "Create one directory inside the device's files root; never overwrites.",
-            },
-            ToolDef {
-                name: "files.list",
-                destructive: false,
-                description:
-                    "List a directory inside the device's files root, sorted, at most 1000 entries.",
-            },
-        ],
-    },
-    Capability {
-        name: "memory",
-        tools: &[
-            ToolDef {
-                name: "memory.append",
-                destructive: true,
-                description: "Append one entry to the device's append-only memory.",
-            },
-            ToolDef {
-                name: "memory.search",
-                destructive: false,
-                description: "Search the device's memory, newest entries first.",
-            },
-        ],
-    },
-    Capability {
-        name: "terminal",
-        tools: &[
-            // Creating a PTY starts a process, creating a serial session opens a device handle,
-            // and writing to either feeds the far end; all are destructive in the registry's sense
-            // (a later read cannot undo them). Reading, resizing and listing only observe or
-            // reshape a session that already exists. Closing creates no new effect either: it ends
-            // one, and it is the action a client needs to be able to take when a session is stuck,
-            // so it does not pass through the destructive question.
-            ToolDef {
-                name: "terminal.create",
-                destructive: true,
-                description:
-                    "Start a session of the requested kind; kind pty runs a local shell on a new pseudo-terminal, kind ssh opens a remote shell whose host key is pinned on first use and refused if it changes, and kind serial opens the OS port path named by port (for example COM3 or /dev/ttyUSB0) at 115200 8N1 unless baud, parity, data_bits and stop_bits say otherwise. A serial port is never enumerated or guessed. At most 16 sessions may be live, each retains 1 MiB of output, and a session idle for 30 minutes is closed.",
-            },
-            ToolDef {
-                name: "terminal.write",
-                destructive: true,
-                description:
-                    "Write UTF-8 text to a live session's input: a pty or ssh shell runs it as a command, and a serial session sends the bytes on the port. At most 1 MiB per call, and a write that cannot finish in 5 seconds is refused.",
-            },
-            ToolDef {
-                name: "terminal.read",
-                destructive: false,
-                description:
-                    "Read a session's output since a cursor and return the new cursor; only the newest 1 MiB is retained, so an older cursor is refused.",
-            },
-            ToolDef {
-                name: "terminal.resize",
-                destructive: false,
-                description:
-                    "Resize a live session; a local shell receives SIGWINCH and a remote shell a window-change request. A serial session has no window, so resizing it is a successful no-op. Rows and columns are 1..=1000.",
-            },
-            ToolDef {
-                name: "terminal.close",
-                destructive: false,
-                description:
-                    "Close a session and end its shell, SSH connection or serial handle; the id is never reused.",
-            },
-            ToolDef {
-                name: "terminal.list",
-                destructive: false,
-                description:
-                    "List the live sessions with their kind and start time.",
-            },
-        ],
-    },
-    Capability {
-        name: "browser",
-        tools: &[
-            // Opening, navigating and evaluating all change what a page holds — a page's state is
-            // not something a later read undoes — so they are destructive in the registry's sense.
-            // Listing and screenshotting only observe. Closing a tab and shutting the browser down
-            // destroy only the session, exactly as `terminal.close` does: they create no new
-            // effect, and they are what a client must be able to do to stop a wedged browser
-            // without asking a human first.
-            ToolDef {
-                name: "browser.list",
-                destructive: false,
-                description:
-                    "List the browser's targets (id, title, url, type); the first browser tool call starts headless Chrome.",
-            },
-            ToolDef {
-                name: "browser.open",
-                destructive: true,
-                description:
-                    "Open a tab at a URL and wait for its document to be parsed; at most 8 tabs, and an open beyond that is refused.",
-            },
-            ToolDef {
-                name: "browser.navigate",
-                destructive: true,
-                description:
-                    "Navigate one tab to a URL and wait for its document to be parsed.",
-            },
-            ToolDef {
-                name: "browser.eval",
-                destructive: true,
-                description:
-                    "Evaluate a JavaScript expression in one tab and return its value; a result over 1 MiB is refused.",
-            },
-            ToolDef {
-                name: "browser.screenshot",
-                destructive: false,
-                description:
-                    "Capture one tab as a base64 PNG; a capture over 8 MiB is refused.",
-            },
-            ToolDef {
-                name: "browser.close",
-                destructive: false,
-                description:
-                    "Close one tab; the browser stays running and the tab id is not reused.",
-            },
-            ToolDef {
-                name: "browser.shutdown",
-                destructive: false,
-                description:
-                    "Stop the browser the device started; a later browser tool call starts it again.",
-            },
-        ],
-    },
-    Capability {
-        name: "monitor",
-        tools: &[
-            // Monitoring only observes and configures the probe itself; none of these tools writes
-            // a file outside the capability's own target list, starts a process, or changes
-            // anything a later read cannot see. `monitor.add` and `monitor.remove` configure a
-            // watch, which is why they are not destructive in the registry's sense.
-            ToolDef {
-                name: "monitor.add",
-                destructive: false,
-                description:
-                    "Watch a host:port and persist the watch; tcp connects, http GETs path and is up on a status below 500 whose body contains expect when set. At most 16 targets, an interval of at least 5000 ms, and the last 60 samples are summarized.",
-            },
-            ToolDef {
-                name: "monitor.remove",
-                destructive: false,
-                description:
-                    "Stop watching a target by id and discard its in-memory series; removed says whether a watch existed.",
-            },
-            ToolDef {
-                name: "monitor.list",
-                destructive: false,
-                description:
-                    "List the watched targets with their settings and summary: up_now, since_ms, up_pct, drops and last_status from the last 60 probes.",
-            },
-            ToolDef {
-                name: "monitor.probe",
-                destructive: false,
-                description:
-                    "Probe one watched target now and return the sample {ts, ok, latency_ms}; it is recorded like a scheduled probe.",
-            },
-            ToolDef {
-                name: "monitor.status",
-                destructive: false,
-                description:
-                    "Return one target's summary over its last 60 probes: up_now, since_ms, up_pct, drops and last_status.",
-            },
-        ],
-    },
-    Capability {
-        name: "runs",
-        tools: &[
-            // Running a command is arbitrary code, so `runs.exec` is destructive in the registry's
-            // sense: no later read can undo what the process did. Listing and getting only read the
-            // history file the capability maintains.
-            ToolDef {
-                name: "runs.exec",
-                destructive: true,
-                description:
-                    "Run a command once and return its captured output; command and args are an argv array with no shell unless shell is true. cwd must be inside the files root (where the process starts, not a jail), stdout and stderr keep 1 MiB each, timeout_ms defaults to 60 seconds and is at most 10 minutes, and env is at most 32 variables of 4 KiB each.",
-            },
-            ToolDef {
-                name: "runs.list",
-                destructive: false,
-                description:
-                    "List the recent runs newest first; the history keeps 10 000 rows per file with the overflow in runs.1.jsonl, stores no output bodies, and limit defaults to 20 and is at most 100.",
-            },
-            ToolDef {
-                name: "runs.get",
-                destructive: false,
-                description:
-                    "Return one run's history row by id; output bodies are not stored.",
-            },
-        ],
-    },
-    Capability {
-        name: "state",
-        tools: &[ToolDef {
-            name: "state.get",
-            destructive: false,
-            // This is the console's device page. There is no console route for it: an operator
-            // mints a grant naming `state.get` and reads the device through `/mcp`, which also puts
-            // the call in the console's audit index.
-            description:
-                "Read the device's state document plus its health: status (ok or degraded), release version, pid, and whether the state document is poisoned (unreadable). A poisoned document is returned as null state with degraded health rather than a failed call.",
-        }],
-    },
+    crate::capabilities::files::CAPABILITY,
+    crate::capabilities::memory::CAPABILITY,
+    crate::capabilities::terminal::CAPABILITY,
+    crate::capabilities::browser::CAPABILITY,
+    crate::capabilities::monitor::CAPABILITY,
+    crate::capabilities::runs::CAPABILITY,
+    crate::capabilities::system::CAPABILITY,
+    crate::capabilities::host::CAPABILITY,
+    crate::capabilities::screen::CAPABILITY,
+    crate::capabilities::forward::CAPABILITY,
+    crate::capabilities::state::CAPABILITY,
+    crate::capabilities::journal::CAPABILITY,
+    crate::capabilities::plugins::CAPABILITY,
+    crate::capabilities::txn::CAPABILITY,
 ];
+
+/// The manual: every migrated capability's entry, then each of its tools with its sentence.
+///
+/// A capability with an empty guide has not migrated yet; it renders as nothing rather than as a
+/// heading with no text. The guide is generated from the table, never hand-maintained beside it.
+pub fn guide() -> String {
+    let mut text = String::new();
+    for capability in CAPABILITIES {
+        if capability.guide.is_empty() {
+            continue;
+        }
+        text.push_str("# ");
+        text.push_str(capability.name);
+        text.push('\n');
+        text.push_str(capability.guide);
+        text.push_str("\n\n");
+        for tool in capability.tools {
+            text.push_str("## ");
+            text.push_str(tool.name);
+            text.push('\n');
+            text.push_str(tool.description);
+            text.push_str("\n\n");
+        }
+    }
+    text
+}
 
 /// The declaration for `name`, or `None` when no capability declares it.
 pub fn tool(name: &str) -> Option<&'static ToolDef> {
@@ -264,18 +95,149 @@ pub fn is_destructive(name: &str) -> Option<bool> {
     tool(name).map(|tool| tool.destructive)
 }
 
+/// The argument a call names its transaction with, when it overrides inheritance.
+///
+/// A call that names no session inherits the caller's working device-scope transaction, and a call
+/// that names a session inherits that session's; an explicit `txn` argument wins over both. The
+/// spelling is one constant so the gate and the tool declarations cannot drift apart.
+pub const WORKING_TXN_ARG: &str = "txn";
+
+/// What a tool needs before the device will run it (decision §3.3).
+///
+/// Exactly one policy per tool, and the policy is a value rather than a rendering rule: the gate
+/// reads [`txn_policy`] and nothing else decides whether a call needs a transaction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TxnPolicy {
+    /// No transaction is required, because the call is what makes one possible (`terminal.create`).
+    /// Audited `txn: none` with a `bootstrap` marker.
+    Bootstrap,
+    /// No transaction needed: the device's own transaction tools, the goal claim and the read-only
+    /// catalogue. Audited `txn: none`. **Not "read-only":** `txn.begin`, `txn.commit`,
+    /// `txn.abort` and `terminal.goal` write records or claims; they are exempt because a
+    /// transaction cannot require a transaction, and because the claim belongs to the session.
+    ExemptRead,
+    /// A working transaction of the right scope is required; the gate refuses `txn_required`.
+    Required,
+}
+
+/// The tools that make a transaction possible: one tool, and it is why the gate can exist.
+pub const BOOTSTRAP_TXNS: &[&str] = &["terminal.create"];
+
+/// The tools that need no transaction: the device's own transaction tools, the goal claim and the
+/// read-only catalogue, sixteen over the 56-tool surface.
+///
+/// **The exemption is not "read-only".** `txn.begin` opens the record, `txn.commit` and
+/// `txn.abort` close it, and `terminal.goal` writes a claim; they are exempt because a transaction
+/// cannot be required to open a transaction, and because a goal belongs to its session rather than
+/// to a unit of work. Everything else — including `browser.open`, `runs.exec` and `plugins.logs` —
+/// needs a working transaction.
+pub const EXEMPT_READ_TXNS: &[&str] = &[
+    "txn.begin",
+    "txn.commit",
+    "txn.abort",
+    "terminal.list",
+    "terminal.goal",
+    "state.get",
+    "host.facts",
+    "browser.list",
+    "monitor.list",
+    "monitor.status",
+    "forward.list",
+    "plugins.list",
+    "plugins.inspect",
+    "runs.list",
+    "runs.get",
+    "system.process_list",
+];
+
+/// The three transaction verbs: the protocol's control plane, never withheld by a tool list.
+///
+/// The gate groups work, so a credential minted before `txn.*` existed cannot be asked to name the
+/// tools that open and close the group. Every allowlist checkpoint admits these three
+/// unconditionally ([`control_plane`]) while expiry, revocation, device binding and every other
+/// tool stay exactly as strict.
+pub const CONTROL_PLANE_TXNS: &[&str] = &["txn.begin", "txn.commit", "txn.abort"];
+
+/// Whether `name` is one of the protocol's control-plane verbs.
+///
+/// The one rule every allowlist checkpoint reads for the exemption: a credential's `tools` list
+/// grants capabilities, and these three are not a capability — they are how the protocol groups
+/// work, so a list that predates them still admits them.
+pub fn control_plane(name: &str) -> bool {
+    CONTROL_PLANE_TXNS.contains(&name)
+}
+
+/// The transaction policy of `name`, or `None` when the registry does not declare it.
+///
+/// The default is [`TxnPolicy::Required`], and that direction is deliberate: a tool added without a
+/// row in either list is gated, so forgetting a row can never open the gate. A name that is not a
+/// tool is `None`, and every caller treats `None` as a denial rather than as exempt.
+pub fn txn_policy(name: &str) -> Option<TxnPolicy> {
+    tool(name)?;
+    if BOOTSTRAP_TXNS.contains(&name) {
+        Some(TxnPolicy::Bootstrap)
+    } else if EXEMPT_READ_TXNS.contains(&name) {
+        Some(TxnPolicy::ExemptRead)
+    } else {
+        Some(TxnPolicy::Required)
+    }
+}
+
+/// The capability whose tools act on a session: a PTY, SSH or serial session is a session, and no
+/// other capability's `id` is one (`monitor.probe`'s id is a target, `system.process_kill`'s a pid).
+const SESSION_CAPABILITY: &str = "terminal";
+
+/// The argument a session tool names its session with.
+const SESSION_ARG: &str = "id";
+
+/// The argument a call names its session with, or `None` when it names no session.
+///
+/// The gate's only way to find the session a call acts on: inheritance is resolved from this map,
+/// never by a renderer parsing arguments. A tool names a session only when **both** facts hold —
+/// it belongs to the capability that owns sessions ([`SESSION_CAPABILITY`]) and its own declared
+/// schema has an `id` argument. Both are read from the registry, so nothing is guessed from a name:
+/// `terminal.create` makes the session and declares no `id`; `terminal.list` takes no arguments at
+/// all; a `terminal.<something>` that is not declared is not a tool and names nothing. `txn.begin`
+/// names the session it binds to as `session`. Everything else is device-scope or must pass `txn`
+/// explicitly.
+pub fn session_arg(name: &str) -> Option<&'static str> {
+    if name == "txn.begin" {
+        return Some("session");
+    }
+    let (capability, declaration) = CAPABILITIES.iter().find_map(|capability| {
+        let declaration = capability
+            .tools
+            .iter()
+            .find(|declared| declared.name == name)?;
+        Some((capability, declaration))
+    })?;
+    if capability.name != SESSION_CAPABILITY {
+        return None;
+    }
+    let schema = declaration.schema?;
+    let schema = schema();
+    let properties = schema.get("properties")?.as_object()?;
+    properties.contains_key(SESSION_ARG).then_some(SESSION_ARG)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn the_registry_declares_the_phase_four_tools_and_the_first_session_capability() {
+    fn the_registry_declares_the_whole_surface_and_fourteen_capabilities() {
         let tools: Vec<&str> = CAPABILITIES
             .iter()
             .flat_map(|capability| capability.tools)
             .map(|tool| tool.name)
             .collect();
 
+        assert_eq!(
+            CAPABILITIES.len(),
+            14,
+            "fourteen capabilities declare the surface"
+        );
+        assert_eq!(tools.len(), 56, "the surface is 56 tools");
         assert_eq!(
             tools,
             [
@@ -284,18 +246,25 @@ mod tests {
                 "files.mkdir",
                 "files.list",
                 "memory.append",
+                "memory.update",
+                "memory.delete",
                 "memory.search",
+                "memory.list",
+                "memory.export",
                 "terminal.create",
                 "terminal.write",
                 "terminal.read",
                 "terminal.resize",
                 "terminal.close",
                 "terminal.list",
+                "terminal.goal",
+                "terminal.screen",
                 "browser.list",
                 "browser.open",
                 "browser.navigate",
                 "browser.eval",
                 "browser.screenshot",
+                "browser.cast",
                 "browser.close",
                 "browser.shutdown",
                 "monitor.add",
@@ -306,7 +275,28 @@ mod tests {
                 "runs.exec",
                 "runs.list",
                 "runs.get",
+                "system.process_list",
+                "system.process_kill",
+                "system.net_test",
+                "host.facts",
+                "host.restart",
+                "screen.capture",
+                "forward.add",
+                "forward.remove",
+                "forward.list",
                 "state.get",
+                "journal.get",
+                "journal.read",
+                "journal.day",
+                "plugins.list",
+                "plugins.inspect",
+                "plugins.add",
+                "plugins.remove",
+                "plugins.restart",
+                "plugins.logs",
+                "txn.begin",
+                "txn.commit",
+                "txn.abort",
             ],
             "the registry is the whole surface: no tool exists outside it"
         );
@@ -314,26 +304,44 @@ mod tests {
 
     #[test]
     fn the_destructive_flag_is_the_declared_value() {
-        for (name, destructive) in [
+        // **ONE TABLE, AND IT IS CHECKED AGAINST THE REGISTRY IN BOTH DIRECTIONS.** The list below is the
+        // EXPECTATION;  reads the DECLARATION. Two lists that agree only for the tools
+        // both of them name is a sample, not a check — measured: the table used to stop at
+        // `("plugins.logs", false)` and six real tools (`memory.export`, `memory.list`,
+        // `system.net_test`, `system.process_kill`, `system.process_list`, `terminal.screen`) had no
+        // row at all. **One of those, `system.process_kill`, is destructive** — a kill signal that
+        // anyone could send through a token that never consented, with the flag that authorizes it
+        // unasserted.
+        let expected: [(&str, bool); 56] = [
             ("files.read", false),
             ("files.write", true),
             ("files.mkdir", false),
             ("files.list", false),
             ("memory.append", true),
+            ("memory.update", true),
+            ("memory.delete", true),
             ("memory.search", false),
+            ("memory.list", false),
+            ("memory.export", false),
             ("terminal.create", true),
             ("terminal.write", true),
             ("terminal.read", false),
             ("terminal.resize", false),
             ("terminal.close", false),
             ("terminal.list", false),
+            ("terminal.goal", false),
+            ("terminal.screen", false),
             ("browser.list", false),
             ("browser.open", true),
             ("browser.navigate", true),
             ("browser.eval", true),
             ("browser.screenshot", false),
+            ("browser.cast", false),
             ("browser.close", false),
             ("browser.shutdown", false),
+            ("forward.add", true),
+            ("forward.remove", true),
+            ("forward.list", false),
             ("monitor.add", false),
             ("monitor.remove", false),
             ("monitor.list", false),
@@ -342,12 +350,84 @@ mod tests {
             ("runs.exec", true),
             ("runs.list", false),
             ("runs.get", false),
+            ("host.facts", false),
+            ("host.restart", true),
+            ("screen.capture", false),
             ("state.get", false),
-        ] {
+            ("journal.get", false),
+            ("journal.read", false),
+            ("journal.day", false),
+            ("system.net_test", false),
+            ("system.process_list", false),
+            ("system.process_kill", true),
+            ("plugins.list", false),
+            ("plugins.inspect", false),
+            ("plugins.add", true),
+            ("plugins.remove", true),
+            ("plugins.restart", true),
+            ("plugins.logs", false),
+            ("txn.begin", false),
+            ("txn.commit", false),
+            ("txn.abort", false),
+        ];
+
+        for (name, destructive) in expected {
             assert_eq!(
                 is_destructive(name),
                 Some(destructive),
                 "{name}'s destructive flag is the fact authorize's Ask rule consults"
+            );
+        }
+
+        // **EVERY REGISTRY TOOL HAS A ROW, OR THE TABLE ABOVE IS A LIST OF SAMPLES.** A tool added to
+        // `CAPABILITIES` without a row here was never compared; deleting `("forward.list", false)`
+        // from the old table left this suite green.
+        let declared: Vec<&str> = CAPABILITIES
+            .iter()
+            .flat_map(|capability| capability.tools)
+            .map(|tool| tool.name)
+            .collect();
+        let mut missing: Vec<&str> = declared
+            .iter()
+            .copied()
+            .filter(|name| !expected.iter().any(|(row, _)| row == name))
+            .collect();
+        missing.sort_unstable();
+        assert!(
+        missing.is_empty(),
+        "a tool in CAPABILITIES has no row in the table above, so its destructive flag is          unasserted: {missing:?}"
+    );
+        // And the other direction: a row for a tool the registry no longer declares is a stale line that
+        // would keep passing after the tool was removed.
+        let mut stale: Vec<&str> = expected
+            .iter()
+            .map(|(row, _)| *row)
+            .filter(|name| !declared.contains(name))
+            .collect();
+        stale.sort_unstable();
+        assert!(
+            stale.is_empty(),
+            "a row names a tool the registry does not declare: {stale:?}"
+        );
+    }
+
+    #[test]
+    fn the_memory_update_description_says_its_arguments_are_required() {
+        // A client that reads only this sentence must not assume append's optional tags: update
+        // replaces the whole list, and the schema refuses an update that omits it.
+        let description = tool("memory.update")
+            .expect("the tool is declared")
+            .description;
+        for fact in [
+            "both are required",
+            "complete new list",
+            "[] to clear",
+            "exactly memory.append's",
+            "no_such_entry",
+        ] {
+            assert!(
+                description.contains(fact),
+                "memory.update's description states {fact:?}: {description}"
             );
         }
     }
@@ -387,6 +467,7 @@ mod tests {
             ("browser.open", &["8 tabs"][..]),
             ("browser.eval", &["1 MiB"][..]),
             ("browser.screenshot", &["8 MiB"][..]),
+            ("browser.cast", &["8 MiB", "60 s"][..]),
         ] {
             let description = tool(name).expect("the tool is declared").description;
             for cap in caps {
@@ -452,7 +533,7 @@ mod tests {
             "runs.exec ",
             "*",
         ] {
-            assert_eq!(tool(name), None, "{name:?}");
+            assert!(tool(name).is_none(), "{name:?}");
             assert_eq!(is_destructive(name), None, "{name:?}");
         }
     }
@@ -469,6 +550,309 @@ mod tests {
         names.dedup();
 
         assert_eq!(names.len(), declared, "a tool name must be declared once");
+    }
+
+    #[test]
+    fn every_tool_declares_its_transaction_policy() {
+        // **ONE TABLE, AND IT IS CHECKED AGAINST THE REGISTRY IN BOTH DIRECTIONS.** The gate refuses
+        // a machine call with no working transaction, so a tool with no policy row is a hole: the
+        // census iterates the registry, never a hand-kept list of names.
+        assert_eq!(
+            BOOTSTRAP_TXNS,
+            ["terminal.create"],
+            "creating the shell is what makes a transaction possible, and it is the only Bootstrap tool"
+        );
+
+        let mut exempt: Vec<&str> = EXEMPT_READ_TXNS.to_vec();
+        exempt.sort_unstable();
+        let mut expected: Vec<&str> = vec![
+            "txn.begin",
+            "txn.commit",
+            "txn.abort",
+            "terminal.list",
+            "terminal.goal",
+            "state.get",
+            "host.facts",
+            "browser.list",
+            "monitor.list",
+            "monitor.status",
+            "forward.list",
+            "plugins.list",
+            "plugins.inspect",
+            "runs.list",
+            "runs.get",
+            "system.process_list",
+        ];
+        expected.sort_unstable();
+        assert_eq!(
+            exempt, expected,
+            "the exemption is the device's own record tools, the goal claim and the read-only \
+             catalogue; it is not a claim that every exempt tool is a read"
+        );
+
+        let declared: Vec<&str> = CAPABILITIES
+            .iter()
+            .flat_map(|capability| capability.tools)
+            .map(|tool| tool.name)
+            .collect();
+        assert_eq!(declared.len(), 56, "the surface is 56 tools");
+
+        let mut required = 0;
+        for name in &declared {
+            let policy =
+                txn_policy(name).unwrap_or_else(|| panic!("{name} declares no transaction policy"));
+            if BOOTSTRAP_TXNS.contains(name) {
+                assert_eq!(policy, TxnPolicy::Bootstrap, "{name}");
+            } else if EXEMPT_READ_TXNS.contains(name) {
+                assert_eq!(policy, TxnPolicy::ExemptRead, "{name}");
+            } else {
+                assert_eq!(policy, TxnPolicy::Required, "{name}");
+                required += 1;
+            }
+        }
+        assert_eq!(
+            BOOTSTRAP_TXNS.len() + EXEMPT_READ_TXNS.len() + required,
+            declared.len(),
+            "the three policies partition the surface"
+        );
+        assert_eq!(
+            required, 39,
+            "1 Bootstrap + 16 ExemptRead + 39 Required = 56"
+        );
+
+        // The other direction: a policy row for a name the registry does not declare is a stale row
+        // that would keep passing after the tool was removed.
+        for name in BOOTSTRAP_TXNS.iter().chain(EXEMPT_READ_TXNS) {
+            assert!(
+                tool(name).is_some(),
+                "{name} has a policy row but the registry does not declare it"
+            );
+        }
+        for name in EXEMPT_READ_TXNS {
+            assert!(
+                !BOOTSTRAP_TXNS.contains(name),
+                "{name} is both Bootstrap and ExemptRead"
+            );
+        }
+
+        // **AN EXEMPT TOOL MAY WRITE A RECORD, BUT IT IS NEVER DESTRUCTIVE.** The exemption covers
+        // the transaction tools and the goal claim as well as the catalogue, so "read-only" is the
+        // wrong name for it; what still holds is that no exempt call changes the machine, and a
+        // destructive tool drifting into this list would run with no unit of work to answer for it.
+        for name in EXEMPT_READ_TXNS {
+            assert_eq!(
+                is_destructive(name),
+                Some(false),
+                "{name} is exempt from the transaction gate, so it must not change the machine"
+            );
+        }
+
+        // A name that is not a tool of this surface has no policy: the gate denies rather than
+        // defaulting a stranger to "exempt".
+        for name in ["", "files", "txn", "txn.cancel", "Files.read"] {
+            assert_eq!(
+                txn_policy(name),
+                None,
+                "{name:?} is not a tool of this surface"
+            );
+        }
+    }
+
+    #[test]
+    fn the_control_plane_is_the_transaction_capability_and_is_never_gated() {
+        let names: Vec<&str> = crate::capabilities::txn::CAPABILITY
+            .tools
+            .iter()
+            .map(|t| t.name)
+            .collect();
+        assert_eq!(
+            CONTROL_PLANE_TXNS,
+            names.as_slice(),
+            "exactly the three txn tools"
+        );
+        for name in CONTROL_PLANE_TXNS {
+            assert!(
+                EXEMPT_READ_TXNS.contains(name),
+                "{name} is exempt from the gate too"
+            );
+            assert_eq!(txn_policy(name), Some(TxnPolicy::ExemptRead), "{name}");
+            assert!(
+                !BOOTSTRAP_TXNS.contains(name),
+                "{name} is not the bootstrap call"
+            );
+        }
+        for name in EXEMPT_READ_TXNS {
+            if !CONTROL_PLANE_TXNS.contains(name) {
+                assert!(
+                    !control_plane(name),
+                    "{name} stays the credential's to grant"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_bootstrap_tool_creates_the_session_and_never_runs_a_command() {
+        // A Bootstrap call is admitted with no transaction at all, so it must be the act that makes
+        // a transaction possible and nothing that runs a command.
+        //
+        // `terminal.create` **is** `destructive` in the shipped table, and the two facts do not
+        // conflict: `destructive` is what `authorize` asks the token's consent for — creating a
+        // process cannot be undone by a later read (`capabilities/terminal.rs`) — while Bootstrap
+        // exempts the call from needing a *transaction*, because there is none yet to carry it.
+        // The rule that would be a hole is the other one: no command runner may ever be Bootstrap.
+        assert_eq!(
+            BOOTSTRAP_TXNS,
+            ["terminal.create"],
+            "one tool makes a transaction possible, and this test names it"
+        );
+        for name in BOOTSTRAP_TXNS {
+            assert_ne!(
+                *name, "runs.exec",
+                "a command execution cannot be admitted with no transaction"
+            );
+            assert_ne!(
+                *name, "terminal.write",
+                "typing into a shell cannot be admitted with no transaction"
+            );
+            assert!(
+                !name.starts_with("runs."),
+                "{name}: the runs capability executes commands"
+            );
+        }
+        assert_eq!(
+            is_destructive("terminal.create"),
+            Some(true),
+            "creating a process is not undone by a read; the token's consent still covers it"
+        );
+    }
+
+    #[test]
+    fn the_session_argument_map_names_every_tool_that_has_one() {
+        // The gate's only way to find the session a call acts on: it resolves inheritance from this
+        // map, never from a renderer's parse of the arguments.
+        //
+        // The expectation is written out here **independently of the implementation**: the six
+        // operations on an existing session. `terminal.create` makes the session and `terminal.list`
+        // takes no arguments at all, so neither names one — a map that said `terminal.* → id` would
+        // send the gate looking for an `id` argument that does not exist.
+        let expected: [(&str, &str); 6] = [
+            ("terminal.goal", "id"),
+            ("terminal.write", "id"),
+            ("terminal.read", "id"),
+            ("terminal.resize", "id"),
+            ("terminal.close", "id"),
+            ("terminal.screen", "id"),
+        ];
+
+        let declared: Vec<&str> = CAPABILITIES
+            .iter()
+            .flat_map(|capability| capability.tools)
+            .map(|tool| tool.name)
+            .collect();
+        for name in &declared {
+            let want = if *name == "txn.begin" {
+                Some("session")
+            } else {
+                expected
+                    .iter()
+                    .find(|(tool, _)| tool == name)
+                    .map(|(_, arg)| *arg)
+            };
+            assert_eq!(session_arg(name), want, "{name}");
+        }
+
+        // The oracle agrees with the declarations: every tool it names really declares `id`, and the
+        // two terminal tools it leaves out really do not.
+        let declares_id = |name: &str| {
+            tool(name)
+                .and_then(|declaration| declaration.schema)
+                .map(|schema| {
+                    schema()
+                        .get("properties")
+                        .and_then(|properties| properties.as_object())
+                        .is_some_and(|properties| properties.contains_key("id"))
+                })
+                .unwrap_or(false)
+        };
+        for (name, arg) in expected {
+            assert_eq!(arg, "id");
+            assert!(declares_id(name), "{name} declares its {arg} argument");
+        }
+        for name in ["terminal.create", "terminal.list"] {
+            assert!(
+                !declares_id(name),
+                "{name} declares no id argument, so it names no session"
+            );
+        }
+
+        assert_eq!(
+            session_arg("txn.begin"),
+            Some("session"),
+            "the begin names the session it binds to"
+        );
+        assert_eq!(
+            WORKING_TXN_ARG, "txn",
+            "a call overrides inheritance by naming the transaction argument"
+        );
+
+        // No prefix guessing: a name the registry does not declare names no session, whatever it
+        // looks like, and every entry is one of the two argument names the map can answer with.
+        for name in [
+            "",
+            "files",
+            "txn",
+            "txn.commit",
+            "terminal",
+            "terminal.future",
+            "terminal.create",
+            "terminal.list",
+            "Terminal.list",
+        ] {
+            assert_eq!(session_arg(name), None, "{name:?}");
+        }
+        for name in ["terminal.write", "terminal.screen", "txn.begin"] {
+            assert!(
+                matches!(session_arg(name), Some("id") | Some("session")),
+                "{name}"
+            );
+        }
+        assert_eq!(
+            session_arg("terminal.list"),
+            None,
+            "the list takes no arguments"
+        );
+    }
+
+    /// **A SESSION TOOL WITH NO SCHEMA WOULD RIDE A DEVICE-SCOPE TRANSACTION.**
+    ///
+    /// [`session_arg`] reads a session tool's own schema to find its `id` argument. A tool of the
+    /// session capability whose `schema` is `None` therefore answers `None` from that map, and a
+    /// `Required` call on a live session would be gated as if it named no session — the exact hole
+    /// the map exists to close. Every migrated capability declares a schema today; this test is the
+    /// guard that keeps a future `terminal.*` tool from being the first exception.
+    ///
+    /// MUTATION (run, not asserted): deleting `schema: Some(screen_schema)` from `terminal.screen`
+    /// fails here with "terminal.screen: a session-capability tool must declare its schema, or
+    /// `session_arg` cannot find the session it names". Restored, green.
+    #[test]
+    fn every_session_capability_tool_declares_a_schema() {
+        let mut without = Vec::new();
+        for capability in CAPABILITIES
+            .iter()
+            .filter(|capability| capability.name == SESSION_CAPABILITY)
+        {
+            for declaration in capability.tools {
+                if declaration.schema.is_none() {
+                    without.push(declaration.name);
+                }
+            }
+        }
+        assert!(
+            without.is_empty(),
+            "these session-capability tools declare no schema, so `session_arg` cannot find the \
+             session they name and a Required call would ride a device-scope transaction: {without:?}"
+        );
     }
 
     #[test]

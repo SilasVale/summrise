@@ -31,6 +31,26 @@ pub struct Setup {
     pub seed_created: bool,
 }
 
+/// A login code that stops working after `lifetime_ms`.
+pub fn new_login_code(lifetime_ms: u64) -> crate::store::LoginCode {
+    crate::store::LoginCode {
+        code: hex32(&mut OsRng),
+        expires_at_ms: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0)
+            + lifetime_ms,
+    }
+}
+
+/// Write the code where the running console will look for it.
+pub fn write_login_code(
+    data: &Path,
+    code: &crate::store::LoginCode,
+) -> std::io::Result<std::path::PathBuf> {
+    crate::store::write_login_code(data, code)
+}
+
 /// Create whichever of the two secrets is missing under `data`.
 ///
 /// The token is 32 bytes of OS randomness as hex: a caller that guesses it has to guess 256 bits. The

@@ -16,9 +16,11 @@
 //! the code it runs is arbitrary.
 //!
 //! Output is bounded: [`MAX_STDOUT_BYTES`] and [`MAX_STDERR_BYTES`] are retained as the **head** of
-//! each stream, and `truncated` says whether either stream produced more. Both pipes are drained
-//! concurrently even after their cap is reached, so a command that writes more than the cap finishes
-//! instead of blocking on a full pipe. `env` carries at most [`MAX_ENV_VARS`] variables with values of
+//! each stream. `truncated` means data may be omitted due to a cap or capture without known clean EOF.
+//! Both pipes are drained concurrently even after their cap is reached, so a command that writes more
+//! than the cap finishes instead of blocking on a full pipe. History counts are bytes observed before
+//! each stream's handoff and can be lower bounds; history has no completeness field.
+//! `env` carries at most [`MAX_ENV_VARS`] variables with values of
 //! at most [`MAX_ENV_VALUE_BYTES`] bytes, added to the device's own environment. `timeout_ms` defaults
 //! to [`DEFAULT_TIMEOUT_MS`] and may not
 //! exceed [`MAX_TIMEOUT_MS`]; on expiry the child's **process group** is killed on Unix (the same
@@ -27,19 +29,22 @@
 //!
 //! History is one JSON line per run in `<data>/runs.jsonl`, with the output bodies deliberately left
 //! out: a row is `{id, command, args, cwd, exit_code, timed_out, duration_ms, started_at_ms,
-//! stdout_bytes, stderr_bytes}`. The file holds at most [`HISTORY_LINES`] rows; the next run rotates
+//! stdout_bytes, stderr_bytes, stdout_preview, stderr_preview}`. The previews are the first
+//! [`PREVIEW_CHARS`] characters of each stream with common credential shapes replaced by `***`; the
+//! file holds at most [`HISTORY_LINES`] rows, and the next run rotates
 //! it to `<data>/runs.1.jsonl` first, so the newest rows are always in the current file. `list` and
 //! `get` read the current file and then the rotated one, newest first.
 //!
 //! A history that cannot be written is not a failed run. The command already ran and its result is
 //! returned with `history_recorded: false`; the failure is appended to `<data>/events.jsonl` as a
-//! `runs_history_failed` event carrying the io error. Only a refusal before the spawn — validation,
-//! a cwd outside the sandbox, or the spawn itself — fails the call and returns no result.
+//! `runs_history_failed` event carrying the io error. Errors before the spawn — validation,
+//! a cwd outside the sandbox, or the spawn itself — return no result. Completed nonzero or timed-out
+//! runs fail the tool call while retaining their bounded capture in the tool error.
 
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fs;
-use std::io::{self, Read, Write};
+use std::io::{self, Read, Seek, Write};
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
 #[cfg(windows)]
@@ -61,11 +66,10 @@ pub const MAX_STDOUT_BYTES: usize = 1024 * 1024;
 /// How many bytes of a command's standard error are retained.
 pub const MAX_STDERR_BYTES: usize = 1024 * 1024;
 
-/// How long a run may take when the caller names no timeout.
-pub const DEFAULT_TIMEOUT_MS: u64 = 60_000;
-
-/// The longest timeout a caller may ask for.
-pub const MAX_TIMEOUT_MS: u64 = 10 * 60 * 1000;
+/// The declaration's caps: the schema and this implementation read the same numbers.
+pub use summrise_core::capabilities::runs::{
+    DEFAULT_LIST_LIMIT, DEFAULT_TIMEOUT_MS, MAX_LIST_LIMIT, MAX_TIMEOUT_MS,
+};
 
 /// The most environment variables one run may set.
 pub const MAX_ENV_VARS: usize = 32;
@@ -74,19 +78,30 @@ pub const MAX_ENV_VARS: usize = 32;
 pub const MAX_ENV_VALUE_BYTES: usize = 4096;
 
 /// How many history rows the current file holds before it is rotated.
+/// The most bytes a command line and its arguments may carry together.
+///
+/// The history stores the command as it was given, so an unbounded one makes an unbounded row; 8 KiB is
+/// several times the longest real command line and far below anything that would turn a listing into a
+/// memory event.
+pub const MAX_COMMAND_BYTES: usize = 8 * 1024;
+
 pub const HISTORY_LINES: usize = 10_000;
 
-/// How many rows `runs.list` returns when the caller names no limit.
-pub const DEFAULT_LIST_LIMIT: usize = 20;
-
-/// The most rows `runs.list` will return.
-pub const MAX_LIST_LIMIT: usize = 100;
+/// The most bytes one history read loads: the newest rows, not the whole file.
+///
+/// Ten thousand rows of a few hundred bytes each is a few megabytes; a file of rows with long environments
+/// or big outputs would otherwise be read whole before every `list`, `get` and `append`.
+pub const HISTORY_READ_BYTES: u64 = 8 * 1024 * 1024;
 
 /// The history file under `<data>`.
 pub const HISTORY_FILE: &str = "runs.jsonl";
 
 /// The rotated history file under `<data>`.
 pub const ROTATED_HISTORY_FILE: &str = "runs.1.jsonl";
+
+/// How many characters of each stream the history keeps. Small on purpose: the history is a record
+/// of what ran, not a log store, and every row is read back by a page.
+pub const PREVIEW_CHARS: usize = 2_048;
 
 /// How often the parent checks whether the child has exited.
 const POLL_INTERVAL_MS: u64 = 10;
@@ -107,6 +122,8 @@ pub struct Limits {
     pub max_env_vars: usize,
     /// The most bytes one environment value may carry.
     pub max_env_value_bytes: usize,
+    /// The most bytes a command line and its arguments may carry together.
+    pub max_command_bytes: usize,
     /// The rows the current history file holds before rotation.
     pub history_lines: usize,
 }
@@ -120,6 +137,7 @@ impl Default for Limits {
             max_timeout_ms: MAX_TIMEOUT_MS,
             max_env_vars: MAX_ENV_VARS,
             max_env_value_bytes: MAX_ENV_VALUE_BYTES,
+            max_command_bytes: MAX_COMMAND_BYTES,
             history_lines: HISTORY_LINES,
         }
     }
@@ -145,7 +163,8 @@ pub struct ExecRequest {
 /// One run's result as the tool returns it.
 ///
 /// `stdout` and `stderr` are the retained heads, decoded as UTF-8 with replacement for invalid
-/// bytes; `truncated` is true when either stream produced more than its cap. A null `exit_code` with
+/// bytes; `truncated` is true when either cap was exceeded or capture lacks known clean EOF (including
+/// a read error or detected reader panic/poison). A null `exit_code` with
 /// `timed_out: true` means the timeout killed the process group; a null `exit_code` with
 /// `timed_out: false` means the process ended from a signal rather than an exit status.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -162,7 +181,7 @@ pub struct ExecResult {
     pub stdout: String,
     /// The retained head of standard error.
     pub stderr: String,
-    /// Whether either stream produced more than its cap.
+    /// Whether a cap or incomplete capture may have omitted stream data.
     pub truncated: bool,
     /// Whether the history row was written. A false means the command ran and was captured but its
     /// row could not be appended; the failure is in `<data>/events.jsonl` as `runs_history_failed`.
@@ -188,10 +207,56 @@ pub struct Record {
     pub duration_ms: u64,
     /// When the run started, in Unix milliseconds.
     pub started_at_ms: u64,
-    /// How many bytes standard output produced in total.
+    /// Standard output bytes observed before handoff, possibly a lower bound; no completeness field.
     pub stdout_bytes: u64,
-    /// How many bytes standard error produced in total.
+    /// Standard error bytes observed before handoff, possibly a lower bound; no completeness field.
     pub stderr_bytes: u64,
+    /// The first [`PREVIEW_CHARS`] characters of standard output, with common credential shapes
+    /// replaced by `***`. Empty for rows written before the field existed.
+    #[serde(default)]
+    pub stdout_preview: String,
+    /// The same for standard error.
+    #[serde(default)]
+    pub stderr_preview: String,
+}
+
+/// The credential prefixes a preview must not echo. This is the same list the transcript's command
+/// scrubber uses, kept here because the history is written before any reader sees the text.
+const PREVIEW_SECRET_PREFIXES: &[&str] = &["srm_", "sk-", "ghp_", "xoxb-", "AKIA", "Bearer "];
+
+/// Replace each token that starts with a credential prefix, up to the next whitespace, with `***`.
+fn scrub_preview(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < chars.len() {
+        let mut matched = false;
+        for prefix in PREVIEW_SECRET_PREFIXES {
+            let plen = prefix.chars().count();
+            if i + plen <= chars.len() && chars[i..i + plen].iter().copied().eq(prefix.chars()) {
+                out.push_str(prefix);
+                out.push_str("***");
+                i += plen;
+                while i < chars.len() && !chars[i].is_whitespace() {
+                    i += 1;
+                }
+                matched = true;
+                break;
+            }
+        }
+        if !matched {
+            out.push(chars[i]);
+            i += 1;
+        }
+    }
+    out
+}
+
+/// A capped, scrubbed preview of one captured stream.
+fn preview_of(bytes: &[u8]) -> String {
+    let text = String::from_utf8_lossy(bytes);
+    let capped: String = text.chars().take(PREVIEW_CHARS).collect();
+    scrub_preview(&capped)
 }
 
 /// Why a run was refused or failed.
@@ -225,8 +290,21 @@ pub enum RunsError {
     },
     /// An environment name is empty or contains `=`, or a name or value contains NUL.
     InvalidEnv,
+    /// The command and its arguments exceed the cap together.
+    CommandTooLarge {
+        /// Its length in bytes, arguments included.
+        len: usize,
+        /// The cap.
+        max: usize,
+    },
     /// The working directory did not resolve to a directory inside the files root.
     Cwd(files::FilesError),
+    /// `command` named a program that does not exist, so the run never started.
+    ///
+    /// It is named apart from [`RunsError::Io`] because every platform reports this one differently
+    /// ("No such file or directory", "The system cannot find the file specified"): the reason a
+    /// caller reads must be the device's, not the operating system's.
+    ProgramNotFound,
     /// The command could not be spawned or the history could not be read or written.
     Io(io::Error),
     /// `runs.get` named an id no history row carries.
@@ -257,11 +335,15 @@ impl fmt::Display for RunsError {
             RunsError::EnvValueTooLarge { len, max } => {
                 write!(f, "an environment value is {len} bytes; the cap is {max}")
             }
+            RunsError::CommandTooLarge { len, max } => {
+                write!(f, "the command line is {len} bytes with its arguments; the cap is {max}")
+            }
             RunsError::InvalidEnv => write!(
                 f,
                 "an environment name must be non-empty and contain no '=' or NUL; a value contains no NUL"
             ),
             RunsError::Cwd(error) => write!(f, "the working directory: {error}"),
+            RunsError::ProgramNotFound => write!(f, "program not found"),
             RunsError::Io(error) => write!(f, "{error}"),
             RunsError::UnknownRun => write!(f, "no run has that id"),
             RunsError::LimitTooLarge { limit, max } => {
@@ -347,7 +429,15 @@ impl Runs {
         configure_process_group(&mut command);
 
         let started = Instant::now();
-        let mut child = command.spawn().map_err(RunsError::Io)?;
+        let mut child = command.spawn().map_err(|error| {
+            // A missing program is the one spawn failure every platform spells its own way; name it
+            // once, here, so the tool's refusal says the same thing on Windows and Unix.
+            if error.kind() == io::ErrorKind::NotFound {
+                RunsError::ProgramNotFound
+            } else {
+                RunsError::Io(error)
+            }
+        })?;
         let pid = child.id();
 
         // Both pipes are drained on their own threads from the first byte: capping what is *kept*
@@ -357,11 +447,11 @@ impl Runs {
         let stdout_reader = child
             .stdout
             .take()
-            .map(|stream| thread::spawn(move || capture(stream, stdout_cap)));
+            .map(|stream| spawn_capture(stream, stdout_cap));
         let stderr_reader = child
             .stderr
             .take()
-            .map(|stream| thread::spawn(move || capture(stream, stderr_cap)));
+            .map(|stream| spawn_capture(stream, stderr_cap));
 
         let deadline = started + Duration::from_millis(timeout_ms);
         let mut timed_out = false;
@@ -408,6 +498,8 @@ impl Runs {
             started_at_ms,
             stdout_bytes: stdout.total,
             stderr_bytes: stderr.total,
+            stdout_preview: preview_of(&stdout.bytes),
+            stderr_preview: preview_of(&stderr.bytes),
         };
         let history_recorded = match self.append(&record) {
             Ok(()) => true,
@@ -504,6 +596,18 @@ fn validate(request: &ExecRequest, limits: &Limits) -> Result<(), RunsError> {
             });
         }
     }
+    let command_bytes: usize = request.command.len()
+        + request
+            .args
+            .iter()
+            .map(|argument| argument.len() + 1)
+            .sum::<usize>();
+    if command_bytes > limits.max_command_bytes {
+        return Err(RunsError::CommandTooLarge {
+            len: command_bytes,
+            max: limits.max_command_bytes,
+        });
+    }
     if request.env.len() > limits.max_env_vars {
         return Err(RunsError::TooManyEnv {
             count: request.env.len(),
@@ -579,12 +683,18 @@ fn kill_group(pid: u32, child: &mut Child) {
     {
         // A new Windows process group does not give a kill-tree; `taskkill /T` is the platform's
         // own answer. The direct kill below is the fallback when the process already ended.
-        let _ = Command::new("taskkill")
-            .args(["/F", "/T", "/PID", &pid.to_string()])
+        // `CREATE_NO_WINDOW`: the app normally runs under the service, where there is no desktop, but a
+        // `--enroll` or a debugging run from a console session would otherwise flash a taskkill window
+        // for every timed-out run.
+        let mut command = Command::new("taskkill");
+        command.args(["/F", "/T", "/PID", &pid.to_string()]);
+        command
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
+            .stderr(Stdio::null());
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+        let _ = command.status();
     }
     #[cfg(not(any(unix, windows)))]
     let _ = pid;
@@ -592,28 +702,55 @@ fn kill_group(pid: u32, child: &mut Child) {
     let _ = child.kill();
 }
 
-/// One stream's retained head, its total size, and whether the cap cut it.
+/// One stream's retained head, observed byte count, and possible omission of data.
 #[derive(Default)]
 struct Captured {
     /// The head of the stream, at most the cap.
     bytes: Vec<u8>,
-    /// Every byte the stream produced, including the ones not retained.
+    /// Bytes published before handoff, including drained excess; possibly a lower bound.
     total: u64,
-    /// Whether more bytes arrived than were retained.
+    /// The cap or incomplete capture may have omitted stream data.
     truncated: bool,
 }
 
-/// Drain `stream` to EOF, retaining at most `cap` bytes at the head.
-///
-/// The loop never stops early: once the buffer is full the remaining bytes are counted and dropped,
-/// so the child keeps writing and finishes.
-fn capture(mut stream: impl Read, cap: usize) -> Captured {
-    let mut captured = Captured::default();
+#[derive(Default)]
+struct CaptureState {
+    captured: Captured,
+    eof: bool,
+    sealed: bool,
+}
+
+struct CaptureTask {
+    handle: thread::JoinHandle<()>,
+    state: Arc<Mutex<CaptureState>>,
+}
+
+fn spawn_capture(stream: impl Read + Send + 'static, cap: usize) -> CaptureTask {
+    let state = Arc::new(Mutex::new(CaptureState::default()));
+    let reader_state = Arc::clone(&state);
+    let handle = thread::spawn(move || capture(stream, cap, reader_state));
+    CaptureTask { handle, state }
+}
+
+/// Drain outside the lock, publishing bounded heads and observed totals until handoff.
+/// After sealing, continue draining without refilling the transferred head or changing its count.
+fn capture(mut stream: impl Read, cap: usize, state: Arc<Mutex<CaptureState>>) {
     let mut chunk = [0u8; 8192];
     loop {
         match stream.read(&mut chunk) {
-            Ok(0) => break,
+            Ok(0) => {
+                let mut state = lock(&state);
+                if !state.sealed {
+                    state.eof = true;
+                }
+                break;
+            }
             Ok(read) => {
+                let mut state = lock(&state);
+                if state.sealed {
+                    continue;
+                }
+                let captured = &mut state.captured;
                 captured.total += read as u64;
                 let room = cap.saturating_sub(captured.bytes.len());
                 let keep = room.min(read);
@@ -623,19 +760,48 @@ fn capture(mut stream: impl Read, cap: usize) -> Captured {
                 }
             }
             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-            // A read error ends this stream's capture; the child's exit status remains the truth
-            // about the run, and an output pipe that broke is not a reason to lose that status.
+            // No clean EOF: the child's exit status still describes execution, while handoff
+            // marks the capture incomplete and preserves every previously published read.
             Err(_) => break,
         }
     }
-    captured
 }
 
-/// Join a capture thread, treating a panicked reader as an empty stream.
-fn join_capture(handle: Option<thread::JoinHandle<Captured>>) -> Captured {
-    handle
-        .and_then(|handle| handle.join().ok())
-        .unwrap_or_default()
+/// How long each capture thread may keep the call after the child has been reaped.
+///
+/// A descendant may hold an inherited write end indefinitely. Preserve the existing per-stream
+/// two-second grace (stdout then stderr), so both streams can add about four seconds to the call.
+const CAPTURE_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Seal and transfer published progress, joining only a reader that has finished.
+/// An unfinished detached reader retains its read handle, thread and small state until it exits;
+/// this bounded handoff does not cancel a blocking read or promise leak-free cancellation.
+fn join_capture(task: Option<CaptureTask>) -> Captured {
+    let Some(task) = task else {
+        return Captured {
+            truncated: true,
+            ..Captured::default()
+        };
+    };
+    let deadline = Instant::now() + CAPTURE_GRACE;
+    while !task.handle.is_finished() {
+        if Instant::now() >= deadline {
+            break;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    let panicked = task.handle.is_finished() && task.handle.join().is_err();
+    // Inspect poison here rather than hiding it through the recovering lock helper. Recheck EOF
+    // under this final lock: it may have arrived as the grace expired. This lock is the snapshot
+    // boundary; chunks read but not yet published are deliberately outside the returned count.
+    let (mut state, poisoned) = match task.state.lock() {
+        Ok(state) => (state, false),
+        Err(error) => (error.into_inner(), true),
+    };
+    state.sealed = true;
+    let mut captured = std::mem::take(&mut state.captured);
+    captured.truncated |= !state.eof || panicked || poisoned;
+    captured
 }
 
 /// The rows of one history file, newest first.
@@ -643,10 +809,9 @@ fn join_capture(handle: Option<thread::JoinHandle<Captured>>) -> Captured {
 /// A line that does not parse is skipped: a process stopped mid-append can leave a torn final line,
 /// and one unreadable row must not make the rest of the history unavailable.
 fn read_newest_first(path: &Path) -> Result<Vec<Record>, RunsError> {
-    let text = match fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(RunsError::Io(error)),
+    let text = match read_capped(path, HISTORY_READ_BYTES)? {
+        Some(text) => text,
+        None => return Ok(Vec::new()),
     };
     let mut records: Vec<Record> = text
         .lines()
@@ -658,12 +823,70 @@ fn read_newest_first(path: &Path) -> Result<Vec<Record>, RunsError> {
 }
 
 /// How many rows a history file holds; an absent file is empty.
+///
+/// Counted by scanning in chunks rather than by reading the file: this runs before every append, and the
+/// file is the one thing in the data directory that grows to megabytes.
 fn count_lines(path: &Path) -> Result<usize, RunsError> {
-    match fs::read_to_string(path) {
-        Ok(text) => Ok(text.lines().count()),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(0),
-        Err(error) => Err(RunsError::Io(error)),
+    let mut file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => return Err(RunsError::Io(error)),
+    };
+    let mut buffer = [0u8; 64 * 1024];
+    let mut lines = 0;
+    let mut last_byte = b'\n';
+    loop {
+        let read = file.read(&mut buffer).map_err(RunsError::Io)?;
+        if read == 0 {
+            break;
+        }
+        for byte in &buffer[..read] {
+            if *byte == b'\n' {
+                lines += 1;
+            }
+            last_byte = *byte;
+        }
     }
+    // A file whose last line has no newline still holds a row (a crash between the two writes).
+    if last_byte != b'\n' {
+        lines += 1;
+    }
+    Ok(lines)
+}
+
+/// Read at most `cap` bytes of `path`, starting from the end, and drop the partial first line.
+///
+/// **THE HISTORY IS APPEND-ONLY AND NEWEST-LAST, SO THE TAIL IS WHAT A READER WANTS.** Reading the whole
+/// file put up to `HISTORY_LINES` rows of commands and output into memory on every `list` and `get`; the
+/// cap keeps the newest rows, which are the ones the page shows, and a file smaller than the cap reads
+/// exactly as before.
+fn read_capped(path: &Path, cap: u64) -> Result<Option<String>, RunsError> {
+    let mut file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(RunsError::Io(error)),
+    };
+    let len = file.metadata().map_err(RunsError::Io)?.len();
+    let mut text = String::new();
+    if len <= cap {
+        file.read_to_string(&mut text).map_err(RunsError::Io)?;
+        return Ok(Some(text));
+    }
+    file.seek(io::SeekFrom::Start(len - cap))
+        .map_err(RunsError::Io)?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).map_err(RunsError::Io)?;
+    // The first line is a fragment and may start inside a UTF-8 character. Drop its bytes before
+    // decoding, while still rejecting invalid UTF-8 in any retained complete line.
+    match bytes.iter().position(|byte| *byte == b'\n') {
+        Some(at) => {
+            bytes.drain(..=at);
+        }
+        None => bytes.clear(),
+    }
+    let text = String::from_utf8(bytes)
+        .map_err(|error| RunsError::Io(io::Error::new(io::ErrorKind::InvalidData, error)))?;
+    Ok(Some(text))
 }
 
 /// Move a full current history aside, replacing any older rotated file.
@@ -713,11 +936,272 @@ fn elapsed_ms(started: Instant) -> u64 {
     started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
 }
 
-/// Lock the history mutex, recovering the data from a poisoned lock instead of panicking.
+/// Lock shared history or capture data, recovering poison instead of panicking.
+/// Capture handoff separately inspects poison because recovery alone cannot establish completeness.
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+#[cfg(all(test, unix))]
+pub(crate) mod open_pipe_fixture {
+    use super::*;
+    use crate::test_support::{process_is_dead, TempDir};
+    use std::os::unix::fs::OpenOptionsExt;
+    use std::sync::mpsc;
+
+    // Payloads stay in the environment, so command/argv history cannot contain the markers.
+    const SCRIPT: &str = r#"
+printf '%s\n' "$$" > "$PIPE_PARENT" || { printf 'no-holder\n' > "$PIPE_REGISTRATION_FAILED"; exit 125; }
+sh -c 'if [ "${PIPE_PAUSE_REGISTRATION:-}" = 1 ]; then kill -STOP "$$"; fi; printf ready > "$PIPE_READY"; IFS= read -r release < "$PIPE_CONTROL"; printf "%s" "$PIPE_LATE_OUT"; printf "%s" "$PIPE_LATE_ERR" >&2' &
+holder=$!
+if [ -n "${PIPE_RESCUE_PID:-}" ]; then
+    printf '%s %s\n' "$$" "$holder" > "$PIPE_RESCUE_PID" || { kill -KILL "$holder"; wait "$holder"; printf 'holder-reaped\n' > "$PIPE_REGISTRATION_FAILED"; exit 125; }
+fi
+if ! printf '%s\n' "$holder" > "$PIPE_HOLDER" || ! IFS= read -r registered < "$PIPE_HOLDER" || [ "$registered" != "$holder" ]; then
+    kill -KILL "$holder" 2>/dev/null
+    wait "$holder" 2>/dev/null
+    printf 'holder-reaped\n' > "$PIPE_REGISTRATION_FAILED"
+    exit 125
+fi
+printf '%s' "$PIPE_OUT"
+printf '%s' "$PIPE_ERR" >&2
+exit "$PIPE_EXIT"
+"#;
+
+    /// Owns only this fixture's private FIFO, PID files and worker. Installed before any spawn.
+    pub(crate) struct OpenPipe<T> {
+        _dir: TempDir,
+        parent: PathBuf,
+        holder: PathBuf,
+        registration_failed: PathBuf,
+        ready: PathBuf,
+        control: Option<fs::File>,
+        setup_child: Option<Child>,
+        worker: Option<thread::JoinHandle<()>>,
+        receiver: mpsc::Receiver<T>,
+        started: Instant,
+        pub(crate) request: ExecRequest,
+    }
+
+    impl<T: Send + 'static> OpenPipe<T> {
+        pub(crate) fn start(
+            label: &str,
+            stdout: &str,
+            stderr: &str,
+            exit: i32,
+            run: impl FnOnce(ExecRequest) -> T + Send + 'static,
+        ) -> Self {
+            let dir = TempDir::new(label);
+            let fifo = dir.join("release.fifo");
+            let (sender, receiver) = mpsc::channel();
+            let mut owned = Self {
+                parent: dir.join("parent.pid"),
+                holder: dir.join("holder.pid"),
+                registration_failed: dir.join("registration.failed"),
+                ready: dir.join("ready"),
+                _dir: dir,
+                control: None,
+                setup_child: None,
+                worker: None,
+                receiver,
+                started: Instant::now(),
+                request: ExecRequest::default(),
+            };
+            owned.setup_child = Some(
+                Command::new("mkfifo")
+                    .arg(&fifo)
+                    .spawn()
+                    .expect("SETUP: mkfifo exists"),
+            );
+            let deadline = Instant::now() + Duration::from_secs(3);
+            loop {
+                if let Some(status) = owned
+                    .setup_child
+                    .as_mut()
+                    .unwrap()
+                    .try_wait()
+                    .expect("SETUP: wait mkfifo")
+                {
+                    assert!(status.success(), "SETUP: mkfifo failed: {status}");
+                    owned.setup_child.take(); // try_wait reaped the direct child.
+                    break;
+                }
+                assert!(Instant::now() < deadline, "SETUP: mkfifo deadline");
+                thread::sleep(Duration::from_millis(10));
+            }
+            // O_RDWR avoids a blocking open, including teardown before the holder reaches read.
+            owned.control = Some(
+                fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .custom_flags(nix::libc::O_NONBLOCK)
+                    .open(&fifo)
+                    .expect("SETUP: open private FIFO"),
+            );
+            owned.request = ExecRequest {
+                command: "sh".to_owned(),
+                args: vec!["-c".to_owned(), SCRIPT.to_owned()],
+                timeout_ms: Some(30_000),
+                env: BTreeMap::from([
+                    (
+                        "PIPE_PARENT".to_owned(),
+                        owned.parent.to_string_lossy().into_owned(),
+                    ),
+                    (
+                        "PIPE_HOLDER".to_owned(),
+                        owned.holder.to_string_lossy().into_owned(),
+                    ),
+                    (
+                        "PIPE_REGISTRATION_FAILED".to_owned(),
+                        owned.registration_failed.to_string_lossy().into_owned(),
+                    ),
+                    (
+                        "PIPE_READY".to_owned(),
+                        owned.ready.to_string_lossy().into_owned(),
+                    ),
+                    (
+                        "PIPE_CONTROL".to_owned(),
+                        fifo.to_string_lossy().into_owned(),
+                    ),
+                    ("PIPE_PAUSE_REGISTRATION".to_owned(), String::new()),
+                    ("PIPE_RESCUE_PID".to_owned(), String::new()),
+                    ("PIPE_OUT".to_owned(), stdout.to_owned()),
+                    ("PIPE_ERR".to_owned(), stderr.to_owned()),
+                    ("PIPE_EXIT".to_owned(), exit.to_string()),
+                    ("PIPE_LATE_OUT".to_owned(), "late-owned-stdout".to_owned()),
+                    ("PIPE_LATE_ERR".to_owned(), "late-owned-stderr".to_owned()),
+                ]),
+                ..ExecRequest::default()
+            };
+            let request = owned.request.clone();
+            owned.worker = Some(thread::spawn(move || {
+                let _ = sender.send(run(request));
+            }));
+            owned
+        }
+
+        pub(crate) fn wait_ready(&self) -> Result<u32, String> {
+            let deadline = self.started + Duration::from_secs(5);
+            loop {
+                if self.registration_failed.exists() {
+                    return Err("SETUP: parent could not publish holder registration".to_owned());
+                }
+                if self.ready.exists() {
+                    if let Some(pid) = self.holder_pid() {
+                        if !process_is_dead(pid) {
+                            return Ok(pid);
+                        }
+                        return Err("SETUP: holder stopped before result".to_owned());
+                    }
+                    // The holder can signal readiness before its parent publishes $!.
+                }
+                if Instant::now() >= deadline {
+                    return Err("SETUP: holder readiness deadline".to_owned());
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+        }
+
+        pub(crate) fn receive(&self) -> Result<T, String> {
+            let remaining =
+                (self.started + Duration::from_secs(15)).saturating_duration_since(Instant::now());
+            self.receiver
+                .recv_timeout(remaining)
+                .map_err(|error| format!("WATCHDOG: {error}"))
+        }
+
+        pub(crate) fn holder_pid(&self) -> Option<u32> {
+            read_pid(&self.holder)
+        }
+        pub(crate) fn elapsed(&self) -> Duration {
+            self.started.elapsed()
+        }
+    }
+
+    fn read_pid(path: &Path) -> Option<u32> {
+        fs::read_to_string(path)
+            .ok()?
+            .trim()
+            .parse::<u32>()
+            .ok()
+            .filter(|pid| *pid > 1)
+    }
+
+    impl<T> OpenPipe<T> {
+        pub(crate) fn cleanup(&mut self) -> Result<(), String> {
+            if let Some(control) = self.control.as_mut() {
+                let _ = control.write_all(b"release\n");
+            }
+            if let Some(mut child) = self.setup_child.take() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            let graceful = Instant::now() + Duration::from_secs(3);
+            let deadline = Instant::now() + Duration::from_secs(10);
+            loop {
+                let parent = read_pid(&self.parent);
+                let holder = read_pid(&self.holder);
+                let finished = self
+                    .worker
+                    .as_ref()
+                    .is_none_or(|worker| worker.is_finished());
+                // An absent expected PID is unknown, never evidence that an actor stopped.
+                // A parent receipt is written only before any fork or after kill + wait.
+                let failure = fs::read_to_string(&self.registration_failed).unwrap_or_default();
+                let never_started = self.worker.is_none() && parent.is_none() && holder.is_none();
+                let no_holder = parent.is_none() && holder.is_none() && failure == "no-holder\n";
+                let holder_stopped = holder
+                    .map(process_is_dead)
+                    .unwrap_or(failure == "holder-reaped\n");
+                let stopped = never_started
+                    || no_holder
+                    || (parent.is_some_and(process_is_dead) && holder_stopped);
+                if stopped && finished {
+                    self.control.take();
+                    if let Some(worker) = self.worker.take() {
+                        worker
+                            .join()
+                            .map_err(|_| "fixture worker panicked".to_owned())?;
+                        eprintln!("owned pipe cleanup: parent={parent:?} holder={holder:?} stopped=true worker_joined=true elapsed={:?}", self.started.elapsed());
+                    }
+                    return Ok(());
+                }
+                if Instant::now() >= graceful {
+                    // Signal only the private recorded group after an owned member confirms it.
+                    if let Some(group) = parent {
+                        for pid in parent
+                            .into_iter()
+                            .chain(holder)
+                            .filter(|pid| !process_is_dead(*pid))
+                        {
+                            use nix::sys::signal::{killpg, Signal};
+                            use nix::unistd::{getpgid, Pid};
+                            if getpgid(Some(Pid::from_raw(pid as i32))).ok()
+                                == Some(Pid::from_raw(group as i32))
+                            {
+                                let _ = killpg(Pid::from_raw(group as i32), Signal::SIGKILL);
+                                break;
+                            }
+                        }
+                    }
+                }
+                if Instant::now() >= deadline {
+                    return Err(format!("fixture cleanup deadline: parent={parent:?} holder={holder:?} stopped={stopped} worker_finished={finished}"));
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+        }
+    }
+
+    impl<T> Drop for OpenPipe<T> {
+        fn drop(&mut self) {
+            if let Err(error) = self.cleanup() {
+                eprintln!("{error}");
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -751,6 +1235,485 @@ mod tests {
             command: command.to_owned(),
             args: args.iter().map(|arg| (*arg).to_owned()).collect(),
             ..ExecRequest::default()
+        }
+    }
+
+    #[cfg(unix)]
+    /// A command line is bounded before anything is spawned: the history stores it, so an unbounded one
+    /// is an unbounded row.
+    #[cfg(unix)]
+    #[test]
+    fn a_command_line_over_the_cap_is_refused_before_the_spawn() {
+        let limits = Limits::default();
+        let long = "x".repeat(limits.max_command_bytes + 1);
+        let request = ExecRequest {
+            command: long,
+            ..ExecRequest::default()
+        };
+        match validate(&request, &limits) {
+            Err(RunsError::CommandTooLarge { len, max }) => {
+                assert!(len > max);
+                assert_eq!(max, limits.max_command_bytes);
+            }
+            other => panic!("a huge command must be refused, got {other:?}"),
+        }
+
+        // Arguments count too, and the separator between them.
+        let argument = "y".repeat(limits.max_command_bytes);
+        let request = ExecRequest {
+            command: "cmd".to_owned(),
+            args: vec![argument],
+            ..ExecRequest::default()
+        };
+        assert!(matches!(
+            validate(&request, &limits),
+            Err(RunsError::CommandTooLarge { .. })
+        ));
+    }
+
+    /// The history read keeps the newest rows when the file is larger than the window.
+    #[cfg(unix)]
+    #[test]
+    fn a_history_read_keeps_the_tail_when_the_file_exceeds_the_window() {
+        let dir = TempDir::new("runs-history-window");
+        let path = dir.join("runs.jsonl");
+        let mut body = String::new();
+        for index in 0..50 {
+            body.push_str(&format!("{{\"index\":{index}}}\n"));
+        }
+        fs::write(&path, &body).expect("the history is writable");
+        // A window that can hold only the last few rows: the first line is a fragment and is dropped.
+        let text = read_capped(&path, 40)
+            .expect("the read succeeds")
+            .expect("a file");
+        assert!(
+            !text.starts_with("{\"index\":49"),
+            "the fragment is dropped: {text}"
+        );
+        assert!(
+            text.trim_end().ends_with("\"index\":49}"),
+            "the tail survives: {text}"
+        );
+        assert!(
+            !text.contains("\"index\":0}"),
+            "the head is not read: {text}"
+        );
+        assert_eq!(
+            text.lines().count(),
+            3,
+            "three whole rows fit in forty bytes"
+        );
+    }
+
+    // UTF-8 tail regressions: the discarded first fragment is not a retained row.
+    #[cfg(unix)]
+    #[test]
+    fn history_tail_drops_split_three_byte_characters_before_decoding() {
+        let dir = TempDir::new("runs-history-three-byte");
+        let path = dir.join("runs.jsonl");
+        fs::write(&path, "[\"汉\"]\n{\"id\":1}\n").expect("the history is writable");
+        // Seventeen bytes total: offsets 3 and 4 are inside the three-byte character.
+        for cap in [14, 13] {
+            let text = read_capped(&path, cap)
+                .expect("a discarded UTF-8 fragment must not reject valid following rows")
+                .expect("a file");
+            assert_eq!(text, "{\"id\":1}\n", "cap={cap}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn history_tail_drops_split_four_byte_characters_before_decoding() {
+        let dir = TempDir::new("runs-history-four-byte");
+        let path = dir.join("runs.jsonl");
+        fs::write(&path, "[\"😀\"]\n{\"id\":2}\n").expect("the history is writable");
+        // Eighteen bytes total: offsets 3, 4 and 5 are inside the four-byte character.
+        for cap in [15, 14, 13] {
+            let text = read_capped(&path, cap)
+                .expect("a discarded UTF-8 fragment must not reject valid following rows")
+                .expect("a file");
+            assert_eq!(text, "{\"id\":2}\n", "cap={cap}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn history_tail_keeps_complete_utf8_rows_at_and_below_the_cap() {
+        let dir = TempDir::new("runs-history-whole-utf8");
+        let path = dir.join("runs.jsonl");
+        let body = "[\"汉\"]\n[\"😀\"]\n";
+        fs::write(&path, body).expect("the history is writable");
+        for cap in [17, 18] {
+            assert_eq!(read_capped(&path, cap).unwrap().unwrap(), body);
+        }
+        fs::write(&path, "discard\n[\"汉😀\"]\n").expect("the history is writable");
+        assert_eq!(read_capped(&path, 13).unwrap().unwrap(), "[\"汉😀\"]\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn history_tail_rejects_invalid_utf8_in_retained_rows() {
+        let dir = TempDir::new("runs-history-invalid-utf8");
+        let path = dir.join("runs.jsonl");
+        fs::write(&path, b"x\n[\xff]\n").expect("the history is writable");
+        for cap in [5, 6] {
+            match read_capped(&path, cap) {
+                Err(RunsError::Io(error)) => assert_eq!(error.kind(), io::ErrorKind::InvalidData),
+                other => panic!("invalid retained UTF-8 must remain an error: {other:?}"),
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn history_tail_drops_an_unterminated_utf8_fragment() {
+        let dir = TempDir::new("runs-history-no-newline-utf8");
+        let path = dir.join("runs.jsonl");
+        fs::write(&path, "[\"汉\"]").expect("the history is writable");
+        assert_eq!(read_capped(&path, 3).unwrap().unwrap(), "");
+        assert_eq!(read_capped(&path, 7).unwrap().unwrap(), "[\"汉\"]");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn history_tail_preserves_empty_ascii_and_unterminated_rows() {
+        let dir = TempDir::new("runs-history-ascii-boundaries");
+        let path = dir.join("runs.jsonl");
+        for (body, cap, expected) in [
+            ("", 0, ""),
+            ("abc", 3, "abc"),
+            ("abc", 2, ""),
+            ("abc", 0, ""),
+            ("ab\ncd", 4, "cd"),
+        ] {
+            fs::write(&path, body).expect("the history is writable");
+            assert_eq!(read_capped(&path, cap).unwrap().unwrap(), expected);
+        }
+    }
+    // End UTF-8 tail regressions.
+
+    // A real reader error must retain the prefix but cannot establish clean EOF.
+    #[cfg(unix)]
+    #[test]
+    fn pipe_capture_read_error_preserves_prefix_and_marks_incomplete() {
+        struct FailsAfterPrefix(bool);
+        impl Read for FailsAfterPrefix {
+            fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+                if self.0 {
+                    return Err(io::Error::other("owned read failure"));
+                }
+                self.0 = true;
+                buffer[..6].copy_from_slice(b"prefix");
+                Ok(6)
+            }
+        }
+        let captured = join_capture(Some(spawn_capture(FailsAfterPrefix(false), 128)));
+        assert_eq!(
+            (captured.bytes, captured.total, captured.truncated),
+            (b"prefix".to_vec(), 6, true)
+        );
+    }
+
+    // Interrupted is retryable; a later read zero makes an uncapped capture complete.
+    #[cfg(unix)]
+    #[test]
+    fn pipe_capture_clean_eof_after_interruption_is_complete() {
+        struct InterruptedThenEof(u8);
+        impl Read for InterruptedThenEof {
+            fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+                self.0 += 1;
+                match self.0 {
+                    1 => Err(io::Error::from(io::ErrorKind::Interrupted)),
+                    2 => {
+                        buffer[..2].copy_from_slice(b"ok");
+                        Ok(2)
+                    }
+                    _ => Ok(0),
+                }
+            }
+        }
+        let captured = join_capture(Some(spawn_capture(InterruptedThenEof(0), 128)));
+        assert_eq!(
+            (captured.bytes, captured.total, captured.truncated),
+            (b"ok".to_vec(), 2, false)
+        );
+    }
+
+    // A panic after a successful read cannot discard that read or claim clean EOF.
+    #[cfg(unix)]
+    #[test]
+    fn pipe_capture_reader_panic_preserves_published_prefix() {
+        struct PanicsAfterPrefix(bool);
+        impl Read for PanicsAfterPrefix {
+            fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+                assert!(!self.0, "owned reader panic");
+                self.0 = true;
+                buffer[..6].copy_from_slice(b"prefix");
+                Ok(6)
+            }
+        }
+        let captured = join_capture(Some(spawn_capture(PanicsAfterPrefix(false), 128)));
+        assert_eq!(
+            (captured.bytes, captured.total, captured.truncated),
+            (b"prefix".to_vec(), 6, true)
+        );
+    }
+
+    // Poison after a published clean EOF still means completeness cannot be trusted.
+    #[cfg(unix)]
+    #[test]
+    fn pipe_capture_poisoned_state_keeps_prefix_and_marks_incomplete() {
+        let state = Arc::new(Mutex::new(CaptureState {
+            captured: Captured {
+                bytes: b"prefix".to_vec(),
+                total: 6,
+                truncated: false,
+            },
+            eof: true,
+            sealed: false,
+        }));
+        let reader_state = Arc::clone(&state);
+        let poisoner = thread::spawn(move || {
+            let _guard = reader_state.lock().unwrap();
+            panic!("owned capture state poison");
+        });
+        assert!(poisoner.join().is_err(), "the state is actually poisoned");
+        // A separately successful reader handle isolates poison from reader panic and missing EOF.
+        let handle = thread::spawn(|| {});
+        let captured = join_capture(Some(CaptureTask { handle, state }));
+        assert_eq!(
+            (captured.bytes, captured.total, captured.truncated),
+            (b"prefix".to_vec(), 6, true)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pipe_capture_missing_reader_is_incomplete() {
+        let captured = join_capture(None);
+        assert_eq!(
+            (captured.bytes, captured.total, captured.truncated),
+            (Vec::<u8>::new(), 0, true)
+        );
+    }
+
+    // A delayed holder must be accounted for before cleanup can close its only release writer.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pipe_capture_cleanup_stops_holder_delayed_before_registration() {
+        use crate::test_support::process_is_dead;
+        use nix::sys::signal::{kill, Signal};
+        use nix::unistd::{getpgid, Pid};
+
+        // Independent of OpenPipe's registration: installed first, and rescues the real actor
+        // before any assertion, including on the old helper's false-success RED path.
+        struct Rescue {
+            _dir: TempDir,
+            pid_file: PathBuf,
+        }
+        impl Rescue {
+            fn pids(&self) -> Option<(u32, u32)> {
+                let text = fs::read_to_string(&self.pid_file).ok()?;
+                let mut fields = text.split_whitespace();
+                let group = fields.next()?.parse::<u32>().ok().filter(|pid| *pid > 1)?;
+                let holder = fields.next()?.parse::<u32>().ok().filter(|pid| *pid > 1)?;
+                Some((group, holder))
+            }
+            fn stop(&self) -> Result<(), String> {
+                let deadline = Instant::now() + Duration::from_secs(3);
+                loop {
+                    if let Some((group, holder)) = self.pids() {
+                        if process_is_dead(holder) {
+                            return Ok(());
+                        }
+                        if getpgid(Some(Pid::from_raw(holder as i32))).ok()
+                            != Some(Pid::from_raw(group as i32))
+                        {
+                            return Err(
+                                "rescue refused a PID outside its recorded group".to_owned()
+                            );
+                        }
+                        let _ = kill(Pid::from_raw(holder as i32), Signal::SIGKILL);
+                    }
+                    if Instant::now() >= deadline {
+                        return Err("independent rescue deadline".to_owned());
+                    }
+                    thread::sleep(Duration::from_millis(10));
+                }
+            }
+        }
+        impl Drop for Rescue {
+            fn drop(&mut self) {
+                if let Err(error) = self.stop() {
+                    eprintln!("{error}");
+                }
+            }
+        }
+        let rescue_dir = TempDir::new("pipe-registration-rescue");
+        let rescue = Rescue {
+            pid_file: rescue_dir.join("owned.pid"),
+            _dir: rescue_dir,
+        };
+        let rescue_path = rescue.pid_file.to_string_lossy().into_owned();
+        let (_dir, _data, _root, runs) = fixture("pipe-delayed-registration");
+        let mut pipe = super::open_pipe_fixture::OpenPipe::start(
+            "pipe-delayed-control",
+            "",
+            "",
+            0,
+            move |mut request| {
+                request
+                    .env
+                    .insert("PIPE_PAUSE_REGISTRATION".to_owned(), "1".to_owned());
+                request
+                    .env
+                    .insert("PIPE_RESCUE_PID".to_owned(), rescue_path);
+                runs.exec(request)
+            },
+        );
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let paused = loop {
+            if let Some((_, holder)) = rescue.pids() {
+                let stat = fs::read_to_string(format!("/proc/{holder}/stat")).unwrap_or_default();
+                if stat
+                    .rsplit_once(')')
+                    .is_some_and(|(_, fields)| fields.split_whitespace().next() == Some("T"))
+                {
+                    break Ok(holder);
+                }
+            }
+            if Instant::now() >= deadline {
+                break Err("SETUP: holder did not stop before registration");
+            }
+            thread::sleep(Duration::from_millis(10));
+        };
+        let received = pipe.receive();
+        let registered = pipe.holder_pid();
+        let cleanup = pipe.cleanup();
+        let live_after_cleanup = rescue
+            .pids()
+            .is_some_and(|(_, holder)| !process_is_dead(holder));
+        let rescued = rescue.stop();
+        // Exercise final Drop while the independent guard still owns its rescue record.
+        drop(pipe);
+        eprintln!("delayed-registration: paused={paused:?} registered={registered:?} cleanup={cleanup:?} holder_live_after_cleanup={live_after_cleanup} independent_rescue={rescued:?}");
+        assert!(rescued.is_ok(), "{rescued:?}");
+        paused.expect("controlled actual holder stop");
+        received
+            .expect("bounded public exec receipt")
+            .expect("sh runs");
+        assert!(cleanup.is_ok() && !live_after_cleanup,
+            "cleanup must stop every spawned holder before success: cleanup={cleanup:?}, holder_live={live_after_cleanup}, registered={registered:?}");
+
+        // A real failed PID-file publication must reap the forked holder and surface setup failure.
+        let rescue_dir = TempDir::new("pipe-registration-failure-rescue");
+        let rescue = Rescue {
+            pid_file: rescue_dir.join("owned.pid"),
+            _dir: rescue_dir,
+        };
+        let rescue_path = rescue.pid_file.to_string_lossy().into_owned();
+        let (_dir, _data, root, runs) = fixture("pipe-registration-failure");
+        let mut pipe = super::open_pipe_fixture::OpenPipe::start(
+            "pipe-registration-failure-control",
+            "",
+            "",
+            0,
+            move |mut request| {
+                request
+                    .env
+                    .insert("PIPE_RESCUE_PID".to_owned(), rescue_path);
+                // An existing directory deterministically rejects the parent's PID-file write.
+                request.env.insert(
+                    "PIPE_HOLDER".to_owned(),
+                    root.to_string_lossy().into_owned(),
+                );
+                runs.exec(request)
+            },
+        );
+        let received = pipe.receive();
+        let readiness = pipe.wait_ready();
+        let cleanup = pipe.cleanup();
+        let holder_stopped = rescue.pids().is_some_and(|(_, pid)| process_is_dead(pid));
+        let rescued = rescue.stop();
+        drop(pipe);
+        eprintln!("registration-write-failure: readiness={readiness:?} cleanup={cleanup:?} holder_stopped_before_rescue={holder_stopped} independent_rescue={rescued:?}");
+        assert!(rescued.is_ok(), "{rescued:?}");
+        assert!(readiness.is_err(), "failed publication is a setup failure");
+        assert_eq!(
+            received
+                .expect("bounded failure receipt")
+                .expect("sh runs")
+                .exit_code,
+            Some(125)
+        );
+        assert!(
+            cleanup.is_ok() && holder_stopped,
+            "parent must reap the unregistered holder: {cleanup:?}"
+        );
+    }
+
+    // This catches loss of a reader's published head/count when inherited pipes outlive the child.
+    #[cfg(unix)]
+    #[test]
+    fn pipe_capture_success_keeps_capped_heads_and_observed_history_without_eof() {
+        let (_dir, data, root, _) = fixture("runs-open-pipe");
+        let runs = Arc::new(Runs::with_limits(
+            &data,
+            &root,
+            Limits {
+                stdout_bytes: 16,
+                stderr_bytes: 128,
+                ..Limits::default()
+            },
+        ));
+        let worker_runs = Arc::clone(&runs);
+        let mut pipe = super::open_pipe_fixture::OpenPipe::start(
+            "runs-pipe-control",
+            "0123456789abcdefMORE",
+            "sk-pipe_secret err-before",
+            0,
+            move |request| worker_runs.exec(request),
+        );
+        let ready = pipe.wait_ready();
+        let received = pipe.receive();
+        let elapsed = pipe.elapsed();
+        let live = pipe
+            .holder_pid()
+            .is_some_and(|pid| !crate::test_support::process_is_dead(pid));
+        let request = pipe.request.clone();
+        let cleanup = pipe.cleanup();
+        eprintln!("external success result: elapsed={elapsed:?} holder_live_before_release={live} cleanup={cleanup:?}");
+        assert!(cleanup.is_ok(), "{cleanup:?}");
+        ready.expect("SETUP: the holder reached its private control read");
+        let result = received
+            .expect("result within the fixture watchdog")
+            .expect("sh runs");
+        assert!(
+            live,
+            "the inherited holder must remain live until result receipt"
+        );
+        assert!(elapsed < Duration::from_secs(15));
+        assert_eq!(
+            (&*result.stdout, &*result.stderr, result.truncated),
+            ("0123456789abcdef", "sk-pipe_secret err-before", true),
+            "public prefix/flag tuple: {result:?}"
+        );
+        assert_eq!(result.exit_code, Some(0));
+        assert!(!result.timed_out);
+        assert!(result.history_recorded);
+        assert!(result.duration_ms < 15_000);
+        let row = runs.get(&result.id).expect("get retains one row");
+        assert_eq!(runs.list(5).unwrap(), vec![row.clone()]);
+        assert_eq!((row.stdout_bytes, row.stderr_bytes), (20, 25));
+        assert_eq!(row.stdout_preview, "0123456789abcdef");
+        assert_eq!(row.stderr_preview, "sk-*** err-before");
+        assert_eq!(row.command, request.command);
+        assert_eq!(row.args, request.args);
+        assert_eq!(row.cwd, fs::canonicalize(root).unwrap().to_string_lossy());
+        assert_eq!(row.duration_ms, result.duration_ms);
+        let saved = serde_json::to_value(row).unwrap();
+        for field in ["env", "stdout", "stderr"] {
+            assert!(saved.get(field).is_none());
         }
     }
 
@@ -815,12 +1778,15 @@ mod tests {
                     "-c".to_owned(),
                     "echo $$ > child.pid; exec sleep 5".to_owned(),
                 ],
-                timeout_ms: Some(200),
+                // Two seconds, not 200 ms: the assertion needs the shell to have spawned and
+                // written its pid before the deadline. A loaded runner can miss a 200 ms window and
+                // then fail on the missing file rather than on the timeout's behaviour.
+                timeout_ms: Some(2_000),
                 ..ExecRequest::default()
             })
             .expect("sh runs");
 
-        assert!(result.timed_out, "the 200 ms timeout expired");
+        assert!(result.timed_out, "the 2 s timeout expired: {result:?}");
         assert_eq!(result.exit_code, None, "a killed process has no exit code");
 
         // The pid in the file is the shell's — and after `exec`, the sleep's. It must be gone:
@@ -844,20 +1810,26 @@ mod tests {
         // The background sleep is a different process in the shell's process group. Its output is
         // redirected so it cannot keep the pipes open: if only the direct child were killed, it
         // would outlive the call and this test would see it.
+        //
+        // The foreground `exec sleep` (not `wait`) is deliberate: `wait` can return early on a shell
+        // that reports a failed background spawn, and then `timed_out` is false for a reason that is
+        // not the timeout. `exec` leaves one long-lived child in place. Two seconds, not 500 ms,
+        // gives a loaded runner time to spawn the shell and for it to write the two pid files before
+        // the deadline; a 500 ms deadline could otherwise fire before the writes and fail differently.
         let result = runs
             .exec(ExecRequest {
                 command: "sh".to_owned(),
                 args: vec![
                     "-c".to_owned(),
-                    "sleep 5 >/dev/null 2>&1 & echo $! > background.pid; echo $$ > child.pid; wait"
+                    "sleep 5 >/dev/null 2>&1 & echo $! > background.pid; echo $$ > child.pid; exec sleep 5"
                         .to_owned(),
                 ],
-                timeout_ms: Some(500),
+                timeout_ms: Some(2_000),
                 ..ExecRequest::default()
             })
             .expect("sh runs");
 
-        assert!(result.timed_out);
+        assert!(result.timed_out, "the 2 s timeout expired: {result:?}");
         let read_pid = |name: &str| -> i32 {
             fs::read_to_string(root.join(name))
                 .expect("the child wrote its pid")
@@ -955,6 +1927,33 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn the_history_preview_is_capped_and_never_echoes_a_credential() {
+        let (_dir, _data, _root, runs) = fixture("runs-preview");
+        let long = format!("srm_deadbeef0123456789 {}", "x".repeat(PREVIEW_CHARS * 2));
+
+        let result = runs
+            .exec(argv("printf", &["%s", &long]))
+            .expect("printf runs");
+        assert_eq!(result.stdout, long, "the answer is exact, not the preview");
+
+        let row = runs.get(&result.id).expect("the row reads back");
+        assert!(
+            row.stdout_preview.chars().count() <= PREVIEW_CHARS,
+            "the preview is capped at {PREVIEW_CHARS} characters"
+        );
+        assert!(
+            row.stdout_preview.contains("srm_***"),
+            "the credential shape is replaced: {}",
+            row.stdout_preview
+        );
+        assert!(
+            !row.stdout_preview.contains("srm_deadbeef"),
+            "the token itself is never written to the history"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn a_cwd_inside_the_files_root_is_where_the_command_starts() {
         let (_dir, _data, root, runs) = fixture("runs-cwd-inside");
         let inside = root.join("nested");
@@ -978,7 +1977,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn a_run_is_recorded_without_its_output_body_and_read_back_by_id() {
+    fn a_run_is_recorded_with_its_result_and_read_back_by_id() {
         let (_dir, data, root, runs) = fixture("runs-history");
 
         let mut env = BTreeMap::new();
@@ -992,6 +1991,14 @@ mod tests {
             })
             .expect("the writer runs");
         assert_eq!(with_body.stdout, "body-not-in-history\n");
+
+        assert_eq!(
+            runs.get(&with_body.id)
+                .expect("the row reads back")
+                .stdout_preview,
+            "body-not-in-history\n",
+            "a short body is in the history as its preview, and the full answer is on the result"
+        );
 
         let second = runs.exec(argv("echo", &["two"])).expect("echo runs");
 
@@ -1026,8 +2033,8 @@ mod tests {
 
         let raw = fs::read_to_string(data.join(HISTORY_FILE)).expect("the history is on disk");
         assert!(
-            !raw.contains("body-not-in-history"),
-            "the output body is not stored: {raw}"
+            raw.contains("\"stdout_preview\""),
+            "the history carries a capped preview, not a body-only row: {raw}"
         );
         assert_eq!(raw.lines().count(), 2);
     }
@@ -1276,4 +2283,135 @@ mod tests {
             "the platform shell parsed the line, so $0 expanded"
         );
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The declaration's implementation: the device side of `summrise_core::capabilities::runs`.
+// ---------------------------------------------------------------------------------------------
+
+use serde_json::{json, Map, Value};
+use std::sync::Arc;
+
+use crate::mcp::{parse, ToolError};
+use summrise_core::capabilities::runs::CAPABILITY;
+
+/// Whether `tool` is one this capability declares.
+pub fn owns(tool: &str) -> bool {
+    CAPABILITY
+        .tools
+        .iter()
+        .any(|declared| declared.name == tool)
+}
+
+/// Every tool this capability declares, for the registry-alignment test.
+#[cfg(test)]
+pub fn names() -> impl Iterator<Item = &'static str> {
+    CAPABILITY.tools.iter().map(|tool| tool.name)
+}
+
+/// Run one of this capability's tools against the run history.
+pub async fn call(
+    runs: &Arc<Runs>,
+    tool: &str,
+    arguments: Map<String, Value>,
+) -> Result<String, ToolError> {
+    match tool {
+        "runs.exec" => {
+            let arguments: RunsExecArgs = parse(arguments, tool)?;
+            // The run is a blocking wait for a child process; it belongs on the blocking pool, not
+            // on a reactor worker that other MCP calls share.
+            let runs = Arc::clone(runs);
+            let request = ExecRequest {
+                command: arguments.command,
+                args: arguments.args,
+                cwd: arguments.cwd,
+                timeout_ms: arguments.timeout_ms,
+                env: arguments.env,
+                shell: arguments.shell,
+            };
+            let result = tokio::task::spawn_blocking(move || runs.exec(request))
+                .await
+                .map_err(|error| {
+                    ToolError::Internal(format!("{tool}: the run task failed: {error}"))
+                })?
+                .map_err(|error| ToolError::Declined {
+                    kind: "run_not_started",
+                    message: format!("{tool}: {error}"),
+                    data: None,
+                })?;
+            // **A RUN THAT DID NOT EXIT ZERO IS A FAILURE, EVEN WHEN THE TOOL RETURNED A VALUE.**
+            // The run happened (its history row is written), but the call's outcome is the
+            // process's, and the "failed" word the console draws comes from here.
+            if result.exit_code != Some(0) {
+                return Err(ToolError::ExecutedFailure {
+                    message: format!("{tool}: {}", run_failure_sentence(&result)),
+                    data: json!(result),
+                });
+            }
+            Ok(json!(result).to_string())
+        }
+        "runs.list" => {
+            let arguments: RunsListArgs = parse(arguments, tool)?;
+            let rows = runs
+                .list(arguments.limit.unwrap_or(DEFAULT_LIST_LIMIT))
+                .map_err(|error| refused(tool, error))?;
+            Ok(json!(rows).to_string())
+        }
+        "runs.get" => {
+            let arguments: RunsIdArgs = parse(arguments, tool)?;
+            let row = runs
+                .get(&arguments.id)
+                .map_err(|error| refused(tool, error))?;
+            Ok(json!(row).to_string())
+        }
+        other => Err(ToolError::Internal(format!(
+            "{other}: the runs capability does not declare this tool"
+        ))),
+    }
+}
+
+fn run_failure_sentence(run: &ExecResult) -> String {
+    if run.timed_out {
+        return format!("run {} timed out after {} ms", run.id, run.duration_ms);
+    }
+    match run.exit_code {
+        Some(code) => format!("run {} exited {code} in {} ms", run.id, run.duration_ms),
+        None => format!("run {} ended without an exit code", run.id),
+    }
+}
+
+fn refused(tool: &str, error: impl std::fmt::Display) -> ToolError {
+    ToolError::Refused(format!("{tool}: {error}"))
+}
+
+/// The arguments `runs.exec` takes.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RunsExecArgs {
+    command: String,
+    #[serde(default)]
+    args: Vec<String>,
+    cwd: Option<String>,
+    timeout_ms: Option<u64>,
+    #[serde(default)]
+    env: BTreeMap<String, String>,
+    #[serde(default)]
+    shell: bool,
+}
+
+/// The arguments `runs.list` takes.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RunsListArgs {
+    limit: Option<usize>,
+}
+
+/// The arguments `runs.get` takes.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RunsIdArgs {
+    id: String,
 }

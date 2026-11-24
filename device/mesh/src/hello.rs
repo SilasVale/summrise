@@ -6,16 +6,25 @@
 //! certificate it was never told to trust. So the **server speaks first** on
 //! every connection: it sends a fresh [`Challenge`] drawn from the OS CSPRNG.
 //! The dialer answers with a [`Hello`] that names its `peer_id_hex`, echoes the
-//! challenge byte for byte, and signs `hello\n{peer_id_hex}\n{challenge_hex}`
-//! (lowercase hex) with its identity key. The server checks the echo, then
-//! resolves the peer id to a pin and verifies the signature, **before any
-//! other frame**.
+//! challenge byte for byte, carries the TLS session's [`BINDING_BYTES`]-byte
+//! exporter value, and signs
+//! `hello\n{peer_id_hex}\n{challenge_hex}\n{binding_hex}` (lowercase hex) with
+//! its identity key. The server checks the echo and the binding, then resolves
+//! the peer id to a pin and verifies the signature, **before any other frame**.
 //!
-//! **The challenge is what makes the hello unreplayable.** It is fresh for
-//! every connection and covered by the signature, so a hello recorded from one
-//! connection echoes a value no other connection ever issued. The check is a
-//! constant-time comparison of the 32 bytes; no nonce cache and no per-peer
-//! state are needed.
+//! **The challenge stops a recording; the binding stops a REFLECTION.** A
+//! recorded hello echoes a challenge no other connection issued, so it cannot
+//! be replayed. But a malicious peer that is itself the dialer's server can
+//! relay a third peer's live challenge to the dialer and forward the resulting
+//! hello to that peer — the echo is perfect and the signature is real, and the
+//! third peer would believe it is talking to the dialer. The signature alone
+//! never named the channel it was made on. The binding does: it is derived from
+//! the TLS session's secrets with an exporter, identical on the two ends of one
+//! connection and unrelated on any other, so a hello made on the attacker's
+//! connection does not verify on the third peer's.
+//!
+//! **The binding is checked before the signature**, in constant time, so a
+//! lifted hello is refused even though its signature is valid.
 //!
 //! The peer id is an arbitrary name the control plane uses; the pin it
 //! resolves to is the identity. Binding the two, and the connection's
@@ -40,6 +49,22 @@ pub type PublicKey = [u8; PUBLIC_KEY_BYTES];
 /// The length of a server challenge, in bytes.
 pub const CHALLENGE_BYTES: usize = 32;
 
+/// The length of the TLS-channel binding a hello is signed over, in bytes.
+pub const BINDING_BYTES: usize = 32;
+
+/// The TLS exporter label both ends derive the hello binding with.
+///
+/// An exporter is a function of the TLS session's secrets: the two ends of ONE connection compute the
+/// same bytes, and any other connection — including one a malicious peer controls — computes different
+/// ones. That is what makes the binding a proof of the channel rather than another nonce.
+pub const BINDING_LABEL: &[u8] = b"summrise mesh hello";
+
+/// The exporter context: the wire version.
+///
+/// The context is part of the derivation, so a hello from one wire version cannot be replayed onto
+/// another even by a peer that can compute the exporter of its own connection.
+pub const BINDING_CONTEXT: &[u8] = b"summrise/mesh/3";
+
 /// The first frame a server sends on a connection: `{bytes}`.
 ///
 /// The bytes are fresh for the connection and unpredictable. The dialer must
@@ -61,6 +86,11 @@ pub struct Hello {
     pub peer_id_hex: String,
     /// The connection's challenge, echoed byte for byte.
     pub challenge: [u8; CHALLENGE_BYTES],
+    /// The TLS session's exporter value. **THIS IS WHAT BINDS THE SIGNATURE TO THE CONNECTION.** Without
+    /// it a malicious peer that is the dialer's TLS server can relay a third peer's live challenge and
+    /// forward the resulting hello to that peer: the challenge is fresh per connection, but the signature
+    /// never named the connection it was made on.
+    pub binding: [u8; BINDING_BYTES],
     /// Hex Ed25519 signature over [`Hello::signed_message`].
     pub sig: String,
 }
@@ -74,6 +104,8 @@ pub enum HelloError {
     BadSignature,
     /// The hello does not echo the challenge issued on this connection.
     ChallengeMismatch,
+    /// The hello was signed over a different TLS connection's exporter.
+    BindingMismatch,
     /// The payload is not a hello (bad hex, wrong length, wrong JSON).
     Malformed(String),
     /// The first frame was not a hello.
@@ -89,6 +121,9 @@ impl std::fmt::Display for HelloError {
             Self::BadSignature => f.write_str("the mesh hello signature does not verify"),
             Self::ChallengeMismatch => {
                 f.write_str("the mesh hello does not echo this connection's challenge")
+            }
+            Self::BindingMismatch => {
+                f.write_str("the mesh hello is bound to a different TLS connection")
             }
             Self::Malformed(message) => write!(f, "not a mesh hello: {message}"),
             Self::NotFirstFrame => {
@@ -168,20 +203,38 @@ impl Challenge {
 
 impl Hello {
     /// Sign a hello for `peer_id` over the connection's `challenge`.
-    pub fn sign(identity: &Identity, peer_id: impl Into<String>, challenge: &Challenge) -> Self {
+    pub fn sign(
+        identity: &Identity,
+        peer_id: impl Into<String>,
+        challenge: &Challenge,
+        binding: &[u8; BINDING_BYTES],
+    ) -> Self {
         let peer_id = peer_id.into();
-        let signature = identity.sign(&Self::signed_message(&peer_id, challenge));
+        let signature = identity.sign(&Self::signed_message(&peer_id, challenge, binding));
         Self {
             peer_id_hex: peer_id,
             challenge: challenge.bytes,
+            binding: *binding,
             sig: hex_encode(&signature),
         }
     }
 
     /// The exact bytes the signature covers:
-    /// `hello\n{peer_id_hex}\n{challenge_hex}`, lowercase hex.
-    pub fn signed_message(peer_id: &str, challenge: &Challenge) -> Vec<u8> {
-        format!("hello\n{peer_id}\n{}", hex_encode(&challenge.bytes)).into_bytes()
+    /// `hello\n{peer_id_hex}\n{challenge_hex}\n{binding_hex}`, lowercase hex.
+    ///
+    /// **THE BINDING LINE IS THE REFLECTION DEFENCE.** It names a value only the two ends of one TLS
+    /// session can derive, so a hello made on one connection does not verify on another.
+    pub fn signed_message(
+        peer_id: &str,
+        challenge: &Challenge,
+        binding: &[u8; BINDING_BYTES],
+    ) -> Vec<u8> {
+        format!(
+            "hello\n{peer_id}\n{}\n{}",
+            hex_encode(&challenge.bytes),
+            hex_encode(binding)
+        )
+        .into_bytes()
     }
 
     /// Verify this hello for the pin the resolver produced on the challenge
@@ -189,9 +242,24 @@ impl Hello {
     ///
     /// The echo is checked first, in constant time, so a replayed hello is
     /// refused before the signature is even considered.
-    pub fn verify(&self, public: &PublicKey, challenge: &Challenge) -> Result<(), HelloError> {
+    pub fn verify(
+        &self,
+        public: &PublicKey,
+        challenge: &Challenge,
+        binding: &[u8; BINDING_BYTES],
+    ) -> Result<(), HelloError> {
         if !challenge.matches(&Challenge::from_bytes(self.challenge)) {
             return Err(HelloError::ChallengeMismatch);
+        }
+        // THE BINDING, BEFORE THE SIGNATURE, IN CONSTANT TIME. A hello lifted from another connection is
+        // refused here even when its signature is perfectly valid — which is the whole point: the
+        // signature alone never named the channel it was made on.
+        let mut difference = 0u8;
+        for (received, expected) in self.binding.iter().zip(binding.iter()) {
+            difference |= received ^ expected;
+        }
+        if difference != 0 {
+            return Err(HelloError::BindingMismatch);
         }
 
         let raw = hex_decode(&self.sig).map_err(|error| {
@@ -209,7 +277,7 @@ impl Hello {
         // fresh value.
         verify_signature(
             public,
-            &Self::signed_message(&self.peer_id_hex, challenge),
+            &Self::signed_message(&self.peer_id_hex, challenge, binding),
             &signature,
         )
         .map_err(|error| match error {
@@ -246,6 +314,9 @@ impl Hello {
 mod tests {
     use super::*;
 
+    /// A fixed binding for tests that do not care which connection the hello was made on.
+    const BINDING: [u8; BINDING_BYTES] = [7u8; BINDING_BYTES];
+
     fn challenge(byte: u8) -> Challenge {
         Challenge::from_bytes([byte; CHALLENGE_BYTES])
     }
@@ -255,8 +326,14 @@ mod tests {
         let challenge = challenge(0x0f);
 
         assert_eq!(
-            Hello::signed_message("peer-a", &challenge),
-            format!("hello\npeer-a\n{}", "0f".repeat(CHALLENGE_BYTES)).into_bytes()
+            Hello::signed_message("peer-a", &challenge, &BINDING),
+            format!(
+                "hello\npeer-a\n{}\n{}",
+                "0f".repeat(CHALLENGE_BYTES),
+                "07".repeat(BINDING_BYTES)
+            )
+            .into_bytes(),
+            "the binding is the FOURTH line, and it is what pins the signature to one connection"
         );
     }
 
@@ -275,20 +352,20 @@ mod tests {
     fn a_hello_verifies_for_the_peer_it_names() {
         let identity = Identity::generate();
         let challenge = Challenge::generate();
-        let hello = Hello::sign(&identity, "peer-a", &challenge);
+        let hello = Hello::sign(&identity, "peer-a", &challenge, &BINDING);
 
         hello
-            .verify(&identity.public_bytes(), &challenge)
+            .verify(&identity.public_bytes(), &challenge, &BINDING)
             .expect("the signer's own pin verifies the hello");
     }
 
     #[test]
     fn a_hello_does_not_verify_for_another_connections_challenge() {
         let identity = Identity::generate();
-        let hello = Hello::sign(&identity, "peer-a", &challenge(1));
+        let hello = Hello::sign(&identity, "peer-a", &challenge(1), &BINDING);
 
         assert_eq!(
-            hello.verify(&identity.public_bytes(), &challenge(2)),
+            hello.verify(&identity.public_bytes(), &challenge(2), &BINDING),
             Err(HelloError::ChallengeMismatch),
             "the challenge belongs to the connection, not to the hello"
         );
@@ -298,11 +375,11 @@ mod tests {
     fn a_hello_for_another_peer_id_does_not_verify() {
         let identity = Identity::generate();
         let challenge = Challenge::generate();
-        let mut hello = Hello::sign(&identity, "peer-a", &challenge);
+        let mut hello = Hello::sign(&identity, "peer-a", &challenge, &BINDING);
         hello.peer_id_hex = "peer-b".to_string();
 
         assert_eq!(
-            hello.verify(&identity.public_bytes(), &challenge),
+            hello.verify(&identity.public_bytes(), &challenge, &BINDING),
             Err(HelloError::BadSignature),
             "the peer id is covered by the signature"
         );
@@ -313,10 +390,10 @@ mod tests {
         let allowed = Identity::generate();
         let attacker = Identity::generate();
         let challenge = Challenge::generate();
-        let hello = Hello::sign(&attacker, "peer-a", &challenge);
+        let hello = Hello::sign(&attacker, "peer-a", &challenge, &BINDING);
 
         assert_eq!(
-            hello.verify(&allowed.public_bytes(), &challenge),
+            hello.verify(&allowed.public_bytes(), &challenge, &BINDING),
             Err(HelloError::BadSignature)
         );
     }
@@ -325,11 +402,11 @@ mod tests {
     fn a_hello_with_a_malformed_signature_is_refused() {
         let identity = Identity::generate();
         let challenge = Challenge::generate();
-        let mut hello = Hello::sign(&identity, "peer-a", &challenge);
+        let mut hello = Hello::sign(&identity, "peer-a", &challenge, &BINDING);
         hello.sig = "zz".to_string();
 
         assert!(matches!(
-            hello.verify(&identity.public_bytes(), &challenge),
+            hello.verify(&identity.public_bytes(), &challenge, &BINDING),
             Err(HelloError::Malformed(_))
         ));
     }
@@ -338,7 +415,7 @@ mod tests {
     fn a_hello_without_a_challenge_field_is_refused() {
         let identity = Identity::generate();
         let challenge = Challenge::generate();
-        let hello = Hello::sign(&identity, "peer-a", &challenge);
+        let hello = Hello::sign(&identity, "peer-a", &challenge, &BINDING);
         let mut value = serde_json::to_value(&hello).expect("a hello value");
         value
             .as_object_mut()
@@ -355,7 +432,7 @@ mod tests {
     fn unknown_fields_are_refused_by_hello_and_challenge() {
         let identity = Identity::generate();
         let challenge = Challenge::generate();
-        let hello = Hello::sign(&identity, "peer-a", &challenge);
+        let hello = Hello::sign(&identity, "peer-a", &challenge, &BINDING);
 
         let mut hello_value = serde_json::to_value(&hello).expect("a hello value");
         hello_value["extra"] = serde_json::json!(true);
@@ -386,7 +463,7 @@ mod tests {
     fn a_hello_round_trips_through_its_frame() {
         let identity = Identity::generate();
         let challenge = Challenge::generate();
-        let hello = Hello::sign(&identity, "peer-a", &challenge);
+        let hello = Hello::sign(&identity, "peer-a", &challenge, &BINDING);
         let frame = hello.to_frame().expect("a hello frame");
 
         assert_eq!(frame.kind, Kind::Hello);

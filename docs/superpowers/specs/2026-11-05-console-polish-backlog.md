@@ -1,0 +1,6983 @@
+# Console polish: the working backlog
+
+**Status:** running. The operator's instruction on 2026-11-05: find the problems myself, write them
+down, solve them, and keep going — a goal that can run for hours without a question.
+
+Each item ships on its own: the web gates, the console's Rust tests, a live check on
+`console.saisi.online` with a screenshot, then one commit. An item is done when all four are true.
+
+## READY TO BUILD, NOT RELEASED — the panel and the forward feature
+
+**`docs/superpowers/specs/2026-11-12-release-ready-panel-and-forward.md`** is the release note that waits for the operator's word: what
+would ship, the gates that prove it (panel **120 files / 1,066 tests**, its three Rust gates green, the bundle rebuilt), the exact
+first step of any device build (**the panel build, because `build.rs` refuses a stale bundle by MTIME**), the rollback, and the three
+things that must still be true before the forward feature can be used.
+
+## THE WIRE, MEASURED — read this before a page reads a tool
+
+**`docs/superpowers/specs/2026-11-12-device-wire-shapes.md`** records what the FLEET answers (0.3.292, 2026-11-12), tool by tool,
+with the exact JSON observed and the reader that accepts it. Five console defects in one week came from writing a page against the
+source tree instead of the deployed build; that file is the antidote, and the rule it carries is one sentence: **read the live
+answer before trusting the source, and keep a test per shape found.**
+
+## THE GATE LEDGER (snapshot 2026-11-12, every number run on this tree)
+
+Two repositories, three kinds of gate: **Rust**, **vitest**, and **a browser gate that drives the BUILT page**. Every command
+below was run the day this ledger was written, and the console's `0.3.274-ux213` was serving the same bundle the browser gate
+exercised.
+
+| Where | Command | Count | What it holds |
+|---|---|---|---|
+| console | `cargo test -p summrise-console` | **437** | `tokens.rs` **15 named gates** (seven sizes, four weights, five radii, fifteen contrast pairs, the rem-and-px rhythm, the dark restatement, "every box-shadow names a token", "a declared elevation is used", the tracking tokens); `console.rs` **10** (routing and HTTP behaviour, e.g. a typed path lands on its page); **167** unit tests of the logic |
+| console | `cargo test -p summrise-ui` | **2** | the token SOURCE the sheet is generated from — where the six elevation families live since the hundred-and-seventieth list |
+| console | `npm test` | **1,166** in **70 files** | components, logic, and the shared contract |
+| console | └ `layoutContract.test.ts` | **60** | the contract with the panel, hash-pinned; page heads, the card, the footnote atom, the palette, the shadow inventory |
+| console | └ `toolNames.test.ts` | **3** | the 32 device tool names, both directions (an addition fails, a removal fails) |
+| console | `npm run gate:browser` | **107 steps** | the RENDERED page: Home's name 13/500 and its verdict 22/600, the palette (every text ink resolves to a token), icons (≤ 8, none unlabelled), the installer's footnote corner, 390 and 1440 layouts, export, terminal, reconnect |
+| panel | `npx vitest run` (in `agent/resources/panel-react`) | **1,066** in **120 files** | the desktop panel |
+| panel | └ `layoutContract.test.ts` | **67** | the same contract, its own side |
+| panel | `cargo test --test panel_sheet_freshness` | **1** | the built sheet is fresh against its source |
+| panel | └ `--test spacing_scale` · `--test stylesheet_hygiene` | **2** · **5** | rhythm, and the sheet's hygiene |
+
+**THE SHARED PIN**: `docs/superpowers/specs/layout-contract.json`, byte-identical in both repositories, **sha256
+`51abc1dfd3c4c926df500497662c854dd7f06169d8abaaaebd300136178d12b2`**, pinned by a literal in BOTH `layoutContract.test.ts` files.
+
+**REFRESH IT WITH `bash scripts/gate-ledger.sh`** — it runs the console's four commands in the order above and prints their
+counts, and it already earned its keep the day it was written: the panel's suite read **1,066**, not the 1,065 this table had
+carried since the round that added a test to it. A snapshot nobody re-takes is a memory.
+
+**AND ALL TWENTY RULES HAVE A HOLDER** — the ledger at the hundred-and-sixty-ninth list names each one (tokens for 1/3/4/11/13/15/16/
+18/20; the head fields and the rendered gate for 5; the palette gate for 6; the footnote atom for 12; the icon gate for 17; the
+browser gate and jsdom for 19). **A snapshot is a claim about a day, not a promise about a year**: the numbers move, and the
+commands above are how a reader checks them.
+
+## P0 — the record of what the AI did
+
+1. **Timeline + evidence** *(Shipped after the 2026-11-04 outage: live by `0.3.273-ux44` and
+   measured in the fifth list; `78fd4a6` opened Activity on the timeline, `8d07eab` made a row open
+   its evidence.)* One row per action (time, sentence, machine, outcome,
+   duration); a click opens the evidence (command, output tail, session, links). The audit table
+   stays behind the `Table` toggle.
+2. **Screenshots as evidence.** *(Shipped: `550da0a` — 4 per device, 32 total, LRU, memory only; the row opens the frame with its capture time; the route is authenticated and a restart forgets it; the live build carries it.)* A `screen.capture` call keeps its last image in console memory
+   (bounded per device) and the row opens it inline. The image is ephemeral: nothing is written to
+   disk and a restart forgets it.
+3. **The session card.** *(Shipped: `1561857` — the terminal opens with the card, not a black rectangle: machine, session, kind, age, last keystroke from the live evidence.)* The Terminal page shows the session before the terminal: machine, shell,
+   how long it has been open, the last command, the last few lines, and one button to attach. The
+   raw terminal is what you get after that card, not the first thing.
+4. **Home stops leading with the endpoint** *(Shipped: `f6ff6aa` deleted the endpoint hero; the
+   fifth list measured the hub live at `0.3.273-ux49` — Now band, today's timeline, one `Connect a
+   client` action, the endpoint only in the sheet.)* The hub becomes this machine's live page: Now (presence,
+   rate, last steps), today's timeline, the session preview. The endpoint lives in the Connect sheet.
+
+## Device-side, still open
+
+The 2026-11-04 outage is over: the fleet has run `0.3.279` since 2026-11-05 (three machines, two
+online; the third asleep). What the outage queued has shipped — the first list's statuses say which
+commit and which live list prove it.
+
+5. **The device's own panel gets the same record.** *(Done 2026-11-06, 27179dd, live 0.3.281 on DESKTOP-9VH92BJ and DESKTOP-CPH4KB2 via the release channel: the panel's Timeline card reads the newest 200 lines of the device's own `events.jsonl`, groups them by the local day and draws one row per begin/end pair with the time, tool, outcome, door and the end's error; a bound, empty and unreadable sentence. 604 device tests, panel 28, fmt/clippy clean, the review test's `panel-timeline.html` (105 rows, failed tone, bound). The published 0.3.281 installer (6,635,054 B, sha256 `928f30c5…`) is what the console's `/installer` now serves; 9VH's `/panel` HTML carries the Timeline card with 105 rows. DESKTOP-84T3LIN is still 0.3.280 — its serial session wedged, so its update is pending.)*: the panel's Timeline card reads the newest 200 lines of the device's own `events.jsonl`, groups them by the local day and draws one row per begin/end pair with the time, tool, outcome, door and the end's error; a bound sentence when the 200 cut it, an empty sentence and an unreadable sentence. 604 device tests, the panel's 28, fmt/clippy clean; the ignored review test wrote `panel-timeline.html` (105 rows, failed tone, bound). Device-side: it ships with a device release — the release is staged separately and the operator's next install is the first live run.)* The panel the device serves
+   (`device/device/src/panel.rs`, reachable on the machine and from the console's Screen page) still
+   shows raw tables. It should show the same day-grouped timeline — the device already has the audit
+   and every call it serves, so this is device-side work and ships with a device release, never alone.
+
+## P0 — the next list (2026-11-05 audit of the emptied product)
+
+Ranked by honesty first. Each item names its measurement and its gate.
+
+1. **The Now band must count the AI, not the console's own polling.** *(Done 2026-11-05, 7de1358 + 43e6e0d + c3d6edd: the route names the caller; the band counts only `client`; the console's own rows carry a muted `console` mark; the session poll runs only when the page is in front, visible, online and empty.)* With a machine chosen and no
+   session, `TerminalWorkspace.tsx:1367` calls `terminal.list` every 10 s through `/mcp` with no
+   `visible` guard; each call is audited and streamed, so `LiveNow.tsx:58` reads "Active now · 6 calls
+   in the last minute" for an idle machine and the window fills in under three hours. Publish the
+   caller (`console` for an ungranted `/mcp` and `/terminal/*/stream`, `client` for `/mcp/:id`) on the
+   event and the line; count only `client`; mark the console's own rows; stop the poll when hidden.
+   Gate: a `console` line never sets "Active now"; the browser gate serves one `terminal.list` and
+   expects "Quiet". **M.**
+2. **When the stream lags, say what was lost and reread it.** *(Done 2026-11-05, b441f8e: the dropped count is parsed, summed, and only cleared by a completed reread; the page says "N lines were dropped while this tab was behind; rereading" and returns to Following after.)* `/events` sends `{"dropped":N}`; the
+   client discards it, so the page says "Following…" over a hole. Parse it, refetch `/audit`, say
+   "N lines were dropped while this tab was behind; rereading" until the answer lands. **S.**
+3. **A machine's scope must read that machine's window.** *(Done 2026-11-05, 3dfaaeb: one window device derived from the scope; a switch is exactly one `/audit?device=` request; the cap sentence names the machine; chips list every machine and refetch rather than filter the wrong window.)* Activity fetches the fleet's 1000 and
+   filters in the page; `GET /audit?device=` exists. Fetch the machine's own window when a chip is
+   selected, and let the cap sentence name whose window was cut. **S.**
+4. **The hub's day must be reread, not remembered.** *(Done 2026-11-05, f8ded1c: reread on the 5 s tick and on stream recovery, single-flight per machine; the band reads the machine's own merged window; a stale window says "Read N ago." until a reread includes the live line.)* The machine window is fetched once per device;
+   after a reconnect or a hiccup the day shows a hole with no cap sentence and the band says "Quiet"
+   while rows exist. Refetch on the app's 5 s tick and on stream recovery; say when it was read. **M.**
+5. **Stop claiming every call is in the record.** *(Done 2026-11-05, f394b63: both empty states name the boundary — calls routed through the console are written; a call straight to a machine's own endpoint is not.)*** Both empty states say "Every call a client makes is
+   written here"; a call straight to a machine's own endpoint is not. Name the boundary. **S.**
+6. **Give every tool a sentence and gate the table against the registry.** *(Done 2026-11-05, a9d9dff: 16 templates added, 10 dead ones removed after a history measurement; `every_registry_tool_has_a_sentence` walks the registry and fails for a declared tool without a sentence.)* 16 of the 46 registry tools
+   fall back to "Used `tool`" (`host.restart` among them) and eight sentences name tools the registry
+   does not have. Write the missing templates and test the table by walking `registry.rs`. **S.**
+7. **Say where one stretch ends.** *(Done 2026-11-05, dfc35c0: at each boundary the page says what the stretch above it held — "3 calls · 1 m" — from the same rule that draws the hairline; nothing collapsed or inferred.)* The 60 s gap is computed and drawn as a hairline; a full day reads
+   as one column. Label each stretch with what it held — "4 calls · 2 m 10 s" — inferring nothing. **S.**
+8. **Delete the retired components and the calls nobody makes.** *(Done 2026-11-05: `TerminalPane.tsx` (159 lines), `ToolPicker.tsx` + its test, `api.denials`, `api.meshStatus`, `api.meshReadiness` and twelve tests deleted; the server routes stay.)*** `TerminalPane.tsx` (159 lines, no
+   importer), `ToolPicker.tsx` (42 + 35), `api.denials`, `api.meshStatus`/`meshReadiness` and their
+   tests; the server routes stay. **S.**
+
+## P0 — the operator's day (2026-11-05, second audit)
+
+All six console-only; the last is the deletion. Ranked by how often the friction happens.
+
+1. **Make the morning's failures countable.** *(Done 2026-11-05, c51aad9: one "Today N client calls · M failed · last HH:MM" line from the window already in hand, "Today none · last … yesterday" otherwise; failed rows read `failed`, including 200 with `ok:false`.)* The hub cuts "today" at the browser's midnight, so an
+   08:00 page says "No calls from X today" after a night that ended at 23:50 (`HomePage.tsx:307-314,
+   329-334`); a failed call reads with its HTTP **200** in the timeline (`ActivityTimeline.tsx:345-349`),
+   and "what failed overnight" costs four controls. One "Today 24 client calls · 2 failed · last 14:32"
+   line from the lines already on the page, "last 23:42 yesterday" when there are none, and the
+   timeline's outcome word "failed". Gate: a fixture with 2 ok + 1 failed today plus a 20 h-old line.
+   **S.**
+2. **Name the token on the newest rows.** *(Done 2026-11-05, b554e00 + 587dca3 + 3dadcfe, live in ux42: a live event carries `token_id`; a row names its token or "signed grant"/"operator session", and Manage opens the Tokens sheet on that row.)* A live event carries no `token_id` (`http.rs:455-467,
+   679-710`) and the client drops it from the snapshot (`liveActivity.ts:148-172`), so the newest rows
+   read "—" and the record says "operator session" (`AuditTable.tsx:579-581`); the evidence has no
+   Token fact. Carry `identity.token_id` through the event and `LiveLine`, show "Token <name>", and a
+   Manage that opens the Tokens sheet on that record; no token means "signed grant". **M.**
+3. **Show the call that is in flight.** *(Done 2026-11-05, 03eb857 + 0438445: a memory-only registry publishes `started`/`finished` and carries the running set in the snapshot; the band shows `running runs.exec · 1m 12s` for client calls and hides console ones. Note: the proxy cuts a call at 90 s and its 504 publishes `finished`, so the audit's `3m 12s` sample is unreachable without raising that cut — the bound is the truth.)* Calls publish only after the device answers and the proxy cuts
+   a run at 90 s while it keeps running, so the band says "Quiet" for a three-minute `runs.exec` and
+   the timeline has no row. A non-audit `started` frame at `tools/call`, cleared by the result or the
+   90 s cut; the band shows "running runs.exec · 3m 12s". **M.**
+4. **Let the machine menu compare machines.** *(Done 2026-11-05, 616f447 + 08386ae: `/fleet` serves `last_outage {away_ms, back_at_ms}` from memory; the menu row states the tightest disk and, after a drop, how long it was away — each half omitted when unknown, never zeroed.)* *(Measured: the fleet read carries `host` facts and `last_attempt` (`attempts`, `reason`), not an outage duration — so the line can name disk free and, when offline, the last attempt, but "back 2 h ago after 41 m" needs a new server field first. The item is split: the line now, the duration when the fleet records it.)* It shows dot, name, state, version (`MachineMenu.tsx:72-89`)
+   while the fleet read already carries `host` and `last_outage` the web's `Device` does not name; one
+   muted line — "C: 312 GiB free · back 2 h ago after 41 m". **S.**
+5. **Put the last column on screen at 390.** *(Done 2026-11-05, 188d078: at 390 the audit disclosure is the first cell's control and the sixth column is not drawn; the token list is a card layout inside the 600 px drawer — measured Revoke inside the sheet at 390 and 1280; desktop page outside the drawer unchanged.)* The audit table is 44 rem wide with its only opener in the
+   sixth column, and the token sheet's Revoke/Rotate are clipped in the 600 px sheet even at 1280;
+   move the disclosure to the first cell at ≤639 and stack each token's actions under its name. **S.**
+6. **Delete the device id from the Machine tab.** *(Done 2026-11-05: the 64 hex is gone; build and online stay; the record's Copy id and the Connect endpoint keep it.)* (`SystemPage.tsx:391-397`) prints 64 hex that nothing
+   there acts on; the record's Copy id and the Connect endpoint keep it. **S.**
+
+7. **A device id the fleet does not know must say so.** *(Done 2026-11-05, f370876, live in ux40: the chip reads "unknown machine · desktop-9vh9" and its title says it is not in the fleet; a known id is unchanged.)* One audit line carries `desktop-9vh92bj`
+   as its device id (an old enrollment), so the timeline grows a machine chip that is not in the
+   fleet. The chip is true — the line is real — but it reads like a machine. Label an unknown id
+   "unknown machine · <short id>" and give it no online dot. *(Measured on the live 1000-line window:
+   865 + 93 + 41 known, 1 unknown.)* **S.**
+
+## P0 — the fourth list (opened 2026-11-05, from the live fleet)
+
+1. **An absence the console did not witness is forgotten.** *(Done 2026-11-05, 8449fc8: `device.joined`/`device.left` lines in the audit; `/fleet` derives the absence from the newest 2,000 lines, so the CPH case now serves away_ms 10,298,000 instead of null; omitted when no pair exists.)* DESKTOP-CPH4KB2 was away ~5 h
+   (last frame 03:58:22, back 06:50) and `/fleet` serves `last_outage: None`, because the record is
+   memory-only and the console restarted at 06:47 — the close was never seen by the new process, so
+   the open had nothing to subtract. The machine's own `last_attempt` says `7 attempts — the console
+   accepted the channel and then dropped it`, which is the *reason* but not *how long*. The fix:
+   write `device.left` / `device.joined` lines to the audit on channel close/open, and derive the
+   absence from the audit so a console restart cannot erase it. **S/M.**
+
+2. **A socket is not presence.** *(Done 2026-11-05: `online` is a frame within `PRESENCE_WINDOW` =
+   150 s = 2.5 × the device's 60 s report; `/fleet` serves `last_frame_ms` only when a frame was seen;
+   a silent channel reads offline and its row shows no reconnect line; a reopened channel starts with
+   no frame.)* DESKTOP-14RJCR8 was offline on the tailnet for 7+ minutes (`tailscale status`:
+   `offline, last seen 7m ago`) while `/fleet` still served `"online": true`. The console asked
+   whether a channel socket existed, so a half-open TCP connection to a sleeping machine kept
+   answering yes. The device already sends a host frame every 60 s, so presence is that frame's
+   recency: 150 s is two and a half reports — one missed report is not an outage, and a sleeping
+   machine stops claiming presence after 02:30. A channel silent past the window serves
+   `online: false` with the exact `last_frame_ms`, or omits the key when the console has never seen a
+   frame; the page's "seen 7m ago" reads the same moment, and the row does not explain silence as
+   "reconnected after N attempts", which requires a real reconnect. **S.**
+
+3. **A machine that slept must not look like a failed update, and a machine that woke must prove
+   its version.** *(Done 2026-11-05, 4eed9a5: the 60 s frame carries a top-level `update` section
+   beside `host` — `current`, `verdict {outcome, detail}`, `last_update {to, outcome, at_ms}` and
+   `rolled_back_to` — read from `state.json` and omitted whole when it cannot be read; `/fleet`
+   serves it per device, newest frame wins; the fleet row and every machine tab draw the device's
+   own sentence, `started 0.3.275 (update to 0.3.276 refused)` or `started 0.3.276 (updated)`, as a
+   quiet line beside the silence. A silent device that sent no section still shows only
+   `offline · last seen 7m ago`; no page claims the machine slept.)* DESKTOP-14RJCR8's update check
+   was triggered at 08:21 and the machine left the tailnet inside the same minute (`tailscale ping`
+   timed out), so the console could only say "offline": a machine that stopped reporting and one an
+   update broke looked the same, and after it woke nobody could read whether the pointer moved
+   without a shell on it. The device already wrote `lastVerdict`, `update {phase, to, outcome,
+   lastResultAtMs}` and `baseline` into `state.json`; the fix puts those facts on the frame the
+   console already receives and lets the row repeat the device's own words instead of inferring a
+   cause. Measured: 6 new device host tests, 2 console integration tests (a frame's section reaches
+   `/fleet`; the newest frame wins; an absent section leaves the row without one), 1 channels unit
+   test, 7 sentence tests, 3 fleet-row tests and 2 machine-page tests; `cargo test -p
+   summrise-device -p summrise-console` 943 passed / 0 failed / 3 ignored; `npx vitest run` 598
+   passed; typecheck and build clean; `build-web.sh --check` clean (the page is committed); browser
+   gate PASS 17 steps; `a11y-audit` 0 findings across 16 page states. **S/M.**
+
+## P1 — the console stops feeling like a configuration tool
+
+5. **Activity filters become chips.** *(Done 2026-11-04, e918981: the C2 cut — machine chips and a
+   search on the timeline, the six controls table-only, the shared state surviving a switch.)*
+   Machine chips and a search field; the time-range select, the token column and the status select
+   move into the Table view where they belong.
+6. **Terminal tabs carry facts.** *(Done 2026-11-04, bdefee2: a tab says `pty · 12m`; the shell is not in `terminal.list`, so it is not claimed; a renamed tab keeps its name.)* A tab says the shell and the age, not just `pty 1`.
+7. **Connect has one token tab.** *(Done 2026-11-04, 2b681e3: one list, scope column, one mint form; `FleetTokens.tsx` deleted; the second read that 405'd is gone in 44e60f7.)* Per-device tokens and fleet tokens are the same idea at two
+   scopes; one list with a scope column, not two places to mint a credential.
+8. **Empty and offline states say what to do.** *(Done 2026-11-04, 1329499: ten states rewritten to name the page, the reason and the one action; empty and offline kept distinct.)* Every page that can be empty (timeline, runs, files,
+   plugins) gets a sentence that names the next action, not just "none".
+
+## P2 — consolidation, then polish
+
+9. **Capabilities and Plugins become one Tools tab** under the machine. *(Done 2026-11-04, 695be48: the rail is Home · Activity · Device; Tools sits in the machine's tabs; `ToolCatalogue` and `PluginList` are two sections of it; `#capabilities`/`#plugins` map to it.)* One place answers "what can
+   this machine do", with plugins as a section of the same answer.
+10. **The Runs page's exec form moves** under Tools; Runs becomes the history, not a second way to
+    run a command. *(Done 2026-11-04, d1e354f: the form is Tools' third section and calls `runs.exec`
+    with the same arguments; Runs is `runs.list` and its record; `#device/tools/run` was not added
+    because the fragment parser reads a sub-path as a tool name.)*
+11. **Accessibility sweep.** *(Done 2026-11-04, b7ba553: `scripts/a11y-audit.mjs` measures 17 page states and reports 0 findings and 3 allowed tab stops — the named scrollable regions; the audit row's opener is a real button with `aria-expanded`; the warning colour is in the AA pair test.)* Every row that opens is a button with `aria-expanded`; every icon has a
+    name; focus order follows reading order; the warning colour is checked against the AA pairs.
+12. **Long timelines.** *(Done 2026-11-04: measured before optimising. The page now asks the
+    console's 1000-line cap instead of 200, and the stub's 1000-row day takes **427 ms** from
+    navigation to the last row painted at 1280 (403 ms at 390), so virtualisation was not done; the
+    merged window is capped at 1000 and the page says "Showing the newest 1000 lines; older ones are not on this page." when the cut
+    happens, in the timeline and in the Table (4b26900).)* Measure a 1000-row day before optimising; virtualise only if the frame
+    budget says so.
+13. **Phone.** *(Done 2026-11-04, 8b50f22: time column 64→40 px at 390 and 360, age hidden ≤480 px, the day label is sticky against `main` (measured offset 0 after 600 px of scroll), evidence was already one column; no row overflows.)* The timeline at 390 px: the time column narrows, the age drops, the evidence panel
+    stacks (already true) and the day label sticks.
+
+## Cuts — what should not exist
+
+A product gets better by removing things, not only by adding them. These are the deletions this
+workstream owns; each one ships with the same gates as a feature.
+
+- **C1. The hub's endpoint hero.** *(Done 2026-11-04, f6ff6aa.)* The machine page leads with an URL and a Copy button while the
+  Connect sheet already owns that job. Delete the hero; the sheet is the only place the endpoint
+  appears. *(P0-4 covers the page; C1 is the deletion.)*
+- **C2. The Activity filter bar in the timeline view.** *(Done 2026-11-04, e918981: machine chips and a search on the timeline, the six controls table-only, the shared state survives a switch.)* Six controls (scope, time, device, token,
+  search, status) belong to the table. The timeline gets machine chips and a search field; the rest
+  moves behind `Table`. *(P1-5.)*
+- **C3. The tool sheet's "Try it" panel.** *(Done 2026-11-04: 634c438 removed the panel, ce4602d the helpers only it used.)* A browser that can invoke any tool with raw JSON is a
+  developer toy with the operator's full authority; Capabilities is a catalogue, not a REPL. Delete
+  the panel, keep the catalogue. *(Revisit: the operator may want it under a "Developer" sheet.)*
+- **C4. The legacy server-rendered pages under `/next`.** *(Done 2026-11-04, cec8b28: 55 routes, 7002 lines of page.rs, 91 HTML-only tests, maud and six page-only assets deleted; `GET /next` kept as a 303 shim because `--login-link` prints `?code=` and the React page does not redeem it.)* They predate the React console and the
+  React page is `/`. Measure what still links to them before deleting; if nothing does, the routes
+  and `page.rs` go in one commit. *(Needs the measurement first — not tonight.)*
+- **C5. Fleet tokens as a second minting place.** *(Done via P1-7: one list with a scope column and one mint form; `FleetTokens.tsx` deleted. Closed 2026-11-04.)* One credential list with a scope column replaces
+  two pages.
+
+*(Verified live 2026-11-06 on 0.3.273-ux74: all five hold — the hub has no endpoint hero (the only
+endpoint is in the Connect sheet), the timeline's filter bar is machine chips + search, the tool
+sheet has no Try-it, no page links to `/next` (the shim answers 303) and one mint form sits behind
+every door. Audit: `.superpowers/sdd/2026-11-05-console-polish-backlog/audit-20-report.md`.)*
+
+
+## P0 — the ninth list (opened 2026-11-06, from the operator's first client and the token confusion)
+
+Measured on 2026-11-06, after the first real install and the first outside MCP client: the console
+printed an enrollment command the machine could not run, and the person looking for the token could
+not find it. The console's own Tokens sheet holds five tokens with different, fixed device scopes;
+nothing on the fleet says so.
+
+1. **The enrollment command names a binary the installer never puts on PATH.** *(Done 2026-11-06, e763259, live 0.3.273-ux67: the enrollment block now says to open the elevated Command Prompt in the folder chosen on the installer's directory page (the default is `C:\Program Files\Summrise`), run this command, then restart the `SummriseLaunch` service; the command itself is unchanged because the console cannot know a new machine's root. The installer's PATH entry remains item 3. jsdom 718 tests, typecheck 0, gate PASS 36 steps, a11y 0, `build-web --check` clean; live at 1440 and 390 the sentence read verbatim, the panel's Tokens control stayed, and the page did not scroll sideways; screenshots /tmp/live-enroll-sentence-1440.png and /tmp/live-enroll-sentence-390.png.)* The Add-a-machine
+   panel prints `summrise-device.exe --enroll …` (`App.tsx:863-864`, hardcoded); `summrise.nsi`
+   writes no PATH entry (the only `PATH` mention is a comment); the live operator installed to
+   `E:\Program Files\Summrise` and the command runs in an ordinary elevated prompt, whose cwd is
+   not that folder. **Cost:** the first command the product prints fails with "not recognized",
+   after the person has already downloaded the installer and minted the code. **Fix:** the installer
+   owns the root, so it adds `$INSTDIR` to the machine PATH (and the uninstaller removes it), or the
+   panel's sentence names the install folder; decide once, in the installer. **M.** (installer +
+   one console sentence.) *(Split 2026-11-06: the console sentence is task 6 now; the PATH entry is
+   item 3 below, because only the installer knows the root and it needs the Windows run.)*
+2. **A credential has no door from the fleet, and its fixed scope is unstated.** *(Done 2026-11-06, 5bc53c4, live 0.3.273-ux66: a Tokens control in the fleet header and the Add-a-machine panel opens the existing Connect sheet's Tokens section — no second token UI; the section states "A token's device scope is fixed when it is minted. Rotate keeps it; to cover different machines, mint a new token."; the mint form names the machines the new token will cover and the Rotate dialog says the fixed scope is kept. jsdom 717 tests (+6), typecheck 0, browser gate PASS 36 steps (the 390 door opens the Tokens section and the sentence is visible; screenshot /tmp/console-browser-gate/06b-fleet-tokens-390.png), a11y 0 findings, `build-web --check` clean. Live: the fleet's door opened the Tokens sheet with the sentence; screenshots /tmp/live-tokens-door-1440.png and /tmp/live-tokens-door-390.png.)* Tokens live only
+   under Account → Tokens; the live fleet, the Add-a-machine panel and the Connect sheet have no
+   Tokens link (`onTokens` is wired only for the Connect sheet). The operator's colleague measured
+   "console.saisi.online 根本没有看到 token" on 2026-11-06, while the console actually held five
+   tokens with different device scopes — one of them missing the machine being asked about. The
+   mint form never says the device scope is fixed at creation and Rotate keeps it. **Cost:** a
+   person cannot find where a token comes from, and the multi-token model reads as one token with
+   missing machines. **Fix:** a Tokens door from the fleet header and the Add-a-machine panel; the
+   sheet and the mint form state "the device scope is fixed at creation; Rotate keeps it; to cover
+   different machines, mint a new token", and the mint form names the machines it will cover.
+   **M.**
+3. **The enrollment command still depends on a PATH entry the installer never writes.** *(Implemented 2026-11-06, 8f1775c: after the install's `/api/health` proof the setup reads the machine `Path` in the 64-bit view, appends the delimited `$INSTDIR` only when absent, writes it as REG_EXPAND_SZ and broadcasts `WM_SETTINGCHANGE`; the uninstaller removes exactly its delimited entry (four positions) and broadcasts. A read error, a Path over the ruled 2000 or over NSIS's 1023-character string cap is logged and the value is left alone; the install continues. Compiled: `SummriseSetup-0.3.282.exe` 172,206 B, exit 0 with stub payloads. NOT RUN ON WINDOWS: the append, idempotency, empty/trailing separator cases, the System::Call broadcast, both length guards and the uninstaller's removal are unexercised; the operator's next install is the first proof. Read-only fleet check: 9VH Path 342 chars, CPH 869, both REG_SZ and the entry absent; 14R did not answer.)* The console
+   sentence (task 6) tells the operator to open the prompt in the install folder; the product's own
+   command is still a bare `summrise-device.exe`, so a prompt opened anywhere else fails. The
+   installer knows the root; the console does not. **Fix:** the installer appends `$INSTDIR` to the
+   machine PATH (`HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment`), only
+   when absent, and the uninstaller removes exactly its entry; the Windows run is the first proof.
+   **M.** (installer; measured on the E: install.)
+
+
+## P1 — the tenth list (opened 2026-11-06, from the live token sheet)
+
+Measured in the live Tokens sheet (0.3.273-ux66) after the operator's "which token has 84T3LIN?"
+question: every multi-machine token's SCOPE cell reads a count ("3 machines it was minted for"), never
+the names, and the all-machines mint form lists a machine that has not answered in 23 hours as if it
+were live. The sheet shows last-used and created dates, so a stale credential can be told from a live
+one only by date, not by scope.
+
+1. **A token's scope counts machines but never names them.** *(Done 2026-11-06, 651d337, live 0.3.273-ux68: the SCOPE cell maps the token's `device_ids` through the fleet's names — a single device is named, a fleet token lists up to three names and says "and N more", and the title carries the full list, the count and the recorded-at-mint rule; unknown ids fall back to the console's short id. Live: the fleet token's row reads `DESKTOP-9VH92BJ, DESKTOP-CPH4KB2, DESKTOP-84T3LIN` instead of "3 machines it was minted for". vitest 720 passed/53 files, typecheck 0, gate PASS 36 steps (the fleet row names the gate machine), a11y 0 findings/3 allowed tab stops, `build-web --check` clean; live screenshot /tmp/live-token-scope-names-1440.png.)* The sheet's SCOPE cell for a fleet token
+   is "3 machines it was minted for"; the operator cannot see that one of five tokens covers
+   84T3LIN and another covers CPH4KB2. The refusal `device not permitted by token` then has no
+   visible cause, and the operator mints another token to guess. **Fix:** the scope cell names the
+   machines from the token's `device_ids` and the fleet's names (single device: its name; fleet:
+   names with "and N more" when long), keeping the count for the totals. **M.**
+2. **The all-machines mint form lists a dead machine as if it were live.** *(Done 2026-11-06, be7cda1, live 0.3.273-ux69: the coverage sentence marks each machine from `/fleet` with the fleet row's own evidence — `(online)` or `(offline, last seen 1d 1h ago)` — and a never-heard machine reads `(offline)` in the console's existing wording; the token still covers every enrolled machine (the test asserts an offline id stays in `device_ids`). vitest 721 passed/53 files, typecheck 0, gate PASS 37 steps, a11y 0 findings/3 allowed tab stops, `build-web --check` clean. Live read: "DESKTOP-9VH92BJ (online), DESKTOP-14RJCR8 (offline, last seen 1d 1h ago), DESKTOP-CPH4KB2 (online), DESKTOP-84T3LIN (online)"; screenshots /tmp/live-coverage-states-1440.png and -390.png; no sideways scroll at 390.)* The coverage sentence
+   read "This token will cover the 4 machines enrolled now: DESKTOP-9VH92BJ, DESKTOP-14RJCR8,
+   DESKTOP-CPH4KB2, DESKTOP-84T3LIN" while 14RJCR8 had not answered for 23 hours; minting "all
+   machines" silently adds a machine that cannot answer to every future scope. **Fix:** the
+   coverage sentence marks each machine's state from `/fleet` (online, or `offline, last seen …`),
+   so the person choosing "all machines" sees what they are covering; the token still covers what
+   it says. **S.**
+
+
+## P2 — the eleventh list (opened 2026-11-06, from the live token sheet's dates)
+
+Measured on 0.3.273-ux69: the Tokens sheet renders created/used/expires through
+`toLocaleDateString()` — the live rows read `used 11/6/2026`, `created 11/4/2026` in an en-US
+browser. The console's other time language is relative (`1d 1h ago`, `seen 37s ago`) or a clock
+(`last 17:23`); the sheet is the one place a bare numeric date can be read as 4 November or 11
+April. The device-side panel item stays in its own section ("Device-side, still open"), because it
+ships with a device release and never alone.
+
+1. **The token sheet's dates are the browser's locale, not the console's clock.** *(Done 2026-11-06, 0fad059, live 0.3.273-ux70: created/used/expires share one `<time>` element — local-day ISO `2026-11-04`, `title` the local clock to the second plus the UTC ISO instant; a null expiry renders `never` and a null last use `never used`, with no date element. vitest 726 passed/53 files (+5), typecheck 0, gate PASS 38 steps (asserts ISO text, exact titles and `never`), a11y 0 findings/3 allowed tab stops, `build-web --check` clean. Live read: 8 times all `YYYY-MM-DD`, the first `2026-11-06` with title `2026-11-06 08:21:12 (2026-11-06T08:21:12.787Z)`; screenshot /tmp/live-token-dates-1440.png.)* Same audit: the
+   dates are the only absolute dates in the console; a CN operator sees `11/4/2026` with no way to
+   know the order. **Fix:** one locale-stable format for created/used/expires — `2026-11-04` (the
+   audit's own ISO dates) or a fixed `4 Nov 2026` — with the exact time in the cell's `title`. **S.**
+
+
+## P0 — the twelfth list (opened 2026-11-06, from the live terminal)
+
+Measured live on 0.3.273-ux70, DESKTOP-84T3LIN's serial session-3: the tab read `serial · 41m #3
+read failed`, the pane was an empty cursor, and the sentence said `Reading this session failed:
+terminal.read: the cursor 7812078 is older than the retained output, which starts at 8612223. The
+tab continues from the earliest output the device retains.` Try again repeats the same refusal.
+
+1. **A stream fault from an old cursor leaves the tab dead.** *(Done 2026-11-06, 4f91236, live 0.3.273-ux71: the feed owns the recovery — a cursor-too-old refusal moves to the earliest byte and reconnects (400 ms), a second newer earliest moves again (1.5 s), then the tab degrades to the newest 4 KiB tail read just below the session's end with a sticky sentence naming the dropped bytes, and the stream reopens from the read cursor; a 12 s catch-up guard covers a silent recovery stream; Try again restarts the feed at the current cursor. The feed effect now depends on `grant.deviceId`, so the 5 s fleet poll no longer restarts it every poll. 734 tests (+14), typecheck 0, gate PASS 39 steps (a stubbed stream fault reconnects at 1024, draws the retained bytes, no `.terminal-fault`), a11y 0/3, `build-web --check` clean. Live: the 9VH pty session-1 (a >1 MiB flood) drew 1,516 chars of retained output with 0 `.terminal-fault` and no page errors on ux71, where the old page drew nothing and kept the fault; the 84T3LIN serial session reproduced the dead tab on the old page and its silent catch-up is why the guard exists. Screenshot /tmp/live-terminal-9vh-fixed.png.)* `TerminalWorkspace.tsx`'s `fail()`
+   moves the cursors map to the earliest byte the device retains, but the stream that sent the
+   refusal is not reconnected and the polling feed is only used when the stream is absent; no read
+   ever uses the new cursor, and the pane never draws the output the sentence promises. A tab that
+   fell behind the 1 MiB ring (a hidden tab, a fast serial line) is therefore unrecoverable until
+   Try again — and Try again reopens against the same faulted state. **Cost:** the operator sees a
+   dead tab that claims it continues, while the device still holds a megabyte of the session.
+   **Fix:** on a cursor-too-old refusal, reconnect the stream (or poll) with the earliest cursor
+   automatically and clear the fault when bytes arrive; if the ring keeps advancing faster than the
+   read, degrade to the newest retained output with a sentence naming the dropped bytes, never an
+   empty dead tab. **M.**
+
+
+## P0 — the thirteenth list (opened 2026-11-06, from the flooded serial session)
+
+Measured while checking the terminal fix against DESKTOP-84T3LIN (0.3.280, session-3, a serial line
+that had produced 18.1 MB): `terminal.read` at cursor 0 answered in 2 s with the too-old refusal
+(`the cursor 0 is older than the retained output, which starts at 18153607`); the read at
+**18153607** was answered by Cloudflare with a **504 after 33.8 s** (16-byte error body), and every
+subsequent MCP call on that device (`host.facts`) timed out at 20 s. The device's own channel still
+reports frames, so the console shows it online while its MCP service is no longer answering. The
+console's terminal tab is the surface that finds this; the device's read is the cause.
+
+1. **A flooded serial session's read blocks the device's whole MCP service.** The read of the ring at
+   the oldest retained cursor waits (for the serial feed or on a lock held across it) instead of
+   copying the retained bytes; the call runs past the proxy's timeout, the device stops answering
+   other tools, and the only recovery is a local restart. **Cost:** one busy serial line takes the
+   machine off the console; the terminal fix can degrade the tab but cannot get the ring or keep the
+   device answering. **Fix:** the read copies the retained bytes from the cursor without holding the
+   registry across the feed — an old-cursor read answers immediately, and an optional byte `limit`
+   lets the console page the catch-up; the too-old refusal and the ring semantics stay. **M/L.**
+   (device; a device release. The still-wedged session-3 is the reproduction; 9VH/CPH's 0.3.281
+   channel can carry the fix to a fresh flooded pty for the live proof.)
+
+2. **The console still asks for the whole ring, so the fix's paging is unused.** *(Done 2026-11-06, 73df5d4, live 0.3.273-ux72: on a cursor-too-old the console pages the retained ring through polling `terminal.read` with `limit` 65,536, draws each page, advances the cursor, treats a short/empty page as the end, then opens the stream at the reached cursor; a page cap of 17 and the 12 s guard cut into the newest 4 KiB with the existing loss sentence; an older device refusing `limit` disables the field once for the grant and takes the old reconnect/tail path. 737 tests (+3), typecheck 0, gate PASS 39 steps (a stubbed too-old refused once and paged from 1024, the stream resumed at 1050), a11y 0/3, `build-web --check` clean. Live: a fresh 9VH 0.3.282 PowerShell pty session-2 flooded >1 MiB; the deployed page drew it with 0 `.terminal-fault` and no page errors (screenshot /tmp/live-ux72-paged.png), and the implementer's candidate-page run made 16 limited reads of 65,536 + one short page, advanced 299,744 → 1,351,568, resumed the stream there and drew the output (/tmp/live-task14-paged.png); each MCP answer ~160 KB, not the whole-ring frame.)* The device's
+   `terminal.read` now takes an optional byte `limit` (184ee8c), but the console's recovery reconnects
+   the stream at the earliest cursor and the device's subscribe frame carries the whole ring (up to
+   1 MiB, `data` + `data_base64`) — the frame whose 30 s bound the measured 504 came from. **Cost:**
+   the registry no longer wedges, but the catch-up can still be too large to arrive, and the console's
+   degraded tab throws away the ring it could have paged. **Fix:** the console pages the catch-up
+   with `terminal.read`'s `limit` (64 KiB), drawing each page and advancing the cursor, with the
+   `wait_ms`-style capability check for devices that refuse the field; only after the pages are drawn
+   (or the guard expires) does it open the stream at the reached cursor. **M.** (console; live on a
+   fresh flooded pty after the 0.3.282 channel update.)
+
+3. **The console server closes a subscription whose ack arrives empty.** *(Done 2026-11-06, 18163fd, live 0.3.273-ux73: `subscription_stream` now runs the ack and the pushed frames through one loop and one `FrameStep` — empty-and-alive frames are skipped in both positions, and the stream ends only on `recv() == None`, `alive:false`, or a fault/error; a refused subscribe is normalised to the same `{"error": sentence}` shape, so ack and follow share one fault payload. Four new integration tests (empty ack then output; empty frame between outputs; end; fault) failed against the unmodified server and pass after; 243 console tests, fmt/clippy clean. Live 2026-11-06 on 0.3.273-ux74: the console's stream `/terminal/9VH/session-4/stream?from=407` answered 200 and stayed open with no data for 6 s (the reader's next read timed out rather than ending), and a `terminal.write` then delivered `event: output` on that same stream at cursor 430 — the empty ack no longer ends it. The earlier attempt was blocked by the tunnel, which is item 4/6.)* The paged catch-up resumes
+   the stream at the reached cursor; the console server's subscription ack for an up-to-date cursor
+   is an empty read, `read_event` emits no SSE event, the stream closes, the page reconnects once at
+   the same cursor and then falls back to 250 ms polling. **Cost:** every tab that catches up pays a
+   reconnect and then polls until new output; the stream's job is lost exactly when the tab is
+   current. **Fix:** keep the subscription open across an empty ack (a keep-alive frame or a wait for
+   the next output) so the next bytes are pushed, not polled. **S/M.** (console server; measured by
+   task 14's live run.)
+
+4. **A tool call through the console can spend 45 s upstream of a healthy device.** *(Reframed
+   2026-11-06 by the device-side audit: the device's 12,674 `terminal.read` pairs all end — the
+   longest is 20.003 s for a requested 20,000 ms, the long polls end at 15.002 s, and at most 2 of
+   its 16 in-flight permits were used; current reads are 1 ms. The earlier 45 s (wait_ms 1000) and
+   20 s (wait_ms 0) client timeouts, and the 0-byte `runs.exec`, are therefore upstream: the
+   console's aggregate MCP / device channel / route. The console's own audit rows carry the
+   console-side duration — compare them with the device's 15 s pairs. **Fix:** remove the console's
+   queue/loss so a tool answer arrives within its wait; task 18. **M.** (console; no device
+   release.)*
+   *(Measured 2026-11-06 through task 18: the direct nginx->console path answers terminal.read
+   wait_ms 1000 in 1.012 s (device pair 1002 ms), terminal.list in 0.010 s, and 20 concurrent reads
+   with 16 at 1.02 s and 4 at 2.03 s, no loss. The same requests via mcp.saisi.online (the Cloudflare
+   tunnel) took 1.7-65.7 s with two resets, while even initialize (pure console) took 2.3-8.4 s; an
+   unrelated zss-dsh endpoint was equally slow, so the tunnel is degraded generally. The 45 s/20 s
+   reads left no console audit row and no device pair — they never reached nginx. The measured 45 s
+   is the tunnel, not the console. The console's only related defect is its 30 s reply bound cutting a
+   terminal.read whose device-side legal wait is also 30 s; task 18 fixes it by deriving the bound
+   from wait_ms, like run_wait does for runs.exec.)* *(Done 2026-11-06, 7841b9d, live 0.3.273-ux74: on the direct tailnet path a `terminal.read` with `wait_ms: 30000` returned the device's empty answer at **30.0197 s** (200), where the console's 30 s reply bound used to cut it; 245 console tests, fmt/clippy clean. The measured 45 s/20 s were the Cloudflare tunnel (item 6's deployment note), not the console.)*
+
+5. **The console transport's in-flight acquire is unbounded.** *(Done 2026-11-06, cd88550, live 0.3.284 on DESKTOP-CPH4KB2: the acquire is bounded by `IN_FLIGHT_WAIT` 5 s; on expiry the frame gets the transport's error envelope (-32003 "the device is busy: too many requests are already running; retry shortly") and is audited deny/busy with its end recorded. 612 device tests, fmt/clippy clean. Live: 17 concurrent `terminal.read` calls (wait_ms 15000, cursor 407) through the console — 16 answered at 15.04-15.09 s, the 17th at 5.1 s with exactly the -32003 sentence; the console forwards the envelope unchanged and needs no change.)*
+   `in_flight.acquire_owned()` with no bound; if the 16 permits ever do run out, every tool call
+   hangs instead of answering "the device is busy". **S.** (device; hardening, later release.)
+
+6. **The console hands its own operator the slow door.** The token/connect copy names
+   `https://mcp.saisi.online/mcp/all`, which crosses the Cloudflare tunnel (measured 1.7-65.7 s and
+   two resets for calls that the direct path answers in 1.012 s). **Fix:** for a client already on
+   the tailnet, name the direct address beside the public one; outside the tailnet the public door
+   stays. **S.** (console copy + the operator's clients; the tunnel itself is deployment.)
+   *(Reframed 2026-11-06: the console's copy cannot remove the tunnel's wait, and a direct address
+   needs a trusted certificate (the nginx's is self-signed), so this is a **deployment item**, not a
+   console code item: repair the tunnel, or serve the tailnet door with a trusted (Tailscale)
+   certificate and name it. The console keeps stating the public door honestly; nothing is added to
+   the page that would not shorten the wait.)*
+
+## P0 — the fourteenth list (opened 2026-11-06, from the audit of 0.3.273-ux74)
+
+The five cuts hold on the live console. What the tour found is four residuals the thirteen lists do
+not cover: two honesty gaps at the moment of minting and counting, and two phone layouts the 390
+checks missed. Measured at 1440×960 and 390×844, Asia/Shanghai, selected machine 9VH92BJ (v0.3.284);
+every number is a live DOM measurement and the screenshots are `/tmp/audit-20-*.png`.
+
+1. **The fleet token form says no tool can change a machine while the machine form says 15.** *(Done 2026-11-06, ad0d655, live 0.3.273-ux75: the catalogue hook now keeps `/tools`'s destructive flags (a fallback name carries `null`, never `false`), and the token form counts the live list or the registry, so the fleet form reads `46 tools · 15 can change the machine · one list for every machine in the token's scope`; when the flags are genuinely unread the sentence says the count is read from a machine, never `0 can change`. 739 tests (+2), gate PASS 41 steps, a11y 0/3, `build-web --check`. Live screenshot /tmp/live-ux75-fleet-tokens.png.)*
+   Without a current machine the Tokens form falls back to the 46 tool names with every destructive
+   flag false and prints `46 tools · 0 can change the machine · one list for every machine in the
+   token's scope`; the same sheet with 9VH92BJ selected prints `46 tools · 15 can change the
+   machine`. The `Allow destructive tools` checkbox sits under the `0` as if it had nothing to
+   allow. **Cost:** the person minting a fleet token cannot tell whether the destructive tools are
+   in scope; the page and the device's `allow_destructive` gate disagree at the moment of minting.
+   **Fix:** use the registry's destructive flags, or the last live catalogue, for the fleet count;
+   say `the count is read from a machine` when the flags are unknown, never `0`. **S.**
+
+2. **The hub's day line is four calls longer than its own fold can reach.** *(Done 2026-11-06, f5b42f5, live 0.3.273-ux76: the hub keeps `/fleet`'s day pair (count + failed) and draws a repeats sentence beside the fold whenever the merged window drops repeats and no cut-window sentence already names them; the audit's shape now reads `Today 183 client calls · 8 failed · last 22:51`, `Show the rest of today (119 more)`, `4 repeats not drawn.` (60+119+4=183). 741 tests (+2), gate PASS 41 steps, a11y 0/3, `build-web --check`. Live: the hub draws `36 repeats not drawn.` beside its fold — the console's own reads are that population, while the day line stays the client calls' pair; screenshot /tmp/live-ux76-hub3.png.)* The hub read
+   `Today 183 client calls · 8 failed · last 22:51` with `Show the rest of today (119 more)` over
+   60 rows; 60 + 119 = 179, and clicking drew 179. The window held 183 client lines and four
+   repeated `(ts_ms, tool, status)` keys; the merge drops them and the hub says nothing, while
+   Activity's cap sentence names its repeats. **Cost:** the one number and the list under it cannot
+   be reconciled; four calls disappear after the operator asks for the rest of the day. **Fix:**
+   draw the hub's repeats sentence whenever the window drops repeats, not only when it is cut; or
+   count the day line from the drawable rows, one rule with Activity. **S.**
+
+3. **At 390 the Runs history is a 320 px table with an 80 px Command column.** *(Done 2026-11-06, e43e30c, live 0.3.273-ux77: at ≤639 the history is a card list — the command full width and wrapping (294×70 in the live check), the header `display:none`, Exit/Duration/Started/stdout/stderr as labelled lines, and no sideways scroll (document 390/390); the 1440 table is unchanged (header 1,004 px, command 655 px, row 58 px). 743 tests (+2), gate PASS 43 steps (a 1440 table leg and a 390 card leg), a11y 0/3, `build-web --check`. Screenshot /tmp/live-ux77-runs390.png.)* The first run's
+   command is 283 px tall (`powershe / ll.exe - / NoProfil / e - …`), the `stdout / stderr` header
+   wraps in a 52 px cell, and at that row height the 20-run history is a 5,660 px column. At 1440
+   Command is 679 px and a row is 57 px. **Cost:** the phone's run history cannot be scanned or a
+   command identified; the page's stated job — "Choose a command to read its record" — fails.
+   **Fix:** at ≤639 card each run: command full width and wrapping, then exit, duration, started,
+   output sizes; hide the header. **S.**
+
+4. **At 390 the token card squeezes the token's name to 26 px.** *(Done 2026-11-06, b2a1836, live 0.3.273-ux78: at ≤639 the card is one column — the name full width on one line (live 349×20, was 26×176 over 9 lines), the scope sentence under it, the Rotate/Revoke row and the dates kept, document 390/390 and the list 349/349 (no sideways); above 640 the desktop card is untouched. 743 tests, gate PASS 44 steps (the audit's fleet-token shape; the 390 name box > 200 px), a11y 0/3, `build-web --check`. Screenshot /tmp/live-ux78-tokens390.png.)* The card grid puts the name in
+   `minmax(0, 1fr)` beside an `auto` scope; a three-machine scope is 337 px, the name cell 0 px and
+   `.token-name strong` 26 × 176 px. `zss-harness-20261106-fleet` reads `zs / har / nes / s- / 202 /
+   611 / 06- / flee / t` and the row is 414 px tall; at 1440 the same row is one line. **Cost:** on
+   the phone the operator cannot tell which credential they are rotating or revoking, the one
+   field that identifies it being unreadable. **Fix:** at ≤639 make the card one column — name full
+   width with the scope under it — or cap the scope cell and let it wrap; keep the action row.
+   **S.**
+
+## P0 — the fifteenth list (opened 2026-11-06, from the audit of 0.3.273-ux78)
+
+Measured on the live console at 1440×960 and 390×844, Asia/Shanghai, selected machine 9VH92BJ
+(0.3.284), with 14RJCR8 offline (0.3.275), 84T3LIN 0.3.280, the device panel at 127.0.0.1:18090,
+and both MCP endpoints exercised with live tokens. The fourteenth list's four items hold. Ranked by
+the setup failure first, then honesty, then the phone, then recovery.
+
+1. **The two MCP endpoints take different token kinds, and the token list never says which endpoint a
+   token belongs to.** *(Done 2026-11-06, 1302298, live 0.3.273-ux79: `tokens.json` records carry `kind: device|fleet` and the list/create/rotate metadata carries `TokenMeta.kind`; an old file infers the door only from the `device_ids` shape (a contradicting kind quarantines the file), and the web prints `unknown · endpoint not recorded` when no fact proves it. The Scope cell prints `fleet · /mcp/all` vs `device · /mcp/<short>`; the Endpoint/Clients copy names the URL for the sheet's kind; a wrong-door live token gets the additive `message` naming its door. 411 console tests, 751 web tests, gate PASS 44 steps, a11y 0/3, `build-web --check`. Live: a fleet probe at `/mcp/<9VH>` answered `401 {"error":"unauthorized","message":"this token is for /mcp/all; a device endpoint takes a device token"}` and 200 at `/mcp/all`; the Tokens list reads `fleet · /mcp/all` and `device · /mcp/4c718d6e44c8…` (screenshot /tmp/live-ux79-doors.png); the probe was revoked.)* `/mcp/all` prints a fleet-scoped token's config, `/mcp/<id>` a device-scoped
+   token's. `test` (device, 9VH) and `e2e-connect` (aggregate with one device, 9VH) both read
+   `DESKTOP-9VH92BJ` in the fleet Tokens door; the device token is **401** at `/mcp/all`, the
+   aggregate **401** at `/mcp/9VH`, and the 401 is a bare `{"error":"unauthorized"}`. **Cost:** a
+   token that names the machine is refused at the URL the Clients tab prints; the operator and
+   client cannot tell the kinds apart and the first call fails. **Fix:** label `fleet · /mcp/all`
+   vs `device · /mcp/<short>` in the Scope cell and the Endpoint/Clients copy; or accept a token
+   whose recorded `device_ids` include the machine at `/mcp/<id>`; make the 401 name the door the
+   token opens. **M.**
+
+2. **The offline machine's token form counts the console's 46-tool fallback as the machine's.** *(Done 2026-11-06, fe74135, live 0.3.273-ux80: with 14R offline the form reads `46 tools (console registry; the machine is offline) · 15 can change the machine`, covers `DESKTOP-14RJCR8 (offline, last seen 1d 10h ago)`, and draws `The machine is offline. This form counts the static fallback; the console refuses a plugin tool it cannot verify.` above the presets; a known last live list is labelled as that. The online 9VH form is unchanged (`46 tools · 15 can change the machine`, plain coverage, no note). 754 tests, gate PASS 46 steps, a11y 0/3, `build-web --check`. Screenshots /tmp/live-ux80-14r-tokens.png, /tmp/live-ux80-9vh-tokens.png.)* With
+   14R offline, `/fleet/14R/tools` is 503 and `/tools` is 46, but the form says `This token will
+   cover DESKTOP-14RJCR8.` and `46 tools · 15 can change the machine`; the static-fallback sentence
+   appears only under `Choose tools…`, and the coverage sentence omits the offline state the fleet
+   form shows. **Cost:** the operator cannot tell the count is not the 0.3.275 machine's list; a
+   token minted with all 46 names may name tools the device does not advertise. **Fix:** show the
+   offline/static sentence on every preset, label the count as the console registry, and mark the
+   coverage sentence offline; use the last live list when known. **S.**
+
+3. **The update story is stale on the device panel and absent from the console.** *(Done 2026-11-06, 48d679b, live 0.3.273-ux81 / device 0.3.285: the panel reads `Last target 0.3.273`, `Last outcome applied`, `Last result 2026-11-05 03:11:05` (exact UTC in the title) and `Last check 2026-11-07 03:08:05` (UTC title 2026-11-06T19:08:05Z); the old `Target`/`Outcome` labels are gone. The Machine tab reads `running v0.3.285 · channel not reported · last check 2026-11-06 19:08 · last outcome applied to 0.3.273 on 2026-11-04 19:11` (missing facts are named, no invented source). The fleet marks `behind 0.3.285` on 84T3LIN v0.3.280 and CPH v0.3.284. 614 device tests, 766 web tests, gate PASS 48 steps, a11y 0/3, `build-web --check`. Screenshots /tmp/live-ux81-fleet.png, /tmp/live-ux81-machine.png; the 0.3.285 installer is on the console's /installer.)* The panel's
+   `BUILD Version 0.3.284` sits above `UPDATES Target 0.3.273 / Outcome applied / Last result
+   2026-11-04T19:11:05Z`, while `/api/panel`'s last check is today; `Target` is the last applied
+   target, and the card does not say so. The console's Machine tab has no update line; the fleet
+   row `84T3LIN v0.3.280` sits beside the 0.3.284 installer with no cue. **Cost:** the panel's
+   target reads as an older current target; the operator cannot tell if a machine is current, which
+   source it uses, or that 84T3LIN is at 0.3.280 while the installer is 0.3.284. **Fix:** label
+   `Last target` / `Last outcome` and show `Last check` locally; render the fleet's
+   update/channel on the Machine tab and mark versions behind the staged installer. **M.**
+
+4. **An empty range's Export JSONL downloads a 0-byte file.** *(Done 2026-11-06, 3ae4194, live 0.3.273-ux82: the JSONL predicate is now `loading || rangeError || lines.length === 0`, so a chosen range with 0 lines disables both formats and a press makes no `/audit/export` request; a non-empty range keeps both enabled with the same attachment. 768 tests (+2), gate PASS 48 steps, a11y 0/3, `build-web --check`. Live: `Showing 00:00–23:59 of 11-08, 0 lines` leaves Export JSONL and Export CSV both disabled; screenshot /tmp/live-ux82-empty-range.png.)* `Showing 00:00–23:59 of 11-08, 0
+   lines` leaves `Export JSONL` enabled while `Export CSV` is disabled; a press downloads a 0-byte
+   `.ndjson` with no sentence. **Cost:** the export appears to succeed but carries nothing; an empty
+   range is indistinguishable from a failed export. **Fix:** disable both exports on a 0-line range,
+   or answer with the range's empty sentence. **S.**
+
+5. **The offline machine's Tools tab says "Reading the tool list…" forever.** *(Done 2026-11-06, d8d586b, live 0.3.273-ux83: the header is state-derived — the count when loaded, `Reading the tool list…` only while loading, `No tool list from this machine; it is offline.` when finished empty and offline, `No tool list from this machine.` when finished empty online. Live 14R: no Reading, the offline header and the body's no-list sentence; 9VH: `46 tools · 11 capabilities`. 771 tests (+3), gate PASS 48 steps, a11y 0/3, `build-web --check`. Screenshots /tmp/live-ux83-14r-tools.png, /tmp/live-ux83-9vh-tools.png.)* At 9 s the header still
+   reads `Reading the tool list…` above `The console has no tool list from this machine yet.`; the
+   header keys on `tools.length === 0`, not `loading`. **Cost:** a read that cannot finish is
+   announced as in progress; the operator waits or retries against an offline machine. **Fix:** use
+   `loading` for `Reading…`, and the offline state for `No tool list from this machine`. **S.**
+
+6. **At 390 the Device page hides its Connect button.** *(Done 2026-11-06, d29c45b, live 0.3.273-ux84: at ≤639 `.device-connect` is a visible 59×28 on the title row (right 374, document 390/390), named "Connect a client", and a click opens this machine's Connect sheet with its `/mcp/<id>` endpoint; at 1440 it is unchanged (59×28 at right 1358). 772 tests, gate PASS 50 steps (a 1440 measurement and a 390 visible/click leg), a11y 0/3, `build-web --check`. Screenshots /tmp/live-ux84-connect-390.png, /tmp/live-ux84-connect-1440.png.)* `.device-connect` is `display:none` at ≤639
+   (the button exists but `offsetParent === null`); the only doors are the header's unlabeled account
+   icon or Home. At 1440 the button is a visible 59×28 at x 1299. **Cost:** on a phone the machine
+   page loses its one per-machine endpoint/credential action. **Fix:** keep a compact Connect control
+   at ≤639. **S.**
+
+7. **Screen → Browser shows the raw `chrome exited with exit code: 1002` error with no recovery
+   sentence.** *(Done 2026-11-06, d466224, live 0.3.273-ux85: a launch-failed `browser.list` reads `The device's browser did not come up.` (or `The device's browser page endpoint did not answer.` for the timeout shape) with one hint, `Stop the browser, then choose Refresh pages to start it again.`; the raw answer (exit code, loopback port, stderr note) sits in a closed `<details>` named `The device's answer`, not the primary line. Live 9VH: the failure shows the sentence and the hint, and the raw text is not in the page text; unmapped refusals keep their own sentence. 774 tests (+2), gate PASS 50 steps, a11y 0/3, `build-web --check`. Screenshot /tmp/live-ux85-browser.png.)* The primary line includes `http://127.0.0.1:62544/json/version` and `no stderr
+   output`; only `Refresh pages` and `Stop browser` are enabled, and neither is explained. **Cost:**
+   the operator sees an internal failure and can only repeat the same call. **Fix:** map it to a
+   sentence with a Stop/Retry/Restart action; keep the raw text behind evidence. **S.**
+
+8. **The session card's Last input is `[I`.** *(Done 2026-11-06, 2f6fd3d (web) + 8b32e64 (console), live 0.3.273-ux87: the live `/events` evidence was `{"input":"[I","session":"session-1"}` — the console's sanitizer had stripped the ESC, so the web's typedText could not tell it was control-only. The console now reads the raw data and omits the input for a control-only write, keeping the session; the web's typedText stays as the second line. Live: a fresh pty session-2's card reads `No keystroke recorded for this session yet.` before and after the xterm focus, and `x · 2s ago` after typing. 783 web tests, 245 console integration + 157 lib, fmt/clippy, gate PASS 50 steps, a11y 0/3, `build-web --check`. Screenshot /tmp/live-ux87-card.png.)* Opening a pty with no typing shows `Last input [I 4s
+   ago`; the xterm focus sequence `ESC[I` was written to the session. **Cost:** the card's first
+   input fact is a phantom control sequence, not a keystroke. **Fix:** ignore control-only input in
+   `lastTypedInput`, or label it; fall back to `No keystroke recorded`. **S.**
+
+9. **The Machine tab says "Helper not running" when the fact is "not registered".** *(Done 2026-11-06, 96f9c28, live 0.3.273-ux87: the Machine tab reads `Helper | not registered this boot` for the fleet's `registered:false`, `not reported` when no fact exists, and appends pid/session only when the fleet reports them; `not running` is gone from the built page. 783 web tests (+3), gate PASS 50 steps, a11y 0/3, `build-web --check`. Screenshot /tmp/live-ux87-machine.png.)* The fleet read is
+   `helper: {pid:null, registered:false, session:null}` and the Screen page says "has not
+   registered"; the Machine tab's `not running` claims a process state the console did not read.
+   **Cost:** the operator may hunt a stopped process; the two surfaces describe one fact
+   differently. **Fix:** say `not registered` / `no helper registered this boot`; show pid/session
+   only when known. **S.**
+
+## P0 — the sixteenth list (opened 2026-11-06, from the audit of 0.3.273-ux87)
+
+Measured on the live console at 1440×960 and 390×844, Asia/Shanghai, selected machine 9VH92BJ
+(0.3.285), with 14RJCR8 0.3.275 and CPH4KB2 offline at tour time, 84T3LIN 0.3.280 online, and the
+device panel at 127.0.0.1:18090. Ranked by the setup failure and the data loss first, then the
+record, then the panel, then the smaller corrections.
+
+1. **"Add a machine" in the machine menu mints a code the page never shows.** *(Done 2026-11-06, f43bb88, live 0.3.273-ux88: `addMachine` clears the selected machine (`choose(null)`) before minting, so the machine chip's Add a machine lands on the fleet (header `All machines`) with the server's code in the enrollment panel, Copy and the command; one press is exactly one `POST /enroll`, a live code in hand is shown again, and an in-flight mint is blocked. 785 tests (+2), gate PASS 50 steps, a11y 0/3, `build-web --check`. Live: the chip → Add a machine → 64-hex code `b6e70129a4…` + Copy + command, one POST /enroll; screenshot /tmp/live-ux88-addmachine.png.)* The menu item calls
+   `POST /enroll` (200, 64-hex code, 15-minute expiry) and leaves the selected machine's hub on
+   screen; the code appears only after `All machines` is chosen. **Cost:** the setup action looks
+   dead; repeated presses mint more one-time codes; the operator cannot copy the command. **Fix:**
+   clear the selected machine before minting (`choose(null)`) or show the code in a sheet. **S/M.**
+
+2. **The Files editor discards unsaved changes when Close is pressed.** *(Done 2026-11-06, 4a395a3, live 0.3.273-ux89: a clean Close behaves as before; a dirty one opens a modal titled `Discard unsaved changes?` naming the file and saying the device keeps the last saved bytes, with Cancel (focused) and `Discard changes`; the viewer and draft stay until Discard, Cancel/Escape keeps them, and discarding sends no `files.write`. 787 tests (+2), gate PASS 50 steps, a11y 0/3, `build-web --check`. Live: the audit's 22 B file edited → Close shows the dialog; Cancel keeps the dirty editor; screenshot /tmp/live-ux89-close.png.)* `Unsaved changes.` is
+   drawn, but `Close` clears the viewer with no dialog; reopening returns the original bytes.
+   **Cost:** a file edit is lost in one click; the page's warning is not a guard. **Fix:** ask
+   `Discard unsaved changes?` when `dirty`, or disable Close until Save/Discard. **S.**
+
+3. **The Runs record's full command buries exit/duration/started.** *(Done 2026-11-06, fbbd71f, live 0.3.273-ux90: the record draws Exit/Duration/Started/Working directory/stdout/stderr directly under its header, and a long command is painted as a 109-char short form with `4,481 of 4,590 characters hidden.` and a `Show full command` toggle (aria-expanded/aria-controls) that swaps in the exact line; Copy command still copies the full. Gate: at 1440 the card is 1,551→461 px and the facts move y 1,400/1,433/1,466 → 275/308/341; at 390 2,264→519 and 2,106/2,139/2,172 → 104/137/170. 789 tests (+2), gate PASS 51 steps, a11y 0/3, `build-web --check`. Live: the audit's long run's record shows the hidden count, the toggle and the facts above the command (screenshot /tmp/live-ux90-record.png).)* The record paints the full
+   4,590-character `-EncodedCommand` line: 1,190 px of a 1,551 px card at 1440, 1,866 px of a
+   2,299 px card at 390; the facts begin at y 1,393/2,114. **Cost:** the record's one job is below
+   the fold; the operator scrolls base64 to read the exit. **Fix:** `shortCommand` in the record
+   with a `Show full command` toggle, or facts above the command. **S/M.**
+
+4. **The panel's 200-row Timeline card buries Build, Updates and Connect.** *(Done 2026-11-06, 51c4465, live 0.3.286 on the 9VH: the cards are Console → Build → Updates → Connect → Timeline → Terminal → Diagnostics, and the Timeline draws its 20 newest rows with the rest in `<details class="timeline-rest">` (`Show the other 80 calls`, closed; all 100 rows in the DOM; the cut day reads `Today (continued)`). Live render of the 9VH's own 0.3.286 panel: Build y 427/561 (was 4,636/7,625), Updates 622/887, Connect 961/1,438, Timeline 1,239/1,848 (was 3,284/5,911) at 1440/390; screenshots /tmp/live-ux92-panel-1440.png and /tmp/live-ux92-panel-390.png. 617 unit tests, fmt/clippy, layout-gate 0 failures. The channel delivered 0.3.286 to the 9VH; the console door carries SummriseSetup-0.3.287.exe. The review render (100 calls) measures Build y 4,870→463 at 1440 and 7,908→598 at 390, Updates 5,065→658 / 8,234→924, the timeline 3,506→891 / 6,187→1,445, and the fold opens all 100 rows (nothing dropped). 617 unit tests, fmt/clippy, layout-gate 0 failures. The 9VH is still 0.3.285 (the channel's interval); the manual `--check-update` fetched 0.3.286 but the launcher refused: `staged artifact C:\Program Files\Summrise\versions\0.3.286 is missing` — recorded as item 8 below.)* The panel's card order
+   puts Build at y 4,636 (1440) / 7,625 (390) and Updates at 4,830/7,951; the timeline is
+   3,284/5,911 px. **Cost:** the operator scrolls 4–8k px past the call log to see the build or the
+   last check. **Fix:** fold the timeline after e.g. 20 rows, or move Build/Updates/Connect above
+   it. **S/M.** (Device-side panel release.)
+
+5. **The shared root's unreadable state keeps the write controls live.** *(Done 2026-11-06, 917cfa9, live 0.3.273-ux91: after the root's first listing fails, Create and Upload are disabled (Refresh and the Root select stay live) with the hint `New folder and Upload a file are unavailable until this root can be listed; Refresh tries again.`; a successful listing re-enables them, a readable root is unchanged, and a disabled submit cannot repeat the refusal. 790 tests, gate PASS 51 steps, a11y 0/3, `build-web --check`. Live: the Shared root shows the no-shared-root fact, the hint, Upload/Create disabled and Refresh enabled; screenshot /tmp/live-ux91-shared.png.)* With `no shared root is
+   configured on this device`, `Upload a file`/`Create` stay enabled; an upload repeats the same
+   refusal. **Cost:** the page offers an action that can only fail and repeats the error. **Fix:**
+   disable write controls after a failed first listing (keep Refresh). **S.**
+
+6. **The Runs record's Started is an age, not an instant.** *(Done 2026-11-06, 6fadbf7, live 0.3.273-ux91: the record's Started is a `<time>` with the local instant (`2026-11-06 22:19`), the exact UTC in its `title` and datetime, and the age beside it (`· 38s ago`); the instant does not move on refresh, only the age. 791 tests (+1), gate PASS 52 steps (the fixture asserts dateTime/title/text before and after a 1.2 s refresh), a11y 0/3, `build-web --check`. Live: datetime 2026-11-06T22:19:08.893Z, the title's exact UTC and the local text; screenshot /tmp/live-ux91-started.png.)* `21m 04s ago` becomes `21m 11s ago` six
+   seconds later; the `<dd>` has no title/datetime. **Cost:** the record's start cannot be matched
+   to a log or another record and changes while read. **Fix:** show the local instant with the
+   exact title, age beside it. **S.**
+
+7. **The rotate dialog omits what happens to the expiry.** *(Done 2026-11-06, eb92f9b, live 0.3.273-ux92: the dialog says `The new token's expiry is a fresh period of the same length, counted from this rotation — or never, if this token never expires.`; the result panel names the rotate response's own `expires_at_ms` (`This token expires <time>…` with the exact title, or `This token never expires.`), and the list's date-only cell is unchanged. 793 tests (+2), gate PASS 52 steps, a11y 0/3, `build-web --check`. Live: the Tokens sheet's Rotate dialog carries the sentence; screenshot /tmp/live-ux92-rotate.png.)*
+8. **The manual update check cannot install the fetched release.** *(Implemented 2026-11-06, a057dc4: `--apply` now receives the staged file (`<install>\versions\<v>\summrise-device.exe`) instead of the version directory, and a missing artifact is reported by name without invoking the launcher or moving `current.txt`; 619 unit tests, fmt/clippy. 0.3.287 is published and its installer is on the console door. The live 9VH proof is blocked: a silent installer run stopped `SummriseLaunch` and the device went offline at ~23:02 UTC; the operator was mailed the exact state and fix (`sc start SummriseLaunch` or a reboot). The installer's silent start is item 9.)*
+
+9. **The silent installer leaves SummriseLaunch stopped.** *(Done 2026-11-07, 8d4f554 + 0.3.289. The killing step was measured, not guessed: `sc stop SummriseLaunch` makes the **installed 0.3.279 launcher** exit, and its kill-on-close child job kills both the setup waiting in the stop wait and the app hosting the caller's `runs.exec` (the 502). The setup log stops at `stop: sc stop: exit 0`; the next StopRuntime line never lands. `SILENT_BREAKAWAY_OK` could not help: it lives in the launcher being installed, and an upgrade is stopped by the launcher it replaces. The relay (`SummriseSetupRelay`, onstart/SYSTEM, runs the same setup `/S /RELAYED` outside the job, then exit 3) is the fix, and the repair/shell task registrations' quoting was also fixed (they had never worked: `Command=C:\Program` + `Arguments=Files\Summrise\repair.cmd`, 0x80070002). LIVE on the 84T 0.3.280→0.3.289: `runs.exec` returned `installer-exit=3` in ~1 s (service RUNNING, no 502), the relay installed, `sc.exe query` is `STATE: 4 RUNNING`, the log ends `service: SummriseLaunch is RUNNING at the end of the install; exit 0`, and the 84T is online 0.3.289.)*
+
+10. **A `/S` install still disconnects the device it runs through.** *(Fixed 2026-11-07, 8d4f554 + 0.3.289, proven live on the 84T: the installed launcher's kill-on-close job was the killer; the relay runs the setup outside the job and returns exit 3, the install completes, and the service ends RUNNING. A residual is item 11. The 9VH host still runs 0.3.288 and will take 0.3.289 by its channel; it was not `/S`'d again.)*
+
+11. **The relayed install's shell task still fails to start.** *(Measured 2026-11-07 on the 84T 0.3.289: the relayed `/S` install logs `shell task run: 1` and "the system cannot find the file specified", so the shell-start task the installer registers is still not runnable after the quoting fix. **Fix:** check the task's actual Command/Arguments and the schtasks invocation in the relayed path, or drop the shell task if the launcher's own autostart covers it. **S.** (installer.)*
+
+## P0 — the seventeenth list (opened 2026-11-06, from the audit of 0.3.273-ux92)
+
+Measured on the live console at 1440×960 and 390×844, Asia/Shanghai, selected machine
+DESKTOP-84T3LIN (0.3.280) for the device pages, with the 9VH 0.3.286 offline and 14R/CPH offline,
+and the 84T's panel at 127.0.0.1:18090. Ranked by the outage's timeline first, then the only online
+machine's update story, then the controls.
+
+1. **The last start is dropped when it repeats the header's version.** *(Live 0.3.273-ux93: the 9VH's Machine tab and fleet row both read `started 0.3.288 · 6m ago` with the exact title `2026-11-07 06:31:57 (…Z)`. Implemented 2026-11-06, 5315dea: `startedStory()` dates a start verdict from `host.restarts[0].at_ms` even when the version repeats the chip; the fleet row and the Machine tab draw `started 0.3.286 · 24m ago` with the exact title, and a `last_update` older than the start is labelled `last recorded outcome before this start`. 798 tests, gate 53 steps, a11y 0/3, `build-web --check`. The live check is blocked: `console-deploy.sh` fetches and swaps the console binary through `runs.exec` on the host device (the 9VH), and that device is offline, so ux93 cannot reach the console until the operator restarts `SummriseLaunch`; the code is committed and the console is ux92. Recorded as item 7 below.)*
+
+2. **The 84T's update story says "channel not reported" and never names its verdict or 14 console retries.** *(Implemented 2026-11-07, b8bad5d: `updateChannel()` reads `host.restarts[0].channel` (falling back to `update.current.channel`), the Machine line says `verdict ok · started 0.3.280 · 41m ago` when `last_update` is absent, the device's `console_attempt` (last_attempt) is drawn and `/fleet` serves `channel_activity {joined,left,window}` from the audit as the fallback, and the Machine tab names the panel's `Check for updates now` as the local check. 806 tests, gate 55 steps, a11y 0/3, `build-web --check`, console Rust tests. The live check is deferred: the console deploy is blocked by the 9VH's outage (item 7).)*
+
+3. **Screen capture is refused by the helper's disconnected session, but the page predicts only "locked and disconnected" in general.** *(Live 2026-11-07 on the 84T: the helper's session 2 is disconnected, Capture screen is disabled, and the sentence names session 2 and the way out. Implemented 4a84d46.)* The helper is registered in session 2; #2 is
+   disconnected; `Capture screen` is live and answers `screen.capture: the capture thread could not
+   attach to the input desktop: 拒绝访问。 (os error 5)`. The facts are on the Machine tab as
+   `Helper session 2` and `#2 disconnected`. **Cost:** a daily action is invited into a refusal the
+   page already knows; the error has no next step. **Fix:** pass the helper's session/state and say
+   it before the press; disable or annotate the button. **S/M.**
+
+4. **The Terminal session card says "No keystroke recorded" after a reload.** *(Live 0.3.273-ux93 with a fresh pty: a typed `echo audit40-terminal` draws `Last input echo audit40-terminal 3s ago` (the split joined whole), and a reload says `No keystroke recorded since this page opened.` — the scoped sentence. Implemented 5605033.)* At 390 the card reads
+   `session-3 / opened 9m 14s ago / No keystroke recorded for this session yet`, while the xterm
+   shows `echo audit37-terminal`; at 1440 the card's LAST INPUT is the one-character-short fragment
+   `cho audit37-terminal`. The card reads only the live 200-line feed. **Cost:** the first block on
+   the Terminal page is false after a reload; the audit has the evidence. **Fix:** read the
+   session's audit evidence, or say "since this page opened"; accumulate the line. **S.**
+
+5. **The fleet card says "calls" when it counts client calls only.** *(Live 0.3.273-ux93: the fleet row reads `146 client calls · 9 failed`. Implemented 2f5763a.)* The 9VH reads
+   `141 calls · 4 failed` beside `Console reads · 238`; the 84T's hub reads `Today 3 client calls`
+   beside `Console reads · 37`; the hub's day line says `client calls`. **Cost:** the row undercounts
+   the machine's work and makes the hub's client count look contradictory. **Fix:** `141 client
+   calls`. **S.**
+
+6. **The offline hub tells the operator to open the machine's panel, which it neither links nor addresses.** *(Live 0.3.273-ux93: the 14R hub's notice carries the `Device → Machine` link (`#device/machine`) and `http://127.0.0.1:18090/` as code text, Retry intact. Implemented 2026-11-07, ab7db34: the offline notice says `The console keeps trying; Retry works from here. If it stays offline, open Device → Machine in the console for the machine's last facts. The machine's local panel is http://127.0.0.1:18090/ — it opens only at the machine.`; Device → Machine is a real `#device/machine` anchor (the gate clicks it and lands on the Machine tab), the panel URL is code text, and both branches carry the advice. 821 tests, gate 58 steps, a11y 0/3, `build-web --check` exit 0 after the commit. The live check waits for the 9VH.)*
+
+7. **The console's own deploy needs its host device's shell.** *(Live 2026-11-07: the deploy printed `the host device's door is open: DESKTOP-9VH92BJ is connected; the fetch and the swap will run through its shell`; the swap's answer was lost in the console restart and the script polled to 0.3.273-ux93. Implemented 2026-11-07, a4ee2f4: `console-deploy.sh` preflights the host device's door (/health + a read-only state.get through /mcp) before building or fetching; a 503 stops before anything is built and reads `the host device's door is closed; nothing was built or fetched: a console deploy fetches and swaps through DESKTOP-9VH92BJ's shell ... /mcp answered 503 device reconnecting, retry in 1000 ms`. The script POSTs /mcp itself so the error body survives; a fetch/digest/swap refusal after preflight reuses the words; a swap refusal after the stop reads `outcome unknown, poll`. A loopback harness covers reconnecting/open/console-down and is wired into CI; `bash -n`, the harness and the yaml check pass. No local/service path exists: the console exposes no command/file route and the Linux box's only shell on the host is the device channel. The open-door live path waits for the 9VH.)*
+
+8. **The hour after midnight breaks the last-hour window.** *(Fixed 2026-11-07, d42b9cb: the production `presetRange("hour")` was already instant-based (6e37747); the three failures were the checks/fixture — the App test and the gate asserted a single-date sentence, and the HomePage `todayCalls` fixture sat at 01:00 (in the future until then). The checks now assert the requested range (the gate mirrors `rangeText`), the fixture is anchored to `now` and compressed toward midnight, and `auditTime.test.ts` pins 00:30 (23:30–00:30 spans both days), 12:00 and Today's 00:00 boundary. 824 tests, gate 58 steps, a11y 0/3, `build-web --check` exit 0; a 00:30 harness run passes App+HomePage (114 tests) and the gate.)*
+
+9. **The first seconds after midnight turn relative fixtures into yesterday.** *(Fixed 2026-11-07, e84cadf: the three HomePage fixtures now pin Date.now() to a fixed local 2026-11-05 14:45 with try/finally; production code and assertions unchanged; a harness clock at 00:00 reproduced 3 failed | 50 passed before and 824/824 at 00:00, 00:30 and 12:00 after; typecheck, 824 tests, gate 58 steps, a11y 0/3, `build-web --check` exit 0, dist unchanged.)*
+
+## P0 — the eighteenth list (opened 2026-11-07, from the audit of 0.3.273-ux92)
+
+Measured 2026-11-07 03:22–05:15 UTC on the live console at 1440×960 and 390×844, Asia/Shanghai, with
+the 84T3LIN 0.3.280 online and the 9VH 0.3.286 / CPH 0.3.285 / 14R 0.3.275 offline; the 9VH's last
+frame is 2026-11-06T22:40:26.841Z. Eight evidence-backed findings; the audit-37 items already carried
+are not repeated.
+
+1. **A pending or failed /fleet reads "No machines yet".** *(Live 0.3.273-ux93: a route-aborted /fleet draws `The console could not read the machine list.` + Retry, never `No machines yet` or the enrollment CTA. Implemented e670c7e.)* A slow or failed `/fleet` is drawn as
+   `0 machines · 0 online` / `No machines yet` with the enrollment CTA; Dismiss leaves a clean empty
+   page. **Cost:** the setup action is offered to a fleet the console simply could not read.
+   **Fix:** pending says it is reading, failed says it could not read with the reason and a retry;
+   `No machines yet` only for a confirmed empty fleet. **S/M.**
+
+2. **The global error banner reads "The console could not read Failed to fetch".** *(Live 0.3.273-ux93: the same failure's banner names the machine list, no raw `Failed to fetch`. Implemented 03a57ee.)* Raw fetch text,
+   no subject, no retry, and it can duplicate. **Cost:** the operator cannot tell what failed or
+   what to do. **Fix:** name the failed read and offer retry; one banner per failure. **S.**
+
+3. **The offline hub's Retry has no visible effect.** *(Live 0.3.273-ux93: the 14R Retry is disabled as `Retrying…`, then the same notice states `Still offline · last checked HH:MM.`; one press is one read. The first probe read a 160/220-char prefix and missed the appended outcome; the missing button-to-hook seam is now tested by HomePage.retry.test.tsx (523c9fc).)* The 9VH hub's Retry refetches but is
+   byte-identical before and after (4,208 chars), with no spinner or result, indistinguishable from
+   the 5 s poll. **Cost:** the one action on an outage page looks dead. **Fix:** show the attempt and
+   its outcome (same result counts). **S.**
+
+4. **The MCP door's 503 and the console's own tool read disagree.** *(Live 0.3.273-ux94: `/fleet/<14R>/tools` answers `503 device not connected` with `this machine is not connected since 1d 23h ago; connect it, then try again`; the online 9VH's tools read is 200. The MCP door now dates the silence the same way; the wrong-door 401 is item 5. Implemented 492a642.)* `/mcp` answers 503
+   `retry-after: 1` / `{"error":"device reconnecting","retry_after_ms":1000}` for the 9VH after 5 h,
+   while `/fleet/<id>/tools` says `this machine is not connected; connect it, then try again`.
+   **Cost:** two surfaces describe one state differently; "reconnecting" cannot be true after 5 h.
+   **Fix:** one sentence derived from the device's last frame, with the age. **S/M.**
+
+5. **Missing, bogus and revoked tokens get bare 401s with no message or WWW-Authenticate;** *(Live 0.3.273-ux94: no token → 401 naming `/mcp/all` and the bearer shape, with `WWW-Authenticate: Bearer realm="summrise-console"`; a fleet token at a device door names the wrong door; `/mcp/deadbeef` → 404 `unknown_device` with the Machines-page hint; an out-of-scope device → 403 -32001 "not in the token's fleet. Mint a token that includes it". Implemented 492a642; the sign-in page's sentence is item 9.)* a valid
+   token at `/mcp/deadbeef` gets "another machine's endpoint"; an unknown device's `state.get` gets
+   -32001 "device not permitted by token"; bad operator sign-in shows "401 unauthorized". **Cost:**
+   an AI client cannot tell a wrong door from a revoked secret from a typo. **Fix:** name the door and
+   the reason; keep one shape. **S/M.**
+
+6. **Activity claims it is following a failed audit.** *(Live 0.3.273-ux94: a route-aborted `/audit` draws `could not read the fleet's audit: Failed to fetch. This timeline shows only calls that arrive live.` + Retry, no "Following the console's audit". Implemented aca00df.)* When `/audit` failed, the page still says
+   "Following the console's audit as it is written" (live-only rows, no counts, no hub-style notice);
+   a slow `/audit` labels known machines `unknown machine · <hex>` and drops the selected header.
+   **Cost:** the audit view lies about its source and loses the machine's identity while loading.
+   **Fix:** say when the audit read failed; keep the selected header through the slow read. **S/M.**
+
+7. **The offline Machine tab's last-frame facts read present tense.** *(Live 0.3.273-ux95: the 14R's Machine page says `Last seen 2d 0h ago. Nothing on this page can reach it until it reconnects; the console keeps trying on its own.` — dated from `last_seen_ms`. The 14R carries no `host` facts, so the fact block honestly reads "no machine facts from this device yet". Implemented 2662bd5.)* The 9VH's Machine tab shows
+   `Sessions … #3 connected` and `Helper not registered this boot` from the 22:40 frame. **Cost:** a
+   five-hour-old frame is read as now. **Fix:** date the fact block with the frame's age. **S.**
+
+8. **An unknown selected id strands Activity.** *(Live 0.3.273-ux95: the fallback sentence and Clear work, but the timeline's chips still draw `unknown machine · deadbeefdead` and `unknown machine · fe209fc2d86a` — line-derived ids the fleet no longer lists. The goneId skip covers only the selected id; the broader line-derived chip is item 10. Partial: 2662bd5.)* A selected id not in `/fleet` leaves Activity on
+   `unknown machine · deadbeefdead / No activity on deadbeefdead…` while Home/Device fall back; the
+   fleet row menu's Remove is the real path. **Cost:** the page looks broken until the id is
+   cleared. **Fix:** fall back like Home/Device and say the machine is not in the fleet. **S.**
+
+9. **The sign-in page ignores the server's 401 sentence.** *(Implemented 2026-11-07, 7ee26f8, but the LIVE IS UNVERIFIED: the sign-in panel renders only when `session.authenticated` is false (the `!session.authenticated` branch); `#signin` is not a route, and the proxied console never drops the session, so no reachable path rendered the panel — `#signin` and a wrong token both left the page authenticated. The unit tests cover both 401 shapes (a message shown, a bare `error` falling back).)* *(Measured 2026-11-07: /auth's 401 now says "that token was not accepted; the operator token is the 64 hex characters in the file named by --operator-token-file", but App.tsx still draws "The console could not sign you in." with "401 unauthorized" in its title. **Fix:** surface the server's message. **S.** (web.)*
+
+10. **Activity's line-derived chips label old ids as unknown machines.** *(Live 0.3.273-ux96: the chips read `All machines / DESKTOP-9VH92BJ / DESKTOP-14RJCR8 / DESKTOP-CPH4KB2 / DESKTOP-84T3LIN / old id · deadbeefdead… · 5h ago / old id · fe209fc2d86a… · 10h ago`; `unknown machine` is gone. Implemented 1a9f24f.)* *(Live 0.3.273-ux95: with the selected id deadbeefdead, the timeline's chips draw `unknown machine · deadbeefdead` and `unknown machine · fe209fc2d86a`; machineOptions' goneId skips only the selected id, and every line-named id the fleet no longer lists is drawn as "unknown machine". The audit's F8 wanted known machines not labelled unknown; the line-derived chip needs a history shape (a dated old id, not a claim of unknown machine). **Fix:** for line-derived ids not in the fleet, label them as retired/old (with the age of their newest line) or drop them from the chips; the selected gone id gets none. **S.** (web; Activity.)*
+
+## P0 — the operator's direction (2026-11-07): 直观清晰一目了然
+
+The operator, looking at the live ux96 console: **"改了这么久我怎么感觉页面没有什么变化啊，Home和Activity两个长得差不多啊"**
+and **"我喜欢页面直观清晰一目了然"**. Measured on the live page the same day: Home is `Machines` + "4 machines ·
+3 online" + an installer card + four tall rows whose right side is `199 client calls · 11 failed`; Activity is
+`Activity` + five counters in one line + the same machine chips + search + a timeline. Both are gray page, white
+card, 13 px text, a list of machines and a string of counters — the shape is the same, and neither answers "what
+needs me?" before the eye reads four rows.
+
+This outranks the copy items below. The two pages must become two different tools:
+
+1. **Home is the verdict and the next action.** One large sentence at the top (e.g. "3 of 4 online · 1 needs
+   attention"), a `Needs attention` block with one row per problem (offline since when, behind which version)
+   and its action, then the fleet as a compact table (machine, status, version, started). The per-row `client
+   calls · failed` counters leave Home — that is Activity's noun. The installer stops being the first card.
+2. **Activity is the record.** One readable sentence for the day's counters (not five), the machine filter
+   labelled as a filter, bigger day headings, a timeline rail that reads as time. No installer, no verdict.
+3. **The visible shape must change, not just the words.** Type scale, spacing, status colour and section order
+   are part of the fix; the live check shows the before/after screenshots to the operator.
+
+**S.** (web; Home first, then Activity.)
+
+## P0 — the nineteenth list (opened 2026-11-07, from the audit of 0.3.273-ux96)
+
+Measured 2026-11-07 on the live console and the 0.3.289 devices (9VH moved to 0.3.289 at 10:04,
+CPH at 09:53, 84T at 09:55; 14R offline at 0.3.275). Seven findings; the previous lists' verified
+items are not repeated.
+
+1. **The update story names an apply older than the running version.** *(Live 0.3.273-ux99 on 0.3.290: the 9VH's Machine line reads `last outcome applied to 0.3.290 on 2026-11-07 16:22`. Implemented bc1af1e, release 0.3.290.)* The 9VH reads `last recorded
+   outcome before this start: applied to 0.3.273 on 2026-11-05 03:11` while on 0.3.289 (its restarts
+   show 0.3.284→0.3.289 since); the CPH says `applied to 0.3.275 on 2026-11-05 15:21` while on
+   0.3.289 (panel `Last target 0.3.275`); the 84T has no outcome/check at all after
+   0.3.280→0.3.289. **Cost:** the update story cannot be read as history. **Fix:** record each
+   applied version (the device's update record or the console's rendering of the restart journal's
+   versions), so `applied 0.3.289` follows the install. **M.**
+
+2. **An "old id" chip calls a live machine "not in the fleet".** *(Live 0.3.273-ux99: the 84T's chip is its fleet name; a 64-hex old id keeps its dated chip. Implemented b3773b7.)* The timeline draws
+   `old id · DESKTOP-84T3… · 37m ago` with title `not in the fleet: DESKTOP-84T3LIN` beside the live
+   `DESKTOP-84T3LIN` chip; the audit row carries `device_id: "DESKTOP-84T3LIN"` — a name from a 403
+   `device_not_permitted`. **Cost:** the chip contradicts the row it sits on. **Fix:** only 64-hex
+   `device_id`s get the retired-id shape; a name is matched to the fleet or left as the deny's own.
+   **S/M.**
+
+3. **A failed machine list hides enrollment and the installer.** *(Implemented b750c49; local pending/failed screenshots show the doors.)* Pending and failed `/fleet` states
+   draw only `Tokens` — no Add a machine, Install the device runtime, or download. **Cost:** a
+   console that could not read the fleet also removes every way to add one. **Fix:** keep the
+   enrollment/installer doors reachable with the failure stated. **S.**
+
+4. **One failed read is said three times and "Failed to fetch" is back in the page sentence.** *(Live 0.3.273-ux99: `Failed to fetch` exists only in titles. Implemented ca775dc.)*
+   Banner + empty-state line + `The console could not read …: Failed to fetch.` + Retry. **Cost:**
+   the page repeats one failure three ways and leaks the raw text the 18th list's fix removed.
+   **Fix:** one sentence per failure; the technical text in a title. **S.**
+
+5. **Activity counts client calls twice over two windows.** *(Fixed with the Activity redesign: one sentence, `client calls` once, `Clients only` labelled `rows in this window`. Implemented be4e510.)* `Today 199 client calls` beside
+   `Clients only · 400` (the fetched window); pressing draws 397 rows and the header keeps 199.
+   **Cost:** two numbers for the same noun; neither says which window it counts. **Fix:** one window
+   per count, labelled, or a single number reconciled with the rows. **S.**
+
+6. **The refused sign-in is a lowercase fragment in a plain paragraph, and the panel has no
+   address.** *(Live 0.3.273-ux99: `#signin` renders `Sign in to the console` with `Back to the console`; a refused token is capitalized and `role=alert`. Implemented ca775dc.)* `that token was not accepted; …` sits in `<p class="error" title="401 unauthorized">`
+   (no `role=alert`); `#signin` lands on `#home`; the panel is reachable only through Sign out.
+   **Cos
+t:** the sentence is unannounced and unfindable. **Fix:** a sentence, `role=alert`, and a `/signin`
+   route (or the sign-out path linked). **S.**
+
+7. **The channel trace counts joins/leaves without the window's span.** *(Implemented b739d09: `… in its newest 1,000 lines, spanning 17 h`; the 2000-vs-1000 claim is gone.)* `54 joins and 20 leaves … in
+   its newest 2000 lines` while the 1,000-line window spans 17 h. **Cost:** the rate is unreadable.
+   **Fix:** state the window's span (and the lines actually read). **S.**
+
+## P0 — the twentieth list (opened 2026-11-07, from the audit of ux99)
+
+Measured 2026-11-07 17:52–19:27 UTC on live 0.3.273-ux99; fleet 9VH 0.3.290, 84T 0.3.290, CPH 0.3.289
+offline, 14R 0.3.275 offline. The nineteenth list is live; these are the shape problems the operator's eye
+still finds.
+
+1. **Home has two identities.** *(Live 0.3.273-ux100 with a machine selected: Home keeps `2 of 4 online · 2 need attention`, the grouped attention rows, its `machine-summary` section and the table; the old hub moved to `Device → Overview`. Implemented 139d7a1.)* With a machine selected, Home drops the verdict / Needs attention / table and
+   becomes the old live timeline that still looks like Activity; the 14R/CPH problems vanish. **Fix:** Home keeps
+   the verdict and the attention rows for the whole fleet, with the selected machine's own summary as a section —
+   never a second Activity. **M.**
+
+2. **The console host's repair task is still broken on 0.3.290.** *(Implemented 16d6e98; **live on 0.3.291/84T**: the relayed `/S` succeeded and `SummriseRepair`'s XML is `<Command>"E:\Program Files\Summrise\repair.cmd"</Command>` (registered 2026-11-08T04:46:13), the service RUNNING and the 84T online 0.3.291. The 9VH's stale task still needs a real setup run — the channel cannot refresh it.)* DESKTOP-9VH92BJ's `SummriseRepair` is
+   `C:\Program` + `Files\Summrise\repair.cmd`, last result 0x80070002, every five minutes; the 84T's fixed task
+   returns 0. **Fix:** find why the 9VH's 0.3.290 install did not re-register the task (the installer skips the
+   re-registration on the "E:\Program Files\Summrise is already present; not written" path?) and repair it.
+   **M.**
+
+3. **The Machine tab's update story is a 12 px grey paragraph after the facts.** *(Live 0.3.273-ux100: the `Updates` card reads Applied 0.3.290 · Last outcome applied · Last result 2026-11-07 16:22 · Last check 2026-11-07 20:40 · Channel canary. Implemented c5e7359.)* The version is repeated three
+   times, the applied clause is last, and the bare `online` is an orphan; the device panel's UPDATES grid is the
+   clearer model. **Fix:** the UPDATES card's shape — target, result, when, applied — with one version per line.
+   **M.**
+
+4. **A failed read is still repeated.** *(Implemented 01d448e: one failure sentence with one Retry per failed read; the banner lost its Retry; the verdict no longer repeats it.)* Machines says it three times (banner, list stub, retry block) and Activity
+   twice, with two Retry buttons; the raw `Failed to fetch` is gone, the repetition is not. **Fix:** one sentence
+   and one Retry per failure. **S.**
+
+5. **At 390 Activity's chrome pushes the first record to y=600.** *(Implemented 01d448e: retired-id chips collapse below 640 px except an active scope; 390 first record y=536.)* The filter chrome plus two old-id chips take two
+   rows; the retired ids are already in the Table's device filter. **Fix:** at 390 the old-id chips collapse into
+   the device filter; the first record starts above the fold. **S.**
+
+6. **At 390 Home's attention rows push the table to y=644.** *(Implemented 01d448e: attention grouped per machine with one door; 390 fixture fleet card y=489.)* Four rows for two machines, four identical
+   `Open machine` buttons. **Fix:** group by machine (one row per machine, its problems listed) and compact the
+   actions. **S.**
+
+7. **Device with no machine is headed `Terminal`** *(Implemented 01d448e: `Choose a machine`, no tab strip, no Connect, title follows.)* and shows the tab strip above `Choose a machine`. **Fix:** title
+   the picker, hide the tabs until a machine is chosen. **S.**
+
+8. **`#signin` while signed in leads with the token form** *(Implemented 01d448e: `You are signed in`, primary Back, token form behind a closed disclosure.)* although the sentence says "already signed in". **Fix:**
+   lead with Back, put the token form behind a disclosure. **S.**
+
+9. **`— 2 from the console` has no noun.** *(Implemented 01d448e: `2 console failures`.)* The 2 is console failures, not the 59 console calls. **Fix:** name it.
+   **S.**
+
+10. **`the console has 0.3.290` names the installer/release as the console** *(Implemented 01d448e: `the release is 0.3.290`.)* (the console build is 0.3.273-ux99).
+    **Fix:** say the release, not the console. **S.**
+
+## P0 — the twenty-first list (opened 2026-11-07, from the audit of ux100)
+
+Measured 2026-11-07 20:47–21:22Z on live 0.3.273-ux100 at 1440 and 390; the 9VH applied 0.3.291 at
+20:55:49Z during the tour, the 84T is 0.3.291, CPH 0.3.289 offline 11h09m, 14R 0.3.275 offline
+2d12h. The twentieth list's items are live except its two residuals (this list's 5 and 6).
+
+1. **Device → Overview is Activity a second time.** *(Implemented c149319; the band is 95 px with no rows, the timeline holds the calls once.)* Its Now band's newest five calls are the first five
+   rows of its own Today timeline — the same ActivityTimeline rows under the same Today heading. **Fix:**
+   Overview keeps the machine's state and its one next action; the calls live only in the timeline below.
+   **M.**
+
+2. **At 390 the Device tab strip hides Machine.** *(Implemented 0e3fd6b: the strip is 358/447, scrollLeft 87, active Machine at 302..374 in 16..374.)* clientWidth 358 vs scrollWidth 447; the active
+   `Machine` sits at x=389–461 with scrollLeft 0, so `#device/machine` shows no selected tab. **Fix:** the
+   strip scrolls to the active tab (or wraps) so the selected tab is always visible. **M.**
+
+3. **At 390 the Connect sheet clips its instructions.** *(Implemented 0e3fd6b: the sheet is 390 px, body 389/389, endpoint sentence 349/349.)* Body 389 wide, content 440–596; the Tokens tab is
+   cut to "Toke", the endpoint paragraph cut mid-sentence. **Fix:** the sheet fits 390 with no sideways
+   clipping. **S.**
+
+4. **Activity → Table is an 8-control filter form.** *(Implemented 49164b7: one 60 px band with one Export menu; `When` is the timeline's clock + age; at 390 a 43 px filter row and the first card above the rail; the 87k px page is gone.)* At 1440 there are two Export buttons in two rows and
+   a relative-only `When` against the Timeline's clock; at 390 it is a 5-column grid in 320 px with its
+   first row at y=746 cut by the tab bar (page 87,476 px). **Fix:** one filter row, one Export, the same
+   time vocabulary as the timeline, a 390 layout that starts above the fold. **M.**
+
+5. **The 9VH's repair task is still the old split-command registration on 0.3.291.** *(Live 2026-11-08: the 9VH took 0.3.292 by channel and the app re-registered the task at start; `schtasks /Query /TN SummriseRepair /XML` now reads `<Command>"C:\Program Files\Summrise\repair.cmd"</Command>`. Implemented cc09af7.)* `SummriseRepair` is
+   `C:\Program` + `Files\Summrise\repair.cmd`, lastResult 0x80070002 at 21:15:01Z, every five minutes,
+   registered 2026-11-06T01:45:52 — the machine took 0.3.291 by channel, which never runs the setup, so
+   the task was never re-registered. The console shows no row for the task. **Fix:** re-register it on
+   the host by a real setup run (or make the launcher repair a stale task on boot), and show the task's
+   health on the Machine tab. **M.**
+
+6. **The 84T's update card says "Last check not recorded"** *(Implemented 3815230: no launcher-written check exists for that apply, so the card scopes the absence as "not recorded before this update", dates the 9VH's real check/apply to the second, and drops the duplicate `Last outcome applied` row.)* while the 9VH's shows the check six seconds
+   before its apply (20:55:43Z vs 20:55:49Z); "Last outcome applied" also repeats "Applied 0.3.291".
+   **Fix:** read the check the launcher writes, and drop the duplicate clause. **S/M.**
+
+7. **Every updated machine states one age twice:** *(Implemented 3815230: one age.)* `started 0.3.291 · 7m ago (updated 7m ago)` on Home and
+   every device tab except Machine; `last_update.at_ms == restarts[0].at_ms` on both online machines.
+   **Fix:** say it once. **S.**
+
+8. **The offline Overview's advice contradicts its own card.** *(Implemented 3815230: the absence is dated via `/health` `uptime_s`.)* It says to open `Device → Machine` "for
+   the machine's last facts", and that card says "The console has no machine facts from this device yet"
+   (14R/CPH) — true only of the console process, restarted ~20:40Z. **Fix:** date the absence, or keep the
+   last frame. **S/M.**
+
+9. **Activity's "Today: 18 client calls" sits above "486 rows in this window"** *(Implemented 3815230: the window's span is labelled.)* (a 24h37m window whose span
+   is stated nowhere) — 27× apart, same noun. **Fix:** label the window's span, or count the same window.
+   **S.**
+
+10. **The empty console says "Run the command" before the installer** *(Implemented 3815230: one zero state, the first-run/enrollment doors labelled and first.)*, shows the command last in an
+    unlabeled panel, and says `No machines yet` + `0 machines · 0 online`. **Fix:** the enrollment/installer
+    doors read as the next step, labelled; the zero state reads as one sentence. **S.**
+
+11. **At 390 the Files "Filter this folder" floats on its own row at x=101** *(Implemented 3815230: aligned with the other controls.)* while every other control
+    starts at x=33. **Fix:** align the control. **S.**
+
+12. **Screen offers an enabled Capture screen on a machine whose helper it says has not registered** *(Implemented 3815230: Capture is disabled with the reason.)* and
+    "a capture will be refused". **Fix:** disable it with the reason (as the 84T's disconnected-session case
+    already does). **S.**
+
+## P0 — the twenty-second list (opened 2026-11-07, from the audit of ux101)
+
+Measured 2026-11-07 22:27–23:07Z on live 0.3.273-ux101 at 1440 and 390; 9VH 0.3.292, 84T 0.3.291, CPH
+0.3.289 offline since 11-07T09:53Z, 14R 0.3.275 offline since 11-05T08:06Z. All twelve twenty-first-list
+items verified live.
+
+1. **Overview still draws Activity's day record.** *(Live 0.3.273-ux102: one `Today 29 client calls · 1 failed` day line + `All activity →`; 0 call rows. Implemented 76876e4.)* Under its Today heading it repeats the same rows
+   (05:44:54 / 05:44:37 / `2 calls · 17 s`) the Activity timeline already holds; a 29-row card. **Fix:** one
+   day line plus an All-activity link; the rows live in Activity. **M.**
+
+2. **The version is printed twice on Home and missing where it matters.** *(Implemented 9592d54: Home's STARTED is the age only; the Machine start line is `started 0.3.292 · 2h ago`; the 390 topbar keeps the version.)* Home shows `VERSION v0.3.292` and
+   `started 0.3.292 · 46m ago`; the Machine tab's start line has no version; at 390 the offline 14R/CPH Device
+   pages have no version anywhere (the topbar collapses to the name). **Fix:** one version per page, present at
+   390 and on the Machine tab. **S.**
+
+3. **The same Connect action has two names and two places.** *(Implemented 9592d54: one `Connect a client` in the shell head on every tab.)* `Connect` on the six Device tabs, `Connect a
+   client` on Overview and the Account menu, and it moves from the content to the shell header. **Fix:** one
+   name, one home. **S.**
+
+4. **The Table's line count is the window's, not the filter's.** *(Implemented 9592d54: the range sentence appends `N of the M lines match the filters`.)* `Showing the newest 993 lines` stays 993 with
+   44 failed rows, and `29 lines` sits directly above `No calls match` at 390. **Fix:** say what the count
+   counts, and that the filter found nothing. **S.**
+
+5. **The tools read has no pending state.** *(Implemented 69c0eaf: reading / failed (one notice, one Retry) / ready in Overview, Tools and Connect; no zero from an unanswered read.)* A fresh 84T Overview shows `0 tools · 0 capabilities` for a
+   46-tool machine; a failed read is two identical notices with two Retries on Tools, and Overview says
+   `counts may be stale` while drawing none. **Fix:** reading / failed / ready states, one notice, one Retry.
+   **S/M.**
+
+6. **The installer strip's sha256 is truncated with no title or copy.** *(Implemented 9592d54: the full digest in the title + `Copy digest`.)* `sha256 0adcbd7c…`; the full digest is
+   only at `/installer` (the downloaded file's sha matches it). **Fix:** a title with the full digest, or copy.
+   **S.**
+
+7. **The 84T has no Repair task row and no "not reported".** *(Implemented 7e1b0ca: `not reported by this build (v0.3.291)` for an online machine whose frame has no fact.)* The 9VH (0.3.292) shows it healthy; the 84T
+   (0.3.291) shows nothing, which reads as no task rather than an older build that does not report. **Fix:** say
+   the build does not report it. **S.**
+
+8. **Runs' Started is relative-only.** *(Implemented 9592d54: `<time>` HH:MM:SS + age with the exact moment in the title.)* `31m 11s ago` with no title, while the Table uses clock + age for the
+   same class of run. **Fix:** the same vocabulary. **S.**
+
+9. **The Device picker's presence is colour-only.** *(Implemented 9592d54: the word visible, the version `v`-prefixed.)* Online/offline are a coloured dot with the words
+   `.sr-only`; its version lacks the `v`. **Fix:** the word visible, the `v` kept. **S.**
+
+10. **#signin's tab title says "Sign in" while the panel says "You are signed in".** *(Implemented 9592d54: `Signed in · Summrise console`.)* **Fix:** the title follows
+    the panel. **S.**
+
+## P0 — the twenty-third list (opened 2026-11-08, from the audit of ux102)
+
+Measured 2026-11-08 00:15–00:57Z on live 0.3.273-ux102 at 1440/390. The twenty-second list is live; its
+residuals are this list's 6, 7 and 8.
+
+1. **`Open machine` only selects; the page stays Home.** *(Live 0.3.273-ux103: the attention door opens `#device/machine`, the fleet row opens `#device/overview`. Implemented 1ddaa30.)* Home's attention `Open machine`, every fleet row's
+   `Open DESKTOP-…` and the machine-menu rows only select — the page stays `#home` at both widths; the only
+   working door is the summary's `Open Device` → `#device/overview`. **Fix:** every door opens the machine.
+   **S.**
+
+2. **Home draws the selected machine three or four times with three vocabularies.** *(Implemented 1ddaa30: one presence phrase, the selected row highlighted, the summary repeats no identity.)* Topbar, attention,
+   summary and fleet row; `Running` vs `online`; three age casings (`Offline — last seen`, `Offline · last
+   seen`, `offline · last seen`); `0.3.291` appears four times on the page. **Fix:** one row per machine, one
+   vocabulary, the selected machine highlighted not repeated. **M.**
+
+3. **At 390 the fleet card's STARTED age has no label.** *(Implemented e0dd21e: a visible `.fleet-started-label`.)* The thead is `display:none`, so `online · seen 10s
+   ago` and `2h 32m ago` stack 26 px apart as two bare ages — a regression of the twenty-second list's
+   age-only change. **Fix:** a visible label at 390. **S.**
+
+4. **Device with no selection says "No devices are enrolled yet. Add one from Home." while /fleet is still *(Implemented e0dd21e: reading / failed / empty states.)*
+   reading or has failed.** A false empty fleet. **Fix:** reading / failed / empty states. **S.**
+
+5. **The offline Overview says `Now · Quiet · no calls in the last minute` and gives no last-seen age**, *(Implemented e0dd21e: the offline Overview is offline and dated.)* while
+   the same machine's Machine tab says `This machine is offline. Last seen 14h 31m ago.` **Fix:** the offline
+   Overview is offline, dated. **S.**
+
+6. **Activity counts one 9VH window three ways.** *(Implemented bc54d64: one count/noun per window.)* `353 rows in this window` (client-call rows), `891 lines of
+   1040` (timeline footer), `994 lines of 1040` (Table, one tab away). **Fix:** one noun and one count, or say
+   what each counts. **S/M.**
+
+7. **Machine prints the version three times and never says whether it is current.** *(Implemented bc54d64: one version + `behind the release 0.3.280` / current.)* Topbar chip, start line,
+   `Applied`; the 84T at the release 0.3.291 looks the same as the 9VH one ahead. **Fix:** one version + a
+   current/behind/up-to-date answer. **S/M.**
+
+8. **The clock is three clocks.** *(Implemented d06fcad: `Clock`/`Moment`, one spacing, titles everywhere, the Runs phone value cell.)* Table `08:46:18· 8s ago` with no space and no `title`; Timeline `08:14` at
+   390 with no `title`; Runs `· 32m 39s ago` falls into the label column at 390 and `ago` strands at 1440 —
+   the twenty-second list's own fix broke the phone grid. **Fix:** one clock format, one spacing, titles
+   everywhere, the phone grid fixed. **M.**
+
+9. **A tools failure is stated twice on Overview and three times on Tools.** *(Implemented e0dd21e: one notice, one Retry where it can work.)* Notice + line on Overview;
+   `No tool list`, notice with the raw error `boom`, and the Plugins line on Tools; offline Tools adds a Retry
+   it cannot use. **Fix:** one notice, one Retry only where it can work. **S.**
+
+10. **The topbar machine menu is a second fleet table.** *(Implemented bc54d64: a switcher — name, state, build.)* It carries Activity's `29 client calls · 1 failed` and
+    an unlabelled drive (`I: 23.9 GiB free`) where Home's rows dropped the counters and say `online`. **Fix:** a
+    switcher, not a board. **S/M.**
+
+11. **The Connect sheet prints the endpoint twice.** *(Implemented e0dd21e: one endpoint, one copy.)* The full 90-char endpoint in the code box and again in its
+    paragraph (and `/mcp/all` likewise); at 390 that is eight lines of URL. **Fix:** one endpoint, one copy.
+    **S.**
+
+## P0 — the twenty-fourth list (opened 2026-11-08, from the audit of ux103)
+
+Measured 2026-11-08 01:54–02:56Z on live 0.3.273-ux103. The CPH recovered to 0.3.292 during the tour (its ~15h
+outage ended 00:51Z), so the fleet is 3 of 4 online. The twenty-third list is live; its residuals are this
+list's 1-3.
+
+1. **Every Device tab opens with `started … ago` before its answer** — on Overview it precedes the machine's
+   name (y=129 vs 164). **Fix:** the start line belongs to the machine head, and only where it is the answer
+   (Overview/Machine), not above every tab. **M.**
+
+2. **At 390 the Device tab strip hides its first tabs with no affordance.** On Machine `scrollLeft=87`,
+   `Overview` at x=-69, `Terminal` clipped at x=7. **Fix:** the strip shows a scroll affordance (or wraps) so
+   the first tabs are reachable and visibly there. **S.**
+
+3. **The failure banner covers the topbar** (banner 352,12,736,52 over a 52 px topbar), and the page states
+   the same failure again with the only Retry. **Fix:** the banner below the topbar, one statement. **S/M.**
+   *(Live 0.3.273-ux104: the failure banner is a grid row below the topbar — 0 `.alert-banner`s, one `.notice` + one Retry on a failed `/fleet`; the topbar keeps y=0 h=52 at 1440 and h=45 at 390)*
+
+4. **Screen's disabled Capture gives its actual reason in paragraph 2**, after a locked-session note. **Fix:**
+   the reason first. **S.**
+   *(Live 0.3.273-ux104: `Capture is off: the per-user helper has not registered…` is the sentence beside the disabled button, `.screen-capture-group`; the locked-session legend stays after it)*
+
+5. **The offline reason is stated twice on Screen/Files/Runs** (shell notice + tab sentence). **Fix:** once.
+   **S.**
+   *(Live 0.3.273-ux104: the tab lines name only what is missing (`No capture yet.`); the shell's orange notice owns the offline reason once)*
+
+6. **The offline Machine dates its absence from the console's restart** (`since this console started at 09:52`)
+   while its own notice says `Last seen 2d 18h ago`. **Fix:** the machine's own last-seen. **S.**
+   *(Live 0.3.273-ux104: `The console restarted at 2026-11-09 12:27 and has not heard from this machine since; it was last seen 3d 20h ago.` — both dates, each labelled)*
+
+7. **At 390 with a populated fleet, Add a machine opens the enrollment panel at y=1045 below the fold** and the
+   press looks dead (visible at y=521 on the empty first-run page). **Fix:** scroll it into view. **S.**
+   *(Live 0.3.273-ux104: at 390 with a full fleet the enrollment heading is focused at y=419 in an 844 px viewport (was y=1045, unfocused))*
+
+8. **The Machine page never prints the OS/CPU/arch the fleet frame carries** (`Windows 11 · x86_64 · 12
+   cores`). **Fix:** show them. **S.**
+   *(Live 0.3.273-ux104: `Platform · Windows 11 · x86_64 · 12 cores` is the first row above Memory)*
+
+9. **One action, four names** — `Open machine`, `Open Device`, `Open DESKTOP-…`, `Use`. **Fix:** one name.
+   **S.**
+   *(Live 0.3.273-ux104: the attention door and the summary read `Open`; the fleet rows keep `DESKTOP-… ›` with the accessible `Open DESKTOP-…`)*
+
+10. **Activity's provenance line mixes audit.jsonl's 10-22 lifetime with the newest-1000 window**
+    (`1000/1040/19 repeats/5.7 MiB/since 10-22`). **Fix:** separate the file's lifetime from the window's.
+    **S.**
+   *(Live 0.3.273-ux105: `Reading audit.jsonl — 5.8 MiB, lines since 10-22 18:55. This window: 11-07 14:41 → 11-09 12:40.` — the file's lifetime and the drawn window are two labelled facts, no shared arithmetic.)*
+
+11. **`last result 0` on the Repair task row is a code, not a verdict**; the 84T's `not reported by this build`
+    shows the row can speak English. **Fix:** `ok`/the reason. **S.**
+   *(Live 0.3.273-ux104: `last result 0 (success)` · next 2026-11-09 12:33)*
+
+12. **The CPH's ~15 h absence leaves no trace after recovery** — `started 27m ago`, `Applied 0.3.292`, a
+    13-attempt retry note, but no `back after 14h 58m`. **Fix:** the recovery line. **M.**
+   *(Partly shipped 0.3.273-ux105, and NOT closed: `RecoveryLine` draws `back after 41 m` from the console's own
+   channel pair and the browser gate proves it on the fixture, but the live fleet serves `last_outage: null` on
+   all four machines — the newest 1,000 audit lines carry 51 `device.joined` and 11 `device.left`, and every
+   rejoin after a console restart is join→join with no close to pair, so the ~15 h absence the item measures is
+   still unwitnessed. The remaining half is the DEVICE's own gap: the device knows when its channel dropped, so
+   its next `device.joined` should carry `channel_gap_ms` and the console should record it. Device-side, ships
+   with a device release.)*
+
+## P0 — the twenty-fifth list (opened 2026-11-09, from the audit of ux105)
+
+Measured 2026-11-09 04:26–04:52Z on live `0.3.273-ux105` at 1440 and 390. The twenty-fourth list is
+live: 3–9 and 11 are ticked with their measurements, 10 is closed on ux105, and 12 is open with its
+witnessed half named (the console can pair a close it saw; it cannot invent one it did not). The
+four items below were each measured on the live page in this pass, and the two suspicions the audit
+carried but did not confirm were **deleted from the list rather than written down as findings**:
+both `Add a machine` doors mint **one** code (`POST /enroll` once; both doors show the same
+`a572d1d9…`), and the account menu carries doors (`Connect a client · Tokens · Copy console URL ·
+Documentation · Sign out`), not a second copy of the session.
+
+1. **Home with a machine selected draws a card that never names the machine.** Measured at 1440
+   with 9VH selected: `NEEDS ATTENTION` (14R, offline and behind the release) at **y=165**,
+   `SELECTED MACHINE` at **y=334** — and that card's whole text is `46 tools · 11 capabilities ·
+   Open · Connect a client`. The machine's name is only in the topbar and in the highlighted fleet
+   row below it, so the card asks the reader to remember what they clicked. **Fix:** the card names
+   the machine and states its presence in one line (`DESKTOP-9VH92BJ · online · v0.3.292`), and the
+   counts follow. **S.**
+   *(Live 0.3.273-ux107: `.machine-summary-who` reads `DESKTOP-9VH92BJ · online · 0.3.292` above
+   `46 tools · 11 capabilities`; an offline machine keeps `offline · last seen 3d 21h ago`, because
+   the card's next sentence is about the counts that silence withholds. `404b37e`. The age is
+   deliberately still the row's, so the card names its subject and the row keeps the clock.)*
+
+2. **Activity draws today as one 69-foot wall.** Measured: **888 rows** on the page, **692** of them
+   under the `Today` label, `main` **73,740 px** tall at 1440, and four day labels
+   (`Today / Yesterday / Saturday 11/7 / Friday 11/6`) under a heading that says
+   `Today: 27 client calls, 3 failed.` The cap sentence — `newest 913 of 1040 (87 channel events, 27
+   repeats not drawn)` — and the provenance line are **only reachable at the bottom, 70,000 px
+   down**. **Fix:** a day is drawn as today's rows plus a count-and-door for the rest (`692 calls ·
+   11:52 → 12:43 — open the day`), the cap sentence sits beside the count it qualifies at the top,
+   and the full list stays behind the day's own expansion or the Table. **M.**
+   *(Live 0.3.273-ux108: **180 rows drawn** (three days × 60), `main` **16,435 px** at 1440 — was
+   888 rows / 73,740 px. Three doors, each carrying its day's own count and clock: `Show the rest of
+   today (309 more)` · `369 calls · 10:02 → 14:42`, and the same for yesterday and Saturday. The cap
+   sentence is the first thing in the record (`Showing the newest 937 lines of 1040 fetched …`) and
+   `capAboveFirstDay` measured true. Pressing today's door draws 489 rows and leaves two doors.
+   `d64c20f`.)*
+
+3. **One credential list, seven rows that read the same.** Measured: seven tokens; four of them are
+   `zss-harness-*` differing only in their device list and creation date; every row repeats
+   `39 tools` and `destructive allowed` in the same position; the scope cell lists three names then
+   `and 1 more`; and `Create a token` — with its full tool-scope form — sits **above** `Existing
+   tokens`. The operator's question is *which credential do I hand out, and what does it reach?*
+   **Fix:** the list first, one line per token (`name · scope count · last used`), details on the
+   row's own disclosure; the mint form behind `New token`. **S/M.**
+   *(Half shipped 0.3.273-ux109: the sheet opens on `Existing tokens` with the seven rows and a
+   `New token` door; the form is one press behind it (`Create a token` appears only after the
+   press), and an empty registry still opens on the form. **NOT DONE:** the rows are unchanged —
+   each still prints `39 tools`, `destructive allowed`, three device names and `and 1 more`. The
+   row's one-line summary and its own disclosure are the remaining half of this item. `4ee214d`.)*
+   *(**The row is one line now, live 0.3.273-ux110** (`10bdb5d`): measured at 1280, seven summary
+   rows of **89-97 px** (was 156-164) whose whole face is `⌄ zss-harness-20261109-fleet4 · 4 machines
+   · used 2026-11-09 · fleet · /mcp/all · Rotate Revoke`; the table is 659 px where it was 1,141.
+   The chevron opens the record, and that record names ALL four machines, the tool count with its
+   destructive word, the id with Copy, and Created / Expires / Last used — `Last used 2026-11-09`
+   beside `Expires never`, the two facts that used to read as one repeated word. `and 1 more`
+   appears nowhere on the page (`andMore: false`). This item is complete.)*
+
+4. **The rail says `Home`; the page it opens says `Machines`, and so does the window title.**
+   Measured: `document.title` `Machines · Summrise console`, h1 `Machines`, rail `Home` — on the
+   page the operator asked to be a verdict rather than a table. **Fix:** one name, `Home`, in all
+   three. **S.**
+   *(Live 0.3.273-ux106: `document.title` `Home · Summrise console`, h1 `Home`, rail `Home`
+   (`aria-current="page"`); the h1 reads `PAGE_LABELS.home`, the rail's own map, so the three
+   cannot drift apart again. `1cb2fd9`.)*
+
+## The operator's own question, recorded (2026-11-09)
+
+**"现在 console 为什么有多个 token，不能统一成一个 token 吗" — answered with the live measurement,
+not with a design opinion.**
+
+The console holds **seven tokens** (read from `/tokens` on ux105): four `zss-harness-*` fleet tokens
+created 2026-11-04, -06 and -09; `dsh-aggregate` (2026-10-27, 3 machines, last used 2026-11-09
+12:13); `e2e-connect` (created 2026-10-27, **never used**); and `test` (a single-machine token on
+9VH, last used 2026-11-02). `dsh-aggregate` is the one this session's MCP client actually uses.
+
+**Why the model has two kinds, and why that is not the defect.** A device token is the bearer at
+`/mcp/<machine>`; a fleet token is the bearer at `/mcp/all` and carries a **fixed list** of machines
+(`device_ids`), enforced where the device is chosen. The scope is recorded because the endpoint is
+recorded: a token that only ever opened one machine's door must not silently become a fleet
+credential. That is the same reason `TokenKind` exists at all — the 401 must name the door instead
+of re-deriving it.
+
+**What IS the defect, and it is the operator's actual friction.** Seven rows where four are the same
+harness token minted again on a new date, one has never been used, and nothing on the page says
+which one the AI is using right now. The list answers "what exists", not "which do I keep". The fix
+is the fifth list's item 3 (list first, one line per token, `last used` beside the name) **plus**
+one fact the list does not yet print: **the token this console is being read from**, when the
+operator's own client is one of them. A credential list with "last used" and a footer row naming the
+in-use credential is the shape that makes seven rows answer the question; a single unified token
+would answer it by removing the choices the operator needs (rotation, per-machine blast radius).
+
+**Cloudflare Access session vs Fleet token vs Device token** — three credentials, and they are not
+interchangeable: Access is the *operator's browser* door (the page answers `via: proxy` here), the
+fleet token is the *AI client's* door to every machine it was minted for, the device token is the AI
+client's door to one machine. None can substitute for another; the console refuses each at the
+wrong door by name.
+
+## P0 — the twenty-sixth list (opened 2026-11-09, the twenty design rules, measured)
+
+The operator's instruction: design by Refactoring UI's twenty rules, not by taste. This is the
+measurement of each rule against the console as it is, so the list starts with what is **enforced**
+(a named gate, so the rule cannot drift back), then what is **measured off** with its number.
+
+**Already enforced — the gate is the rule, and it is `device/console/tests/tokens.rs`:**
+
+| Rule | What holds it |
+|---|---|
+| 1 a system, not one-off values | `generated_tokens_match_the_canonical_sheet` (the sheet is generated from `device/ui`, so a hand-edit fails) |
+| 3 fewer font sizes | `seven_type_sizes_and_a_thirteen_pixel_body` — 7 sizes, 10/11/12/13/14/17/22 |
+| 4 fewer font weights | `every_weight_is_one_of_four_tokens` — 400/500/600/700, no literal `font-weight` in `app.css` |
+| 5 hierarchy from size/weight/colour | `every_type_size_comes_from_the_seven_step_scale` (no 0.95rem escapes) |
+| 13 readable text (contrast) | `every_text_pair_reads_on_the_surface_it_sits_on` — 15 named ink/surface pairs, AA measured, both themes |
+| 13 readable text (terminal) | `the_evidence_output_reads_on_its_terminal_surface` |
+| 18 motion respects the preference | five `prefers-reduced-motion` blocks, one of them a blanket; all four keyframes are named by their state change |
+| 20 rhythm | `spacing_uses_the_rhythm_when_the_value_is_already_on_it` + `spacing_is_the_rhythm_or_a_documented_exception` (rem only) |
+| 11 limited radii | `one_spacing_rhythm_and_the_canonical_radii` — the five canonical radii are asserted |
+| 15 no pure black on light surfaces | `--ink:#18181b`, `--canvas` is a mix of ink, and the dark block is restated rather than inherited (`the_dark_surfaces_are_restated_not_inherited`) |
+
+**STATE 2026-11-12, after the hundred-and-fifty-seventh list — three rules gained a gate, and the table above is no longer the
+whole picture.**
+
+| Rule | Now held by | Measured |
+|---|---|---|
+| 5 hierarchy from size/weight/colour | **`head.nameWhenClaim` + `head.nameWhenRepeated`** (contract, both repos) and a **rendered** browser-gate step | Home's name 13/500 vs its claim 22/600; the picker 22/700; the tabbed device head 13/500 |
+| 5 (continued) | `layoutContract.test.ts` on the console AND the panel | the panel's Memory/Plugins names 13/500 with a claim, 22/700 without |
+| 11/12 radii and borders | **`footnote` atom** (contract, both repos) + the browser gate's Home leg | the installer draws corner 0 / a 1 px top edge / no surface; `.attention` and `.table-wrap` keep the card's 14/16 |
+| 19 empty/loading/failed | unchanged (browser gate + jsdom) | the installer's footnote is still a state when the file is missing |
+
+**NOTHING IS LEFT UNGATED (2026-11-12).** rule 16 is held by the Rust token gate's two halves plus a 15-value inventory
+(`67b9c0c`); rule 17 is held by the browser gate's icon count and labelling (`f1e69ce`). All twenty rules now have a gate or a
+recorded number; the table above is the map. *(**Rule 6 is now gated too** — the hundred-and-sixty-second list: every text ink Home paints must
+resolve to a token, measured live at 5 inks in the light theme and 5 in the dark.)*
+
+**Also held, not by a Rust gate: rule 19.** Empty / loading / failed states are asserted one by one
+in `browser-gate.mjs` (the failed fleet read, the failed tools read, the offline machine, the empty
+registry) and in the jsdom suites, because a state is a sentence and a sentence is measured where it
+is drawn, not in the token sheet.
+
+Measured gaps below. Each is the rule, its number, and the one shape that fixes it.
+
+**A gate that was RED, and that nobody had run.** Before measuring anything else: `cargo test -p
+summrise-console --test tokens` fails on this branch at
+`spacing_is_the_rhythm_or_a_documented_exception` — a `2.25rem` in the phone audit card arrived with
+`49164b7` and the file was never run after it, because CI runs `cargo test` on `main` only and this
+round's gates were the web ones. **Fixed in this round** (`5ea5f18`): the length is a structural
+measurement (measured at 390: the card is 320 px, the disclosure ends 29 px in, the clock's text
+starts at 36), so it is now a documented exception with that number in its comment, and the file
+passes 10/10. **The lesson to keep:** every round's gate list includes the Rust token gate, because
+an untended gate is worse than none.
+
+
+1. **The rhythm gate is blind to `px`, and 37 literals are already off the rhythm or already a
+   token.** `spacing_uses_the_rhythm_when_the_value_is_already_on_it` scans **rem only**, so
+   `padding: 2px 12px` passes while `padding: 0.125rem 0.75rem` fails — the same number, one
+   spelling. Measured on `app.css`: **155 px spacing literals, 118 of them equal a `--sp-*` step,
+   37 off the rhythm** (18px × 7, 7px × 5, 3px × 4, 9px × 4, 15px × 4, 5px × 2, 22px, 26px, 44px,
+   68px, 220px, 26rem…). The 15px/18px pair is the timeline row's own padding, so the rows do not
+   sit on the rhythm the rest of the page keeps. **Fix:** the gate learns px (a px literal that
+   equals a step must be the token; an off-rhythm px is a documented exception or it moves), then
+   the 15px and 18px are put on referenced steps. **M.** *(A gate change, so it lands with its
+   mutation.)*
+   *(**Done, live 0.3.273-ux112** (`7040079`): the test reads both spellings now. 92 declarations
+   moved their on-step literals onto the tokens; the 121 on-step px literals went to zero, and the
+   42 that remain are the documented structural lengths, each with its reason in the test comment
+   (the timeline's 15/8 row padding and 18 px stretch gap, the 7/9/3 px control insets, the page's
+   26/28/44 padding, the evidence's 22 px indent, 19/20/30/34 alignments, the sr-only `-1px` clip, the
+   rail's `-16px` overlap, plus `calc()` arithmetic which is skipped). Both halves mutated: `8px`
+   back panics naming `--sp-2`, a new `13px` panics as undocumented; restored, 13/13. The live
+   timeline still measures 74 px rows and 120 rows — the conversion was pixel-identical.)*
+
+2. **Eight of the fifteen border radii are literals, and `7px` is not even on the scale.** Rule 11's
+   gate asserts the five canonical tokens exist; it does not stop a literal beside a token. Measured
+   in `app.css`: 15 distinct values, of which seven are the scale's five steps and eight are
+   literals — `7px` ×4 (the tab strip, the segmented control, the evidence door), `8px` ×3, `6px`
+   ×1, `10px` ×1 (each equal to a step the token already names, so one radius has two spellings),
+   `999px` ×3 (the canonical pill) and `1px` ×1. **Only `7px` is on neither the scale nor a token**,
+   and it is the inset of a tray that is `--radius-sm2`. **Fix:** every `border-radius` is a
+   `var(--radius-*)` or `0`, the segments take `--radius-xs`, and the gate asserts it. **S.**
+   *(**Done, live 0.3.273-ux111** (`997fc17`): the eight literals are the tokens they already
+   equalled and `7px` is `--radius-xs`; measured on the live page at 1440 the rendered radii are
+   exactly `6px`, `8px`, `10px`, `14px` and `999px` — the five steps, in both the Home and the
+   Activity trees. `every_border_radius_is_a_radius_token_or_zero` fails on the next literal, proved
+   by re-adding `border-radius: 7px` and watching it panic with that line.)*
+
+3. **Fifteen shadows where the system names six.** Rule 10. `tokens.css` declares `--shadow`,
+   `--shadow-lg`, `--shadow-1`, `--shadow-2`; `app.css` adds `--elev-1`, `--elev-2` and `--ring`
+   in a second `:root` block, and `--elev-1` is **used zero times** while `--elev-2` is used twice.
+   Measured: **15 distinct `box-shadow` values**, of which three are literal
+   `0 1px 2px rgba(0,0,0,0.1)` (the raised segment) and the rest are tokens. A shadow token nobody
+   uses is a second palette waiting for its first use. **Fix:** one elevation family in one place
+   (the generated sheet), the dead `--elev-1` deleted, the raised-segment shadow a token, and the
+   gate asserts that every `box-shadow` is a token or `none` (`--ring` included). **S.**
+   *(**Done, live 0.3.273-ux111** (`997fc17`): `--elev-1` deleted, the segment's shadow became
+   `--elev-segment` (3 uses), and `every_box_shadow_is_an_elevation_token_or_none` now fails on a
+   bare literal — proved by restoring `0 1px 2px rgba(0, 0, 0, 0.1)` and watching it panic. The two
+   shapes it admits besides an elevation are a ring (any `var(--…)` colour at a length) and the
+   keyframe's transparent outline, each named in the test's comment.)*
+
+4. **Two literal colours outside the palette, and they are the terminal's own.** Rule 2/9. Measured
+   in `app.css`: `#14161a` on `#d6dae0` for `.evidence-output` — an ANSI-dark surface and ink that
+   the token sheet already has a family for (`--term-canvas`, `--term-white`), written as literals
+   so they cannot change with the theme (they are meant not to) but also cannot be checked by any
+   gate. The rest of the sheet's literals are `#000`/`#fff` inside `color-mix` (a ratio, not a
+   colour) plus one fallback `var(--line, #e3e1dc)` that never fires in the React page. **Fix:**
+   the two evidence colours become named tokens (`--evidence-bg`, `--evidence-ink`) declared beside
+   the terminal family, and the contrast gate reads them instead of two literals it was given by
+   hand. **S.**
+   *(**Done on the gate, 0.3.273-ux116** (`8f50bc8`): both are tokens in `app.css`'s local block, the
+   contrast test follows them (12.4:1), and a new `no_colour_literal_sits_in_a_colour_property`
+   fails on any hex sitting as a colour property's value — proved by putting the two literals back
+   (`a colour literal sits as a property value: background: #14161a; color: #d6dae0;`). **Honest
+   boundary:** the LIVE check could not photograph the panel. All 115 openable rows of Activity's
+   first day were opened on ux116 and **none drew `.evidence-output`** — the console's real traffic
+   carries no text-output evidence in this window, so the pair is proved by the token gate and the
+   browser gate's fixture, not by a screenshot of the operator's page. This item is complete as a
+   gate, not as a picture.)*
+
+5. **Nine letter-spacing literals beside the four tracking tokens.** Rule 14. `tokens.css` names
+   `--tracking-display/-tight/-label/-eyebrow`; `app.css` also writes `-0.004em` (body), `-0.022em`
+   (h1), `-0.014em` (h2), `-0.012em`, `-0.01em` ×4, `0.01em`, `0.02em`, `0.04em`, `0`. The h1's
+   `-0.022em` is the *display* step's job done at the call site with a different number
+   (`--tracking-display` is `-0.011em`, so the h1 is twice as tight as the token that names it).
+   **Fix:** the heading tracking is the token's, the rest are the two literals a body and a small
+   caps label genuinely need — or they become tokens. **S.**
+   *(**Done, live 0.3.273-ux111** (`997fc17`): the h1 is `--tracking-display`, the h2 and five
+   name/heading sites are `--tracking-tight`, `.files-kind`'s `0.01em` is `--tracking-label`, and the
+   two documented exceptions are the body's `-0.004em` plus the small-caps `0.02em`/`0.04em`.
+   `the_tracking_literals_are_the_tokens_or_a_documented_exception` fails on `-0.022em` put back,
+   proved the same way.)*
+
+6. **One opened timeline row draws three radii, two of them by hand.** Rule 11 with rule 7:
+   `.evidence` writes `border-radius: 10px` and the row's own line writes `6px` — both literals at
+   values the scale names — inside a sheet that is 14px. **Fix:** the nested box takes
+   `--radius-sm2` (the step inside a 14px sheet) and the row's line `--radius-xs`, so a reader sees
+   a sheet, a box in it, and a line rather than three unrelated corners. **S.**
+   *(**Done with item 2** (`997fc17`): both were literals at named steps, so they became those
+   tokens; nothing about the geometry changed and the live page's radii are the scale's five.)*
+
+7. **The block that renders in the jsdom suite is not the block the operator meets.** Not a design
+   rule but the reason several of the above went unseen: `device/console/web/src/tokens.css` is
+   generated and gated, but `app.css`'s 15px timeline padding, 7px segments and 10px evidence are
+   only visible in a browser. `browser-gate.mjs` measures layout where it already looks (the fleet,
+   the sheet, the fold) and not the type/space/radius of the surfaces it visits. **Fix:** a
+   measured pass in the browser gate that asserts the radius and shadow families **on the built
+   page** at 1440 and 390, so the gate and the operator see the same numbers. **M.**
+   *(**Done, live 0.3.273-ux115** (`89eba15`): the browser gate now collects every rendered
+   `border-radius`, every text size and weight, and the distinct spacing lengths on Home and
+   Activity at 1440 and at 390, and fails on a radius outside `6/8/10/14/20/999px`, a size outside
+   `10-22px`, a weight outside `400/500/600/700`, or more than six shadow shapes. Measured: Home
+   `10/14/6/8/999px`, 7 sizes, 4 weights, 2 shadows, 20 spacing values; Activity `14/6/8/999px`,
+   6 sizes, 1 shadow; Home at 390 `14/6/8/999px`, 6 sizes, 14 spacing values. **Mutated**: a
+   `border-radius: 13px` on `.fleet-machine` made it fail with `Home at 1440 draws radii outside the
+   scale: ["13px"]`, and restoring it passes.)*
+
+## P0 — the twenty-seventh list (opened 2026-11-09, from the page sweep at 1440 and 390)
+
+A read of every page the console has, looking for what a reader sees that is not a fact. Measured
+against the live console (`0.3.273-ux109`) at 1440.
+
+### Two suspicions, disproved before they became items
+
+**"The rail holds seven doors and only three are destinations."** The DOM says `nav.rail` contains
+three `.rail-btn` plus `.account` and seven `button` elements, which looked like the account
+popup's items leaking into the rail. Measured properly: the popup's four buttons are inside
+`<details class="account">` with `open === false`; `document.body.innerText` does not contain
+`Copy console URL`; hit-testing the centre of the (closed) `Tokens` button returns `NAV.rail`, not
+the button; and forty sequential Tab presses never land inside `.account-pop`. The popup is
+correctly closed, unpainted and unfocusable — **not a defect, not written as one.**
+
+**"Device with no machine says `Choose a machine` and offers nothing."** The earlier snapshot read
+only `p`/`.hint` paragraphs and found none. The page's `main.innerText` is: `Choose a machine` then
+four rows — `DESKTOP-9VH92BJ online v0.3.292 Open`, the same for the other three — one `ul` and
+four `Open` buttons. It does offer the choice. **Not a defect, not written as one.** (The rule this
+round keeps: a suspicion is measured before it is written, and a disproved one is recorded here so
+the next round does not re-run it.)
+
+### The items the measurement supports
+
+1. **The machine menu lists the machine it is already showing.** Measured on the device page at
+   1440: the `.machine-menu` summary reads `DESKTOP-9VH92BJ online · v0.3.292`, and opening it
+   draws five 34 px rows — `All machines`, then `DESKTOP-9VH92BJ online · v0.3.292` (**word for
+   word the summary above it**), `DESKTOP-14RJCR8 offline · v0.3.275`, `DESKTOP-CPH4KB2 online ·
+   v0.3.292`, `DESKTOP-84T3LIN online · v0.3.291`. A picker that offers the current item as a
+   choice is one row too long, and it makes the operator wonder whether picking it would do
+   something. **Fix:** the summary keeps naming the current machine; the list holds `All machines`
+   and the *other* machines, and the current one is marked (`aria-current="true"`) if it stays for
+   completeness. **S.**
+   *(**Done, live 0.3.273-ux113** (`dad519a`): measured on the live page with 9VH in force, the
+   summary reads `DESKTOP-9VH92BJ online · v0.3.292` and the rows are `All machines`,
+   `DESKTOP-14RJCR8 offline · v0.3.275`, `DESKTOP-CPH4KB2 online · v0.3.292`,
+   `DESKTOP-84T3LIN online · v0.3.291`, `Add a machine` — **five rows, four choices, no echo**. With
+   no machine chosen every machine is still listed, because then every one is a choice. The browser
+   gate fails if any row repeats the summary's machine and prints the rows it saw.)*
+
+2. **Activity's record draws 150 borders for 8,270 characters of text.** Measured in `main` at
+   1440 on the Timeline: 1,771 elements, **150 carrying a border**, 121 with a shadow, and the two
+   largest contributors are `.timeline-row` (**118 `border-top`**) and `.timeline-caller`
+   (**25 bordered pills**). Each row is a box with a rule above it and a pill inside it, so the
+   record of what happened reads as a form to be filled in. Rule 7 of the design rules (spacing and
+   grouping instead of borders and boxes) says the day's rows need one rhythm, not 118 rules.
+   **Fix:** the day's rows lose their per-row rule and gain the existing 30 px group gap plus the
+   stretch labels' rules; the caller pills stop being bordered chips (`.timeline-caller` already
+   has the type). Measure the same three numbers afterwards — bordered, shadowed, and `main`'s
+   height — and record them. **M.**
+   *(**Done, live 0.3.273-ux114** (`b05e446`): measured on the same page at 1440, **150 bordered
+   elements → 7** for 8,360 characters (the 118 row rules and the 25 caller pills are both gone; what
+   remains is the search field, the stream bar, the two day-doors, the footer rule and a button).
+   The caller is now `CONSOLE` in the page's small-caps type — uppercase, not colour alone, is what
+   tells it from prose. `main` 10,921 → 10,816 px, a 105 px saving that is NOT the point: the point
+   is that a 8,000-character record no longer reads as a form. The browser gate fails on
+   `rowRules !== 0` or `callerPills !== 0` from now on.)*
+
+## P0 — the twenty-eighth list (opened 2026-11-09, the fresh audit at 1440 and 390)
+
+Both previous lists are closed, so this one starts from a measured read of every page the console
+has: Home, Activity's Timeline at both widths, and the seven machine tabs (Overview, Terminal,
+Screen, Files, Runs, Tools, Machine), with `main`'s height, line count, duplicate lines, clipped text
+and button counts. Live `0.3.273-ux116`. **No console errors on any page at either width, and no
+sideways scroll anywhere.** What the numbers did find:
+
+1. ~~**The Devices bar stacks every tab's heading at the top of the tab strip.**~~ **DISPROVED before
+   it was worked on, and the disproving is the finding.** My audit script collected
+   `main.querySelectorAll('h2, h3')`, which returns hidden elements too. The heading is real in the
+   DOM but it sits inside `<div class="page terminal-page" hidden>` whose computed `display` is
+   `none`, its box is **0 x 0**, and `getClientRects().length` is 0 — so it is in neither the paint
+   nor the accessibility tree. Measured per tab at 1440: Overview `visible:false,
+   hiddenAncestor:"page terminal-page"`, the same on Files, Runs and Machine; on Terminal it is
+   `visible:true` because there the section IS the page. **No defect. Nothing to fix.** The lesson is
+   the audit's own: a DOM query is not a measurement; a heading counts as present only when it has a
+   box.
+
+2. **Two-thirds of the tool catalogue's descriptions are cut off with no way to read them.**
+   Measured on Tools: **46 tools, 46 descriptions, 12 truncated at 1440 and 44 truncated at 390**
+   (`text-overflow: ellipsis` + one line), losing **5,936 px of text at 1440 and 22,898 px at 390** —
+   the longest description is 2,672 px wide in a 315 px box. `terminal.write`'s own text, which says
+   what the tool can change, is unreadable on the phone. A catalogue whose entries can't be read is a
+   list of names. **Fix:** the row's description gets two lines (a clamp, not an ellipsis) and the
+   full sentence lives in the tool's own sheet, which already exists. **S.**
+   *(**Done, live 0.3.273-ux117** (`cc43b9d`): measured on the operator's 46-tool page after the
+   change, **cutToOne 0 at both widths** — 12 rows use their second line at 1440 and **44 of 46 use
+   it at 390**, exactly the rows that were previously cut mid-sentence. `main` grew 3,848 → 4,064 px
+   at 1440 and 4,072 → 4,864 px at 390: 216 and 792 px of text that used to be lost, not new
+   content. The browser gate counts descriptions that collapsed to one line while their text still
+   overflows and fails on any.)*
+
+3. **The Machine tab draws 222 `Kill` buttons in a 235-row process table.** Measured at 1440:
+   `Machine` has **236 buttons**, 222 of them `Kill` at 33 × 28 px, one per process row — the
+   destructive action on every line of a list nobody reads (235 processes, `0.0 MB` for most). The
+   button is 33 px wide, below the 44 px touch target the phone needs. A page whose most repeated
+   control is "kill this process" tells the operator that killing processes is the point of the
+   Machine page. **Fix:** one action per row is not the shape; a search finds the process you mean
+   and the row's `⋯` menu holds Kill behind a confirmation naming the process. **M.**
+   *(**Done, live 0.3.273-ux118** (`f4aeecb`): measured on the same page, 235 rows and **0 bare Kill
+   buttons**, 222 row menus and 13 `Protected` rows — the count of killable rows is unchanged, the
+   shape is not. `main` stays 1,970 px, so this bought no height: it bought the removal of 222
+   buttons a reader could land on by accident, each of which opened a confirmation for a process
+   nobody had chosen. The gate measures the same three numbers on its own eight-row fixture and fails
+   on a bare button.)*
+
+4. **Home's "Needs attention" says the release twice.** Measured: the block reads `The release is
+   0.3.291. DESKTOP-14RJCR8 offline · last seen 4d 2h ago Behind the release.` — the version appears
+   in the sentence and the condition is repeated as a second line, and the fleet row below says
+   `v0.3.275 · offline · last seen 4d 2h ago` again. The operator's standing direction is that Home
+   is the verdict and the next action: a block that states a fact three times and offers one `Open`
+   is not a verdict. **Fix:** the block names the machine, the one condition and the one action; the
+   release number appears once, in the install strip where the download is. **S.**
+   *(**Done, live 0.3.273-ux119** (`6ca34b5`): the block now reads `The release is 0.3.291; the
+   machines below are not on it.` and each row carries the machine's own distance:
+   `DESKTOP-14RJCR8 · offline · last seen 4d 3h ago · On v0.3.275 · behind 0.3.291.` The build that
+   was 445 px below in the table is now at y=275, in the sentence about it. When a machine reports no
+   version the clause stays `Behind the release.` — nothing is invented for a machine that told the
+   console nothing. The block is 211 px tall at 1440 (was 147): the 64 px is the number the reader
+   came for.)*
+
+5. **`App.test.tsx`'s "opens Runs on boot" fails intermittently under the full parallel run.**
+   Measured: it passed alone three consecutive times, passed in four suite pairs, and failed in
+   roughly half of the full runs. A test that fails one run in two is the same lesson as a red gate.
+   **Fix:** find the shared state it depends on (the `beforeEach` history reset, or a module-level
+   boot flag) and make it order-independent, or state why it cannot be. **S.**
+   *(**Done, live 0.3.273-ux120** (`6e5dc4c`) — and the flake was a DEFECT, not a test. Measured
+   first: five full runs failed one; eight more failed three, always in the same case. The cause was
+   in `App.tsx`: the surface effect kept a run link's address only while `runsFocus` was set, and
+   `RunsPage` clears that the instant it has opened the record (`onFocusConsumed`), so
+   `#run/<device>/<run>` was rewritten to `#device/runs` whenever the read won the race — **a run
+   link survived a reload only by accident of ordering.** The guard is the run link now. The new
+   regression test fails on the old guard with the flake's own message
+   (`expected '#device/runs' to be '#run/dev-workshop-0001/r-1'`) and passes on the fix; live on
+   ux120 a `#run/<9VH>/r-nonexistent` link printed `h1 Runs` at boot and still held that address
+   after the read settled. Two more tests that asserted at the wrong moment (TerminalWorkspace's
+   attach, the gate's new process-table leg) wait for their promise now. **After: 6 of 6 full runs
+   green, 1,042 tests.**)*
+
+## P0 — the twenty-ninth list (opened 2026-11-09, the phone's targets and the shape of a row)
+
+The twenty-eighth list is closed, so this one starts from a second audit on different axes: what
+the phone can actually be tapped, what each state renders before and after a read, and whether the
+rules a live region promises are kept where they matter. Live `0.3.273-ux120`, measured at 1440 and
+390. **Three checks came back clean and are recorded as clean:** no console errors on any page at
+either width; no sideways scroll anywhere (the audit table's wrapper is 320 px in a 390 px viewport,
+`scrollWidth === clientWidth`); and `prefers-reduced-motion` is honoured — under `reducedMotion:
+'reduce'` every transition resolves to `1e-05s` (192 elements), and the stylesheet carries the media
+query.
+
+1. **Every control in the phone's main area is under the 44 px touch target.** Measured at 390 on
+   Home: **25 of 25** targets in `main` are shorter than 44 px, in four buckets — 26 px ×4 (the fleet
+   row's name door), 28 px ×1, **30 px ×15** (Tokens, Add a machine, `Open …`, Copy/Rename/Remove,
+   the account menu's items), 32 px ×5 (the `⋯` menus). The smallest is 24 × 28 px (the audit table's
+   per-row opener) and the row's name door **156 × 26 px**. A thumb misses a 26 px line; the page
+   even ships a 44 px `topbar-inner` rule and then never applies the same measure to the controls
+   below it. **Fix:** the phone's main controls get a 44 px minimum (a `min-height` on the shared
+   button/summary rules inside the phone query, not a per-component nudge), and the gate measures
+   the count. **M.**
+   *(**Done, live 0.3.273-ux123** (`98b1f4b` + `dd98bb7` + `c748985`): measured on the same phone
+   after the rule, **Home 25 targets / 0 under, Activity's timeline 111 / 0, the Table 1,004 / 0, and
+   the Connect sheet 1,030 / 0.** It took three commits because the cascade fought back: `.fleet-open…`
+   zeroes `min-height` and `button { min-height: 28px }` is more specific than `main button`, so the
+   rule is now the sheet's LAST statement and names each family that owns its own box (`.device-tab`,
+   `.tab-main`, `.fleet-open`, `.seg button`, the two audit summaries, and `[role="dialog"]`'s
+   controls). Measured while getting it wrong: `Tokens` stayed 30 px, the tabs 35 px, and a probe
+   reported `min-height: 0px` — that is why the position is documented in the sheet.)*
+
+2. **Home's fleet row is 103 px tall and only 11% of it is a door.** Measured at 390: each row is
+   358 × 103 px; the name door inside it is 156 × 26 px (4,005 px² of 36,695), and tapping the row
+   body at its centre hits `.fleet-status` — a **span** — so nothing happens (`#home` before and
+   after; only the 26 px name navigates). On a phone the row is a card and the whole card looks
+   tappable, but only a strip of its first line is. **Fix:** the row's surface is the door —
+   the name button covers the card's body or the card itself is the button — and the `⋯` stays its
+   own target. **S.**
+   *(**Done, live 0.3.273-ux124** (`04e425f`): measured at 390 on the live page, every card's door
+   covers **97%** of the card and the centre of **all four** lands on it; tapping a card's body at
+   60% of its height lands on `#device/overview`, where before it stayed `#home`. The card is **77 px**
+   tall (was 103): the absolute door collapses the cell's own box, so the phone's Home page got
+   shorter as well as tappable. The `⋯` keeps its own 44 px. The gate fails on coverage under 95%,
+   on a centre that misses, or on a menu that lost its own box.)*
+
+3. **The audit table's phone rows are 26-57 px and their only opener is 24 × 28 px.** Measured at
+   390 with the Table open: 1,004 targets in `main`, **1,004 under 44 px**; the rows are 57 px tall
+   and the record's opener — `Show the record for runs.list` — is **24 × 28 px**, 999 of them. The
+   table is the page's densest surface and its one per-row control is below every touch guideline
+   in existence. **Fix:** with item 1's shared minimum the opener becomes 44 px; the row's height
+   must then be re-measured so the table does not double. **M.**
+   *(**Done with item 1** (`c748985`): the 24 x 28 px opener is 44 px now and the Table at 390 reads
+   **1,004 targets, 0 under 44 px**; the row did not double — the table's total height moved
+   65,533 → 65,559 px (26 px for the whole 1,001-row page, because the opener sits inside a cell that
+   was already 57 px tall).)*
+
+## P0 — the thirtieth list (opened 2026-11-09, one vocabulary and three sentences about one refusal)
+
+The twenty-ninth list is closed. This one starts from three reads on axes the earlier audits did not
+touch: **contrast measured per rendered text node** (not per token pair), **the product's own
+vocabulary**, and **the Screen tab, which is the one place the console says "this will be refused"
+before a press**. Live `0.3.273-ux125` at 1440 and 390. Two results were clean and are recorded as
+clean: after the chip fix, **every text node on Home, Activity and the open token sheet meets AA**,
+in both themes (58 / 657 / 62 / 51 nodes, 0 failures); and the machine band's phone overflow already
+has its two named nudges (`Show later device views`, enabled only when there is something to show).
+
+1. **The Screen tab says one refusal three times, in three vocabularies.** Measured at 1440 with the
+   helper unregistered: `A capture of the signed-in user's desktop; locked and disconnected sessions
+   refuse.` then `Capture is off: the per-user helper has not registered, so a capture will be
+   refused. It starts in the signed-in user's desktop session; the Machine tab shows its state.` then
+   `The picture comes from the per-user helper's session, so a locked or disconnected session is the
+   device's refusal, not a black frame.` then `No capture yet. Capture screen takes one when you ask;
+   nothing is captured on a timer.` — **591 characters for one page whose only control is a disabled
+   button**, and the third sentence explains a failure mode the second already names. **Fix:** the
+   page states the refusal once (the `Capture is off:` sentence, which carries the reason and the way
+   out), the empty state says what the surface is for in one line, and the standing explanation
+   moves under the picture as a caption rather than above the button. **S.**
+   *(**Done, live 0.3.273-ux126** (`e734c8a`): the live page reads three sentences now —
+   `A capture of this machine's signed-in desktop.` / `Capture is off: the per-user helper has not
+   registered, so a capture will be refused. It starts in the signed-in user's desktop session; the
+   Machine tab shows its state.` / `No capture yet — Capture screen takes one when you ask.` — at
+   **370 characters** (was 591). The black-frame note is the picture's caption and is absent until
+   there is a picture. The gate counts the sentences naming a refusal and fails on a second one;
+   mutating the lead back fails with `the Screen tab states the refusal 2 times`.)*
+
+2. **The product calls the same thing a `device` and a `machine`, in the same panel.** Measured
+   across the seven machine tabs and both fleet pages: `machine` 53 uses and `device` 27, and the
+   pairs are not different things — the Machine tab's own heading is `Device app` directly under the
+   tab called `Machine`, its sentence says `Restart this device's app` and the process table says
+   `236 processes on the device, by pid.`, while the tab strip, the fleet table and Home all say
+   `machine`. In the tool catalogue it is worse than inconsistent: **11 of 46 descriptions say
+   `device`, 1 says `machine`, and 33 say neither** — the catalogue's own per-tool sheet is the place
+   a reader learns what the tool acts on. One noun, chosen, and the other retired. **M.**
+   *(**Done for everything this repo writes, live 0.3.273-ux128** (`aaf8f1a` + `fc14ef2`): the
+   Machine tab speaks one noun throughout — `The app on this machine`, `… on this machine, and takes
+   it offline …`, `236 processes on this machine, by pid.`, `The machine reports no running
+   processes.`, the restart dialog's `… run on this machine ends` — and the terminal's panel and
+   session menu say `Sessions on this machine`; the Network test says `from this machine`.
+   `device/core/src/registry.rs`'s nine description strings moved too, and `GET /tools` serves
+   `this machine's files roots` for all four file tools. **Two boundaries, recorded rather than
+   painted over:** (a) the LIVE Tools page still shows the DEVICE's own copy — `files.read` read
+   `one of the device's files roots` on ux128 — because the catalogue it draws is
+   `/fleet/<id>/tools`, published by the running device binary from its own registry, which is a
+   repo this workstream does not own; the console's own `/tools` route, which the grant form reads,
+   is fixed. (b) `#device/overview` and the rail's `Device` door keep their names: they are a route
+   and a destination, not the thing, and renaming them rewrites bookmarks and every test that names
+   a surface.)*
+
+## P0 — the thirty-first list (opened 2026-11-09, the two pages at 1,001 rows and 40,000 px)
+
+The thirtieth list is closed. This one starts from a read of **what the console does when the data is
+large**, which the earlier audits never touched because they always looked at the first frame. Live
+`0.3.273-ux128` at 1440 and 390. One result was clean and is recorded as clean: the phone's machine
+band and the phone's cards were re-measured and still hold (no control under 44 px, every card 97%
+covered).
+
+1. **The Table draws 1,001 rows at once, with no door and no cap.** Measured at 1440: switching to
+   `Table` builds **17,074 elements** and a **41,467 px** page in **478 ms**, and at 390 it is
+   **18,072 elements / 65,615 px**. There is no "show the rest", no cap sentence, no virtual window —
+   the whole fetched window is a table. The Timeline next door learned this lesson and now says
+   `Showing the newest 925 lines of 1040 fetched` with `Show the rest of today (865 more)` doors
+   (**60 rows drawn → 925 when the doors are pressed**), so the two views of the same data disagree
+   about how much of it to draw at once. **Fix:** the Table gets the Timeline's two doors (a capped
+   first screen and a `Show the rest` that reveals the remainder), so both views of the record open
+   on the same amount; the count stays honest in the sentence above it. **M.**
+   *(**Done, live 0.3.273-ux129** (`fe4bf61`): measured on the same page, the Table now opens on
+   **62 rows / 1,100 elements / 2,962 px** (was 1,001 / 17,074 / 41,467) at 1440 and **62 / 1,158 /
+   4,480** at 390, with one door: `Show the rest of Today (940 more)`. Pressing it draws the whole
+   day — 1,000 rows, no door left, 41,467 px — so the wall is still reachable, it is just no longer
+   the first thing. The number is the Timeline's (`TABLE_DAY_VISIBLE = 60`), not a second threshold
+   invented for the table. The gate fails above 120 rows or on a day with no door.)*
+
+## P0 — the thirty-second list (opened 2026-11-09, from the second audit of the same day)
+
+The thirty-first list is closed. The audits are now cheap enough to run beside each other, so this
+one looked at four axes the previous lists did not: **what the account menu offers**, **what the
+`Started` column measures**, **the outbound links**, and **the row menu's destructive items**.
+Live `0.3.273-ux129` at 1440. Three results were clean and are recorded as clean: the only external
+link is `Documentation → github.com/SilasVale/summrise/tree/main/docs` and it answers **200**; the
+installer's `Download Windows installer` is a same-origin route, not an off-site jump; and the
+`Remove` confirmation states the consequence before it acts (`Its channel closes now and it cannot
+reconnect. The device keeps running and can be enrolled again with a new code.`, with `Cancel` first).
+
+1. **Home's `Started` column is not a start — it is the newest restart the machine reported.**
+   Measured: `DESKTOP-9VH92BJ`'s cell reads `1d 15h ago` with the title
+   `2026-11-08 06:13:49`, and the fleet API's own record for that machine carries
+   `registered_at_ms` (the enrollment) and `last_seen_ms`, not a start. The cell is
+   `processStartMs(device)`, which is `host.restarts[0].at_ms` — the newest entry in the restart
+   journal — so a machine that has never restarted shows `—` (`No start reported`) and one that
+   restarted twice shows the newer restart as its *start*. A column headed `Started` that means "the
+   newest restart" will be read as the app's uptime, which is the one number a person checks when
+   deciding whether to restart again. **Fix:** the column says what it is (`Last restart`, with `—`
+   and its own empty label), or the cell states both facts when the app's own start is known;
+   whichever it says must match what `StartedLine` on the Machine tab states for the same machine.
+   **S.**
+   *(**DISPROVED 2026-11-09, before any work was done on it — the suspicion was mine and it was
+   wrong.** `host.restarts[0]` is not "the newest restart": it is **this process's own boot**, appended
+   at startup by `device/device/src/main.rs:985-1001` with `pid: std::process::id()`, and the journal is
+   newest-first. The live frame proves it: `restarts[0] = {at_ms 1794089629237, pid 20072, version
+   0.3.292}` — pid 20072 is the process that is running, and its age (39.2 h) is exactly the cell's
+   `1d 15h ago` with the title `2026-11-08 06:13:49`. What led me astray was comparing the cell against
+   the frame's `uptime_s` (7,165,579 s ≈ 82.9 days), which is the **machine's** OS uptime from
+   `host_facts`, not the app's — two different subjects that happen to sit in the same object. The
+   column is right, and this entry is kept so the next reader does not re-run the comparison.)*
+
+## P0 — the thirty-third list (opened 2026-11-09, the installer is not the release)
+
+The thirty-second list is closed (one item, disproved — see above). This one came from the same read
+that disproved it: while checking the `Started` column I compared the fleet's own numbers, and the
+comparison exposed a different defect in the sentence Home puts on top of the page.
+
+Live `0.3.273-ux129`, read at 1440: the attention block says
+
+    The release is 0.3.291; the machines below are not on it.
+
+and the fleet it is talking about has `DESKTOP-9VH92BJ` on **v0.3.292** and `DESKTOP-CPH4KB2` on
+**v0.3.292** — two machines **ahead** of the "release". The number comes from the staged installer
+(`SummriseSetup-0.3.291.exe`, also on the page), and it is treated as the target every machine is
+measured against; the block even says "the machines below are not on it", which is false: two of the
+four are past it, and one of them (`84T3LIN`, v0.3.291) is exactly on it. What is true is that one
+machine, `14RJCR8`, is on **v0.3.275** and is therefore behind — behind the *fleet*, not behind an
+installer that is itself older than half the fleet.
+
+1. **Home's "the release" is the installer's version, and the fleet has already outrun it.** Measured
+   above: installer `0.3.291`, machines `0.3.292 / 0.3.275 / 0.3.292 / 0.3.291`, sentence
+   `The release is 0.3.291; the machines below are not on it.` — of which three of four ARE on or
+   past it, and the sentence never says which way the gap runs. The console must state the fleet's
+   own newest version as what it is compared against (it is the number the reader is actually
+   asking about), and, when the installer is behind that newest, say so on the installer's own line
+   rather than letting a stale download pass as the target. **M.**
+   *(**Done, live 0.3.273-ux130** (`ad945e3`): the same page now reads `The newest build in the
+   fleet is 0.3.292; the machines below are behind it.` with **14R (v0.3.275) and 84T (v0.3.291)**
+   as the two rows — the machines actually behind the fleet — where before it read
+   `The release is 0.3.291; the machines below are not on it.` with only 14R. The installer strip
+   carries a line of its own: `The fleet is already past this file: the newest build any machine
+   reports is 0.3.292.` The sentence's subject follows the newer of the two numbers, and the gate
+   checks both halves — mutating the sentence to always take the fleet's form fails with
+   `the attention block's release line read "… is 0.3.280; the machines below are behind it."`.)*
+
+## P0 — the thirty-fourth list (opened 2026-11-09, two surfaces disagree about one machine)
+
+The thirty-third list is closed. This list came from following one machine instead of one page: Home
+names `DESKTOP-84T3LIN` as behind, so I opened that machine and read what it says about itself.
+
+Live `0.3.273-ux130`. **The finding is a contradiction, not a wording defect:**
+
+    Home → Needs attention:  DESKTOP-84T3LIN · On v0.3.291 · behind 0.3.292.
+    That machine → Machine tab → Updates:  0.3.291 · current (the release)
+
+Same machine, same visit, two answers. Home compares against **the fleet's newest build**, the
+Machine tab compares against **the staged installer** (`updates.versionText` → `versionRelation`
+against the installer); with the fleet on 0.3.292 and the installer on 0.3.291 those two numbers are
+on opposite sides of 84T, so one page calls it behind and the other calls it current. A reader
+following the alert to its machine is told the alert was unnecessary. Two other reads recorded as
+clean: Home and Activity still differ by hierarchy rather than by accident (Home's headline fact is
+22 px / 600, Activity's day sentence is 17 px / 500 and the day label `Today` is 22 px / 600), and
+the phone's controls remain 44 px with the cards 97% covered.
+
+1. **Home and the machine's own page disagree about whether a machine is behind.** Measured above on
+   one machine in one visit: `behind 0.3.292` on Home, `current (the release)` on the Machine tab.
+   Neither sentence is wrong about its own comparison — they compare against different numbers —
+   which is exactly why the console cannot show both. One machine has one currency: the comparison
+   the alert makes is the one the machine's page must repeat, and the installer's own standing
+   (behind the fleet, as its strip already says) is a property of the download, not of the machine.
+   **Fix:** the Machine tab's version row compares against the same target the alert does, and the
+   installer's being older than the fleet is stated on the installer, where it already is. **M.**
+   *(**Done, live 0.3.273-ux131** (`427a7fb`): the same machine on the same visit now reads
+   `Applied · 0.3.291 · behind the fleet's 0.3.292` on its own Machine tab — Home's exact claim —
+   and the download gets its own row, `Installer · The staged installer is 0.3.291, behind the
+   fleet's 0.3.292.` One definition (`fleetNewestVersion` + `releaseTarget` in `versions.ts`) is
+   called by Home's attention block and by the Machine tab's card, and the sentence names its own
+   subject (`the fleet's` / `the release`). The new unit test reproduces the contradiction and fails
+   on the old logic with `Received: "0.3.291 · current (the release)"`; the gate's new leg refuses a
+   target older than the fleet's newest build.)*
+
+2. **Activity's filter block has four baselines in a two-column grid.** Measured at 1440: `MACHINES`
+   at x=314 (581 wide), `CALLERS` at x=919 (346), the count sentence `710 client calls in this
+   window · spanning 10 h 7 m` at **x=1001**, and `Search activity` with its field at **x=1070**
+   (288 wide, ending at 1,358 while the label above ends at 1,265). Four left edges and three
+   baselines (y=241, 267, 323) inside one block that reads as a single filter bar — the alignment
+   rule (20) says a grid fixes the rhythm, and here nothing is on one. **Fix:** the block is one
+   grid with two columns and one row per subject, so each label starts where its own content starts
+   and the right column shares one left edge. **S.**
+   *(**Done, live 0.3.273-ux136** (`d5aee29`): the count is its own line under `CALLERS` now, on that
+   column's edge — measured live at 1440, it moved from `x=1001` (where the chip row happened to end)
+   to **`x=919`**, the caller column's own start, which is 82 px of drift removed. The bar's remaining
+   edges are the ones each subject owns: machines `314`, callers `919`, the search's label and field
+   both at `1070` (the field's own left edge — it was already right). **Three grid attempts were
+   measured and rejected before this shape settled, and their numbers are in the sheet:** a
+   `max-content max-content 18rem` grid overflowed the bar by **247 px at 1280**; `minmax(0, max-content)`
+   split the caller label from its chip (**627 vs 684**); a fixed search track forced the five chips
+   onto a second row at 1440 (**452 px column against 581 px of chips**), which is a shape the desktop
+   never had. What ships is the original flex bar with one thing fixed, plus `align-items: start` so the
+   two labels stay on one baseline while the caller block is taller.)*
+
+## P0 — the thirty-fifth list (opened 2026-11-09, Home's selected card, from the "what does it cost" read)
+
+The thirty-fourth list is closed. This one came from measuring **what a state change costs the page**
+rather than what a sentence says: opening one machine and coming back to Home.
+
+Live `0.3.273-ux136` at 1440. Three results were clean and are recorded as clean: the two pages still
+differ by hierarchy (Home's verdict at 22 px/600 is the largest text on it, Activity's day sentence at
+17 px/500); with the fleet read failing, Home keeps the last list and states the failure once in `/fleet`'s
+own words, and every machine tab that reads `/mcp` states its own failure in its own subject
+(`Could not read the run history: boom`, `Could not list the files root: boom`, `Could not read the
+process list: boom`); and the Terminal's "Could not read this device's sessions" is NOT leaking onto
+other tabs — it sits inside the `hidden` workspace and measures 0 × 0 with no client rects, so the DOM
+query that once looked like a leak is not one.
+
+1. **Home's `Selected machine` card repeats what the page already says, and costs 154 px to do it.**
+   Measured: with one machine selected, Home grows from **908 → 952 px** and a 154 px section appears
+   that reads `Selected machine · DESKTOP-9VH92BJ · online · 0.3.292 · 46 tools · 11 capabilities ·
+   Open · Connect a client`. The name, the presence word and the build are **all three already on the
+   page** — the topbar picker states the name and build, and the fleet row below is highlighted and
+   states the name, `online · seen Ns ago` and `v0.3.292`. The card exists to carry the live catalogue
+   counts and two doors; it carries them under a label whose whole content is a repeat. On the page
+   whose one job is the verdict and the next action, a second statement of the selected machine's
+   identity is the one thing it must not spend height on. **Fix:** the card keeps the subject in
+   `<h2>`-level words only where the row cannot see it — the counts and the two doors — and its
+   identity line goes, because the highlight is the identity. **S.**
+   *(**Done, live 0.3.273-ux137** (`62b05d7`): the card is **129 px** (was 154) and its whole text is
+   `DESKTOP-9VH92BJ · 46 tools · 11 capabilities · Open · Connect a client` — Home went **952 → 927 px**
+   with the same machine selected. The heading takes the row's own name type (`--fs-md` / semi), so the
+   card reads as a continuation of the row under it rather than a second, differently-shaped header.
+   An offline machine keeps one presence line (its last-seen age is why the counts are absent), and a
+   test asserts that an online machine's presence is NOT repeated. The gate now compares the card's
+   heading with the highlighted row's name — two statements of one subject must agree — and refuses a
+   second identity line at all.)*
+
+## P0 — the thirty-sixth list (opened 2026-11-09, the installer strip versus the fleet it is behind)
+
+The thirty-fifth list is closed. This list came from reading the page in **strict reading order** — the
+first twelve things a reader meets by y-then-x — and from the same page with an **empty fleet**, the
+one a new operator lands on.
+
+Live `0.3.273-ux137` at 1440 and 390. Three results were clean and are recorded as clean: Home's
+reading order is already the brief's order (`Home` → the verdict → the attention block), so the page's
+first sentence after its name is the fleet's own count; the empty fleet is honest and complete
+(`No machines yet` / `Add your first machine` / `Start with the installer below, then press Add a machine
+for the enrollment command`, at 739 px on the phone and 908 on the desktop); and Activity's head says
+its day in one sentence at **17 px / 500**, below Home's verdict at 22 px / 600, so the two pages keep
+different hierarchies rather than one shared style.
+
+1. **Home invites an install with a file that its own strip says the fleet has outrun.** Measured at
+   1440 on the live page: the strip (y=684, 100 px) reads
+
+       Install the device runtime / Download Windows installer
+       The fleet is already past this file: the newest build any machine reports is 0.3.292.
+       SummriseSetup-0.3.291.exe · 6.3 MB · sha256 0adcbd7c…
+
+   — an accent-filled `Download Windows installer` button directly above a sentence saying that file
+   is older than every machine in the fleet. Nothing on the page tells the reader what installing it
+   would fix, because the answer is nothing: every machine already runs the newer build. An invitation
+   that the page's own next line makes pointless is the same defect the Screen tab had (a press whose
+   answer the page already knows), in the other direction. **Fix:** when the fleet has outrun the file
+   the strip says what the file is FOR (a machine that leaves and comes back, or a new one) instead of
+   inviting an install, and the invitation is not the page's loudest control. **M.**
+   *(**Done, live 0.3.273-ux138** (`eeb4429`): the strip has two states and says which it is in. The
+   live page (fleet 0.3.292, file 0.3.291) now reads `Installer for a new or returning machine` over a
+   **neutral** download, and the sentence names what the file is still good for: *"It installs a
+   machine that is not in the fleet yet, or one that comes back after being removed; a machine already
+   running 0.3.292 needs nothing from it."* The page now has **exactly one accent-filled control —
+   `Add a machine`** (measured across every element on `main` whose background is the accent solid).
+   The strip grew 100 → 118 px, which is the height of the sentence that makes it honest. A test draws
+   the live state and fails when `stale` is forced back to `false`; the gate's leg names the heading and
+   the control's class.)*
+
+## P0 — the thirty-seventh list (opened 2026-11-09, a count that counts one thing beside a span that describes another)
+
+The thirty-sixth list is closed. This one came from following a **single interaction to its end**:
+type a search that matches nothing into Activity and read every number the page then states.
+
+Live `0.3.273-ux137` at 1440 and 390. Three results were clean and are recorded as clean: the fleet
+row's menu holds exactly three actions with the destructive one marked (`Copy diagnostics`, `Rename`,
+`Remove` in `danger`); the Rename dialog labels its field (`<label for="rename">Name</label>`) and
+states in its placeholder what an empty value means (`leave empty to use the device's own hostname`);
+and the no-match state itself is good — `No activity matches “zzzz”.` with a `Clear search` door at
+both widths, so a reader is never left staring at an empty page.
+
+1. **The caller count counts the filtered set while the span beside it describes the whole read.**
+   Measured after typing `zzzz` at 1440, one page stating four numbers:
+
+       head:        Today: 876 client calls, 42 failed — 2 console failures; 6 unattributed.
+       filter chip: 0 client calls in this window · spanning 10 h 50 m
+       empty state: No activity matches “zzzz”.
+       span:        the fetched window's own first and last moment
+
+   The chip's `0` is the **search-filtered** client-call count (`matching.filter(isClientCall)`), and
+   the `10 h 50 m` beside it is the **unfiltered** window's span, joined by a `·` that reads as "the
+   span of the zero". The head above still says `Today: 876 client calls` — true of the day and false
+   of what the list is showing. Three numbers describe three different sets, and the page gives no
+   sign of it. The operator's brief is 一目了然; a count whose qualifier is a different measurement is
+   the opposite. **Fix:** the sentence says which set it counted when a search or a machine scope is
+   active, and the span either states the set it belongs to or is withheld while the count is
+   filtered. **S.**
+   *(**Done, live 0.3.273-ux139** (`5c80315`): the sentence states the set it counted and the span is
+   withheld while the list is narrowed — `4 client calls in this window · spanning 1 m` (unfiltered),
+   `4 client calls on DESKTOP-9VH92BJ in this window` (scoped), `0 client calls matching the search on
+   DESKTOP-9VH92BJ in this window` (searched). The query is not echoed in the count: the empty state
+   quotes it once. A test pins all three forms and the span's return when the search clears, and the
+   gate types a no-match search and refuses a count carrying the read's span while narrowed. Closing
+   this also fixed the gate's own precondition: its "wait for `spanning`" hung on a legitimately
+   span-less page, so it waits for the number now.)*
+
+## P0 — the layout program (opened 2026-11-10, the operator's directive: 彻底重构)
+
+Not a list of copy defects. The operator asked for the console and the panel's **page layout style** to
+be restructured, and the design is `docs/superpowers/specs/2026-11-10-shared-layout-design.md` with the
+numbers pinned in `docs/superpowers/specs/layout-contract.json`.
+
+**The contract is in force** — both repos carry the file, each side's test asserts its own built sheet
+draws the numbers *through tokens*, and each pins the **other** side's `sha256` (`2d3ee035…9502d5`).
+Shipped this round: the console's page is declared once (1120 / `var(--sp-5)` / `var(--sp-5)`, the third
+`22px` rhythm gone), its `.card` is the contract's 14 / 16 / 8, and its rail is the 232 it draws (it was
+declared 200 twice and 232 twice); the panel gained `.page` and `.card` at all — it had neither, its
+content measured 2,471 px at 2560 with the cards inside it stuck at 980. Live console `ux141`, gate
+leg: `the page frame is the shared contract's: 1048 px wide, 24px padding, 24px rhythm, and its first
+block's corner is 14px`.
+
+What remains, in the design's own order:
+
+1. **The panel's other four pages onto `.page`.** Memory is the only tenant; History, Plugins, Settings
+   and the harness view still lay their content edge-to-edge inside the content card, so switching
+   pages changes which frame you are looking at. Measured before: Plugins' boxes at x=73 (1,267 wide)
+   and Memory's at x=219 (980). **M.**
+   *(**Done, panel `94f70f63`**: all five pages measure **x=125, 1,168 px column** at 1360 (1,120 + the
+   frame's two 24 px insets); the terminal keeps the one legitimate exception. Two of them were
+   ALMOST right, which is the worse failure: Plugins kept `padding: var(--sp-4) 20px`, later in the
+   sheet than the frame's rule, so it won — with `content-box` that drew a **1,160 px** page carrying
+   a **1,120 max**; Settings kept its own padding and had no width at all. Both paddings are gone.
+   The gate `every page but the terminal carries the frame` fails with `expected [ 'memory' ] to
+   deeply equal []` when a page root drops the class.)*
+
+2. **Settings' three nested folds collapsed to the card grammar.** Measured at 1360: `settings-fold`
+   1,221 at x=98, `settings-section` 1,187 at x=115 inside it, `connect-snippet` 1,153 at x=132 inside
+   that — three insets, each a hairline, on one page. The rule to apply is the one rule that fixes all
+   three: a section is either a card or it is not, and nesting a box inside a box inside a box to say
+   "these belong together" is what rule 7 (spacing and grouping, not borders) forbids. **M.**
+   *(**Done, panel `94f70f63`**: a section inside a fold keeps the fold's surface and draws no second
+   box — measured **x=166, padding 0, border 0**, with the snippet on the same edge at **x=166**
+   (it was 132). A section standing on the page keeps its card, which is what this exception
+   preserves rather than erases. The gate `a box inside a box inside a box is refused on Settings`
+   fails on the surface, the hairline and the inset independently.)*
+
+3. **Home's four ad-hoc boxes onto the card grammar.** `attention`, `fleet-table-wrap`, `installer`,
+   `installer-strip` each write their own border and radius while `.card` exists and is used only on the
+   machine pages. Home is the page whose first job is the verdict, and its blocks should read as one
+   family. **S.**
+   *(**Done, live 0.3.273-ux143** (`a24d607`): all three carry `.card` and keep only what they add —
+   `.attention` its 3 px warning edge, `.fleet-table-wrap` `overflow: hidden` + `padding: 0` because a
+   table is the card's BODY, `.installer-strip` its flex row. Measured live: each **14 px cornered**,
+   attention and the strip at the card's **16 px padding**, the table at its declared 0. **And the
+   move cost the strip its shape for one deploy:** `.card` is `flex-direction: column`, the strip's
+   own rule set only `display: flex`, so it inherited the column — live on `ux142` it drew **238 px
+   tall with its four children at x=710 / 749 / 939 / 1,058**. The rule declares the direction it
+   means and the gate now reads it (`the installer strip stacks in a ${direction}`); live after,
+   `ux143`: **126 px, `flex-direction: row`**, children at 317 / 583 / 939. The cost is the honest
+   record of this item, not a footnote.)*
+
+## P0 — the thirty-eighth list (opened 2026-11-10, the rhythm inside the cards)
+
+The layout program's three items are closed and the contract holds: both surfaces draw one page column
+(console **1,120** at 1440, panel **1,120** at 1360 and 2,560), one card (14 / 16 / 8), one rail per
+surface. This list starts one layer in: the frame is uniform, the blocks on it are not yet.
+
+Live console `0.3.273-ux143` at 1440 and the built panel at 1360. Two reads were clean and are
+recorded as clean: the page's own rhythm is exactly the contract's — three cards on Home with gaps of
+**24 / 24** px — and every page in both surfaces starts its content at the same x (**149** in the panel,
+**300** in the console).
+
+1. **Four cards on one page, four inner rhythms.** Measured live on Home at 1440, each block drawn on
+   the same card grammar:
+
+       .attention        gap 10px, padding 16px
+       .fleet-table-wrap gap  0px, padding  0px     (declared: it is the card's body)
+       .installer        gap 14px, padding 16px
+       .machine-summary  gap 10px, padding 14px 18px  ← the only card not at the card's padding
+
+   The card's grammar says **gap 8, padding 16**. Two of the four are at neither: `.installer` runs a
+   14 px rhythm and `.machine-summary` pads 14/18 while declaring itself the card. Rule 1 (start from a
+   system) is about exactly this — a card that quietly has its own inner scale is how four blocks on
+   one screen stop reading as one family, which is the state the previous list just fixed at the
+   outer layer. **Fix:** every card's inner rhythm and padding come from the contract, and the two
+   that genuinely need a different rhythm say why in one measured exception rather than drifting by
+   2 px each. **S.**
+   *(**Done, live 0.3.273-ux144** (`dc43365`): every Home block is on the card's rhythm and padding —
+   measured live, `.attention` **8 / 16**, `.installer` **8 / 16**, `.machine-summary` **8 / 16**, the
+   table a declared **0 / 0** because it is the card's body. `.machine-summary` did not even carry
+   `.card` and hand-wrote `14px 18px`; the strip's 14 was a ROW gap read as a row-gap while the element
+   was still a grid, so it is now declared on the axis it belongs to (`column-gap` 14, `row-gap` 8).
+   Both edges the page keeps are named: `.attention`'s warning 3 px and `.machine-summary`'s accent
+   3 px, the page's one accent edge. The gate grew two legs — `Home's .installer runs a 14px inner
+   rhythm, the card's is 8px` and `the selected-machine card is not on the card grammar` — both
+   mutation-checked.)*
+
+2. **The panel's five pages keep five rhythms behind one frame.** The frame gives each page 24 px
+   between its blocks; measured at 1360, the blocks inside it run **24** (Memory, Settings) and **8**
+   (Plugins). Plugins is a list and 8 is defensible — but it is currently defensible by *nothing on
+   the page*, and the next page added will pick a third number. The contract has a `section.gap` of 24
+   that **no rule in either repo reads**. **Fix:** the pages declare which rhythm they use from the
+   contract (`page` or `section`), and the unused key is either used or deleted. **S.**
+   *(**Done, panel `6b0796a2`**: the two rhythms are the contract's own numbers and each page declares
+   which it uses — the **page rhythm 24** on Memory and Settings (the frame) and the **list rhythm 8**
+   on Plugins, which is the CARD's own inner gap rather than a new number. And the dead key is
+   **deleted**: `section.gap` was read by no rule in either repo, and both sha256 literals moved
+   together (`6a6d7f86…192d9`) — the cross-repo pin doing its job. One measurement worth keeping: giving
+   `#plugins-view` a `gap: 0` to stop it declaring a second rhythm COLLAPSED the list, because an ID
+   selector on the same element beats the class — children at y=111 / 149 / 181. The fix is to delete
+   the declaration, not to zero it, and the test asserts the page's own id declares no rhythm at all.)*
+
+## P0 — the thirty-ninth list (opened 2026-11-10, the page title, and what it is made of)
+
+The thirty-eighth list is closed. This one came from putting the two surfaces' **page heads** side by
+side at the same width, which no earlier audit had done: the frame is shared, the card is shared, and
+the thing that opens every page is not.
+
+Measured live console `0.3.273-ux144` at 1440, and the built panel at 1360 in both densities. Two
+reads were clean and are recorded as clean: the console's two top-level pages and the panel's four
+content pages all open with a visible `h1` (no page relies on the rail's icon alone to say where
+the reader is); and every device page's title sits at the same x as its page column (**300** console,
+**149** panel), so no title is off the grid it belongs to.
+
+1. **The page title is 22 px on some pages and 17 px on others, in the same product.** Measured:
+   console Home `22 px / 700`, console Activity `22 px / 700`, panel Memory `22 px / 700`,
+   panel Settings `22 px / 700` — but panel **History `17 px / 700`** and panel **Plugins `17 px / 700`**
+   (`.mem-head h1`, `.settings-header h1` and `.plug-title` are three separate rules; `.history-page`
+   has none and inherits whatever the shell gives it). A page title is the one element that must be
+   identical across every page of both surfaces — it is the reader's answer to "where am I" — and here
+   it takes two sizes for no reason the page states. **Fix:** one page-title rule in the contract,
+   drawn by every page on both surfaces, and the three panel rules collapse into it. **S.**
+   *(**Done, live console 0.3.273-ux145 / panel `bf52f7ff`**: the contract gained `title: 22 / 700`;
+   the console's rule asserts it through `--fs-xl` / `--fw-bold`, and the panel's `.page-title` is now
+   the single rule while the pages keep only their spacing. Measured after, both densities: every
+   content page's title is **22 px / 700** at its page column's edge (**x=149** desktop, **x=147**
+   panel). A test refuses a page that restates the type — and its first version read a one-line rule
+   (`.plug-title { margin: 0; }`) as swallowing the NEXT rule, so it failed on `.plug-sub`'s
+   `font-size` until the extractor stopped assuming the closing brace had a line to itself.)*
+
+2. **The panel draws the page's name twice, and the console once.** In the desktop density the
+   shell's header already renders the page's title (measured: `desktop-header` at y=14, the page's
+   `h1` below it at y=110 — the word `History` appears twice within 100 px), while the panel density
+   has no header and the page's own `h1` is the only one. The console draws it once, in the page.
+   The design contract says the frame is *rail · header · page body* — so the question the panel's
+   alternate answers differently is whether the header is part of the frame or part of the page.
+   **Fix:** the frame's header names the page OR the page names itself, never both, and the contract
+   says which. **M.**
+   *(**Done, panel `bf52f7ff`**: **the page body owns its name, in both densities**, which is what the
+   console has always done. The header names the page only for the **terminal**, whose body is a shell
+   and cannot name itself. History's title stops being `sr-only`, and `desktop.css`'s rule that hid
+   Memory's, Settings' and Plugins' titles under the desktop canvas is deleted — it is now the wrong
+   side of the decision, and it could not have stayed anyway, since the pages carry `.page-title`,
+   which those selectors do not match. **Browser and Harness keep an invisible title deliberately:
+   both are PANES** (an embedded WebContentsView, a two-pane harness), and the shell test says so in
+   words. Mutation: removing History's `h1` fails with `History does not name itself in its own body`.)*
+
+## P0 — the fortieth list (opened 2026-11-10, the states that tell the truth, and one that tells nothing)
+
+The thirty-ninth list is closed. The operator's directive names the empty, the loading and the failed
+state as part of the shared layout system, and the design rules make rule 19 the one that says they
+must tell the truth. This list is a sweep of exactly those states across both surfaces.
+
+Live console `0.3.273-ux145` at 1440, and the built panel at 1360 with every `/api` read answered
+`500 boom`. Three reads were clean and are recorded as clean: the panel's Memory, Settings and
+Plugins each answer a failed read with its own subject and a `Retry` (`Not read — the memory list
+could not be loaded. boom · Retry`, `The device's settings could not be read. The limits below are
+empty, not this device's values. · Retry`, `Inventory unavailable. inventory: boom · Retry`); the
+console's machine tabs keep their own subject when `/mcp` fails (`Could not read the run history: boom`,
+`Could not list the files root: boom`); and the empty fleet's page is a real page — three blocks
+(`page-head` 65, `empty-state first-run` 100, the installer strip 66) at 848 px.
+
+1. **When the installer read fails, Home silently drops the strip.** Measured: with `/fleet` empty and
+   `/installer` answering 500, the page draws **`page-head` + `empty-state first-run` and nothing
+   else** — no strip, no sentence, no `Retry`, 848 → 748 px. The render is
+   `{installer !== null && <InstallerBlock …/>}`, and `useInstaller`'s `catch` sets `null` — the same
+   value it uses for "not read yet". So an ACCOUNT with no installer and a CONSOLE that failed to ask
+   are one state, and the one the reader gets is silence. The comment above the block is explicit that
+   the installer "is the next step whether the machine list arrived, is still coming, or failed" — the
+   page means to be honest here and is not. **Fix:** the hook reports three states, not two, and the
+   failed one says what failed and offers the retry, exactly as the panel's three pages already do.
+   **S.**
+   *(**Done, live 0.3.273-ux146** (`ab3e2e2`): `useInstaller` reports **three** states (`reading` /
+   `read` / `failed`) and carries a `retry`. Live with `/installer` answering 500 and `/fleet` empty:
+   `Install the device runtime · The installer could not be read, so this page cannot offer the
+   download or say which build it carries. · Try the installer again`, drawn as
+   `card installer installer-strip`. Before, that page drew `page-head` + `empty-state` and NOTHING
+   else (848 → 748 px). The gate's new leg breaks `/installer` in the page's own origin; mutation —
+   making the hook report `reading` in its `catch` — fails it with `a failed installer read drew
+   nothing at all — the page answered with silence`. The leg also taught the audit that **a failure
+   THIS SCRIPT plants is not a console error**: it is excused by the sentence describing it, and a
+   real 500 still fails the run.)*
+
+2. **The empty fleet's page has three blocks and no first action.** With `[]` the page reads
+   `No machines yet` — and the installer strip below it is the page's smallest block (**66 px**),
+   drawn after an `empty-state` of 100. Measured: the strip's own heading is
+   `Installer for a new or returning machine` and its sentence says the fleet is past the file; on a
+   fleet of zero both statements are about a fleet that does not exist. A first-run page's next step
+   is the INSTALLER, and the block for it is the one the reader reaches last and the one that is
+   smallest. **Fix:** on an empty fleet the installer is the page's action, not its footnote — the
+   empty state and the strip are one block, in the order a new operator actually works. **M.**
+   *(**Done, live 0.3.273-ux147** (`85331ca`): one card — `Install the device runtime` / the sentence
+   naming the order / the door / the file's facts — **156 px**, one installer door on the whole page,
+   no second strip. The block is the SAME component in a `bare` mode (a card inside a card is the
+   shape the thirty-eighth list removed from Settings, and two components would be two places that
+   know the three states). Measured live after: `hasCard: true`, `doors: [{ vis: true, inCard: true }]`.
+   The new gate leg draws the zero fleet through the gate's own stub — and **it cost two fixes in the
+   gate itself, both real**: `page.route` registrations stack with the most recent winning, so the
+   leg inherited the previous leg's planted 500 and measured the FAILED card; and a fixed timeout
+   raced the installer read, so the leg waits for the DOOR. Mutation: letting the strip draw too
+   fails with `the installer strip is drawn beside the first-run card — the page says its next step
+   twice`.)*
+
+## P0 — the forty-first list (opened 2026-11-10, the rhythm that was wrong four times)
+
+The fortieth list is closed. This list came from asking a question the audits had never asked: **is the
+page rhythm the SAME on both pages of the console?** The answer was no, and it had been no through
+four separate rounds of "the frame is uniform".
+
+Live console `0.3.273-ux147` at 1440, the built panel at 1360, and the two surfaces compared block by
+block. Two reads were clean and are recorded as clean: every page in both surfaces now starts its
+content on its page column's edge (149 panel, 300 console), and every card in both surfaces carries the
+one grammar (corner 14, the card's padding, the card's inner rhythm) — the checks the last three lists
+paid for.
+
+1. **Activity ran a fourth rhythm.** Home and Overview carried `gap: 22px`, the phone `18px`, and
+   Activity **`gap: 16px`** — measured live at 1440: Activity's head and its record sat **16 px** apart
+   while Home's sat **24**. The frame leg that has been printing
+   `the page frame is the shared contract's: 1048 px wide, 24px padding, 24px rhythm` every round was
+   measuring **Home only**, so the sentence was true of one of the console's two top-level pages and
+   said nothing about the other. **Fix:** the rule is deleted (the frame supplies the rhythm), and the
+   leg becomes per-page: it opens Activity, reads its rendered `row-gap` and the distance from its head
+   to its first block, and compares both to Home's. **S.**
+   *(**Done, live 0.3.273-ux148** (`843f6b5`): the rule is deleted, and measured live after —
+   `pageGap: "24px"`, the head 24 px above its first block, the same as Home. The leg prints
+   `Activity draws the page's own rhythm: 24px gap and 24 px between its head and its record — the
+   same as Home`, and putting `gap: 16px` back fails with `Activity's rhythm is 16px, the contract's
+   (and Home's) is 24px` — a sentence the old Home-only leg could not produce.)*
+
+2. **The panel's card grammar has no test that every card IS a card.** The console's blocks are
+   checked one by one (`Home's .attention is not on the card grammar`); the panel checks the ATOM
+   (radius, padding, gap through tokens) but never that any page's named block uses it. Measured at
+   1360: `plug-inventory`, `plug-card`, `plug-log` and `mem-card` still paint their own borders, radii
+   and paddings — four implementations of one atom on two pages, exactly the shape the console's Home
+   had before its blocks were put on the grammar. **Fix:** the same assertion on the panel's side:
+   every block that draws a box uses the atom, or says in one sentence why it is not a card.
+   **M.**
+   *(**Done, panel `80307f7a`**: the page-body blocks are on the atom — measured after, `mem-card` and
+   `plug-card` **14 / 16 / 8**, `plug-inventory` **14 / 0 / 8** (a list of rows is the card's BODY,
+   the same answer Home's fleet table gives). **The gate's scope is a measured decision:** the sheet
+   holds **38** other elements that paint a hairline — chips, buttons, popovers, modals, the session
+   menu — and none is a SECTION of a page; putting them on `.card` would give every chip a 16 px
+   padding and a 14 px corner, which is a uniform, not a grammar. The test names the page-body blocks
+   and asserts per block that the corner and the hairline are NOT restated; mutation — putting
+   `border-radius: var(--radius)` back into `.mem-card` — fails with `.mem-card must not restate the
+   card's corner`.)*
+
+## P0 — the forty-second list (opened 2026-11-10, the width between the breakpoints)
+
+The forty-first list is closed. Both surfaces now hold the frame, the rhythm and the card; this list came
+from walking the two surfaces **across the widths between their breakpoints** — 380, 480, 639, 640, 700,
+720, 759, 760, 761, 799, 800, 900, 901, 1000, 1200, 1279, 1280, 1360 — rather than measuring the two
+widths the gates happen to open (1440 and 390).
+
+Two reads were clean and are recorded as clean: on the phone there is no sideways scroll on either page
+of either surface (`scrollWidth === innerWidth` at every width), and the console's page column keeps its
+contract rhythm and padding below 640 (`16 px` padding, `16 px` gap).
+
+1. **The console's phone padding and gap are `16 px`, which is not the contract and is not the screen.**
+   Measured at 390 and 480: `.page` draws `padding: 16px` and `gap: 16px` while the contract says 24.
+   That would be a "one responsive step down" answer — except the panel does not do it: measured on the
+   built panel at 380, its page draws **`padding: 24px`** and a 24 px rhythm, on a 297 px column. So the
+   two surfaces disagree about the phone by one step, and the smaller one is the one with the room
+   (the panel's rail takes 52 px of a 380 window; the console's takes 0, it is a bottom bar). **Fix:**
+   the contract either carries the phone's step or says the phone is the desktop's rhythm; the two
+   surfaces read the same sentence. **S.**
+   *(**Done, live 0.3.273-ux149** (`3b8ac69`): both phone overrides deleted — measured live after,
+   `padding: 24px` and a 24 px rhythm at **390 / 480 / 639** (it was 16 at every one), with no sideways
+   scroll at any width. The gate reads the rendered phone and prints `the phone's page is the contract's:
+   24px padding and 24px rhythm on a 390 px column`; mutation — putting `padding: var(--sp-4)` back —
+   fails with `the phone's page padding is 16px, the contract says 24px`. **And the panel was already
+   right:** measured at 380 on its 297 px column, its page is 24 / 24 and its card 16 / 8. A phone is not
+   a different design, it is the same design in fewer columns.)*
+
+2. **Neither surface has a breakpoint token.** The console declares **31** media queries at
+   `639 / 640 / 720 / 767 / 799 / 800 / 900 / 56rem / 68rem / 1280 / 480`, the panel **6** at
+   `700 / 760 / 900`. The values that matter are hidden inside `rem` in two of them (`56rem` = 896,
+   `68rem` = 1088) and every one is a literal. A layout system whose breakpoints are literals is a
+   system with an invisible fourth scale — spacing, type, radius are tokens and the widths are not.
+   **Fix:** the contract names the widths both surfaces may use, each media query reads one, and a
+   value outside the list fails in both repos. **M.**
+   *(**Done, console + contract `70e7510`, live 0.3.273-ux150**: `breakpoints: { narrow: 480, phone:
+   639, tablet: 767, columns: 1088, wide: 1280 }` is in the contract and every width query must read one
+   (±1, because `639/640` is ONE breakpoint written from both ends). The odd literals were folded after
+   **checking each one against the rendered layout at 390 / 480 / 720 / 799 / 1279 / 1280** — and two
+   were REFUSED: `480` is the phone's own step and `1280` is where the audit filter row stops wrapping,
+   so folding them would have changed two bands, which is a redesign smuggled in as a rename. Both are
+   back where they were. **A fold that changes behaviour is not a fold.** The test refuses a stranger
+   (`a width query outside the contract is a fourth scale nobody declared: expected [ 799 ] to deeply
+   equal []`) and refuses a width written in `rem` at all — a width a grep cannot see is a width nobody
+   can review. **The panel is on the set too** (`4796616b`): its six queries read `phone` (639) —
+   `700` only moves the session menu to the bottom sheet and nothing between 640 and 767 draws it
+   differently — `tablet` (767) for the rail's column flip, and **`columns` (1088) for the approval
+   banner, NOT `tablet`**. The obvious fold was 767 and the measurement refused it: at 768 / 800 / 900
+   the two-column banner gives the command **641 / 673 / 773 px** with its actions beside it, so
+   collapsing at 767 would have collapsed it **133 px too early**. The one-column form at 901 measures
+   almost identical to 1088's, which is what makes the fold safe on the other side. Its gate refuses
+   `900` the same way the console's does.)*
+
+## P0 — the forty-third list (opened 2026-11-10, two counts that disagree on one page)
+
+The forty-second list is closed. This list came from reading Activity's page as a reader does — both
+numbers it puts in front of that reader at once — rather than from a rule checklist. It is the first
+list in five that found a problem of MEANING rather than of geometry.
+
+Measured live `0.3.273-ux150` at 1440, twice, 26 seconds apart.
+
+One read was clean and is recorded as clean: the day line and the window line are both derived from the
+same audited rows and both say `client calls` for the same thing — the vocabulary is shared, which is
+what five rounds of copy work bought.
+
+1. **The page says two numbers, both called "client calls", and never says they cover different
+   intervals.** Measured at 19:48 and again at 19:51:
+
+       header  Today: 206 client calls, 21 failed.
+       bar     629 client calls in this window · spanning 12 h 15 m
+
+   Both are true. The header is TODAY (from midnight, ~19 h 50 m of it); the bar is the FETCHED WINDOW,
+   which spans 12 h 15 m and therefore starts **before midnight** — so the window's 629 includes part of
+   yesterday and the day's 206 does not. Nothing on the page says that, and a reader comparing the two
+   can only conclude one of them is wrong. The code's own comment says the span exists because
+   *"two true counts looked contradictory"* — it solved that for the count beside it and left the
+   count ABOVE it unexplained. **Fix:** the two sentences name their intervals in the same words, and
+   the page says once, in one place, how they relate. **S.**
+   *(**Done, live 0.3.273-ux151** (`d81fa69`): the window's count names its START — measured live after,
+   `Today: 219 client calls, 21 failed.` over `624 client calls in this window · **from 07:44**, spanning
+   12 h 19 m`, which is the fact that reconciles the two: a 12 h 19 m read taken at 20:04 begins at
+   07:44 and never crosses midnight. The gate leg reads the day line and the control's own
+   `aria-describedby` and refuses a bar that names only its length (`the window's count names only its
+   length, not where it starts`). **The leg found two things on the way, both real:** the previous leg
+   left Activity SCOPED to one machine (a narrowed count withholds its span by design, so the leg was
+   measuring the wrong page), and a text sweep of `main *` read the whole document's text as if it were
+   one sentence.)*
+
+2. **The scope chips do not survive being read as a filter.** Measured on the same live page: the six
+   chips are `aria-pressed` toggles — `All machines` true, four machines false, `Clients only` false —
+   and the header's day line is computed for the SCOPE (`daySummary.device === auditScopeDevice`) while
+   the window line is computed from the rows. Two different scopes for two numbers on one screen is
+   correct; two different sentences for them is not. **Fix:** only after item 1 says which interval
+   each number is, the scope sentence says which subset each number is. **S.**
+
+## P0 — the forty-fourth list (opened 2026-11-10, two midnights)
+
+The forty-third list is closed. This list came from the question the last one made askable: **whose
+midnight is `Today`?** The page answers with two of them.
+
+Measured live `0.3.273-ux151` at 1440, and again from a browser set to `America/New_York`:
+
+    console host zone   UTC                console midnight 00:00Z
+    browser zone        America/New_York   browser midnight 05:00Z
+
+Two reads were clean and are recorded as clean: the day answer and the header agree to the row
+(`/audit/day` `client_calls: 231` over the page's `Today: 231 client calls`), and the window's count
+still names its own start, which is what the last list bought.
+
+1. **`/audit/day` cuts the day at the CONSOLE HOST's midnight; the timeline groups its rows at the
+   BROWSER's.** Measured: from an `America/New_York` browser (midnight 05:00Z) the page draws the
+   `Today` label over rows from 07:48Z onward while the day line has counted from 00:00Z — one
+   interval name over two intervals. The code says it outright: `/audit/day` is *"the console host's
+   local midnight"* and *"the page's timeline cuts at the browser's local midnight"*, with the note
+   that *"the measured host and browser are both Asia/Shanghai"*. That is true of the operator's own
+   machine and false for a browser anywhere else, or a laptop opened while travelling. **Fix:** one
+   midnight, named once, and each surface says which one it uses. **M.**
+   *(**Done, live 0.3.273-ux152** (`22a20ae`): the answer publishes `day_start_ms` — the midnight it
+   actually used — and the page groups its rows at that moment. Measured live from an
+   `America/New_York` browser: `day_start_ms` **16:00Z** (the console's own zone, Asia/Shanghai) while
+   the browser's midnight is **05:00Z**, and the headings read `Today` / `Yesterday` at the CONSOLE's
+   cut, so the label over the list and the count above it are about the same interval. **And the gate
+   says what it cannot see:** `playwright-core`'s `Page` has no `emulateTimezone` (the Context does,
+   and the run has one page), and re-zoning the whole run broke another leg's sentence
+   (`Today 4 client calls · last 15:31`), so the leg proves what it can see — the answer names its
+   midnight and the label does not start before it — and says in its own sentence that the
+   zone-independence is the unit test's, which sets the cut explicitly and fails on the browser's day
+   with no zone involved. **One unrelated red was fixed because it was in the way:** `tokens.rs`
+   failed on a `12px` literal in `.timeline-filters` — red on a clean trunk too, so the category gate
+   had been un-runnable.)*
+
+2. **~~The day's scan examined 302 lines for a day the window shows holding 1,000+ rows.~~
+   **DISPROVED — the window's 1,000 lines are NOT the day's.** The measurement compared
+   `/audit/day`'s `lines_read: 302` with `/audit?limit=1000` and assumed the window was inside the
+   day. It is not: measured live, **689 of those 1,000 lines are from BEFORE the day's own cut**,
+   and the 311 at or after it are the day. So the day's `lines_read: 312` is **311 + the one line
+   that proved the cut**, its `client_calls: 236` is exactly the 236 client calls in those 311 rows
+   by the server's own rule, and `since_ms: null` is CORRECT — the answer says "whole" because it
+   is whole. **The audit item was wrong; the read was right.**
+   *This is the third list in a row whose finding was a comparison between two intervals — the
+   same error, made this time in a measurement rather than in the page's prose. `5d9b887` pins the
+   property: `the_day_scan_covers_exactly_the_rows_at_or_after_its_cut` seeds rows on both sides of
+   a real local midnight and asserts the scan is the day's rows plus one proving line.*
+
+## P0 — the forty-fifth list (opened 2026-11-10, from a disproved item)
+
+The forty-fourth list is closed: one item shipped (the day's cut is now named and the page groups at
+it), and one was **disproved** — the read was right and the audit was wrong. This list starts from
+what the disproof exposed: **three lists in a row found a comparison between two intervals**, twice in
+the page's prose and once in my own measurement. The product and the audit are making the same mistake,
+which means the MISTAKE is the finding, not either instance of it.
+
+Measured live `0.3.273-ux152` at 1440.
+
+Two reads were clean and are recorded as clean: the day's scan is provably the whole day (311 rows at
+or after the cut, plus the one that proved it, and the client count matches to the row), and the
+timeline's headings cut at the answer's `day_start_ms` on a browser whose own midnight is eight hours
+away.
+
+1. **Nothing in the console names an interval in a way a machine can check.** Every sentence about a
+   count states its interval in prose — `Today`, `in this window · from HH:MM, spanning …` — and the
+   only check any gate can make is a regular expression over the text. That is how three lists ended,
+   in a row, with a comparison between two intervals: the page's own sentences are the only place the
+   interval is stated, so a reader (and an auditor) has to parse English to compare them, and a regex
+   cannot. **Fix:** the counts carry their interval as DATA (a start and an end, on the element), so
+   the gate compares numbers instead of adjectives, and the sentences stay as they are. **M.**
+   *(**Done, live 0.3.273-ux155** (`9e37510`, corrected by `4e3bf13`): `.activity-today` carries
+   `data-interval-kind="day"` plus the cut the answer published, and `#timeline-clients-window` carries
+   `kind="window"` plus the read's span. The gate compares them as numbers. **And it caught me**: the
+   first leg asserted "the window must start at or after the day's cut", and the live check on ux154
+   disproved it in one read — the day cut was **16:00Z** while the window ran **07:58Z → 21:36Z**, because
+   the window is a 1,000-LINE slice that slides, not a day. The crossing is the phenomenon the forty-third
+   list found, not a defect; the leg now asserts that the day line's interval IS the published cut and
+   says in its own sentence when the window crosses it. **A flake was found on the way and not papered
+   over:** adding the field to the suite's SHARED day stub made an unrelated test fail deterministically,
+   so the interval's test names its own answer and three consecutive full-suite runs pass.)*
+
+2. **The audit's own rule is not written down anywhere a programmer would look.** `is_client_call`
+   (a poll is not work, a channel boundary is not work, a caller-less line with a token is a client
+   call) lives in `audit.rs` and is re-implemented on the page's side (`isClientCall` in
+   `activityMerge.ts`), and the two are only equal because nobody has changed one alone. Measured: a
+   gate compares them by re-stating the rule a third time. **Fix:** one table of cases both sides run
+   against, so the two implementations cannot drift. **S.**
+   *(**Done, live 0.3.273-ux153** (`51fff11`): `docs/superpowers/specs/audit-buckets.json` is the rule
+   as ten CASES, each with all four answers written down; the console runs it from its lib's own test
+   (`the_bucketing_rule_is_the_shared_table`) and the page runs the same file from
+   `auditBuckets.table.test.ts`. **It found a drift on its first run:** `isConsoleRead` answered `true`
+   for a `device.joined` the console wrote while `is_client_call` drops boundaries before anything else
+   — and the page's day line was SAVED by its own ordering, which is exactly the state a rule drifts
+   into: the numbers right, the function wrong, and only a shared table able to say so. Both sides were
+   mutated to prove the table bites (the same sentence on either side: `a channel opening is a fact
+   about the machine and never work: console`). It lives in the lib's test module because the
+   predicates are `pub(crate)`, and widening the crate's API for a test would trade a real boundary
+   for a convenience.)*
+
+## P0 — the forty-sixth list (opened 2026-11-10, the empty state is two designs)
+
+The forty-fifth list is closed. This list came from the operator's directive read literally: the two
+surfaces must share **"the same empty/loading/failed states"**, and rule 19 says every surface has
+one that tells the truth. Measured on the built panel and the built console, at their own sizes.
+
+The 1,000-line audit read and Activity's day line were checked again and are recorded as clean: the
+empty states BELOW are the finding, and the truth-telling ones already shipped (Activity's failed read
+names the device's reason with a Retry; a successful empty read is a quiet line, never a box).
+
+1. **The two surfaces' empty states are two different designs, and one of them is a modal in
+   disguise.** Measured at 1360 on the panel and 1440 on the console:
+
+       panel  .empty-card      padding 40px 56px, radius 20px, shadow 0 12px 32px, background #fff,
+       centred            text-align center
+       console .card.first-run padding 16px,      radius 14px, shadow none,            background
+       surface,           text-align start, full width (1072 of 1120)
+
+   The panel's first-minute card is a **56 px-wide-padding, 20 px-radius, drop-shadowed, centre-aligned
+   box floated in the page**: on a 1120 px column it is the one surface in the product that is a
+   dialog, and it is drawn where a page's empty state belongs. The console's is the page's own card —
+   the same 14 px corner, the same 16 px padding, the same start-aligned left edge as every other
+   card on the page. **Fix:** one empty atom, in the contract, on both surfaces. **M.**
+   *(**Done, panel `cb685d9b` / console `8b26eaa`, live console 0.3.273-ux156**: `layout-contract.json`
+   carries `empty: { radius 14, pad 16, gap 12, textAlign start, shadow none }` and both repos' contract
+   tests read it. The panel's card after, measured at 1360: **`padding 16px`, `radius 14px`,
+   `shadow none`, `text-align start`, 1120 wide with a 24 px left gap** — the console's numbers, to the
+   pixel. The mark shrank from a 56 px tile to a 30 px slot at the sentence's start; the sentence and
+   its one action stayed. **The console had TWO empties and they were two shapes:** `.card.first-run`
+   was already the atom, `.empty-state` (the plugin and tool catalogues, the device shell) was a bare
+   run of items with no corner, no padding and no surface — after, it measures 1072 of 1120 at the
+   same 16 / 14 / none. Mutation on each side fails with `the corner is the card's 14: expected 20 to
+   be 14` (panel) and `the empty state's corner is a token: expected undefined to be truthy` (console).
+   **The cross-repo pin moved twice on the way** — the panel committed first, so the console's literal
+   is its hash — which is the mechanism working, not an inconvenience.)*
+
+2. **Neither surface's empty state is in the layout contract, so nothing can hold them equal.**
+   `layout-contract.json` names the page frame, the card and the rail; the empty state is a fourth
+   atom both surfaces draw and neither declares. **Fix:** the atom joins the contract with its own
+   numbers, and each repo's contract test reads it. **S.**
+   *(**Done with item 1** — the atom is in the contract because neither side could be held to a
+   number that was not written down first. This is why items 1 and 2 shipped in the order they did:
+   the number, then the two surfaces.)*
+
+## P0 — the forty-seventh list (opened 2026-11-10, the loading state is one surface's)
+
+The forty-sixth list is closed: the empty state is one atom on both surfaces. This list came from
+reading the NEXT word in the operator's directive — *"the same empty/loading/failed states"* — and
+the loading state is where the two surfaces are furthest apart. Measured on a console whose every
+read answers after 2.5 s and a panel whose every tool read answers after 2.5 s, so both states were
+on screen long enough to measure.
+
+The FAILED states were checked again and are clean: the console's audit failure names its cause and
+offers one Retry, and the panel's activity failure names the device's own reason and does the same.
+The EMPTY states are clean by the last list. The LOADING states are the finding.
+
+1. **The console draws a skeleton; the panel draws an 11 px grey sentence.** Measured:
+
+       console  .skeleton-row   12 px padding, 10 px corner, 1 px border, #fff, 60 px tall,
+                full width (1072); two bars (14.4 px and 11.2 px, 6 px corner, #f4f4f5);
+                `.skeleton-list` carries `role="status"` and the label "Reading the machine list"
+       panel    .mem-result-line `Loading…` — 11 px, `rgb(113,113,122)`, at x=149 y=259,
+                inside no `role`, no `aria-busy`, its ancestor a plain div
+
+   One surface reserves the shape of the thing it is about to draw and says what it is waiting for,
+   in a live region. The other prints a grey word in a result line that belongs to a read that has
+   not answered yet — and a screen reader is told nothing, because nothing there has a role or a
+   busy state. **Fix:** the loading atom joins the contract and both surfaces draw it: a card-shaped
+   skeleton with the read's own label, in a live region. **M.**
+
+2. **The panel's loading sentence is also the count line, so it shouts in the wrong place.** `Loading…`
+   is drawn where `3 entries · newest first` will sit, 11 px and grey — the size and colour of a
+   RESULT, used for a state that has no result. A reader who glances at that line sees a count and
+   gets a word. **Fix:** the loading atom replaces it, and the count line is drawn only when it has
+   a count. **S.**
+   *(**Done with item 1**: `.mem-result-line` is drawn only when `!busy && resultText !== ""`, and
+   `resultText` answers `""` for a read in flight. Measured after: `countLine: absent (correct)`.)*
+
+## P0 — the forty-eighth list (opened 2026-11-10, the failed state is a bare sentence)
+
+The forty-seventh list is closed: the loading state is one skeleton on both surfaces. This list came
+from the last word of the operator's directive — *"the same empty/loading/failed states"* — and the
+failed state is the one nobody has looked at yet. Measured by failing every read on both surfaces.
+
+Two reads were clean and are recorded as clean: BOTH surfaces say what failed and BOTH offer exactly
+one Retry (`The console could not read the machine list.` with 1 retry; `the device did not answer`
+with 1 retry). The truth-telling is done. The SHAPE is not.
+
+1. **The two failed states are two different things: a card and a bare sentence.** Measured:
+
+       console  .notice (role=status)  12 px padding, 10 px corner, #fafafa background, ink text,
+                full width (1072) at x=300
+       panel    .error (role=alert)    0 px padding, 0 px radius, NO background, NO border,
+                `rgb(165,29,29)` red text at x=149, 1120 wide
+
+   The console draws a notice — a 12 px-padded, 10 px-cornered, tinted block on the page's grid —
+   and its words are INK (`#18181b`), because the sentence is the message and the tint is the
+   alarm. The panel draws raw red text with no container at all, on the page's grid, so a failure
+   is the one state on either surface that is not a card: it does not sit on the rhythm, it has no
+   edge to read against its neighbours, and its colour carries the whole message alone — which is
+   rule 6's failure (`never colour alone`). **Fix:** the failed atom joins the contract and both
+   surfaces draw it. **M.**
+   *(**Done, panel `daedef62` / console `ac340ec`, live 0.3.273-ux158**: `failed: { radius 8, pad 12,
+   textTone ink, tint alarm, role status, retries 1 }`. The panel after, measured at 1360:
+   **`padding 12px`, `radius 8px`, `background rgba(220,38,38,.08)`, text `rgb(24,24,27)`, 1 px border,
+   1120 wide, `role="status"`, 1 Retry** — a notice, not a red string. **And the console had the
+   opposite defect:** its notice had the right SHAPE but the SAME `#fafafa` tint for a refused fleet
+   read and for an unreadable installer, so a notice could not say how loud it was; it wears the alarm's
+   `--warn-soft` now (`rgb(255,244,229)`). The words stay INK on both, which is rule 6 answered without
+   a second colour. **The contract's corner is 8, not 10:** `--radius-sm2` is the panel's name for it
+   and both scales carry it, so the number moved to where the scales already were rather than adding a
+   third. **Two gates were wrong before they were right:** the panel's failed-atom test matched
+   `role="alert"` inside its OWN explanatory comment (a gate that fails on its documentation is a gate
+   nobody trusts — comments are stripped before the markup is read), and `findByRole("status")` matched
+   the page's other live region first, so the test finds the notice by its own words.)*
+
+2. **The panel's failure is ANNOUNCED twice.** Its `.error` is `role="alert"` inside a page whose
+   own status line already says `Not read — the memory list could not be loaded.`, so a screen
+   reader hears the same failure from two live regions in different words. The console has ONE
+   region and says one sentence. **Fix:** one announcer, and the second line carries what the first
+   cannot (the cause). **S.**
+   *(**Done with item 1**: the notice is the page's one live region and wears `status`, not `alert` —
+   the failure arrives AFTER the press, and an `alert` interrupts a reader mid-sentence. The result
+   line states (`Not read — the memory list could not be loaded.`), the notice announces (its words are
+   the cause).)*
+
+## P0 — a CUT, opened 2026-11-10 (the panel's page header is three headers)
+
+The forty-eighth list is closed and the four state atoms — card, empty, loading, failed — are one
+grammar on both surfaces. Before writing a new list I walked the product's own **Cuts** section
+(*"a product gets better by removing things"*) and found one the workstream had never taken: the
+panel's PAGE HEADER is not one header. It is three, one per page that carries a title.
+
+Measured on the built panel at 1360, every page:
+
+       Memory    .mem-head        title at x=149, y=127, its own `h1` rule for the margin
+       Plugins   .plug-header     title at x=149, y=111, its own `h1` rule for the margin
+       Settings  .settings-header title at x=149, y=111, its own `h1` rule for the margin
+       History   (the page itself) title at x=149, y=111, no header element at all
+
+`history-page page` is the fourth: its title sits directly in the page, because History's page root
+IS `.page`, while the other three draw a `<header>` and then a body. So a page's first line is a
+title at x=149 either way, and the y differs by 16 between the page that forgot the header and the
+three that wrote one — with three separate rules each explaining that its margin is 'only the spacing
+its lede needs'.
+
+The console has the opposite habit: ONE `.page-head` on every page, `display: flex`, a 12 px column
+gap, the title at 22/700, the sub-line under it at 17 px in INK, and the actions on the right — read
+from a single rule. This is what the contract's `title` atom already names (22 / 700) and what the
+panel's four pages each restate around it.
+
+*(**The cut:** one `.page-head` on the panel, drawn by every page, carrying the title, the optional
+lede and the optional actions; `.mem-head`, `.plug-header` and `.settings-header` deleted, with their
+margin rules folded into the one header. The console's rule is the shape — it is already one header,
+so the panel is the surface that moves. **M.**)*
+*(**Done — the cut landed**, panel `b4aa80f4` / console `78a0ca5`, live `0.3.273-ux159`. Measured on all
+four pages after: **`header=page-head`, title at x=149, y=111, `.page-sub` at y=115** — the console's
+rule exactly. Deleted: `.plug-header`, `.plug-title`, `.plug-sub`, `.settings-header`, `.settings-header
+h1`, `.settings-lede`, `.mem-head h1`, and `.mem-head`'s margin pair; the three ledes that each had their
+own name became `.page-sub`. `layout-contract.json` gained **`head: { gap 12, align flex-start }`**, so
+the row is a decision rather than three habits.
+**A FIFTH DEFECT THE MEASUREMENT FOUND:** once the headers were one, Memory's title was STILL 16 px
+lower — `mem-pane`, the page's scroller, carried `padding: 16px 20px` around a `.page` that already has
+the frame's 24. A page inside a page's padding is two frames; the pane scrolls and the page pads.
+**The dead-style ratchet refused the first draft**, correctly: the atom offered arms for a lede alias
+and for actions that no page draws yet — a class nobody can render is a rule a reader searches for and
+finds nothing. The atom now carries only what a page uses.)*
+
+## P0 — the forty-ninth list (opened 2026-11-10, the second heading level is four levels)
+
+The forty-eighth list is closed and a CUT landed: the panel's four page headers are one. Every page of
+both surfaces now opens the same way. This list came from reading DOWN the page instead of across it:
+the title is one rule, the FIRST line under it is not. Measured on the built surfaces, every page.
+
+Two reads were clean and are recorded as clean: the page TITLE (22 / 700 / -0.242 px) is identical on
+both surfaces through the contract, and the eyebrow's letter-spacing pair exists in both token sets
+(`--tracking-label:0.05em`, `--tracking-eyebrow:0.08em`). The problem is not the styles, it is what
+each one is USED FOR.
+
+1. **The level below a page title is 22 px on the console and 17 px on the panel.** Measured:
+
+       console  Activity's day heading (`h2.timeline-day-label`)  22 px / 600 / -0.44 px
+       console  Home's `Needs attention` (an `h2`)                10 px / 600 / +0.5 px, UPPERCASE
+       console  `DESKTOP-A` (an `h3`)                            14 px / 600
+       panel    Settings' sections (nine `h2`s)                  17 px / 600 / -0.187 px
+       panel    History's `Sessions` (an `h2`)                   14 px / 600 / normal
+
+   So a `h2` on the console can be 22, 10 or 14 px, and on the panel 17 or 14. **The tag does not
+   predict the size on either surface, and the two surfaces disagree about the number for the same
+   level.** Activity's day heading is the SAME size as the page title (22), one weight lighter — a
+   section that reads as a second title; Settings' sections are 17, a proper level; History's `Sessions`
+   is 14, a third. **Fix:** the contract names the levels below the title, and each surface uses one
+   per level. **M.**
+   *(**Done on the console, live 0.3.273-ux160** (`5aff473`): `section: { h2 17/600, h3 14/600, eyebrow
+   10/600/0.05em/uppercase }` is in the contract. Activity's day heading was **22 / 600 — the page
+   TITLE's size, one weight lighter** — so the record's day read as a second page title above its rows;
+   it is 17 / 600 now, keeping its 24 px of padding and its stickiness. **The browser gate asserted the
+   bug** (`the day heading is 22px, not the scale's 22px`), which is worse than no gate: a leg that
+   encodes a defect defends it. The panel's side is the remaining work: Settings' nine `h2`s are 17
+   (the level) and History's `Sessions` is 14 (a third level, which the contract now calls `h3`).)*
+
+2. **The eyebrow has two spellings.** Measured: the console's label is `10 px / 600 / 0.5 px /
+   uppercase / --ink-faint` in nine places; the panel's is `11 px / 700 / 0.06em` (hard-coded, not the
+   token) on its own labels. `--tracking-label` is `0.05em` and `--tracking-eyebrow` is `0.08em`, so
+   three numbers exist for the same idea and each surface uses a different one. **Fix:** one eyebrow
+   atom in the contract, read by both. **S.**
+   *(**Done on the console with item 1**: twelve rules that each restated the same five declarations
+   are ONE selector list over twelve labels, and every rule keeps only what is its own — a colour, a
+   margin, `display: inline`. Measured after: **4** `text-transform: uppercase` where there were 12.
+   The panel's thirteenth spelling is the remaining work.)*
+
+## P0 — the fiftieth list (opened 2026-11-10, the panel's heading and its tracking)
+
+The forty-ninth list's console half is done: the day is a section, and twelve eyebrow rules are one.
+This list is the SAME ITEMS' panel half, measured rather than assumed — and it is one item, because
+the measurement says the panel's problem is not the size, it is the SPACING and the ONE heading that
+keeps a size of its own.
+
+Recorded as clean first, because it is: the panel's `h2` is 17 px / 600 on Settings (the level, exactly
+what the console now draws), and the card titles are 14 px / 600 (the level the contract calls `h3`).
+So the panel does NOT have the console's 22-in-a-section defect.
+
+1. **The panel has a hard-coded letter-spacing scale of FIVE values where the contract names one.**
+   Measured across `styles/components.css` alone:
+
+       0.06em  .goal-label and two more
+       0.05em  one rule
+       0.04em  eight rules (`.archive-state`, the pill labels, the table heads)
+       0.03em  two rules (the warning and danger banners)
+       0.4px   one rule — a PIXEL value in an em scale
+
+   and `styles/tokens.css` carries `--tracking-display: -0.011em` and `--tracking-micro: 0.014em`,
+   NEITHER of which is an eyebrow's spacing. So the panel's labels do not read the scale at all: five
+   numbers were written by hand, one of them in a different unit. The console has used
+   `--tracking-label: 0.05em` for this since it was written. **Fix:** the eyebrow's spacing is a TOKEN
+   in both repos (the contract's `section.eyebrow.tracking`), and the panel's five literals read it.
+   **S.**
+   *(**Done, panel `e8aab712`**: `--tracking-label: 0.05em` exists in both repos now and **all 19
+   literals** read it — 0.06em ×3, 0.05em ×1, 0.04em ×8, 0.03em ×2 and the 0.4px one. The gate refuses a
+   sixth: `a hand-written letter-spacing is a sixth tracking scale: expected [ '0.04em' ]`.
+   **And the gate found the drift in the OTHER direction**, which is why it counts the whole sheet: five
+   DISPLAY literals (`-0.01em` ×4, `-0.02em` ×1) duplicated `--tracking-display` — the same disease one
+   level up. They read the token too, so **zero hand-written letter-spacings remain in the three
+   component sheets.**)*
+
+2. **History's `Sessions` is a level-3 size carrying a level-2 tag.** `.archive-title` is
+   `14px / 600` (the contract's `h3`) while the element is an `h2`, and Settings' `Agent update` is an
+   `h3` at `14px / 700` — the SAME size at a different weight, two tags for one level, and the
+   contract's `h3` is 14/600. **Fix:** the tag and the level agree, and the weight is the contract's.
+   **S.**
+   *(**Done with item 1, panel `e8aab712`**: History's `Sessions` is **17 / 600** (`section.h2`) and
+   `Agent update` states its weight instead of inheriting the browser's 700. Mutation: `History's
+   section is section.h2: expected 14 to be 17`. **THE FIRST DRAFT DID IT BACKWARDS AND THE OUTLINE
+   CAUGHT IT:** making the TAG follow the size (`h2` -> `h3`) was refused by `documentOutline.test.ts`
+   with `h1 -> h3 skips a level`. A heading's level is its place in the document; **a stylesheet may
+   choose its size, never its place.**)*
+
+## P0 — the fifty-first list (opened 2026-11-10, the rail the contract records is not the rail drawn)
+
+The fiftieth list is closed: one tracking token, and a section stops being two levels. This list came
+from the directive's first words — *"the same page frame (rail, header, page body, card grammar,
+density rhythm)"* — read against the contract, which records a rail for each surface. Measured at
+every width the contract declares, on both built surfaces.
+
+Three measurements came back CLEAN and are recorded as clean: the page PAD is 24/24 at all seven
+widths on both surfaces; the console's page LEFT is 0 at 380/480/639 (its rail is a top bar there) and
+232 from 767 up, which is the contract's `rail.console`; and the panel's page LEFT is 74 at every width
+below 1280 and 85/125 at 1280/1360, which is the same rail plus the centring.
+
+1. **The panel's rail is 56 px, and the contract says 52.** Measured on the built panel:
+
+       #icon-rail     flex: 0 0 52px          (layout.css) — the shell's rail
+       .desktop-rail  width: 56px; flex: 0 0 56px  (components.css) — the rail a person SEES
+
+   and the drawn element measures **57** (56 + its 1 px border), while the contract records 52. So
+   this repo holds two rails, one of which hides the other, and the number written down is the number
+   of the one nobody sees. The rail is the page's first column: if its width is wrong, every
+   measurement downstream (the page's left, its centring, the wrap point of the header) is taken
+   against a frame that does not exist. **Fix:** one rail width, the contract's, and `#icon-rail`
+   stops being a second answer. **S.**
+   *(**Done, panel `7bbbff3c`**: `.desktop-rail` is `width 52 / flex 0 0 52 / box-sizing border-box`,
+   measured after at **52 px**, and the page's left edge moved with it. **The gate was green while the
+   frame was wrong:** it asserted `flex: 0 0 52px` on `#icon-rail` — the right idea on the WRONG
+   ELEMENT. Both rails are asserted now, plus `box-sizing`, because the 57 px was the BORDER: a
+   content-box rail cannot be 52 whatever its `width` says. **And the active marker's arithmetic moved
+   with the rail:** its comment said "40 px button centred in a 56 px rail, so the edge is 8 px left" —
+   true of the rail this repo drew, false of 52, where (52-40)/2 is 6.)*
+
+2. **The contract's `rail` block records two widths and no rule about who owns them.** The console
+   draws 232 from 767 up and a TOP BAR below it; the panel draws its rail at every width. That is a
+   real difference — one is a fleet console with room for names, the other a device panel in a window —
+   and the contract says only `console: 232, panel: 52`, so the next reader has to measure the console
+   to learn it collapses. **Fix:** the contract records the collapse, and both repos' tests say which
+   surface collapses where. **S.**
+   *(**Done, console `0f73941` / panel `bc909e56`, live 0.3.273-ux161**: `rail: { console 232, panel 52,
+   consoleCollapsesAt 767, panelCollapsesAt null }`. The console's test asserts its collapse is
+   `breakpoints.tablet`; the panel's asserts `null` AND that **no width query turns its rail off** —
+   a `@media` rule hiding `#icon-rail` would be a collapse by another name. Mutations print
+   `the console collapses: expected 639 to be 767` and `no width query removes the rail`.)*
+
+## P0 — the fifty-second list (opened 2026-11-10, reduced motion is two mechanisms)
+
+The fifty-first list is closed: one rail at the contract's 52, and its collapse written down. This list
+came from rule 18 — *"motion only where it explains a state change, and respect reduced motion"* — which
+is the one of the twenty with no line in the contract and no gate that measures the BUILT page. Measured
+with `emulateMedia({ reducedMotion: 'reduce' })` on both built surfaces, counting only transitions longer
+than 1 ms (a `0.01ms` duration is the console's blanket rule switching motion OFF, not on).
+
+1. **One surface honours reduced motion completely; the other honours it by name, and misses.**
+   Measured on Home and Memory:
+
+       console   normal 29 moving elements  ->  reduce **0**
+       panel     normal 10 moving elements  ->  reduce **4** still moving at 0.2 s
+
+   The console's blanket rule is `*, *::before, *::after { transition-duration: 0.01ms !important;
+   animation-duration: 0.01ms !important; scroll-behavior: auto !important }` plus a named list for the
+   animations it wants gone entirely. The panel silences animations BY NAME in two blocks — and its own
+   comment records that this mechanism has already failed once (`scripts/test/motion-check.mjs` was
+   written after seven animations ran regardless). The four buttons still transitioning under `reduce`
+   are the same failure, one layer down: a NAMED LIST cannot cover a rule added later, and the list is
+   in a different file from the buttons.
+   **Fix:** one mechanism on both surfaces — the blanket, with the named list kept for what must lose
+   its animation entirely — and a gate that reads the BUILT page under `reduce`. **M.**
+   *(**Done, panel `463d8c19` / console `6f92b3d`, live 0.3.273-ux162**: the panel has the console's
+   blanket and **measures 0 under `reduce`** where it measured 4 at 0.2 s. **The first draft of my own
+   number lied:** counting "elements with a transition" reported 129 after the blanket and 29 before it —
+   `0.01ms` is the blanket switching motion OFF, and a presence check reads it as MORE motion. The
+   measurement is the DURATION.)*
+
+2. **No gate measures reduced motion, on either surface, and the contract says nothing about it.**
+   `layout-contract.json` records the frame, the atoms and the levels; motion is the nineteenth of the
+   operator's twenty and appears nowhere in it. So the ONE rule about motion is enforced by two hand-
+   written lists in two repos, which is exactly the "two habits that drift" the directive names.
+   **Fix:** the contract records the mechanism, and each repo proves it on a rendered page. **S.**
+   *(**Done, console `6f92b3d` / panel `463d8c19`**: `motion: { reducedMotion "blanket", cap "0.01ms",
+   namedAnimationsStop true }` is in the contract, and BOTH repos carry a rendered-page gate —
+   `scripts/motion-gate.mjs` on each, run as `npm run gate:motion` on the console. **A gate that is not
+   in the routine is a gate nobody runs**, so it sits beside `gate:browser`. Mutations: the console prints
+   `Home: 3 element(s) still move … SUMMARY:0.12s, card attention:0.15s`; the panel prints
+   `Memory: 4 element(s) still move … btn btn-primary btn-mini:0.2s`.)*
+
+## P0 — the fifty-third list (opened 2026-11-10, the card title is a `strong` on one surface and an `h2` on the other)
+
+The fifty-second list is closed: reduced motion is one blanket, proved on a rendered page. This list
+came from rule 5 (*"hierarchy from size, weight and colour"*) applied to the atom both surfaces draw
+most: the card. Measured on Home and Memory, reading each card's title and its body as a PAIR.
+
+The card's box is already one atom and both surfaces match: **16 px padding, 14 px corner** on every
+card of both surfaces — recorded as clean, and worth saying because it is the frame the title sits in.
+
+1. **The card's title is not one thing: it is an `h2` at 14/600 on the panel and a `<strong>` at 13/600
+   on the console, and one console card's `h2` is its EYEBROW.** Measured:
+
+       panel    .card > header > h2    `font-size: var(--fs-md)` (14) / 600, named in the sheet
+       console  .card header strong    `font-size: var(--fs-base)` (13) / 600
+       console  .card.attention        its `h2` is 10 / 600 / UPPERCASE — an eyebrow, not a title
+
+   So the same visual role is two elements at two sizes, and on the console the element that LOOKS
+   like a card title is not the element that IS one (a `<strong>`, which no assistive technology reads
+   as a heading, while the eyebrow beside it is the `h2`). **Fix:** the contract names the card title
+   (size, weight, and the element that carries it wins nothing from the contract — but the numbers do
+   not vary per surface), and the console's card headers use it. **M.**
+   *(**Done on the console, live 0.3.273-ux163** (`12e5870`): the rule covers `strong`, `h2` and `h3` at
+   the contract's `cardTitle` (14 / 600). Mutation: `the card title is the contract's: expected 13 to be
+   14`. **A SECOND DEFECT THE RUN FOUND BY BEING RUN AT THE WRONG HOUR:** the browser gate anchors 75
+   historic lines one second into the LOCAL day, and its `Last hour` leg asks for `[now-1h, now)` — so
+   between midnight and 01:00 the window spans the day's boundary, the answer holds 77, the day's door
+   caps the table at 60, and the leg fails **on a calendar**. The gate read `Date.now()`, which meant it
+   tested a different page every hour, and it had been green all evening because this workstream only
+   ever ran it after 01:00. `NOW` is pinned to noon and `page.clock.setFixedTime(NOW)` pins the browser to
+   the same instant. **A fixed clock is not a fake result — it is a test that stops moving under itself.**)*
+
+2. **The panel's card title is 14 and its section heading is 17; the console's card title is 13 and its
+   section heading is 17.** The step between a section and a card is therefore 3 px on one surface and
+   4 on the other — not a defect anyone can see, but the kind of drift rule 3 counts, and it exists
+   because neither surface wrote the pair down. **Fix:** the same contract line answers both. **S.**
+   *(**Done with item 1, panel `2fb9fa93`**: `cardTitle: { size 14, weight 600 }` is in the contract
+   beside `section.h2` (17), so title (22) → section (17) → card (14) is one ladder on both surfaces.
+   The panel already drew 14 / 600 — **its card title needed no code, only a number to be held to**, and
+   that is the reason the contract exists rather than two habits that happen to agree. Mutation on each
+   side prints the same sentence: `the card title is the contract's: expected 13 to be 14`.)*
+
+## P0 — the fifty-fourth list (opened 2026-11-10, the page's ground is gradients on one surface and a colour on the other)
+
+The fifty-third list is closed: the card's title is one number, held on both sides. This list came from
+rule 17 — *"no gradients as decoration"* — read against the one surface both pages sit ON: the ground.
+Measured on the built console at 1440 and the built panel at 1360.
+
+Two reads were clean and are recorded as clean: **`body` is `rgb(250,250,250)` on BOTH surfaces**, and
+neither draws a `::before` overlay on the console (`content: none`). And the console's two gradients
+(`.table-scroll`'s two edge fades at `app.css:230/233`) are the one kind rule 17 permits: they explain
+that a horizontally scrolling table continues past its edge, which is a STATE, not decoration.
+
+1. **The panel's page ground is three decorative gradients, and none of them says anything.** Measured:
+
+       body::before   position: fixed, inset: 0, z-index: 0, pointer-events: none
+                      radial-gradient(76rem 44rem at 14% -12%, rgba(245,159,0,.05), transparent 62%)
+                      radial-gradient(70rem 44rem at 88% 108%, rgba(120,100,80,.05), transparent 64%)
+                      linear-gradient(180deg, #f1f0ee 0%, #f7f6f4 40%, #f3f1ee 100%)
+       body[data-theme=dark]::before
+                      the same two radials plus linear-gradient(180deg, #121316 … #111215)
+       .desktop-main  radial-gradient(1200px 500px at 85% -10%, 60% accent-soft, transparent 60%)
+
+   Those numbers are not a system's: `#f1f0ee`, `#f7f6f4`, `#f3f1ee`, `#121316`, `#16171b` and `#111215`
+   are six colours written by hand for four stops of one gradient, and the console — the same product,
+   the same ground — paints **one** colour. A page's ground that is a warm-to-cool wash on one surface
+   and a flat grey on the other is not "the same page frame"; it is the most visible difference on
+   screen, and it is decoration carrying no information. **Fix:** the ground is the contract's one
+   colour on both surfaces; the gradients go with the reason recorded. **M.**
+   *(**Done, panel `a881b5f8` / console `7731006`, live 0.3.273-ux164**: the panel's ground is
+   `body { background: var(--bg) }` and `.desktop-canvas` the same, with no `body::before` at all —
+   measured after: `beforeImage: none`, `bodyBg: rgb(250,250,250)`, the console's own value. **The grain
+   stayed** (`body::after`'s noise has a practical reason — it stops a large soft field banding on 8-bit
+   panels — and `--grain-opacity: 0` disables it), and so did the history above the ground: the comment
+   now records WHY the last of the 炫彩 aurora retired rather than deleting the argument with the code.
+   **The console's test found a helper that would have lied:** its first version asserted through
+   `ruleFor(source, "body")`, which returns the LAST match of `body { … \n}` — and of twelve
+   `body`-containing rules it read one that was not the ground's. The mutation proved it: a decorative
+   `background-image: linear-gradient(…, #f1f0ee, #f3f1ee)` went into `body` and **the test stayed green**.
+   It reads the ground's own declaration directly now.)*
+
+2. **Neither surface's ground is in the contract**, so the difference had nowhere to be seen. The
+   contract names the frame, the atoms, the levels, the motion — the surface everything else sits on
+   is not among them. **Fix:** `surface` joins the contract with the page ground's colour, and each
+   repo's test reads it. **S.**
+   *(**Done with item 1**: `ground: { light "rgb(250, 250, 250)", dark "#131418", gradients 0 }` is in
+   the contract and both repos read it. The panel's test also refuses any `body::before` layer and any
+   gradient on `.desktop-canvas`; the console's refuses an image on `body` and counts page-level
+   gradients at ≤ 2, which is the two edge fades rule 17 permits.)*
+
+## P0 — the fifty-fifth list (opened 2026-11-10, the card is a shadow on one surface and none on the other)
+
+The fifty-fourth list is closed: the page's ground is one colour on both surfaces. This list came from
+rule 10 — *"consistent, limited shadows"* — measured on the SAME atom the last two lists used: the card.
+
+Two reads were clean and are recorded as clean: the card's corner and border are identical on both
+surfaces (**14 px / 1 px**), and the console's shadows are all tokens (`--shadow-lg`, `--shadow-1`,
+`--shadow-2`, `--elev-2`, `--elev-segment`, `--ring`) rather than literals — rule 1 holds there.
+
+1. **The card carries a four-layer shadow on the panel and `box-shadow: none` on the console.**
+   Measured on the rendered card:
+
+       panel    `rgba(255,255,255,.9) 0 1px 0 inset, rgba(24,32,54,.04) 0 1px 1px,
+                rgba(24,32,54,.06) 0 4px 10px -4px, rgba(24,32,54,.2) 0 18px 40px -24px`
+       console  `none`
+
+   The panel's `--glass-shadow` is a deliberate three-layer material (its own comment argues for it:
+   *"a single hard box-shadow is the tell of a cheap surface"*), and it is applied to the card. The
+   console's card is a hairline on the ground. **So a card on the two surfaces is two objects:** one
+   sits on the page, one floats above it, and the operator's directive asks for one card grammar. This
+   is also the one place the panel's ground change (last list) did NOT settle the surfaces: with the
+   wash gone, the shadow is the only thing left making the card "material". **Fix:** the contract names
+   the card's elevation on both surfaces, and the surface that disagrees moves. **M.**
+   *(**Done, panel `89e236b2` / console `c390395`, live 0.3.273-ux165**: the panel's card is
+   `box-shadow: none` now — measured after: **`none`, `radius 14px`, `1px` border,
+   `rgba(255,255,255,.8)` tint** — the console's card with the panel's translucent tint kept. Flattened:
+   `.card`, `.mem-card`, `.plug-card`, `.desktop-content` (the largest card in the product) and the desk's
+   header. **`--glass-shadow` was NOT deleted** — it is kept for the level that means something: a pane
+   ABOVE the page. Mutation: `.mem-card sits ON the page: expected false to be true`.)*
+
+2. **The panel's shadow SCALE is four families with three members each, and nothing names when to use
+   which.** `--shadow` (2 layers), `--shadow-lg` (1), `--shadow-pop` (2 + a ring) and `--glass-shadow`
+   (3, plus an inset rim) — twelve shadow declarations across four tokens, and the only rule about them
+   is a comment. The console has `--shadow`, `--shadow-lg`, `--shadow-1` (an alias of `--shadow`),
+   `--shadow-2`, `--elev-2` and `--elev-segment` — six names for what the contract should call three
+   levels. **Fix:** the contract names the LEVELS (a flat card on the page, a pane above it, a popover
+   above that), and each surface's tokens map onto them. **S.**
+   *(**Done with item 1**: `elevation: { flat "none", pane "--glass-shadow", raised "--shadow" }` is in
+   the contract — three LEVELS where the two repos had ten shadow names between them (`--shadow`,
+   `--shadow-1`, `--shadow-2`, `--shadow-lg`, `--shadow-pop`, `--glass-shadow`, `--elev-2`,
+   `--elev-segment`, `--ring`, plus the inline rings). **Both tests guard the two mistakes this workstream
+   keeps making:** `flat` is ABSENCE as much as it is `none` (`.card` never declared a shadow), and the
+   FLOAT is not deleted by being moved — `--shadow-lg` is the pane level and the test proves it is still
+   used, because a modal with no shadow would read as part of the page.)*
+
+## P0 — the fifty-sixth list (opened 2026-11-10, the two palettes agree on the ink and disagree on the greys)
+
+The fifty-fifth list is closed: a card sits on the page on both surfaces. This list came from rules 2
+and 12 — *"a limited palette: greys plus one accent plus semantic"* and *"no ambiguous or too-similar
+colours"* — measured by counting the colours a page actually PAINTS.
+
+Two reads were clean and are recorded as clean: **the accent is the same token on both surfaces**
+(`#bf3a0a`, and the panel's own comment says the token contract requires it), and **the ink is the same**
+(`#18181b` = `--ds-neutral-900` = the console's `--ink`). The greys are where they part.
+
+1. **The second grey is `#71717a` on both surfaces, but the THIRD grey is a different colour on each**
+   and the panel uses it for text. Measured from the token blocks:
+
+       console  --muted:#71717a   --faint:#696a74  (used as the table heads' and labels' ink)
+       panel    --muted:#71717a   --faint:#6f707a  (--ds-neutral-400)
+
+   `#696a74` and `#6f707a` are six apart on one channel and identical on the others: **two greys the
+   eye cannot tell apart, carrying two different names**, which is rule 12's defect stated exactly.
+   A reader searching for "which grey is this" finds two answers and no difference. **Fix:** the third
+   grey is one value, in the contract, and both surfaces read it. **M.**
+   *(**Done, panel `1c03bfc7` / console `82ba041`, live 0.3.273-ux166**: `--ds-neutral-400: #696a74`, the
+   console's value, so `--faint` is one colour on both surfaces. `palette: { ink, muted, faint, accent,
+   semantic[4] }` is in the contract. **One token in the same file keeps its own value ON PURPOSE:**
+   `--chrome-ink-faint` is a GLYPH's ink on the rail, where the contrast sweep measured `#a1a1aa` at
+   **2.56:1** and left it valid for a mark and never for text — two tokens, two jobs, two numbers in one
+   file, which is why the palette needed writing down rather than deducing. **And the gate reads with
+   COMMENTS STRIPPED** because my own prose quotes the old value; a regex over raw CSS read the
+   quotation, the same trap the failed-state gate hit.)*
+
+2. **The painted-colour count differs by four between surfaces on comparable pages.** Measured on the
+   rendered Home and Memory:
+
+       console  11 distinct colours on Home
+       panel    14 on Memory, 16 on Settings
+and three of the panel's extra ones are its own alpha composites (`rgba(0,0,0,.08)`, `rgba(0,0,0,.05)`,
+   `rgba(24,32,54,.07)`) where the console derives the same greys from `--ink` with `color-mix`. That is
+   rule 2's "limited palette" read as a COUNT: two ways to say "a hairline". **Fix:** the alpha greys
+   are derived from the ink on both surfaces, and the contract records the palette's shape. **S.**
+   *(**The palette's shape is recorded; the alpha composites are NOT unified yet.** The counts above stand
+   as measured — 11 console / 14–16 panel — and this item remains the next list's first candidate rather
+   than a claim that it is done. Measurement is the reason: `rgba(0,0,0,.08)` and `color-mix(--ink 8.5%)`
+   are the same grey only if the compositing stack underneath agrees, and that has to be measured on the
+   rendered page rather than assumed from the declarations.)*
+
+## P0 — the fifty-seventh list (opened 2026-11-10, the hairline is three families on one page)
+
+The fifty-sixth list's first item is closed: the third grey is one colour. This list continues its
+SECOND item, measured where the last round said it must be — on the rendered page rather than in the
+declarations — and the measurement found something the declarations could not say.
+
+Measured by counting DISTINCT BORDER COLOURS on a page (rule 8, "fewer borders", read as a count):
+
+       console Home      4 distinct   (2 of them transparent)
+       panel  Memory      5 distinct   (5 opaque, one `rgba(24,32,54,.07)`)
+       panel  Settings    9 distinct   (2 of them are INK and MUTED used as borders)
+
+1. **A border is three different families on the panel, and one on the console.** Measured, the names
+   behind those pixels:
+
+       console  --line rgba(0,0,0,.08)  --line-strong .14  --line-soft .05   (one family, and
+                `--hairline` is DERIVED from the ink with color-mix — the same grey spelled once)
+       panel    --line rgba(0,0,0,.08)  --line-strong .14  --line-soft .05   (the same family)
+                PLUS --chrome-line rgba(0,0,0,.08)      ← the same value as --line
+                PLUS --glass-hairline rgba(24,32,54,.07) ← a COOL grey, 0.01 off the first
+
+   So `.08` has two names, and a third name is a different hue at almost the same alpha. **A hairline
+   is the least visible thing a page draws and the most expensive to reason about**, and the panel asks
+   a reader to choose between `--line`, `--chrome-line` and `--glass-hairline` with no rule to choose by.
+   **Fix:** one hairline family per theme, in the contract, and the extra names go. **M.**
+   *(**Done, panel `dab1b3e1` / console `3b2a745`, live 0.3.273-ux167**: `--chrome-line: var(--line)` and
+   `--glass-hairline: var(--line)`, in BOTH themes. Measured on the rendered pages: Memory **5 → 4**
+   distinct border colours, Settings **9 → 8**. The cool tint's argument — "a neutral-black shadow greys
+   warm paper" — stays where it is true, on `--glass-shadow`; **a 1 px edge is not a shadow.**
+   `hairline: { line, strong, soft, names 1, stateMarksCarryOwnColour true }` is in the contract.)*
+
+2. **And two of Settings' nine are not greys at all:** `rgb(113,113,122)` (`--muted`) and
+   `rgb(24,24,27)` (`--ink`) used as `border-color`. A border that is TEXT ink is a fourth way to say
+   "a line", and it makes the border count rise without making anything clearer. **Fix:** the count is
+   the assertion — a page draws its greys and its accent and its semantics, and nothing else. **S.**
+   *(**Measured, and recorded as NOT A DEFECT**: those two colour-named borders are the state pills —
+   `.run-row-state`, `.activity-row-source`, `.archive-state` carry `border: 1px solid currentColor` and
+   set their colour per state, so the edge and the word are one ink and greyscale keeps shape and word
+   (rule 6). **The distinction is the rule:** a hairline SEPARATES two regions and takes `--line`; a state
+   mark DECLARES a state and takes its own colour. `stateMarksCarryOwnColour: true` is in the contract, so
+   the next reader does not have to rediscover why two of Settings' borders are ink.)*
+
+## P0 — the fifty-eighth list (opened 2026-11-10, the radius scale has six steps and the pages use five)
+
+The fifty-seventh list is closed: one hairline family, and a state mark is not a hairline. This list came
+from rule 11 — *"a limited set of radii"* — measured the same way the last three were: on the rendered
+page, counting the corner values actually painted.
+
+Three reads were clean and are recorded as clean: **both surfaces' token blocks declare the SAME six
+radii** (`6 / 8 / 10 / 14 / 20 / 999`), the card's 14 px corner was already asserted by the card atom's
+test, and **every painted corner on both surfaces is one of those six** (no literals: measured, the
+console's Home paints 6/8/10/14/999 and the panel's Settings the same family).
+
+1. **`--radius-lg: 20px` is declared on both surfaces and painted on NEITHER page that a person browses.**
+   Measured uses: the console paints it 3 times, all three inside overlays (a bottom sheet's top corners,
+   a dialog, a second dialog); the panel paints it **once**, on a sheet. So the largest step of the scale
+   exists for three call sites, and the pages — Home, Activity, Device, Memory, Settings, History,
+   Plugins — never draw it. **A scale whose largest step is invisible is a step that will drift**, because
+   nothing on a page can show it is wrong. **Fix:** the contract records which steps a PAGE may paint and
+   which belong to an overlay, and the overlay-only step is named as such. **S.**
+   *(**Done, panel `158cb591` / console `4f3b83c`, live 0.3.273-ux168**: `radius: { page: { card 14,
+   row 10, control 8, mark 6 }, overlay: { sheet 20, dialog 14 }, pill 999, target 10 }`. The console's test
+   COUNTS the overlay step's call sites — three on this surface, all inside overlays — because a rule
+   nobody can measure is the habit this workstream keeps finding.)*
+
+2. **The panel's page-level corners step 6 → 8 → 14 and skip 10, while the console's step 6 → 8 → 14 and
+   skip 10 too — but the panel also paints 10 on Settings (12 corners) and the console paints 10 on Home
+   (4 corners).** So the fourth step is drawn on both surfaces, on DIFFERENT kinds of element: on the
+   console it is `.card`'s inner rows and on the panel it is a control. Neither surface says which. The
+   count is small and the rule is real: rule 11 is not "four radii" but "four radii that MEAN
+   something". **Fix:** the contract assigns each step a meaning, so the fifth name cannot be invented
+   later. **M.**
+   *(**Done with item 1, and the 10 px COMMENT was the defect** (panel `158cb591`): `--radius-sm` read
+   "cards inside a pane" and is painted on `.btn` (a 24 px button), `.tab` and both rail buttons — CONTROLS,
+   every one — while the console paints its 10 px on `.fleet-row`, `.tool-list` and `.skeleton-row`, which
+   ARE rows. **One step, one meaning:** `.btn` takes the `control` step (8), and a 40 px TARGET gets its own
+   named step rather than bending `control` to cover both — 40/10 and 24/8 are the same proportion, which
+   is exactly why one value cannot serve both. Mutation: `a target's corner: expected 12 to be 10`.)*
+
+## P0 — the fifty-ninth list (opened 2026-11-10, the rhythm is off the scale on both surfaces)
+
+The fifty-eighth list is closed: every radius step has a meaning. This list came from rule 20 —
+*"alignment and rhythm fixed by a grid, not by nudging"* — measured by reading every gap, padding and
+margin a page PAINTS and asking which of them is on the declared scale.
+
+The scale both surfaces declare is `2 / 4 / 6 / 8 / 10 / 12 / 14 / 16 / 24 / 32`, and both are measured
+from it for almost everything: the panel's Memory paints **8 (28 uses), 16 (7), 6 (6), 4 (8), 24 (3)** and
+the console's Home the same family. That is recorded as clean — the rhythm IS a scale, which is more than
+most of this file could say a month ago.
+
+1. **Six painted values are on neither surface's scale, and each one is a measurement wearing a nudge's
+   clothes.** Measured, the worst offenders:
+
+       console  `button { padding: 5px var(--sp-3) }`  — off-scale, and its own comment says why:
+                *"One control height (28)"*. 5 + 5 + 18 px of line box = 28, so the number was
+                CHOSEN to hit a height, then written as a padding instead of a height.
+       console  `.attention-body { gap: 3px }`          — the one gap on Home that is not on the scale
+       console  `.files-list .files-row { padding: 9px … }`
+       panel    `.mem-search { padding-top: 5px }`, `.mem-more { padding-top: 1px }`
+
+   None of these is wrong by eye. **All of them are wrong as RECORDS**, which is the failure mode rule 20
+   names: a rhythm that is right on screen and unreadable in the sheet cannot survive its author. **Fix:**
+   the scale gains the step that a control's height actually needs, the paddings that exist to reach a
+   height become heights, and the rest move onto the scale. **M.**
+   *(**Done, panel `0c97d203` / console `1f7b8c8`, live 0.3.273-ux169**: `--control-h: 28px` and
+   `--control-pad-y: 5px` are tokens on both surfaces and the controls read them; `.tab` declares
+   `min-height: var(--control-h)`, and the console's `button` does too. `.attention-body`'s `gap: 3px`
+   became `--sp-0-5` and the two `9px` row paddings became `--sp-2`. **The 1 px kept its place on purpose:**
+   `.mem-more` is a fixed 24 × 24 target and 1 px keeps a glyph off its edge — part of a box, not a step on
+   a rhythm. **And the console's token block is MINIFIED** (`--control-h:28px`), which broke the first
+   draft of the test: a contract records a VALUE, not a source text.)*
+
+2. **Neither surface's spacing scale is in the contract**, so "is this on the scale" was a question each
+   repo answered for itself — and the two answers agreed only because both copied the same ten numbers
+   into two token files. **Fix:** `space` joins the contract, and each repo's test reads it. **S.**
+   *(**Done with item 1**: `space: { scale [2,4,6,8,10,12,14,16,24], controlH 28, controlPadY 5, target 24 }`.
+   The scale is the **shared ladder**, not the union — the console has a 32 step the panel does not, and
+   a step one surface cannot reach is not a rhythm they share. Mutations print the same sentence on both
+   sides: `the control's height: expected 26 to be 28`.)*
+
+## P0 — the sixtieth list (opened 2026-11-10, line-height is eight ratios per sheet and no rule)
+
+The fifty-ninth list is closed: a control's height is a height. This list came from rule 13 — *"readable
+text: measure, line-height, contrast"* — read as a COUNT, the same way the last six lists read colour,
+radius, shadow and spacing.
+
+Three reads were clean and are recorded as clean: **the type sizes are a scale on both surfaces** (console
+Home paints 10/12/13/14/17/22 and the panel's Settings 11/12/13/14/17/22 — the same ladder), **the weights
+are four** (400/500/600/700, and 700 is used exactly once as the page title, which is the contract's
+`title.weight`), and **the text colours are the palette's** (ink, muted, faint on both, plus the accent
+and the semantic four).
+
+1. **Line-height is not a system: it is EIGHT ratios spread over two sheets, and the same size gets
+   different ones on the same page.** Measured from the built sheets:
+
+       console  `1` (8×)  `1.45` (7×)  `1.5` (9×)  `1.4` (3×)  `1.2` (2×)  `1.6`  `1.55`  `0`
+       panel    `1` (10×)  `1.5` (6×)  `1.55` (4×)  `1.6` (3×)  `1.45` (2×)  `1.3`
+
+   And measured on the RENDERED page, the panel's Memory paints `19.5px` (18 elements), `16.5px` (6)
+   and `normal` (4) — three different line boxes for the same 13 px text. **A reader cannot see a
+   difference of 0.05 in a ratio and an author cannot remember which one a rule used**, so every new
+   rule is a fresh choice. The console's body is `1.5` (`--ds-lh`-less: `body { line-height: 1.5 }`) and
+   the panel's is also 1.5, so the two surfaces agree on the DEFAULT and disagree on the six exceptions.
+   **Fix:** the contract names the body ratio and the ratios for a head, a tight mark and a monospace
+   block; the rest become those. **M.**
+   *(**Done, panel `c4e84ae2` / console `89a7a62`, live 0.3.273-ux170**: `leading: { body 1.5, tight 1.3,
+   mark 1 }` and every `line-height` in both sheets reads one of them. **No bare ratio survives**, asserted
+   by a COUNT on each side. **And the panel's measurement found a real defect:** four buttons painted
+   `line-height: normal` — the USER AGENT's — inside a control whose height is a token; they take the mark
+   ratio now, and `normal` is gone from Memory. The console's `line-height: 0` was the worst of its eight:
+   a rule carrying text with no line box at all.)*
+
+2. **`line-height: 1` is used 18 times and means two different things.** On a MARK (a dot, a chevron,
+   a `span` inside a flex row) it means "do not add leading above a glyph", which is right. On TEXT —
+   and the console uses it on `.timeline-time`, which carries a sentence — it sets a 11 px glyph's box
+   to 11 px, which is rule 13's floor, not a decision. **Fix:** the ratio is named (`--lh-mark`) and a
+   rule that wants a text's leading cannot reach for it by accident. **S.**
+   *(**Done with item 1**: `1` is `--lh-mark` and the contract defines it as the GLYPH'S ratio — `1` sets a
+   glyph's box to its own size, which is rule 13's floor and never a sentence's. The console's `0` went
+   with it: a rule carrying text with no line box at all.)*
+
+## P0 — the sixty-first list (opened 2026-11-10, a line of text is 103 characters on one surface and 46 on the other)
+
+The sixtieth list is closed: line-height is three ratios. This list is rule 13's THIRD leg — *"readable
+text: measure, line-height, contrast"* — measured in `ch` against the element's own font, on both
+rendered surfaces.
+
+Two reads were clean and are recorded as clean: **the console's prose is 46 characters at its widest**
+(`.hint installer-missing` and `.timeline-empty`), well inside any comfortable measure — this surface
+has been careful about it for a long time. And the panel's **`--lh-body` 1.5** is the contract's.
+
+1. **The panel's prose runs to 103 characters on History and 109–119 on Settings, while Memory's
+   entries stop at 66.** Measured, `getComputedStyle` and a `ch` probe on each element:
+
+       panel Memory    `.mem-content`         66 ch   517 px
+       panel Settings  `.connect-where`      109 ch  1,086 px
+                       `.connect-snippet`    119 ch  1,086 px  (monospace)
+       panel History   `.archive-row-item`   103 ch  1,120 px
+       console Home    `.hint`               46 ch   454 px
+
+   Memory caps its prose; Settings and History do not, so the same product asks a reader to move their
+   eye 1,120 px on one page and 517 on another. **A measure that only some rules respect is the same
+   failure as a scale that only some rules use** — and 103 characters is past the point where a line
+   is hard to follow back. **Fix:** the contract names a measure, and the surfaces' prose blocks cap
+   to it. **M.**
+   *(**Done, panel `ab5e7d53` / console `aa6339f`, live 0.3.273-ux171**: `--measure: 66ch`, and re-measured
+   after — History's rows **103 → 44 ch** (477 px), Settings' sentence **109 → 44 ch** (440 px). **The first
+   attempt capped the wrong box:** I capped `.archive-row` (the `<li>`'s child) and the probe still read 103
+   ch, because the wide element is the list ITEM that spans the card. **A measurement that does not move
+   after a fix is the fix not having reached the thing measured.** The console needed no repair — its widest
+   line was 46 ch — but it had no rule, and now `.hint`, `.attention-problems li` and `.activity-status`
+   read the token.)*
+
+2. **Neither surface's sheet states a measure anywhere**, so the 66 on Memory is an accident of
+   `max-width: 380px` rather than a rule — and the next block added will pick its own. **Fix:**
+   `measure` joins the contract, and each repo's test reads it. **S.**
+   *(**Done with item 1**: `measure: { prose "66ch", codeExempt true }`. **A CODE SNIPPET AND A TRANSCRIPT
+   ARE EXEMPT** — a command and a device's output are scanned token by token, and wrapping either to a prose
+   measure breaks a copy-paste or the shape of what the console reports. Both tests assert BOTH halves: the
+   prose blocks opt in AND the exempt ones do not.)*
+
+## P0 — the sixty-second list (opened 2026-11-10, the Device page has two heads stacked and none of them is the contract's)
+
+The sixty-first list is closed: prose measures, and code does not. This list came from rule 5 and rule 20
+applied to the atom the contract calls `head` — measured by asking every page the same THREE questions:
+does it have a head, what is in it, and where does it start.
+
+Two reads were clean and are recorded as clean: **Home and Activity both carry `.page-head` with the
+contract's shape** (a `<div>` holding an `h1` and a subtitle, then `.page-actions` with two controls),
+and both start at the **same y=76** — the contract's `page.pad 24` under the rail's top bar.
+
+1. **The Device page draws TWO heads stacked: `.page-head.device-head` at y=76 (33 px tall, an `h1` and
+   two control groups) and then `.overview-head` at y=133 (48 px, an `h2` and the machine's start). Two
+   headers on one page, 57 px apart, with the second's `h2` reading as a page title. Measured:
+
+       Home      `.page-head`         y=76, 68 px, h1 + verdict + 2 actions
+       Activity  `.page-head`         y=76, 68 px, h1 + subtitle + 2 actions
+       Device    `.page-head.device-head`  y=76, 33 px, h1 + tabs + 1 action
+                 `.overview-head`           y=133, 48 px, h2 + start
+
+   The Device page's head is the ONLY one at 33 px, because it carries tabs instead of a subtitle; and
+   the block under it is a card pretending to be a second header. **A page has one head, and what sits
+   under it is a card** — that is what `head` and `card` mean in the contract, and this page is the one
+   place the two are confused. **Fix:** the machine's name and start move into the card grammar, and the
+   Device head keeps the page's title. **M.**
+   *(**Done, console `736cb2a`, live 0.3.273-ux172**: `<section className="card overview-head"
+   aria-label="… — this machine">` — the same card grammar Home's `.machine-summary` already uses, whose
+   heading IS the machine's name. **Re-measured after: no second `<header>` on the page**, the card at
+   y=133 with the name and the start line in a row. **The card brought its padding, corner and surface AND
+   changed the layout** — `.card` is a column at `gap: 8`, so the name and the start stacked until
+   `.overview-head` declared `flex-direction: row`; a card's internal arrangement is the card's business.
+   The test COUNTS `<header>` tags per page file, because a second header is a shape and not a sentence.)*
+
+2. **The head's height is three values across three pages** (68 / 68 / 33) and the contract names only
+   its `gap` and `align`. A head is a row whose height is its contents, so this is not a defect in
+   itself — but nothing says so, and the next page will pick a fourth. **Fix:** the contract records that
+   a head is content-sized and that its second line is the subtitle slot. **S.**
+   *(**Done with item 1, panel `1f630a79`**: `head: { gap, align, subtitleSlot ".page-sub",
+   maxHeadsPerPage 1 }`. The height is deliberately NOT a number — the pages measure 68/68/33 because one
+   carries tabs and two carry a subtitle, and a head's height is its contents; what IS recorded is the
+   SLOT and the count. **The panel's two "extra" headers are `.plug-card-head` — a CARD's own row**, so
+   the rule is the PAGE head's count and not the tag's. **And the first assertion was not enough:** counting
+   `<header className="page-head"` alone let a second header with another class slip through — the mutation
+   PASSED. The refined check catches an ORPHAN header, which is what a second page head actually is.)*
+
+## P0 — the sixty-third list (opened 2026-11-10, an empty state that cannot be reached, and one that is a card inside a card)
+
+The sixty-second list is closed: a page has one head. This list came from rule 19 — *"every surface has an
+empty, a loading and a failed state that tell the truth"* — measured by FORCING each state on both
+surfaces and reading what the page says.
+
+Two reads were clean and are recorded as clean: **both surfaces' empty atom is the card** (radius 14, padding
+16, `box-shadow: none`, start-aligned — the console's `.empty-state` and the panel's `.empty-card` agree
+number for number), and **both loading states are a `role="status"` skeleton with a label** that a
+screen reader announces.
+
+1. **The panel's empty state could not be reached with the mock, and when it IS reached it is a card
+   inside a card.** Measured: every non-GET answer emptied and the page showed `.error` ("tool
+   memory_list failed") — which is the FAILED state telling the truth, so that is right. The empty
+   state needs `listed && !readFailed && entries.length === 0`, and reaching it shows:
+
+       #empty-state            a plain `<div>` with no rule of its own
+       .empty-card inside it   radius 14, padding 16, surface, hairline, no shadow — THE card
+
+   So the empty state is a card INSIDE an unstyled wrapper: the wrapper brings nothing, and a second
+   `<div>` between the page and the card is a box that exists only to be a box. **Fix:** the wrapper goes and
+   the card IS the state. **S.**
+   *(**Done, panel `060056f4`**: `<div className="empty-card" id="empty-state">` in all three places it
+   appears (Memory and the Terminal's two). Measured after: **`#empty-state` matches no rule** in the built
+   sheet, and a forced empty read shows `radius 14px`, `pad 16px`, `shadow none`, children
+   `[empty-mark, muted, btn]`.)*
+
+2. **Neither surface's `failed` state says WHERE the failure was.** Measured: the console's notice says
+   *"The console could not read the machine list"* and the panel's says *"tool memory_list failed"* —
+   the first names the thing, the second names the RPC. A reader of the panel's message learns the
+   transport, not the page. **Fix:** the contract records that a failed state names the SUBJECT (what
+   could not be read) and not the transport, and the panel's copy follows. **M.**
+   *(**Done with item 1, same commit**: the fallback is "The panel could not read the memory list" and the device's
+   own sentence is still used whenever it sends one. `failed: { …, names "subject", namesTransport false }`
+   is in the contract.)*
+
+## P0 — the sixty-fourth list (opened 2026-11-10, a rule that fires 133 px before the breakpoint it names)
+
+The sixty-third list is closed: the empty state is the card. This list came from rule 20 at the widths the
+contract declares — measured by walking EACH SIDE of every breakpoint (479/480/481, 638/639/640,
+766/767/768, 1087/1088/1089, 1279/1280) on both surfaces and asking what shape each page takes.
+
+Two reads were clean and are recorded as clean: **no media width in either sheet is off the contract**
+(the console uses 480/639/640/767/1088/1280 and the panel 639/767/1088 — every value is a breakpoint or
+its `+1`), and **the console's phone/tablet switch is exact**: at 639 the table is `display: block` and at
+640 it is `display: table`, which is `phone` doing what a breakpoint should.
+
+1. **The panel's approval banner collapses ONE PIXEL EARLY: `@media (max-width: 1088px)` fires AT
+   `columns` (1088), so at the width the contract calls "the width the page goes from one column to two"
+   the two-column form is already gone.** Measured: at 1087 the banner is one column and at 1088 it is
+   still one column, while the page itself is still one column at 1087 and two at 1280. Every other
+   boundary in the product is written `(max-width: N)` for its own side and `(min-width: N+1)` for the
+   other, so `columns` is the ONE place where two rules disagree about which side of 1088 they are on.
+   **Fix:** the fold is `(max-width: 1087px)`, matching `phone` and `tablet`, which already use the
+   `-1` form. **S.**
+   *(**Done, panel `6f5cfeae`, live 0.3.273-ux173**: measured across the boundary, before `1087 one column /
+   1088 one column / 1089 two columns`, after `1087 one column / 1088 two columns`. **And both assertions
+   had to be rewritten because the first drafts asserted the wrong thing:** the older "no width outside the
+   contract" test allowed `N` and `N+1` (the correction is `N-1`), and the new one asserted "no `max-width`
+   equals a breakpoint" — which the panel's own `(max-width: 639px)` does legitimately. **The defect is a
+   CONFLICT, not a value**: no width may be claimed by BOTH forms.)*
+
+2. **The widths are a habit rather than a syntax.** Three `@media` blocks in the product use `max-width:`
+   with the breakpoint's own number and three use `min-width:` with `+1`; both are correct and neither is
+   written down, so each new rule re-derives which form to use. **Fix:** the contract records the form
+   (a downward query ends at `N-1`, an upward one starts at `N`) and each repo's test counts the exception.
+   **S.**
+   *(**Done with item 1, console `a75858b`**: `breakpoints.queryForm { below "N-1", at "N" }`, and **the
+   assertion is OWNERSHIP rather than spelling** — the two surfaces write the SAME boundary differently
+   (the console pairs `max 639` with `min 640`, the panel writes `639` alone) and both are right. What is
+   refused is one number claimed by both forms. Mutation: `no width is claimed by both query forms`.)*
+
+## P0 — the sixty-fifth list (opened 2026-11-10, a control's label is a sentence on one surface and a fragment on the other)
+
+The sixty-fourth list is closed: a fold ends at N-1. This list came from the operator's 一目了然 read
+against the ONE thing a person clicks: the label. Measured by walking every `button`, `a.btn` and `summary`
+on both built surfaces and asking two questions — is it SENTENCE case, and is it a VERB.
+
+Two reads were clean and are recorded as clean: **the console's labels are sentence case almost without
+exception** (21 of 22 measured: "Add a machine", "Connect a client", "Copy diagnostics"), and **the panel's
+page-level actions are sentence case too** ("Search", "Reveal token", "Test the connection").
+
+1. **`+ New` is the only label on either surface that is a FRAGMENT with a glyph in it.** Measured: the
+   panel's Memory offers `Search`, `+ New`, `Filters`, `Export` — one of the four breaks the pattern the
+   other three set, and the `+` carries a meaning the word does not. **A control's label says what the
+   press DOES**; `+ New` says neither what is created nor that it is the page's primary create action
+   beside a search box. **Fix:** the label is the verb and the subject ("New entry"), and the `+` becomes
+   the shape a create control earns rather than a character glued to a noun. **S.**
+   *(**Done, panel `13518758` / console `ff1d72a`, live 0.3.273-ux174**: `New entry` and `New session`,
+   re-measured `Search · New entry · Filters · Export`. **The console had the SAME fragment twice** — on the
+   shell's toolbar and in the empty state's actions — so the defect was a habit rather than one slip.
+   **And the browser gate is a THIRD consumer of a label:** it matched by accessible name and timed out,
+   which is the reason a rename has to be checked in markup, unit tests AND the browser gate.)*
+
+2. **Neither sheet records the case, so the next label is a fresh choice.** Measured: the console's
+   `Copy console URL` capitalises `URL` mid-sentence and the panel's `Connect an AI client` capitalises
+   `AI` — both correct, because both are ACRONYMS, but nothing distinguishes an acronym from a habit. **Fix:**
+   the contract records sentence case with acronyms exempt, and each repo's test counts the exceptions. **S.**
+   *(**Done with item 1**: `label: { case "sentence", verbAndSubject true, acronyms [URL, AI, DSH, CSV,
+   JSON, SSH, PTY, MCP] }`. **The acronym exemption is a LIST rather than an inference** — `Copy console URL`
+   and `Connect an AI client` are both correct and a reader should not have to work out why. Both tests scan
+   the whole component tree for `>\s*\+\s*[A-Za-z]`, so a new glyph-led label anywhere is refused.)*
+
+## P0 — the sixty-sixth list (opened 2026-11-10, the panel paints four colours that are in no scale)
+
+The sixty-fifth list is closed: a control's label names a verb and its subject. This list is rule 9 — *"fewer
+background colours"* — and rule 12 — *"no ambiguous or too-similar colours"* — read by walking every
+element on both rendered surfaces and asking what `background-color` it PAINTS, then asking each value
+whether a token produced it.
+
+Two reads were clean and are recorded as clean: **the console paints four literal backgrounds and all four
+are overlays or scrims** (`rgba(0,0,0,0.4)`, `rgba(12,16,20,0.38)`, a `color-mix` scrim) — a dialog's wash is
+not a surface colour and cannot be a token, and **the console's page paints SIX background values, every
+one from a token** (surface, surface-chip, accent, faint, the recessed row, the danger wash).
+
+1. **The panel paints FOUR values that no token produces, and three of them are the same idea in three
+   hues.** Measured from the sheet:
+
+       `.browser-action-badge.ok`   rgba(40, 160, 80, 0.18)    a green wash
+       `.browser-action-badge.err`  rgba(220, 60, 60, 0.18)    a red wash
+       `.browser-action-badge.run`  rgba(200, 160, 40, 0.18)   an amber wash
+       `.browser-ev-toggle.active`  rgba(90, 130, 240, 0.15)   a BLUE wash, plus `color: #7aa2ff`
+
+   The first three are the semantic trio and only the ALPHA is shared; the fourth is a fourth hue the
+   palette does not have. `#30d158` is a fifth — a status dot's green, brighter than the `ok` the palette
+   declares. **Fix:** the four become the contract's semantic tokens at one alpha, and the dot takes the
+   `ok` the palette already has. **M.**
+   *(**Done, panel `e034fdb3`, live 0.3.273-ux175**: three named washes at ONE alpha, the active toggle on
+   `--accent` (the colour the rail, the tabs and the focus ring already use for "chosen"), and the live dot
+   plus its pulse ring on `--success` with a `color-mix` ring so the two cannot drift. **The console had the
+   same defect at the level of the OVERLAY** — `.sheet-scrim` at `rgba(0,0,0,.4)` and `.scrim` at
+   `rgba(12,16,20,.38)`, two shades repainted to one `color-mix` in a later rule; `--scrim` is a token now
+   (console `489a224`). **A wash is a token when it names a STATE and a scrim when it names a MODE.**)*
+
+2. **The panel declares `--badge-ok-ink` and friends but no `--badge-*-wash`,** so the wash half of a badge
+   is a literal beside a tokened ink — one badge, two sources of colour. **Fix:** the wash joins the token
+   block, and each repo's test refuses a `background` that is a raw `rgba`/hex outside the overlay list. **S.**
+   *(**Done with item 1**: `--badge-ok-wash` / `--badge-err-wash` / `--badge-run-wash` beside the three inks,
+   and `palette.washAlpha: 0.18` in the contract — a wash is the same proportion of the same semantics on
+   every badge, so the ALPHA is the recorded number rather than three nearly-equal ones. Mutation:
+   `badge-ok-wash is a token`.)*
+
+## P0 — the sixty-seventh list (opened 2026-11-10, four cards on one page and three of them pad differently)
+
+The sixty-sixth list is closed: a wash names a state, a scrim names a mode. This list is rule 7 — *"spacing
+and grouping instead of borders and boxes"* — applied to the atom the contract calls `card`, measured by
+walking every `.card` on both rendered surfaces and reading its padding, gap and surface off the element.
+
+Two reads were clean and are recorded as clean: **every card on both surfaces is `box-shadow: none` at
+radius 14** (the contract's `elevation.flat` and `radius.page.card` hold everywhere), and **the cards that
+hold a table or a list of rows are the ones that pad differently** — `.fleet-table-wrap` at `padding: 0`
+and `.plug-inventory` at `padding: 0` — which is a real exception with a reason: their children bring the
+insets so the rows can span the card's full width.
+
+1. **The panel's Settings page has FOUR `.settings-section` elements and they do not agree: two paint a
+   card (16 px, a surface, a hairline) and two paint NOTHING (0 px, transparent, no border).** Measured:
+
+       .settings-fold        pad 0 16px   surface 250,250,250   border 1px
+       .settings-section     pad 0        transparent          border 0     ← nothing at all
+       .settings-section     pad 16px     surface 250,250,250   border 1px   ← a card
+       .settings-section     pad 0        transparent          border 0     ← nothing at all
+
+   A block called a SECTION is a card on this page and not a card on the same page, and the difference is
+   decided by which FOLD it sits in — a reader cannot see that rule, only its result. **Fix:** the
+   difference is kept (a section inside a fold should not be a second card) but the class that means
+   nothing says so, instead of two elements of one class painting two different things. **M.**
+   *(**Done, panel `e1513393`, live 0.3.273-ux176**: the real defect was not the two flattened sections — that
+   exception is stated in the rule — but the **FOLD**: measured on the rendered page its own top edge sat
+   **1 px** above its first child while the sections inside it sat **17 px** in. `padding: 0 16px` reads like a
+   complete answer and the vertical half was simply absent. After `12px 16px 16px`, re-measured **1 → 13 px**.)*
+
+2. **A card's padding is 16 on both surfaces and its gap is 8, but the pad is written per rule rather
+   than read from the atom**, so the exceptions (a table card, a list card) have no way to say "I am the
+   exception" other than a bare `padding: 0`. **Fix:** the table/list exception becomes a named class or a
+   token, and each repo's test counts the cards that opt out. **S.**
+   *(**Done with item 1, console `37102a2`**: the rule the PAIR produced is **a bordered box at `padding: 0`
+   is right only when its CHILD supplies the inset**. `.fleet-table-wrap` sits 1 px from its first child and
+   is CORRECT, because the child is a table whose header row pads `9px var(--sp-4)` — so the inset every row
+   needs is the row's own and the rows can span the card for the hover. **A plain card pads itself**; both
+   halves are asserted, and each has its own mutation.)*
+
+## P0 — the sixty-eighth list (opened 2026-11-10, a plugin row's state is an 8 px dot and a word on the next line)
+
+The sixty-seventh list is closed: a bordered box at `padding: 0` must be paid for by its child. This list is
+rule 6 — *"never colour alone — pair it with shape, weight or a word"* — measured by walking every
+state-bearing element on both rendered surfaces and asking which channels it actually carries.
+
+Two reads were clean and are recorded as clean: **the console's three state marks all carry a WORD**
+(`.fleet-status` says "offline · last seen …", `.fleet-state` says it again in the table, and
+`.home-verdict` says "0 of 1 online · 1 needs attention") — a dot sits beside the sentence rather than
+instead of it. And **the panel's `.plug-pill` carries the word `Enabled`** beside its dot.
+
+1. **The panel's plugin ROW has a dot and no word, while the plugin CARD beside it has the same dot AND
+   a label.** Measured:
+
+       .plug-row   .plug-dot (8 px, rgb(47,158,68) or rgb(191,58,10))   and NO text
+       .plug-card  .plug-dot (the same two colours) + .plug-tag "Enabled"
+
+   So the roster's rows say their state in colour only, and the one card below them says it in colour and
+   a word — the same information, two grammars, on one page. A reader with a colour deficiency reads the
+   roster's rows as eight identical grey rows; a screen reader reads them as nothing at all. **Fix:** the
+   row's dot carries its state in words, using the label the card already has. **M.**
+   *(**MEASURED AGAIN BEFORE FIXING, AND THE LISTEN WAS WRONG TURNS OUT TO BE.** The roster's dot DOES have a
+   word beside it — `.plug-tag` carries `Loaded` / `Running` on every row — and the earlier audit missed it
+   because it filtered by CLASS-NAME KEYWORDS and `tag` was not in the list. **A filter that names the shapes
+   it expects cannot see a new one**, which is the flaw this workstream keeps re-learning. What IS
+   colour-and-shape-only is the RAIL's mark: one element cycling through all five liveness states, its word
+   in a `title` — a hover, not a surface. **Done, panel `5e236b4c`**: `role="img"` +
+   aria-label={label}`, the same string the tooltip already showed, and `stateMarksCarryWord: true` in the
+   contract beside `stateMarksCarryOwnColour`.)*
+
+2. **Neither surface records that a state mark must carry a word, so the next dot is a fresh choice.**
+   The contract's `hairline` atom already says *"state marks carry their own colour"* — which is the
+   COLOUR half of rule 6 and not the other half. **Fix:** the contract records the second channel, and
+   each repo's test counts a dot with no adjacent word. **S.**
+
+## P0 — the sixty-ninth list (opened 2026-11-10, the page body's rhythm is 24 on every page but two)
+
+The sixty-eighth list is closed: a state mark carries a word, on both surfaces. **This list is closed
+(2026-11-10): both items shipped as panel `08cf4cab`, and the contract gained `page.listGap` so the
+distinction is a line rather than a habit.** This list was rule 20 —
+*"alignment and rhythm fixed by a grid, not by nudging"* — asked at the one place the previous rhythms
+never looked: **the page BODY's own gap, per page.**
+
+The contract says `page.gap = 24`. Measured 2026-11-10 on the rendered surfaces, the head's distance to
+the first block under it and the distance between every pair of blocks:
+
+     console   Home      head→body 24   gaps 24 / 24 / 24     ← the frame, every page, no exceptions
+     console   Activity  head→body 24   gaps 24
+     console   Device    head→body 24   gaps 24
+     console   Tokens    head→body 24   gaps 24
+
+     panel     Memory    head→body 24   gaps 24 / 24 / 24
+     panel     Plugins   head→body  8   gaps  8 /  8 /  8     ← the FRAME is 8 on this page
+     panel     Settings  head→body 24   gaps 36 / 36 / 36 / 36 / 36
+
+**The console is uniform and the panel has two exceptions, both of them rhythm decisions that leaked out of
+the thing they were made for.**
+
+1. **`page-plugins` applies a LIST's rhythm to the whole page body.** Its own comment is right about the
+   intent — *"a list of like things ticks at the card's own 8"* (the thirty-eighth list) — but the rule sets
+   `gap: var(--sp-2)` on the page root, so the **head is 8 px from the title's first block while every other
+   page separates it by 24**. Measured: the Plugins head ends at 154 and the search wrap starts at 162; on
+   Memory the same pair is 144 → 168. **Fix:** the list keeps its 8 and the frame keeps its 24 — the rhythm
+   belongs to the container of like things, not to the page. **S.**
+   *(**Done, panel `08cf4cab`**: the 8 moved to a `.plug-rows` container, and measured after —
+   head→body **24**, gaps **24/24/24**, rows still **8/8/8**.)*
+2. **Settings paints 36 px because a margin and the frame's gap are both charged for the same separation.**
+   Measured: `settings-nav`, `settings-fold` and `settings-section` each carry
+   `margin-bottom: var(--sp-3)` = 12, and the body's flex `gap` is 24 — so every separation is
+   **24 + 12 = 36**, a value on NO surface's scale (2/4/6/8/10/12/14/16/24). **Fix:** one of the two says it.
+   **S.**
+   *(**Done, panel `08cf4cab`**: the margins are gone and the frame's gap says it — measured after
+   **24/24/24/24/24/24**, where it had been 36 six times.)*
+
+## P0 — the seventieth list (opened 2026-11-10, the frame's arithmetic is two answers)
+
+The sixty-ninth list is closed: the page body's rhythm is 24 on every page now. **This list is closed
+(2026-11-10): both items shipped as panel `c76e4073`, and `page.boxSizing` is a contract line in both
+repos.** This list was rule 1 —
+*"start from a system"* — asked about the one number in the contract the two surfaces never agreed on the
+MEANING of: **`page.max = 1120` — is that the page's box, or its contents?**
+
+Both surfaces draw a 1,120 px column, and they get there two different ways:
+
+     console  `.page { width: min(1120px, 100%); padding: 24px }`   box-sizing: border-box (global `*`)
+              → at 1440 the page is 1,120 WIDE and its content is 1,072
+     panel    `.page { width: 100%; max-width: 1120px; padding: 24px }`   box-sizing: CONTENT-box
+              (there is no global reset; the panel sets `border-box` on six elements, never on `*`)
+              → at 1440 the page is 1,168 WIDE and its content is 1,120
+
+**So the contract's `page.max` means the BOX on one surface and the CONTENT on the other, and the panel is
+the wider of the two by exactly the padding twice: 48 px.**
+
+1. **The panel's page overflows the content area it lives in at every width below `wide`.** Measured at
+   390 / 639 / 767 / 1088: the page's box is **48 px** wider than its parent (`mem-pane`, 553 wide, content
+   box) and it sticks **31 px** past the window's right edge. Its parent scrolls (`overflow-x: auto`), so
+   nothing is permanently lost — but the page *is* clipped, and the last 31 px of every card's right edge
+   are off-screen until the reader scrolls sideways. The console, measured at the same six widths, is
+   **never** wider than its parent. **Fix:** one arithmetic, recorded. **S.**
+   *(**Done, panel `c76e4073`**: `box-sizing: border-box` on the two frame rules — not a global reset,
+   because that would move ~60 other boxes laid out and tested against their current arithmetic. Measured
+   after at 390/639/767/1088: the page box EQUALS its parent (304/553/681/1,002) and sticks **0 px** past the
+   window, where it had been +48 and +31. At 1440: box 1,120 / contents 1,072 — the console's own figures.)*
+2. **`page.max` says a number and not what it measures**, which is why the two could differ for months
+   without either being wrong by its own reading. **Fix:** the contract records the box model. **S.**
+   *(**Done**: `page.boxSizing: "border-box"`, pin `eb47909f…`, in both repos the same round — and each
+   repo's test asks its own question: the panel's refuses a global reset arriving to solve the frame, the
+   console's asserts the reset it has always had and that its width is derived from `page.max`.)*
+
+## P0 — the seventy-first list (opened 2026-11-10, the terminal is not a page and it is the only page without a head)
+
+The seventieth list is closed: `page.max` is the box on both surfaces. **This list is closed (2026-11-10):
+both items shipped as panel `43ce6aee`, and every page this rail reaches now draws one head.** This list was
+the operator's directive
+read literally — *"the same page frame (rail, header, page body…)"* — asked of the one page that does not
+draw it, and of the rail that is the frame's first column.
+
+Measured 2026-11-10 on the built panel at 1360, walking every page the rail can reach:
+
+     History   .page-head   h1 "History"  22px/700   first block header.page-head
+     Memory    .page-head   h1 "Memory"   22px/700   first block header.page-head
+     Plugins   .page-head   h1 "Plugins"  22px/700   first block header.page-head
+     Settings  .page-head   h1 "Settings" 22px/700   first block header.page-head
+     Terminal  NO .page-head, NO visible title — an `h1.sr-only` at 17/700     ← the frame's first column
+
+1. **The terminal is the one page of seven that does not draw the page head.** It is the page the rail's
+   FIRST icon opens, so the first thing a reader sees when they use the product is the one page whose title
+   is hidden (`h1.sr-only`, 17 px/700 — a size and weight no other page uses, and invisible). `layout.css`
+   says the terminal "is full-bleed by definition — a shell needs the window — so it opts out with
+   `.page-none`, and only it" — but **opting out of the page column is not opting out of the head**: every
+   other page draws a title, and a full-bleed page can draw the head above its own scrolling region.
+   **Fix:** the terminal draws the same head as the other six, at the contract's `title` (22/700), above a
+   body that stays full-bleed below it. **M.**
+   *(**Done, panel `43ce6aee`**: the terminal draws `header.page-head` + `h1.page-title` as the content card's
+   first row — measured, five pages now read the same head at **22/700**, visible; the terminal keeps 759 of
+   its 805 px below it. The `sr-only` copy and the header's 13/600 span are gone, and `PAGE_TITLES` with them.)*
+2. **`h1.sr-only` at 17/700 is a third title type**, and it is the one nobody can see: the contract's `title`
+   atom says 22/700 for both surfaces, and this is the surface's own 17 (`--fs-lg`) instead. **Fix:** the
+   same element the other six use. **S.** *(Folded into item 1's fix — `43ce6aee` deletes the 17/700 `sr-only`
+   element; the number stays here because it is a measurement, not a step.)*
+
+## P0 — the seventy-second list (opened 2026-11-10, the empty state is one card on one surface and a line of text on the other)
+
+The seventy-first list is closed: every page of the panel draws one head. **This list is closed
+(2026-11-10): both items shipped — panel `3d33e938`, console `942e49a` — and `empty.wayBack` is a contract
+line in both repos.** This list was rule 19 — *"every
+surface has an empty, a loading and a failed state that tell the truth"* — asked of the state the contract
+already names most precisely: the EMPTY.
+
+The contract's `empty` atom: **one card** — `radius 14, pad 16, gap 12, textAlign start, shadow none`. Measured
+2026-11-10 on the rendered surfaces, after filtering a list until nothing matches:
+
+     console Activity   `.timeline-empty-filtered`   1,072 x 68   radius 0   pad 0   align start   no card
+                        + a `Clear search` button inside it                          ← keeps the way back
+     panel  Plugins     `.plug-empty`                1,042 x 18   radius 0   pad 0   align CENTRE
+                        wrapped in `.card` at pad 0                                  ← a card that hugs its text
+                        no control at all                                            ← no way back
+
+**So the atom's own numbers are met on neither surface, and the two miss it in opposite directions.**
+
+1. **The panel's filtered empty is a centred sentence inside a card that pads 0.** Its wrapper IS `.card`
+   (radius 14, border 1, white) but the card's inset is the CHILD's — and the child has `margin: 14px` and
+   `text-align: center`, so the card is **48 px tall** around one 18 px line, and the line is centred in
+   1,042 px. The atom says start-aligned and padded 16. **Fix:** the empty state is the atom: the card's
+   inset, start-aligned, and a control that undoes the filter. **M.**
+   *(**Done, panel `3d33e938`**: `.plug-empty-card` is the atom (measured on the served build — 108 px tall,
+   pad 16, radius 14, gap 12, `text-align: start`) with a `Clear search` beside the sentence, where it had
+   been one 18 px CENTRED line in a card that padded 0 and offered nothing.)*
+2. **The console's filtered empty is not a card at all** — no corner, no inset, a bare `p.hint` and a
+   button on the page's grid. It keeps the way back (which the atom does not require and which is right);
+   what it lacks is the box the atom says an empty state is. **Fix:** the same card, keeping the button. **S.**
+   *(**Done, console `942e49a`, live `ux180`**: measured on the served page — 1072 x 106, radius 14, pad 16,
+   start-aligned, no shadow, and the `Clear search` still inside it. The atom's gap is `--empty-gap`, the
+   same custom property `.empty-state` reads, so the two empty shapes cannot drift.)*
+
+## P0 — the seventy-third list (opened 2026-11-10, a transport's words reach a reader who cannot use them)
+
+The seventy-second list is closed: an empty state is the card and keeps the way back. **This list is closed
+(2026-11-10): both items shipped as panel `abb83b46`, and `failureSentence` is the one place the rule lives.**
+This list was the THIRD
+state of the same atom set — the FAILED — and the contract has already ruled on it: `failed.names: "subject"`,
+`failed.namesTransport: false`, `tokens/`… *"A failure's sentence NAMES THE SUBJECT, NOT THE TRANSPORT."*
+
+Measured 2026-11-10 with every API answer failed (the browser's own `TypeError: Failed to fetch`), walking
+every page the panel's rail reaches:
+
+     Memory    `.error`   "Failed to fetch"  + Retry              ← the BROWSER's words, verbatim
+     Plugins   `.plug-error`  "inventory: Failed to fetch" + Retry ← the browser's words, prefixed
+     History   "The device's session archive could not be read…"   ← the subject, correct
+     Settings  "The device's settings could not be read…"          ← the subject, correct
+     Terminal  "Sessions unavailable — reconnecting…"              ← the subject, correct
+
+**Two of five pages print the transport's own sentence**, and on a device whose read timed out or whose token
+lapsed, "Failed to fetch" is all a reader would ever see.
+
+1. **`MemoryPage` prints `e?.message || String(e)`** — three call sites. Under a refusal the `callTool`
+   fallback gives the right sentence; under a TRANSPORT failure the raw `TypeError` does. **Fix:** the page
+   owns its subject sentence, as the other four do. **S.**
+   *(**Done, panel `abb83b46`**: all five call sites (two reads, delete, save, export) go through
+   `failureSentence`; measured after on the served build — "The memory list could not be read." where
+   "Failed to fetch" had been.)*
+2. **`usePlugins` prefixes the raw reason with `inventory: `**, so `inventory: Failed to fetch` is a
+   transport's words with a subject's label glued on — the exact shape the contract calls out. **Fix:** the
+   subject's sentence when the reason is not one the device wrote. **S.**
+   *(**Done, panel `abb83b46`**: a fold's own words keep the `inventory:` prefix (two tests pin that shape);
+   only a throw that names no subject becomes the page's sentence, which takes no prefix. The status read
+   had the same hole and takes the same rule.)*
+
+## P0 — the seventy-fourth list (opened 2026-11-10, the fleet table loses its right half for 274 px of window)
+
+The seventy-third list is closed: a failure names its subject on every page. **This list is closed
+(2026-11-10): both items shipped as console `0a7e02f`, live `ux181`.** This list was the predicted gap
+from round 60, measured this time, and it is the one band of the window where the console's RAIL rule is
+overridden by a rule declared 1,300 lines later.
+
+Measured 2026-11-10 on the live console, walking the window from the phone's bottom bar to the wide desktop:
+
+     vw 639  rail 639 wide (the phone's bottom bar), rows are CARDS, no column lost   ← correct
+     vw 640  rail **232** wide, table wraps at 360, min-content 635 → 4 of 5 columns GONE
+     vw 767  rail 232 wide, table wraps at 487, min-content 635 → **Status / Version /
+             Started / Actions all clipped**, `overflow-x: hidden`, nothing to scroll
+     vw 900  wrap 620 → `Actions` clipped (+15 px, the row's `⋯` menu is off the card)
+     vw 914  the first width where the 635 px min-content fits
+     vw 1088 everything fits with room
+
+**`layout-contract.json` records the console's rail as `consoleCollapsesAt: 767`** — "the CONSOLE collapses at
+`tablet` (767): below it the rail becomes the top bar, so the page's left is 0 — measured at 380/480/639".
+That was true when the sentence was written and it is not true now: the 56 px icon rail declared at
+`@media (min-width: 640px) and (max-width: 767px)` is **overridden by a later `@media (min-width: 640px)` that
+repaints `.shell` with a 232 px column**, so from 640 up the labelled sidebar is back, the page is 408 px
+wide at 640, and the fleet table — a 5-column grid in a `overflow: hidden` wrapper — loses four of its five
+columns with no way to reach them.
+
+1. **The contract's one rail number is wrong for 128 px of window.** It says the console has a labelled rail
+   at ≥768 and an icon rail below; measured, the labelled rail runs from **640**. `layoutContract.test.ts`
+   asserts 767 and both surfaces agree on the number, so the number has to be re-measured and either the
+   rule or the CSS fixed. **M.** *(**Done, console `0a7e02f`, live `ux181`**: the NUMBER was right — `767`
+   is the last width at which the labelled rail is not drawn. The stylesheet did not obey it: two later
+   `(min-width: 640px)` queries overrode the icon band's rule on source order alone. Both labelled-form
+   rules now start at 768. Measured after: rail **56** at 640/700/767 and **232** from 768.)*
+2. **The fleet table clips 4 of 5 columns in the band**, and the phone's card form — which already exists,
+   already draws the labels, and is already tested — starts only at ≤639. The table does not fit its
+   min-content again until the window is **914**, so the card form is what the band needs. **M.**
+   *(**Done, console `0a7e02f`**: the card form is now `@container fleet-table (max-width: 639px)` — a
+   table's shape follows the BOX it is in, not the window (`--rail` takes 232 px, so a 900 px window gives
+   the table the room a 660 px one would). Measured after: **no column is lost at any width from 390 to
+   1,440**.)*
+
+## P0 — the seventy-fifth list (opened 2026-11-10, one size gets five different trackings on one page)
+
+The seventy-fourth list is closed: the rail obeys its number and the table follows its box. **This list is
+closed (2026-11-10), across four builds (`676073d`, `4903e0b`, `3967c03`), live `ux184` — the last one found
+by re-measuring the DEPLOYED page rather than the built one.** This list was rule 14 — *"letter-spacing by size"* — and it is the last of the twenty with a MEASURED conflict on both
+surfaces' own pages. Measured 2026-11-10 on the rendered pages, grouping every text node by its `font-size`
+and asking whether that size carries ONE tracking:
+
+     page      size   the trackings that size carried
+     console Home   22  -0.242px (h1) · **-0.44px** (home-verdict, the sentence under it)
+     console Home   12  normal (button, primary, attention-open, danger) · **-0.052px** (fleet-state, btn)
+     console Home   10  0.5px (th, eyebrow) · normal (fleet-build)
+     console Activity 17 -0.052px (page-sub) · **-0.34px** (timeline-day-label)
+     console Activity 12 -0.052px · normal (timeline-machine, timeline-clock)
+     console Activity 11 normal (chip, clock) · -0.052px (hint) · **0.22px** (timeline-stretch-text)
+     console Device 11 -0.052px (chip) · normal (mini)
+     panel  Memory/Plugins  NONE — the panel has this right
+
+**`body { letter-spacing: -0.004em }` is inherited by everything, and 19 rules opt INTO one of three
+tracking tokens on top of it** — so an element that does not opt in carries `-0.052px` at 12 px and an
+element that sets `normal` carries nothing, and the two sit in the same row. The tokens are not the defect;
+the *inherited default plus an opt-in* is: the same 12 px sentence is set twice on one page, once at
+-0.052 and once at 0.
+
+1. **The inherited `body { letter-spacing: -0.004em }` makes the baseline a number none of the three
+   tokens names**, so "no tracking" and "-0.004em" are two different answers to the same question depending
+   on which element you inspect. **Fix:** the body carries no tracking; each size reads its step from the
+   tokens (display for a title, none for body, label for small caps), and a rule that wants `normal`
+   says so. **M.**
+   *(**Done, console `676073d`, live `ux182`**: `body` carries no tracking. The baseline is now nobody's
+   number, and the four steps the sheet already declared are the whole story — display for a title, nothing
+   for body, label for small caps, eyebrow above a block. Measured after: **zero conflicts on Home, Activity
+   and Device**, grouped by size AND weight AND kind.)*
+2. **Three literals are still written at their call sites** — `-0.004em`, `0.02em` and `0` — which is the
+   rule `tokens.css` states against itself ("a number written at the call site is a habit"). **S.**
+   *(**Done, console `676073d` + three follow-ups (`4903e0b`, `3967c03`), live `ux184`**: the `0.02em` literal
+   is gone. Each follow-up was found by re-measuring the DEPLOYED build, because a rule that sets a size and
+   a weight and leaves TRACKING to the element underneath only shows up once its neighbour changes: the
+   installer's card title at the baseline (`4903e0b`), the stretch line opened to 0.08em in a column of 11 px
+   clocks (same commit), and `.attention-machine` (`3967c03`). Four builds to zero.)*
+
+## P0 — the seventy-sixth list (opened 2026-11-10, the console sizes its buttons for a thumb and the panel does not)
+
+The seventy-fifth list is closed across four builds. **This list is closed (2026-11-10): both items shipped as
+panel `4fd468bc`.** This list was the ONE measurement the twenty rules never
+asked for, and the two surfaces answer it in opposite directions: **the touch target.**
+
+Measured 2026-11-10 at 390 px wide, counting every reachable control inside the page body:
+
+     console Home      26 controls, **0** under 44 px
+     console Activity  97 controls, **0** under 44 px
+     console Device     4 controls, **0** under 44 px
+     panel  Memory      8 controls, **8** under 44 px — the field at 27, four buttons at 22, three doors at 24
+     panel  Plugins     3 controls, **3** under 44 px — the search field at 32, two buttons at 26
+
+**The console got this right in the twenty-ninth list and wrote the reason down**: *"every one of Home's 25
+controls in `main` was under 44 px … It is one rule for the whole phone surface rather than 25 nudges: a
+control is at least 44 px tall where it is reached by a thumb."* It is a `@media (max-width: 639px)` block
+naming `main button`, `main a[href]`, `main summary`, the two doors whose own rules set `min-height: 0`, and
+the sheet's — one rule, one band, measured at 0.
+
+**The panel has no such rule.** Its band at `max-width: 639px` restyles the session menu and nothing else, and
+its controls keep the desktop's arithmetic: a `btn-mini` is 22 px because a mouse is precise. A window dragged
+to 390 on a phone-sized screen is the same thumb the console already plans for.
+
+1. **The panel's controls are 22–32 px at 390**, where every one of them is a thumb's target. **Fix:** the
+   console's rule, in the panel's own band: `button, a[href], summary, input, select` inside the page body at
+   the contract's 44 where the window is a phone's. **M.**
+   *(**Done, panel `4fd468bc`**: one block in the panel's phone band names `.page button, a[href], summary,
+   input, select` at `min-height: 44px`. Measured after at 390: **Memory 0 of 8 under 44, Plugins 0 of 3**;
+   at 1,440 the same controls still measure 22 / 22 / 27, so the floor never reaches a desktop.)*
+2. **`space.target: 24` in the contract does not say which size it describes** — the console proves 44 is
+   what a phone needs, and 24 is what a desktop's control can be hit at with a mouse. Two numbers, one name.
+   **Fix:** the atom records both, and which band each belongs to. **S.**
+   *(**Done, panel `4fd468bc`**: `space.target` 24 stays the mouse's; `space.targetTouch: 44` and
+   `space.targetBand: "phone"` are recorded beside it (pin `8d90a192…`), because one name for both is how the
+   thinner surface went unnoticed through four lists of phone work.)*
+
+## P0 — the seventy-seventh list (opened 2026-11-10, the OS is dark, the console is dark, the panel is not)
+
+The seventy-sixth list is closed: a thumb is not a cursor. **This list is closed (2026-11-10): both items
+shipped as panel `a24a7583`, and `theme` is a contract line in both repos.** This list was the one DECISION the contract has
+never recorded and the audit had never asked: **which surface decides the theme, and how.**
+
+Measured 2026-11-10 at 1,440 on both surfaces, in the same browser, at the same moment:
+
+     OS colour scheme   console `body`                    panel `body`
+     dark               **rgb(19, 20, 24)**  ← dark        **rgb(250, 250, 250)**  ← light
+     light              rgb(250, 250, 250)               rgb(250, 250, 250)
+
+     console: no theme control at all; `@media (prefers-color-scheme: dark)` in `tokens.css` flips the tokens
+     panel:   a rail button `aria-label="theme"`; `lib/theme.ts` returns `localStorage` or **`"light"`**,
+              and applies `body[data-theme]` — it never reads `prefers-color-scheme`
+
+**Two answers to "is this machine dark", from one product, at one moment.** The console asks the OS and the
+panel does not. Nothing recorded which is right, so neither can be called wrong.
+
+1. **The panel ignores the OS and defaults to light.** A reader on a dark desktop opens the device app and
+   gets a white page — while the console beside it is already dark. **Fix:** the OS decides the default; the
+   stored choice still overrides it; the switch stays. **M.**
+   *(**Done, panel `a24a7583`**: `getTheme()` asks `prefers-color-scheme` when nothing is stored, and the
+   stored choice still wins. Measured after on the served build: at OS-dark the body is `rgb(19,20,24)` with
+   `data-theme="dark"`; at OS-light `rgb(250,250,250)`; the switch still flips and persists.)*
+2. **The override exists on one surface only**, and that is a decision to record rather than to close: a
+   desktop app in a window legitimately keeps a cockpit theme while the OS is light, and a web page that
+   overrode its OS would be the odd one. **Fix:** the contract records `theme` — who decides, who may
+   override — so the next reader does not have to measure both. **S.**
+   *(**Done, panel `a24a7583`**: `theme.decides: "system"` on both, `theme.override: true` on the panel,
+   `theme.consoleDecides: "system"` on the console (pin `e3d2d198…`). The console offering no switch and the
+   panel offering one is a recorded decision, not a drift.)*
+
+## P0 — the seventy-eighth list (opened 2026-11-10, there is a THIRD surface and nobody has measured it)
+
+The seventy-seventh list is closed: the OS decides the theme on both. This list is the audit's own blind spot,
+found by asking the goal's question of the product rather than of the two repos it names.
+
+**The device serves a page at `/` — `device/device/src/panel.rs`, a Rust `html!` document with its own
+`style_sheet()` — and it is the page a machine's operator actually opens.** **This list is closed
+(2026-11-10): both items shipped as product `fd7e36a`.** It is not the console and it is not
+the React panel; it is a third surface, drawn from `summrise_ui`'s tokens, and it has never been in a list.
+Measured 2026-11-10 through the device's own browser (`http://127.0.0.1:18090/`, 1,264 px wide):
+
+     its page column   main { max-width: 864px; padding: 24px 16px 32px; gap: 16px }
+     the contract       page { max 1120; pad 24; gap 24 }
+     its card          radius 14, pad **0**, head 12/16, body 16   ← the contract's pad is 16
+     its title         `.hero h2` **22/700**, and `h1` is the brand "Summrise" at **18/600**
+     its ladder        11 sizes of text; `22/700` once, `13/600` with **0.91px** tracking and `13/600` with none
+     its doc           **2,856 px tall** and the body scrolls — the second surface to do that
+
+1. **The device page is a surface with no gate and no line in any of the 77 lists.** It draws the product's
+   tokens and the product's cards, and its frame numbers (864 / 16 / 0-padded card) answer to nothing. Either
+   it joins the contract or the contract is describing two surfaces and calling itself shared. **M.**
+   *(**Done, product `fd7e36a`**: `main` is `70rem` (1,120 px), `padding: var(--sp-5)` and `gap: var(--sp-5)`;
+   the topbar centres on the same column from one number; the shared card head reads `--tracking-label`
+   instead of `.07em`. Measured on the device's own served page after: **column 1,120, pad 24, gap 24**;
+   `the_page_frame_is_the_layout_contract_s` fails if any of it moves.)*
+2. **Its title ladder is four answers**: the page's name is `h1 "Summrise"` at 18/600 — the BRAND, not the
+   machine — while the thing that reads as the title (`Running`) is a 22/700 `h2` under a 11 px eyebrow.
+   The contract's `title` is 22/700 and its `h1` is the page's name. **M.**
+   *(**Done, product `fd7e36a`**: the hero's `h2` takes `--tracking-display`, which is what every other
+   22/700 in the product takes — the seventy-fifth list's rule, applied to the surface that list never
+   looked at. Measured after: `22/700 -0.242px`. The `h1` is still the brand; that is the product's shell
+   and not this page's name, and it is the same on the console.)*
+
+## P0 — the seventy-ninth list (opened 2026-11-10, the token gate is RED on trunk and has been for a while)
+
+Found while shipping the seventy-eighth list: `cargo test -p summrise-console --test tokens` **fails on trunk,
+before any of this round's edits**, on three tests. Run on `8f8a83b` with nothing else in the tree:
+
+     generated_tokens_match_the_canonical_sheet        FAILED
+     the_tracking_literals_are_the_tokens_or_a_documented_exception   FAILED
+     spacing_is_the_rhythm_or_a_documented_exception   FAILED
+     ⇒ 12 passed; 3 failed
+
+**This list is closed (2026-11-10), shipped as product `6d6c71f`.**
+
+**1. Seven tokens were added by hand to a GENERATED file.** `device/console/web/src/tokens.css` carries the
+header "Generated by scripts/generate-tokens.sh from device/ui/src/lib.rs. Do not edit." — and it holds
+`--control-h`, `--control-pad-y`, `--lh-body`, `--lh-tight`, `--lh-mark`, `--measure` and `--scrim`, which
+`device/ui/src/lib.rs` does not define. Diffed by NAME between the two files, that is the whole difference.
+`--sp-2-5` sits there too. The three lists that introduced them (`59th`, `60th`, `61st`, `66th`) recorded the
+decisions in the CONSUMER, so the script that owns the file would delete all seven the next time anyone ran it.
+**Fix:** the tokens move to the canonical sheet, where the generator can see them, and the gate goes green.
+**M.** *(**Done, product `6d6c71f`**: the seven live in `device/ui/src/lib.rs` beside the rhythm they annotate,
+and `bash scripts/generate-tokens.sh` writes `tokens.css` from them; the token test went 12/3 → 15/0.)*
+
+**2. Two literal scans are red for the same reason**, and they are reading the CONSUMER's hand-written block:
+`letter-spacing: -0.004em` inside a COMMENT (the seventy-fifth list's own note, which quotes the number it
+removed) and `margin-top: 4px` twice in `app.css`. The first is the panel's known lesson — *a comment that
+quotes what a gate forbids trips the gate* — and the console's scan does not strip comments. **M.** *(**Done, product `6d6c71f`**: the scan carries the
+same `in_comment` state the spacing scan already had, so the fix is in the SCAN and not in the prose; the two
+`4px` literals are `var(--sp-1)`.)*
+
+## P0 — the eightieth list (opened 2026-11-10, the loading state is a WORD on four of the six pages that read)
+
+The seventy-ninth list is closed. **This list is closed (2026-11-10), shipped on both surfaces — console
+`d0d9ea7` / `7d0d0dd` (live `ux186`), panel `62664f54`.** This list was rule 19's LOADING half, measured page by page with every read
+held 3.5 s, so the reader's view is the one *while* the answer is out:
+
+     page            what is drawn while the read is out            skeleton rows   role=status
+     console Home    "Reading the machine list" + 2 skeleton rows   **2**          ✓ (aria-label)
+     console Device  "Reading the machine list…"                    **0**          ✓
+     console Activity "Reading the audit…"                          **0**          ✗
+     panel  Memory   "Reading the memory list" + 3 skeleton rows    **3**          ✓ (aria-label)
+     panel  History  "Reading the device's session archive…"        **0**          ✗
+     panel  Plugins  "Loading inventory…"                           **0**          ✗
+     panel  Settings "Reading this device's settings…"              **0**          ✓
+
+**The contract's `loading` atom — `rowRadius 10, rowPad 12, rowGap 8, barRadius 6, rows 3, role "status"` —
+was written in the forty-seventh list and shipped on TWO pages of seven.** Where the two do draw it, they
+match the atom exactly (measured: pad 12, radius 10, gap 8, bars 14/11 px at radius 6, `role=status` with a
+label). Everywhere else the page draws ONE SENTENCE where the shape will be.
+
+**And the sentence is where a COUNT will be.** The panel's `archive-empty` is the line above a result count;
+the console's `.timeline-loading` sits where the day labels go; Plugins' `Loading inventory…` is where the
+plugin list goes. The atom's own reason says it: *"It is NOT a word in a result line: a loading state is not a
+result, and the count line is drawn only when it has a count."*
+
+1. **Four pages reserve a sentence where they should reserve the shape**, and three of them say nothing to a
+   screen reader (no `role`, no live region). **Fix:** the four draw the atom — three rows, the card's corner
+   and padding, the read's own label in a live region — and the sentence goes. **M.**
+   *(**Done**: console `d0d9ea7` + `7d0d0dd` (live `ux186`), panel `62664f54`. Measured after, every read held
+   3.5 s: **console Activity 3 rows / status / labelled, Home 3 rows; panel History 3 / status / labelled,
+   Plugins 3 / status / labelled** — six of the seven pages now draw the atom. The seventh, the console's
+   Device page, states the read in a `role="status"` line above its own picker and is left as it is, recorded
+   rather than fixed: that page's body IS a picker, and a skeleton of a list the reader has not chosen is a
+   shape for a result that may be empty.)*
+2. **`rows: 3` is the atom's number and the console's Home draws two** — it passes on the panel and not on the
+   console, so the atom describes one surface's habit. **Fix:** the number is enforced by a gate in each repo
+   rather than by two people reading it. **S.**
+   *(**Done**: `is the LOADING atom, drawn where a read is out` (console) and `is the LOADING atom, on every
+   page that reserves a shape` (panel) both assert `[0, 1, 2]` on every component that draws
+   `.skeleton-list`, plus `role="status"` and a label. Mutations: Home back to two rows, History back to two
+   rows — both red.)*
+
+## P0 — the eighty-first list (opened 2026-11-10, the panel's first page does not sit on the page frame)
+
+The eightieth list is closed: six of the seven reading pages reserve the loading shape. **This list is closed
+(2026-11-10), shipped as panel `cd19b3de`.** This list was the page FRAME, measured on the surface whose own numbers were never compared page to page.
+
+Measured 2026-11-10 at 1,360 on the panel, walking its four pages and reading where each one's content lands:
+
+     page        `.page` element   column left   width   padding   title left   first card left
+     Terminal    **ABSENT**        69            1,308   —         85           —
+     Memory      present           146           1,120   24        170          170
+     Plugins     present           146           1,120   24        170          170
+     Settings    present           146           1,120   24        170          169
+
+**The Terminal is the page the app OPENS on, and it is the one page that draws no frame.** Its head starts at
+**69** and its title at **85** — 85 px left of every other page's 170 — because `.terminal-head` is a strip
+padded `12px 16px 0` with a border under it, inside `.desktop-canvas`'s own `14px 16px 16px`, while the other
+six pages get the frame's 24 px inset and 1,120 px column. So the product's first screen has a title 85 px left
+of the title on the next screen, and the reader sees the page move sideways when they navigate.
+
+The contract says one frame for both surfaces: `page {max 1120, pad 24, gap 24}`. The console draws it on every
+page. The panel draws it on six of seven.
+
+1. **The Terminal's body joins the frame.** Its title and its shell sit on the page's column at the page's
+   inset, so navigating from Terminal to Memory does not move the title 85 px. **M.**
+   *(**Done, panel `cd19b3de`**: `.terminal-head` takes `max-width: 1120px`, `margin: 0 auto` and
+   `padding: var(--sp-5) var(--sp-5) 0`, and loses the hairline the content card already draws. Measured
+   after: **head 146 / 1,120 / title 170 — identical to Memory, Plugins and Settings; at 390 the head is 304
+   wide and the document does not scroll sideways.** The BODY stays full-bleed, because a shell needs the
+   window.)*
+2. **Nothing detects this today** — the panel's own contract test asserts `.page`'s rule, and `.page` is the
+   element the Terminal does not have. **Fix:** the gate asks every page, not the rule. **S.**
+   *(**Done, panel `cd19b3de`**: `is ONE page frame, drawn by EVERY page — including the one the app opens on`
+   reads `.terminal-head`'s rule for the frame's column and inset, and asserts the body did NOT acquire a
+   `max-width` of its own, so the frame and the deliberate bleed are both recorded. Mutation: the head back to
+   its strip → red.)*
+
+## P0 — the eighty-second list (opened 2026-11-10, the head's SUBTITLE is four answers where the atom names one slot)
+
+The eighty-first list is closed: the Terminal draws the page frame. **This list is closed (2026-11-10),
+shipped as console `24a29d0`, with its own gate corrected in `d6bde24` — live `ux188`.** This list was the head — the one part of the
+frame the contract deliberately does not number — and **my first measurement of it was wrong**, which is the
+finding this list now carries.
+
+Measured 2026-11-10, all seven pages, reading each head's `h1`, its size, and every line under it:
+
+     surface   page        head h   h1             lines under it (size)
+     console   Home        68       Home 22/700    —
+     console   Activity    89       Activity 22/700 **17/500** (`.activity-today`) + 12/400 (`.activity-status`)
+     console   Device      33       Choose a machine 22/700   —
+     panel     Memory      33       Memory 22/700   13/400 (`.page-sub`)
+     panel     History     33       History 22/700   —
+     panel     Plugins     43       Plugins 22/700  13/400 (`.page-sub`)
+     panel     Settings    33       Settings 22/700  13/400 (`.page-sub`) + 12/400 (`.settings-meta`)
+
+**The first probe said History drew no `h1`.** It read `head.children` and reported ONE `<div>` with 13 px type,
+which is what a Fantasy result looks like when the walk is off by a level: the `h1` is INSIDE that `div`, 22/700,
+and a second probe that asked for it directly found it on all seven pages. **A probe that reports a page's name
+missing is worth re-running before a list is written about it** — this list exists because the re-run disagreed.
+
+**What the re-run does show is the head's SECOND line.** The contract names ONE slot — `head.subtitleSlot:
+".page-sub"` — and the pages draw it at **13/400 on three of them and at 17/500 on Activity**, where the count
+sentence is set as a section title would be. The head's subtitle is a subtitle on every page or it is not the
+head's.
+
+1. **Activity's count line is 17/500 in a slot the atom draws at 13/400**, so the page under the title starts
+   at a size the other pages do not use for the same role. **Fix:** the subtitle's step is the atom's, and the
+   count keeps its tabular figures. **M.**
+   *(**Done, console `24a29d0` + `d6bde24` (the gate it broke), live `ux188`**: `.activity-today` is `--fs-base`
+   in the head's slot, and keeps `--fw-medium` so the count is still the first thing the eye finds. Measured
+   after: `13px/500`, head 79 px against 89. **The browser gate had to be corrected with it** — it asserted
+   17, the number the line drew BEFORE the fix, so it failed on the fix itself: *a gate that asserts a value
+   the design has left is a gate that fails on the change.*)*
+2. **Nothing asserts the subtitle's size at all**: the console's gate checks that a page has one `.page-head`
+   and that the subtitle slot is NAMED, not what it draws. **S.**
+   *(**Done, console `24a29d0`**: `is ONE subtitle step in the head's own slot, on every page` reads the slot's
+   declarations across BOTH rules that set them (the atom at line 207 and a `margin-top` refinement 2,283
+   lines later — the cascade's answer, not the first match), and refuses `--fs-lg` on the count line. Mutation:
+   the count back to `--fs-lg` → red.)*
+
+## P0 — the eighty-third list (opened 2026-11-10, the Device page's CONTENT is drawn in the EMPTY state's element)
+
+The eighty-second list is closed. **This list is closed (2026-11-10), shipped as console `0078b2f` (live
+`ux189`).** This list was the Device page — the third console page, and the only one whose
+body is a single block whatever it holds.
+
+Measured 2026-11-10 at 1,440, walking its four states by forcing each read:
+
+     state          body element        body h   inner      rows   reader sees
+     4 machines     **.empty-state**     248      ul.picker  4      the picker
+     0 machines     **.empty-state**     64       p.hint     0      "No devices are enrolled yet."
+     failed read    **.empty-state**     90       .notice    0      the failure + Retry
+
+**The page's CONTENT is drawn inside the class that means "there is nothing here".** `.empty-state` is the atom
+the sixty-third list consolidated for genuine empties — it draws the card, the 12 px gap, the start alignment —
+and this page uses it as its body, so the picker with four machines and the sentence with none are the same
+element in the same slot. Rule 19 asks each state to tell the truth; a state whose element cannot tell "four"
+from "none" is the wrong element, not a wrong sentence.
+
+**And the card it draws is 30 % full:** measured, the card is 1,072 px wide with 16 px of padding and its rows
+are **326 px** — the picker is a `ul` sized to its content inside a card that fills the column, while every
+other list in the product fills its card (the fleet table's row measures 1,070 of 1,072).
+
+1. **The Device page's body is a list, not an empty state.** The picker is the page's content and gets its own
+   block; the empty, loading and failed states keep the atom and draw only when the read says so. **M.**
+   *(**Done, console `0078b2f`, live `ux189`**: the body is `<section className="card device-picker-card">`, and
+   `.picker` takes `width: 100%` and loses its private `margin-top`. Measured after: **rows 1,038 of a 1,038 px
+   list in a 1,072 px card — 97 %**, up from 326 / 30 %. The three states still draw inside the one card, in
+   the same slot; what changed is that the slot no longer MEANS "nothing here".)*
+2. **The head is `align-items: center` where the atom says `flex-start`** (`.device-head`), which is invisible
+   while the head is one row and wrong the moment it wraps. **S.**
+   *(**Done, console `0078b2f`**: `.device-head` reads `align-items: flex-start`, the atom's own value.)*
+
+## P0 — the eighty-fourth list (opened 2026-11-10, the port the product TELLS you to use is the port it left)
+
+The eighty-third list is closed. **This list is closed (2026-11-10): item 1 shipped as product `d2d0a37`,
+and item 2 is recorded as the two ports' relation rather than a code change.** This list was what the two
+frontends TELL a reader, and it was found by chasing a
+question the operator asked and never got an answer to: *"我记得 18090 不是早就说要改成 7736 了吗"*.
+
+Measured 2026-11-10 in the tree, grepping every port the device code names:
+
+     `device/launch/src/lib.rs`     DEFAULT_PORT = **7737**, with its own note "(the operator's fleet
+                                    convention; `18080` before it)"
+     `device/device/src/config.rs`  DEFAULT_PORT = **7737**, same note
+     `device/launch/src/win.rs`     the usage text: "The port defaults to SUMMRISE_PORT, then **18080**."
+     `device/device/src/http.rs`    a served panel's MCP endpoint: "http://127.0.0.1:**18080**/mcp"
+     `device/device/src/panel.rs`   the same string in the panel's own fixture
+
+**The number the product SHIPS is 7737 on every machine that does not pass `--port`, and the number three of its
+own files PRINT is 18080** — the port it moved off on 2026-11-04. A reader who follows the usage text starts the
+service on a port the fleet no longer expects, and the panel's `/mcp` endpoint — the string a client is told to
+paste — points at a port nothing is listening on.
+
+1. **Three files print the port the code left.** **Fix:** one constant, read by the usage text and the endpoint
+   string, so a reader is never told a number the binary does not use. **M.**
+   *(**Done, product `d2d0a37`**: the sentence interpolates `DEFAULT_PORT`, and the gate refuses a spelled
+   number on either side. **IT NEEDED `cargo xwin` TO CATCH** — the supervisor is `#[cfg(windows)]`, so the
+   Linux build never compiles `win.rs` and `cargo test` stayed green while the Windows-only text was wrong;
+   the cross-check also caught a first draft reaching for `crate::DEFAULT_PORT` from a binary root that has
+   no such item.)*
+2. **The console's 7736 and the device's 7737 are two ports in one sentence** — the operator's recollection mixed
+   them, and nothing in the product says which is which. **Fix:** the docs name both, once. **S.**
+   *(**Done, product `d2d0a37`** for the device's half — its usage text and endpoint now read one constant.
+   The two ports' RELATION is still one sentence in the docs and this list records it that way: **7736 is the
+   console's web port; 7737 is a device app's own port**, and 18090 on the live box is a service argv that pins
+   an old number rather than a default.)*
+
+## P0 — the eighty-fifth list (opened 2026-11-10, the card's first line is 13 px in one block and 17 in the one beside it)
+
+The eighty-fourth list is closed. **This list is closed (2026-11-10), shipped as panel `5db53dad`.** This list
+was rule 20 fixed by a grid — *"alignment and rhythm fixed by a grid,
+not by nudging"* — measured on the ONE page that draws two kinds of container side by side.
+
+Measured 2026-11-10 at 1,360 on the panel's Settings, reading each block's top inset and its first line's position:
+
+     block              left   width   padding          first line   inset (top / left)
+     settings-fold      170    1,072   `12px 16px 16px`  summary 17/600  **13 / 17**
+     settings-section   170    1,072   `16px`            h2 17/600      **17 / 17**
+     settings-section   187    1,038   `0`               h3 14/600      0 / 0   (inside a fold)
+     settings-fold      170    1,072   `12px 16px 16px`  summary 17/600  13 / 17
+     settings-section   187    1,038   `0`               h2 17/600      0 / 0   (inside a fold)
+
+**On the same page, two blocks that are both "a titled group of settings" put their first line at 13 px and at
+17 px from their own top edge**, because the fold is a `<details>` whose summary carries its own `--sp-3` and
+the section takes the card's 16. The 4 px is the visible drift: a reader scrolling Settings sees the folds' titles
+sit a hair higher than the sections' — the exact thing *"fixed by a grid"* is meant to prevent, on a page whose
+own history is a mountain of hand-tuned insets.
+
+1. **The fold's first line is 4 px off the sections' on the same page.** **Fix:** both blocks put their first
+   line on the same inset, and the fold's `--sp-3` becomes the card's `--sp-4` with its own top margin removed. **M.**
+   *(**Done, panel `5db53dad`**: `.settings-fold` is `padding: var(--sp-4)` and its `> summary` is
+   `padding: 0 0 var(--sp-3)`. Measured after at 1,360: **fold insetTop 17 / insetLeft 17, section 17 / 17** —
+   the two blocks' first lines are one line.)*
+2. **Nested sections draw a second box on one page and none on another**: measured, a section INSIDE a fold is
+   `0 / 0` with no border — correct, and already argued in the sheet — while a section on the page is a full card.
+   The rule holds; what no test holds is the top inset. **S.**
+   *(**Done, panel `5db53dad`**: `is ONE first line for every titled block on a page, whatever the block's
+   element is` asserts the fold's card inset, its summary's zero leading, AND the nested section's `border: 0`
+   / `padding: 0`. **Its first version passed a mutation** — this sheet declares `.settings-fold` twice (a
+   `scroll-margin-top` note and the card) and the test accepted any matching rule; it reads the block carrying
+   `background` now.)*
+
+## P0 — the eighty-sixth list (opened 2026-11-10, the card's 8 is 8 plus whatever its children bring)
+
+The eighty-fifth list is closed. **This list is closed (2026-11-10), shipped on both surfaces: panel
+`4716632d`, console `f434d3a` (live `ux190`).** This list was the card's INSIDE — the number the contract has always recorded
+(`card{gap 8}`) and which no page actually gives its children.
+
+Measured 2026-11-10 at 1,360/1,440, reading each card's `row-gap` and then the space that lands between its
+children:
+
+     surface   card                declared gap   children's own margins   space they get
+     console   card.attention      8 px           `-4px`, `0`              **4**, 8
+     console   card.installer      8 px           `0`, `0`, `0`, `0`       **-26, -41, 13, -23**
+     panel     card.mem-card       8 px           `6px`, `8px`             **14**, **16**
+     panel     card.plug-card      8 px           `8px`, `8px`             **16**, 16
+
+**Not one of them is 8.** The console's attention card gets 4 px under its header because `.attention-release`
+carries `margin: -4px 0 0` — a negative margin used to tighten a gap the container already set. The panel's memory
+card gets 14 and 16 because `.mem-tags` brings `6px` and `.mem-content` brings `8px` ON TOP of the container's 8.
+And the installer strip's children get negative space — they are laid out in a row that wraps, and the measurement
+walks them in visual order, which is what a reader sees: two of them share a line.
+
+**Rule 7 says spacing and grouping do the work; here the spacing is done twice and the group is one number that
+nobody reads.** A card's rhythm that is `8 + the child's margin` is a rhythm with as many values as there are
+children.
+
+1. **A card's gap is its own; a child does not add to it.** **Fix:** the negative and the extra margins go, so
+   every card's children sit 8 px apart — the number in the contract — or a card states a different gap and the
+   contract records it. **M.**
+   *(**Done, both surfaces**: panel `4716632d`, console `f434d3a` (live `ux190`). Measured after at 1,360/1,440:
+   **mem-card 8 / 8, plug-card 8 / 8, attention card 8 / 8** — and no card child carries a margin at all
+   (`.card > * { margin-block: 0 }` in both sheets). The panel's half also needed a `p` reset: that sheet had
+   NONE, so one paragraph inside a card took **Chromium's `margin: 1em 0`** — 12 px because the paragraph is
+   `--fs-sm`, i.e. spacing that scaled with the TEXT. The console has had `p { margin: var(--sp-1-5) 0 }`
+   all along.)*
+2. **No test measures a card's INTERNAL rhythm at all.** The gates read the rule (`gap: 8`), never the rendering.
+   **S.**
+   *(**Done, both repos**: `is the CARD's own gap — a child of a card adds no margin of its own` asserts the
+   container's rule, the children's zero, the paragraph reset (panel) and the two children that used to add
+   one. Mutations: `.card > *` removed, the `p` reset removed, the `-4px` restored — all red.)*
+
+## P0 — the eighty-seventh list (opened 2026-11-10, a list ROW has seven shapes and the contract names none)
+
+The eighty-sixth list is closed. This list is one level below the card: the ROW, which is what every page is
+actually made of — and which the contract does not name at all (its atoms are `page, card, head, section, …`;
+there is no `row`).
+
+Measured 2026-11-10, one row of each kind, on both surfaces at 1,360:
+
+     where                         row h   padding       radius   border   gap after
+     console Home  attention       77       `0 0 10px`    0        0        0
+     console Home  fleet table     57       `0`           0        0        0
+     console Activity timeline     76       `0`           0        0        18
+     console Device picker         46       `8px 10px`    8        1        6
+     panel   Plugins inventory     36       `8px 12px`    0        0        8
+     panel   Memory cards          134      `16px`        14       1        8
+     panel   History rows          36       `0`           0        0        0
+
+**Seven shapes for one idea.** Some rows are 36 px and some 134; some draw a hairline and a corner and some
+draw nothing; the space after a row is 0, 6, 8 or 18. Every one of those is defensible on its own — a memory
+entry IS taller than a plugin name — and **none of it is recorded**, so the next page to draw a list has no
+answer to "what is a row here?" except to look at whichever page the author happened to open.
+
+**Rule 20 asks alignment and rhythm to come from a grid.** A seven-value rhythm is not a grid; it is seven
+decisions that look like one. The fix is not to make every row 36 px — it is to name the parts that ARE one
+decision (the row's inset, the space after it, and which rows are cards) and let the rest follow from a level.
+
+1. **A row's inset and the space after it are seven answers.** **Fix:** the contract gains a `row` atom — inset,
+   separation, and "a row that draws a box is a card" — and both surfaces read it. **M.**
+2. **The list's 18 px in the timeline is a third rhythm inside a page whose blocks are 24 and whose cards are 8.**
+   **Fix:** it reads the atom. **S.**
+
+## P0 — the eighty-eighth list (opened 2026-11-10, the cross-repo pin compares each copy to ITSELF)
+
+The eighty-seventh list is closed for its first half — **and this list is closed too (2026-11-10), shipped on
+both sides: product `be7307f`, panel `45ed35a2`.** This list was the pin: the contract gained a `row` atom (seven row shapes, measured)
+and item 1 shipped as the contract change. **And adding that atom exposed the bigger defect, which is this list.**
+
+Both repos carry a copy of `docs/superpowers/specs/layout-contract.json` and a test that pins its sha256. Both
+tests say the same thing in their comments:
+
+     console  "...equals a literal recorded in the PANEL's copy of this test. If the two disagree, the two
+               frontends are drawn to different page systems and one of them is wrong."
+     panel    "...equals a literal recorded in the CONSOLE's copy of this test."
+
+**Each test hashes its OWN repo's file.** Measured 2026-11-10:
+
+     product copy   sha256 c1880d04…   atoms: … card, **row**, … **tracking**, …
+     panel copy     sha256 e3d2d198…   atoms: … card, … **theme**, …   (no row, no tracking)
+     console test pins 72d6e4a4…       (its own file, before this list's atom)
+     panel  test pins e3d2d198…        (its own file)
+
+**Two different literals, each pinning its own file, and the comment claiming they are the same number.** The
+mechanism cannot detect what it claims to detect: a repo can change its copy and update its own literal and the
+other repo stays green for ever.
+
+The copies have already drifted, measurably:
+
+     only in the product copy   `row`, `tracking`
+     only in the panel copy     `theme`
+     inside `space`             panel adds `targetTouch: 44`, `targetBand: "phone"`, and a longer `$comment`
+     inside `rail`              two different `$comment`s, each describing half of what the two surfaces do
+
+1. **One contract, one hash.** **Fix:** the two copies become byte-identical files whose union carries every
+   atom either surface needs, and BOTH tests pin **one** literal — so a change in one repo turns the other red.
+   **M.**
+   *(**Done**: product `be7307f`, panel `45ed35a2`. Both copies are one file — `f2e8a065…` — carrying every atom
+   either surface needs (`row`, `tracking`, `theme`, `space.targetTouch: 44`, `space.targetBand: "phone"`), with
+   the two `rail.$comment`s merged into the paragraph that describes all three of the console's columns AND the
+   panel's no-collapse rule. **The pin now reads the OTHER repo's copy** and skips with its reason named when the
+   sibling checkout is absent. Mutations, both directions: one byte added to the panel's copy → the console's pin
+   red; one byte added to the product's copy → the panel's pin red.)*
+
+## P0 — the eighty-ninth list (opened 2026-11-10, the row atom was written and NOBODY READ IT)
+
+The eighty-eighth list is closed: the two repos carry one contract file at one hash. **This list is closed
+(2026-11-10), shipped as console `abe26e7` (live `ux191`).** That is what made this
+list findable — the atoms are in ONE place now, so an atom nobody reads is visible as an atom nobody reads.
+
+Measured 2026-11-10 in the tree, asking each repo's tests which contract atoms they name:
+
+     atom      recorded (the eighty-seventh list)          read by a test?
+     row       insetX 8, insetY 8, gapLines 0,              **NO** — no test in either repo names it
+               gapBoxes 8, boxed "card"
+
+**The `row` atom was added last round and nothing reads it.** It was written from a measurement — seven row
+shapes for one idea — and then not connected to the thing it measures, which makes it a comment with a
+schema rather than a decision. The contract's own job is to be the answer to "what is a row here?"; an atom no
+gate checks is that answer written down where nobody looks.
+
+**And one of the numbers it records is contradicted by the page it was measured on:** the timeline's stretch
+separation is **18 px**, which is on NO step of the scale the same contract declares
+(`2/4/6/8/10/12/14/16/24`). The atom says a list of lines separates by 0; the page separates a stretch by 18 —
+so the atom is not only unread, it is already wrong about the page that provoked it.
+
+1. **`row` is recorded and unread.** **Fix:** each repo's contract test reads the atom against the sheet, the
+   way every other atom already is. **M.**
+   *(**Done, console `abe26e7` (live `ux191`)**: `is a ROW inside a list, and the list's own rhythm is on the
+   scale` reads every number in the atom, and the test's `Contract` TYPE gained the atom too — **`tsc` caught
+   that the runner could not**, because a test that reads a contract its type does not describe is a contract
+   half-read.)*
+2. **The timeline's 18 px is off the scale and inside the list the atom describes.** **Fix:** it takes a
+   step, and the atom's `gapLines` says what a line list separates by. **S.**
+   *(**Done, console `abe26e7` (live `ux191`)**: both separations take `--sp-4`. Measured after on the live
+   console at 1,440: **31 stretch rows at 16 px, spaces 16** — the step above the card's own 8, which is what a
+   stretch header is: a new grouping inside one list, one step louder than the lines under it.)*
+
+## P0 — the ninetieth list (opened 2026-11-10, a failed read says `HTTP 500` on one surface and the subject on the other)
+
+The eighty-ninth list is closed. This list is rule 19's FAILED half, measured by forcing every read to fail —
+the only way to see a failure on a page that is otherwise full of real data.
+
+Measured 2026-11-10, forcing `/fleet` and `/api/**` to answer 500 on the two surfaces:
+
+     surface   page      block      h    radius   pad    tint                     words
+     console   Home      `.notice`  56   8        12     `rgb(255, 244, 229)`     "The console could not read
+                                                                                 the machine list. Retry"
+     panel     Memory    `.error`   56   8        12     `rgba(220, 38, 38, 0.08)` **"HTTP 500 Retry"**
+
+**Same height, same corner, same inset, same role — and one of them tells the reader WHAT FAILED while the other
+tells them what a server answered.** The contract's `failed` atom says it in one line — *"A failure's sentence
+NAMES THE SUBJECT, NOT THE TRANSPORT … `namesTransport: false`"* — and the panel's memory page draws "HTTP 500"
+as its whole sentence, with the subject nowhere on screen.
+
+**And the two tints are two answers to the same idea:** the console paints a warm wash (`rgb(255, 244, 229)`),
+the panel a red one (`rgba(220, 38, 38, 0.08)`) — the atom records `tint: "alarm"` and neither surface's is
+named. A reader who moves between the two surfaces sees the same failure in two colours and two grammars.
+
+1. **The panel's failed read draws the transport's words as the page's sentence.** **Fix:** the subject is
+   always on screen, and the status is the detail — never the sentence. **M.**
+2. **`tint: "alarm"` names no colour, so the two surfaces paint two.** **Fix:** the atom records the pair, and
+   each repo reads it. **S.**
+
+## P0 — the ninety-first list (opened 2026-11-11, the operator's own MCP calls fail and nothing says which field)
+
+The ninetieth list is closed. This list came from the operator, in words: *"看一下今天的mcp日志是不是又调用失败的，
+你看看能不能解决下"* — and the answer is yes, and it is three separate defects.
+
+Measured 2026-11-11 by pulling the live console's own audit (`/audit?limit=1000`, 1,000 lines, 102 failures) and
+classifying every one:
+
+     61  `runs.exec: run run-… exited 1 in N ms`      **the command failed** — the record telling the truth
+      8  `runs.exec: 424 … arguments do not match`   **the same call, refused on a FIELD NAME**
+     10  `runs.exec: 504 the device accepted …`       **the console gave up at the proxy bound**
+      7  `files.*: 424`                                a file that was not there, and a route
+      4  `… 503 device not connected`                 the device was offline
+      1  `terminal.create: kind pty takes shell, …`    the same schema's words, refusing my call
+
+**AND EIGHT OF THEM ARE THE SAME MISTAKE, MADE EIGHT TIMES THIS MORNING.** `runs.exec`'s schema declares
+`timeout_ms`; my calls sent `timeoutMs`, and the device answered **424 "the arguments do not match the tool's input
+schema"** — a sentence that names the SCHEMA and not the FIELD. The refusal is correct and unhelpful: a client
+that has just invented `timeoutMs` from the thousands of camelCase tools in the same surface has no way to learn
+which of its six keys was wrong, so it retries the same call. **8 of 102 failures are one client learning nothing.**
+
+**And ten 504s are the console's bound, not the device's:** `RUNS_MAX_PROXY_WAIT` is ninety seconds, measured at
+1,007 live `runs.exec` calls today whose median run took 1.8 s but whose longest took **87.98 s** and whose
+**147 finished after 30 s** — so a legal run that takes a minute is cut at the proxy and the audit says "it may
+still be working on it", which is true and unactionable in the one place a person looks.
+
+1. **A schema mismatch names the schema, not the field, and the caller cannot learn.** **Fix:** the refusal
+   names the offending key (never its value — the same rule the existing code has for secrets), so the next
+   call is correct. **M.**
+   *(**Done in the tree `1514a61`, MERGED, **DEPLOYED 2026-11-11 as `0.3.273-ux192`**** — the deployment hold below applies. `parse` now answers
+   **`runs.exec: the argument \`timeoutMs\` is not what this tool takes`**, and `named_field` accepts only the
+   three `serde_json` messages that carry a KEY and no value (`unknown field`, `missing field`,
+   `invalid type: <type>, expected <type>`); everything else keeps the old category sentence, so a `DataError`
+   that could quote a value still cannot. Test `refusal_tests::a_bad_key_says_which_key` pins both halves, including
+   that `SENTINELVALUE` never reaches the sentence. **The live half is owed: the device on DESKTOP-84T3LIN still
+   runs the old binary, so this sentence is not what a caller sees yet.**)*
+2. **A run that the console stopped waiting for keeps running, and the answer says so without saying how to
+   collect it.** **Fix:** the 504 sentence names `runs.list` and the id, so the record can be read. **S.**
+3. **The console's own `terminal.create` refusal carries the same defect** — "kind pty takes shell, rows and
+   columns only" names the kind and not which of the three was wrong. **S.**
+
+## THE DEPLOYMENT HOLD — LIFTED (operator, 2026-11-11)
+
+> *"今天先不部署console,和升级summrise-device"* … *"等后天你全部改好告诉我我同意后再说"*
+>
+> then: *"现在可以发布部署了"* — **the hold is lifted for the CONSOLE only.**
+
+**Deployed 2026-11-11: `0.3.273-ux192`**, built from `hub/v1` @ `900efd5`, sha256
+`4f2dc41b154213e7318bbbab37e1867fd9524d530d9b1bb308b8d9b78c4b56fb`, swapped on the host and verified by polling
+`/health` from the deploying box. Live-verified after: Home draws **3 of 4 online · 2 need attention**, Activity draws
+the record (**497 client calls, 17 failed**), Device draws **Choose a machine**, the phone frame steps to **14**, and
+the console's popover is the pane atom — **`rgba(24,32,54,.04) 0 1px 1px …, radius 14px, a 1px `.08` edge`**.
+
+**The DEVICE upgrade is still held** — the operator lifted the console only. No `summrise-device` upgrade runs until
+they say so again.
+
+What the hold cost, now settled rather than owed: every item closed between 2026-11-11's first hold and this deploy
+carried *"not deployed"* in its record; **they are all in `ux192` now**, and the sentences above say which.
+
+## P0 — the hundred-and-sixteenth list (opened 2026-11-11, the card's TINT is one token used for two levels)
+
+The hundred-and-fifteenth list is closed. This list is the directive's own words — *"the same **card grammar**"* —
+measured at `elevation.flat`, which says a card is **"a hairline and a tint, no shadow"**. **Two channels, and one of
+them is carrying nothing.**
+
+Measured 2026-11-11 at 1,360, compositing every ancestor fill down to the ground (a card's tint is measured against
+what is ACTUALLY behind it, not against `body`):
+
+     surface   card              fill                          backing                       TINT      EDGE
+     console   `.card`           `rgb(255,255,255)`            MAIN `(247,247,247)`          **1.071**  1.188
+     panel     `.plug-card`      `rgba(255,255,255,.8)`        `.desktop-content` `(254,254,254)` **1.007**  1.196
+                                   over `.desktop-content`       — which is **the same token**
+
+**The panel's pane and the panel's card were painted with ONE token**: `.desktop-content` and `.plug-card` both read
+`--glass-tint` = `rgba(255,255,255,.8)`, so a card inside the pane composited to **the colour of the pane** — **1.007:1**,
+which is not a tint, it is the same colour.
+
+**BUT THE CAUSE WAS DEEPER, AND MY FIRST READING OF IT WAS WRONG.** `rgba(255,255,255,.8)` over the `#fafafa` ground
+composites to **`(254,254,254)`** — **the pane was LIGHTER than the page it sits on**, so *no* card could sit above it:
+`#fff` over that pane is **1.009:1** even after the card takes the opaque surface. **A pane that lightens its own
+backing erases the level above it.** The console's page wash is `(247,247,247)` — one step BELOW the ground, which is
+what makes its card read at **1.071:1**.
+
+**So the fix is the PANE's, not the card's alone**, and it is the console's number because the two surfaces are one
+product.
+
+1. **A pane lighter than its own ground erases the level above it, and the card was that level.** **Fix:** the pane's
+   tint takes the console's `(247,247,247)` at 80%, and the card takes the opaque surface. **M.**
+   *(**Done on the panel, MERGED, **DEPLOYED 2026-11-11 as `0.3.273-ux192`**** — `ffcf298b6`. **Two fixes, in the order the measurement demanded**:
+   the cards take the opaque `--surface`, AND the pane takes the console's own `--canvas` derivation
+   (`color-mix(in srgb, var(--ink) 3.5%, var(--surface))`) instead of a white film at 80%. Measured after:
+   **light 1.071 / dark 1.086** against a pane the card actually sits on — the console's 1.071 on both.
+   **`--canvas` is restated after dark**, because measured, the dark page kept the LIGHT theme's value: the mix is
+   evaluated at declaration time and `--ink` flips while `--canvas` did not — the third occurrence of that exact
+   computed-value trap in that one file.)*
+2. **The atom says "a hairline and a tint" and nothing measures the TINT.** `themeContrast` measures text pairs;
+   the card's fill against its backing was never asked. **Fix:** a rendered leg that composites the chain and refuses
+   a tint below a stated floor. **S.**
+   *(**Half done**: the panel's `a card sits ON the pane, not in the same colour as it` holds the wash's DERIVATION, the
+   dark restatement and each card's surface. **The measured TINT itself is still ungated** — the numbers above come
+   from a probe that composites the chain, and no gate owns that probe. **S**, open.)*
+
+## P0 — the hundred-and-seventeenth list (opened 2026-11-11, a card's LEVEL is measured on neither surface)
+
+The hundred-and-sixteenth list shipped item 1 and left item 2 open: *the card's tint is measured by a probe, and no
+gate owns that probe*. This list is that item, taken seriously — and it starts by asking how many cards have a
+measurable level at all.
+
+Measured 2026-11-11 (the shipped build, `0.3.273-ux192` live; the panel at its built sheet):
+
+     a card's level = the TINT (its fill vs its backing) and the EDGE (its hairline vs its fill)
+     the gate that should own it: `themeContrast` (panel) / `a11y-audit` (console)
+     what each actually measures: TEXT pairs. **No card's fill against its backing, anywhere.**
+
+     console `.card`          1.071 / 1.188        panel `.plug-card`   1.071 / 1.196
+     console `.empty-state`   1.071 / 1.188        panel `.empty-card`  1.071 / 1.196
+     console `.notice`        1.0?  / alarm        panel `.skeleton-row` 1.071 / 1.196
+
+**Both surfaces now agree on the CARD's tint (1.072) and the edge (≈1.19)** — the hundred-and-sixteenth list bought
+that. **And the first measurement after it finds a SECOND card the fix never reached**: the panel's `.settings-fold`
+draws `--surface-recessed` = `--bg` = `#fafafa` on a pane that is now `(247,247,247)`, so its tint is **1.027** and its
+edge **1.117** — an outline with almost no fill, on the one page whose whole body is folds. The console's recessed
+step is `--panel-2: #fafafa` on a `#fafafa` ground, which is **the same number by a different name**. **What
+neither surface has is a gate that says so**: the number is a probe's output, retyped in chat, and the next round
+that repaints a card can move it without anything going red. That is the exact defect `contrast-probe.mjs` was
+written to end for TEXT — *"the defect was that it was a STRING inside one audit script, so nothing could test it"* —
+repeated for surfaces.
+
+1. **A card's LEVEL is a measured number that no gate owns.** **Fix:** the console's `a11y-audit` and the panel's
+   `themeContrast` composite the chain and refuse a card whose tint falls below the stated floor, in both themes.
+   **M.**
+   *(**Done on both surfaces, MERGED, NOT DEPLOYED** — console `39e0d92` (`a11y-audit`'s `card-level` pass, every page
+   state), panel `b34eb8baf` (`scripts/card-level-gate.mjs`, both themes). **Both composite the ancestor chain** — a
+   card's tint is measured against what is actually behind it, `body` is not the answer — and refuse a card below the
+   atom's own `elevation.cardTint`. **The gate found FOUR blocks on the console and THREE on the panel before it could
+   pass**, and every one was *a block INSIDE a card painted the card's own colour*: console `.files-list` and
+   `.runs-history` at **1.000**, `.evidence` and `.browser-view.fit` at **1.044**; panel `.connect-snippet` at
+   **1.000** inside a `.settings-fold` that was painted the same token. Measured after: console **1.072 → 1.103/1.151**,
+   panel **1.072 → 1.075/1.076/1.151**.
+   **And two limits of the gate itself, both found by its own first run**: **the pane is not a card** (`.desktop-content`
+   at 1.027 is exactly right for the level cards sit ON, and the first scope flagged it), and **`color-mix` computes to
+   `color(srgb …)`** — a parser that only knows `rgba()` reads it as NO FILL and then compares the backing against
+   itself, reporting **1.000**. *A gate that cannot parse the value it was built to check will happily pass it.*)*
+2. **A RECESSED block is worth only 1.027 however it is spelled, because the scale has no step between the card
+   and the ground.** *(**Done on both surfaces, MERGED, NOT DEPLOYED** — console `743a78e`, panel `0f6d0b77e`. The
+   token is a DERIVATION now on both sheets: `color-mix(in srgb, var(--ink) 7%, …)` in light, toward the ground after
+   dark. Measured after: panel `.settings-fold` **1.074** (was 1.027); the console's ten readers land at **1.15 inside
+   a card**, where they were **1.044** and, on the page, **1.000**. **The atom records both numbers**
+   (`cardTint 1.072`, `recessTint 1.074`) and the derivation, because the next person to "just pick a token" will
+   find the same 3–8 level scale.)* Measured 2026-11-11: `.settings-fold` **1.027** tint, **1.117** edge; the console's `--panel-3`
+   `#f4f4f5` is **1.027** against the pane; `#fafafa` on `#fafafa` is **1.000**. **The scale's own steps are 3-8
+   levels apart (`#fafafa`/`#f4f4f5`/`#ffffff`) and a usable recess needs ~8 below the pane** (`grey 239` = **1.073**, the
+   card's own 1.071 with the sign reversed). So the fix is NOT "pick a token" — **the scale has no such token, and
+   adding one invents a colour.** **Fix:** the atom records that a recessed block is the CARD's step with the sign
+   reversed, and the two surfaces take the same value. **M.**
+3. **(done in the same round) The floor is `elevation.cardTint` — the number the SHIPPED card measures, not a new
+   one, and both gates read it from the atom rather than carrying their own copy.** **The original item read:** **The floor itself is unstated.** `elevation.flat` says "a hairline and a tint" and gives neither a minimum
+   contrast nor a word for what the tint is FOR. **Fix:** the atom records the floor and the reason. **S.**
+
+## P0 — the hundred-and-eighteenth list (opened 2026-11-11, a token written into the file the generator rewrites)
+
+The hundred-and-seventeenth list is closed, and **it left a red gate behind that I only found when starting this
+round**: round 117's recess derivation went into `device/console/web/src/tokens.css`, and that file is **written by
+`scripts/generate-tokens.sh`**. `generated_tokens_match_the_canonical_sheet` was red from that moment.
+
+Measured 2026-11-11:
+
+     `git show HEAD:device/console/web/src/tokens.css | grep -c "surface-recessed:color-mix"`   **0**
+     `git show HEAD:device/ui/src/lib.rs      | grep -c "color-mix"`                            **2** (the scrim)
+     `cargo test -p summrise-console --test tokens`                                               **1 failed**
+
+**And the same trap had already been sprung and already been recorded**: `--dur-interaction` was moved from that
+generated file into `lib.rs` **in this series, for this exact reason, with a comment saying so**. **A rule the file
+states is a rule I have to read.** The precedent was one `git log` away and I did not look.
+
+**And one gate could not see the new token at all**: `every_text_pair_reads_on_the_surface_it_sits_on` parses
+`#rrggbb` and **panics on `color-mix`** — so a derived surface is either an error or, if "fixed" by skipping it,
+**unmeasured**. Skipping is how `--ink-faint` shipped at 2.46:1; that test's own header says so. Compositing the
+derivation found a real defect on its first run: **`--warn` on the recess measured 4.49:1 — 0.01 under AA**.
+
+1. **A token added to a generated file is a token the generator deletes.** *(**Done**: `e66ea0b` — the recess moves to
+   `device/ui/src/lib.rs`, `tokens.css` is regenerated, and 15 token tests are green.)* **S.**
+2. **A derived surface is a colour a gate must COMPOSITE, not skip.** *(**Done**: `e66ea0b` — the test blends
+   `color-mix` in srgb, the way the browser does; `--warn` moved one step darker to clear AA on the recess it sits
+   on.)* **S.**
+3. **Nothing tells the next round that `tokens.css` is generated.** The file says it at line 1 — **and the header is a
+   comment, not a gate**: `generated_tokens_match_the_canonical_sheet` exists, but it is in the CONSOLE's Rust suite,
+   which this program has never run as part of the round loop. **Fix:** the console's Rust token test joins the round's
+   gate list, named, in `ci.yml`'s own matrix. **S.**
+
+## P0 — the hundred-and-nineteenth list (closed 2026-11-11: `scripts/check.sh` was red on `hub/v1`, and now returns 0)
+
+The hundred-and-eighteenth list closed items 1 and 2 and left item 3 open: *the console's Rust token test is not in
+this program's round loop*. This list measured where the round loop actually reads its commands from — and the answer
+is a file whose own header says it does not copy them.
+
+Measured 2026-11-11:
+
+     the round loop's console gates        `tsc` · `npm test` · `npm run build` · `browser-gate` · `a11y-audit` · `motion`
+     what `ci.yml`'s device job runs       `scripts/check.sh` — **which reads its commands OUT of ci.yml**
+                                            (`awk` over the `device` job's `run:` lines), so it cannot drift
+     what the round loop skipped           **`cargo test -p summrise-console --test tokens`**,
+                                            which is in the `device` job on line 31
+     what that gate would have caught      `generated_tokens_match_the_canonical_sheet` — red for **3h42m**
+                                            on `hub/v1` (0eabcc0 03:44 → e66ea0b 07:26) while I shipped two lists
+
+**`scripts/check.sh` exists precisely so a local run is CI's run** — *"A change to CI cannot leave this script testing
+yesterday's commands"* — and **the 433-test Rust suite is not in my loop at all**. The gate was one command away and
+written down in the file the whole program is built on.
+
+1. **The round loop's gate list is a memory, not a command.** `scripts/check.sh` reads CI's commands; **that is the
+   instrument, and I ran my own list instead.** **Fix:** the round runs `scripts/check.sh` for the Rust half and keeps
+   its own browser legs for the half CI cannot see. **S.**
+   *(**Done, MERGED, NOT DEPLOYED** — `861c35c`. `bash scripts/check.sh` now returns **EXIT=0**: **32 Rust suites
+   green**, `fmt` clean, `clippy -D warnings` clean. **First run in this loop, and it failed in three places that
+   predate the round**: `cargo fmt` red in eight spots across four files (oldest **2026-09**-era work, unformatted
+   since), clippy red on `tokens.rs`'s char comparison, and — **the red that mattered** — `console.rs` carried a test
+   function with **NO `#[tokio::test]` attribute**, left by `14c4331` when it renamed it. **A test without its
+   attribute is a gate that never runs**, and clippy's `dead_code` was the only thing that ever said so.)*
+2. **A gate's RED could not reach the round at all**: the token test failed on `hub/v1` for three hours while every
+   round reported green. **Fix:** a push is preceded by the cheap Rust suite, so a red gate blocks the round that
+   created it. **S.**
+   *(**Done as a rule, and the rule is now written where the round reads it**: `scripts/check.sh` is the round's Rust
+   command because it is CI's command, and the round's gate list gains it. **What that bought, measured**: the three
+   reds above were on `hub/v1` for hours while two rounds reported green. **It is also the honest boundary**: the
+   Windows lifecycle suite CI runs only on Windows is still not in the loop, and this round does not claim it.)*
+
+## P0 — the hundred-and-twentieth list (closed 2026-11-11: two counts, two units, and one clause that reconciles them)
+
+The hundred-and-nineteenth list is closed. This list is rule 6's shadow — *"never colour alone"* applied to the other
+ambiguous signifier, a NUMBER — measured on the live console (`0.3.273-ux192`):
+
+     Today: 543 client calls, 17 failed.              the DAY's client calls
+     939 client calls in this window · from 09:40…   the WINDOW's client calls (spans 19 h 32 m, not the day)
+     547 calls · 16:00 → 05:14                       **the ROWS this page drew for today**
+
+**Three statements, three units, all true — and the first and the third are four apart with nothing between them
+saying why.** 547 is `dayText(day.lines)` (`ActivityTimeline.tsx:412`), and `callsText` spells it *"calls"*: the word
+the header reserves for **client calls**. A reader who subtracts gets `4`, and the true answer is *"four console reads
+and polls, which the header's word deliberately excludes"* — a distinction the product draws elsewhere (the hub keeps
+its own repeats sentence) and does not draw here.
+
+**And the middle one is a different day**: 939 covers 19 h 32 m from 09:40, while the header's day began at midnight.
+Both sentences sit **52 px apart** in the same column, and neither says the other is a different interval.
+
+1. **`callsText` spells drawn LINES "calls", the word the header reserves for client calls.** **Fix:** the day block
+   and the stretch labels name what they count, in the unit that count is in. **M.**
+   *(**Done, MERGED, NOT DEPLOYED** — `a73d2bf`. `dayText` and the stretch labels say **`lines`** — measured after:
+   `22 lines · 15:27 → 15:32`, `7 lines · 36 s`, `3 lines · 10 s`, `12 lines · 1 m 6 s` — and the header keeps
+   `client calls`, because that is its population. **`callsText` is DELETED**, not left beside `linesText`: both
+   callers moved and `tsc`'s `noUnusedLocals` named the leftover — **the same defect the hundred-and-nineteenth list
+   found in `console.rs`** (a declaration nothing runs), caught this time by a compiler instead of clippy. And the
+   day's doc comment was corrected with it: it still promised `692 calls · …` and named a helper that no longer
+   exists.)*
+2. **The window line and the day line state contradictory intervals without saying so.** **Fix:** one of them names
+   the other explicitly, where they meet. **S.**
+   *(**Done, MERGED, NOT DEPLOYED** — `b766067`. The window line carries one clause, **`— the day's calls are a subset
+   of these`**, and it fires **only when the answer published a cut the window reaches past**
+   (`windowSpan.oldest_ts_ms < props.dayStartMs`). **Both directions are tested**: the clause present, and absent when
+   no cut was published, because **a gate that always fires is worse than silence**. The measured page's window
+   reached midnight by 19 h 32 m from 09:40; the page now says the conclusion instead of asking the reader to subtract.)*
+
+## P0 — the hundred-and-twenty-first list (closed 2026-11-11: the claim slot is named, drawn, and placed by a gate)
+
+The hundred-and-twentieth list is closed. This list is rule 5 — *"hierarchy from size, weight and colour"* — measured
+on the rendered pages, and the first thing it finds is that **the two surfaces disagree about what the product's
+biggest sentence is**.
+
+Measured 2026-11-11 at 1,440, rendered (`font-size / font-weight` per drawn element, deduped by class):
+
+     console Home      `.page-head h1` **22 / 700**   then   `.home-verdict` **22 / 600**
+     console Activity  `.page-head h1` **22 / 700**   then   `.activity-today` **17 / 600**
+     panel  Settings   `.page-title`   **22 / 700**   then   `.page-sub` **13 / 400**
+     panel  Plugins    `.page-title`   **22 / 700**   then   `.page-sub` **13 / 400**
+
+**On Home the verdict is the same size as the title and LIGHTER** — 22/600 under 22/700. It is the sentence the
+operator's direction is about (*"what needs attention, and what to do"*), and the page gives it **less weight than the
+word "Home"**. On Activity the day's count is **17/600** — a whole step DOWN from the title — while on the panel it is
+**13/400**, a plain subtitle.
+
+**Three treatments for the product's second sentence**, and on the console the one that matters most is the faintest.
+
+**And neither surface has a step between 22 and 17**: the sheet's seven sizes are `10/11/12/13/14/17/22`
+(`seven_type_sizes_and_a_thirteen_pixel_body`), so the title-to-second-line drop is either **0** (Home, same size) or
+**5** (Activity) or **9** (the panel) — three answers from one scale.
+
+1. **The verdict and the day's count are the product's SECOND sentence and get one treatment on both surfaces.**
+   **Fix:** one step, one weight, named in the atom. **M.** *(**Done — but NOT as "one treatment", and the gate
+   refused the first attempt.** `911bbb1` (constraint) · `a580536b6` (panel). The atom now names the **CLAIM SLOT** as
+   a POSITION with **TWO permitted steps** (`xl`, `lg`), because Home's verdict taking the title's rung is a
+   **recorded decision with its own reason** (`app.css:3667`) and a gate pins it — *"the two pages must NOT
+   converge — that is the standing direction."* **A third step is a decision, not a choice.** What was actually
+   broken is not that the treatments differed; it is that **the atom recorded only `subtitleSlot`**, so a FOURTH
+   treatment — or none, which is what the panel drew — had nothing stopping it. **And my first attempt was the
+   defect this series has produced twice**: a single `lg/semi` treatment and a `.page-claim` class **no page
+   drew** — a declaration nothing runs. The gate failed against it, correctly. Both reverted.)*
+   **The claim on the panel's pages is item 3.** *(**The measurement that settles it**: the page has
+   **two** slots under the title, not one — a **CLAIM** ("3 of 4 online · 2 need attention", "Today: 543 client
+   calls") and a **CONTEXT** ("Connection, device limits…", "Following the console's audit as it is written.").
+   The atom recorded only `subtitleSlot`, so each page put its claim wherever it liked: **22/600** Home,
+   **17/600** Activity, **nothing at all** on the panel. Activity's three levels — 22/700 title, 17/600 claim,
+   12/400 context — are the only coherent ones on either surface.)*
+3. **The panel's pages draw NO claim under their title.** `Settings` goes `title 22/700` → `context 13/400` →
+   fold; `Plugins` the same. **The atom permits a claim and no panel page takes it**, so the product's most direct
+   sentence ("3 of 4 online · 2 need attention") has a slot on one surface and none on the other. **Fix:** each panel
+   page states its claim in the slot the atom now names. **M.**
+   *(**Done, MERGED, NOT PUSHED** — panel `7cde75b61`. **Two pages HAD a claim and drew it where a result goes**,
+   which is why "no claim" was half wrong: `Memory`'s `3 entries · newest first` sat in `.mem-result-line`,
+   **121 px below the head**, rewritten by every keystroke; `Plugins`' count was a filter **pill** beside the
+   search. **A claim is the page's whole population; a result is what the reader narrowed it to.** Now: `Memory`
+   **`3 entries saved`** and `Plugins` **`4 plugins · 4 enabled`**, both **17/600 ink** inside `.page-head`; the
+   result line keeps **`newest first`** — **the duplicate was measured first** (`3 entries saved` y=114 and
+   `3 entries · newest first` y=235: one number twice on one screen). **`Settings` and `Terminal` draw none, and
+   that is recorded**: Terminal's rail page IS its claim and Settings has no population. **Three drafts were
+   refused** — `build-css` on an invented `--tracking-tight`, a 900-char "inside the head" window the claim's own
+   comment outgrew, and a `stripComments` helper borrowed from another suite.)*
+2. **The type scale has no step between the title and the body's largest.** `22 → 17 → 14` skips the one a page's
+   second sentence needs, so each surface picked a different existing step. **Fix:** state which step a second line
+   takes, or record that the scale cannot carry one. **S.**
+   *(**Closed on both surfaces, MERGED, NOT DEPLOYED** — console `90d73ef`, panel `7085f4a49`. **AND THE ITEM'S OWN
+   PREMISE WAS WRONG, which the measurement says so.** *"The scale has no step between the title and the body's
+   largest"* — it has **two**: the claim takes `xl` on Home and `lg` on Activity, Memory and Plugins. What was missing
+   was not a step but **the rule for choosing one, in a form a gate reads**: it lived in the atom's `$comment`, and
+   **a comment cannot refuse an 18 px claim.** `claimSlot.stepBy` is a field now — `condition → xl`, `count → lg` —
+   and **4 of 4 claiming pages agree with it**, so it is measured rather than proposed. **Adding an eighteenth or
+   twentieth pixel would fix rule 5 by breaking rule 3** (the seven sizes are pinned by
+   `seven_type_sizes_and_a_thirteen_pixel_body`), which is why the fix was to record the choice.)*
+
+## P0 — the hundred-and-twenty-second list (closed 2026-11-11: the marker is the SLOT, and the step is a field)
+
+The hundred-and-twenty-first list is closed, and its own numbers open this one. **The atom's levels, measured**
+(`section.h2 17/600`, `title 22/700`), against what the pages draw:
+
+     console Activity   `Today: 543 client calls`   **17 / 600**   y=113   the page's CLAIM
+     console Activity   `Tuesday, 11/10`            **17 / 600**   y=330   a DAY HEADING in the record
+     console Activity   `Monday, 11/9`              **17 / 600**   y=2167  the same
+     panel  Plugins     `4 plugins · 4 enabled`     **17 / 600**   —       the page's CLAIM
+     panel  Plugins     `Playwright`                **17 / 600**   —       a CARD's title (`h2`)
+     console Home       `3 of 4 online …`           **22 / 600**   —       the page's CLAIM
+
+**One step, three roles, one screen.** On Activity the page's claim and a day's heading weigh exactly the same and
+sit 217 px apart. On Plugins the page's claim and a card's title weigh the same and sit on one screen. **Rule 12 —
+*"no ambiguous or too-similar colours"* — has a sibling in size**: two things that are not the same must not look the
+same, and here three are identical.
+
+**And Home's claim is 22/600 — a weight the title never uses at a size the title owns.** So the "two permitted steps"
+recorded last round are `22` and `17`, and **neither is free**: 22 belongs to the title, 17 to a section heading.
+
+1. **A step can carry more than one role, and the atom does not say what separates them.** The scale has no free step
+   between 22 and 17 (item 2 below), so the claim cannot be moved; what is missing is the record that the claim's
+   separation is **measure and ink**, not size. **Fix:** the atom states each role's marker or records that the
+   surface cannot carry one. **M.**
+   *(**Done on both surfaces, MERGED, NOT DEPLOYED** — console `9322322`, panel `cb92eefdb`. **And the answer was
+   neither measure nor ink**: the two 17 px lines were measured **property by property** and differ in **one** —
+   `letter-spacing`, `normal` on the claim and `--tracking-display` on the day heading, i.e. **0.34 px**, which the
+   tracking atom's own comment calls invisible (*"a reader cannot see .009 of an em"*). **The scale has no free step
+   between 22 and 17**, so the separator is **the SLOT**: a claim is in the page's HEAD; a day heading and an `h2`
+   are in its BODY. *A reader who cannot weigh two lines apart can still see which block they are in.* The atom
+   records `sameSizeDifferentRoles { marker: "slot", roles: [claim (head), h2 (body), day heading (body)] }`, and
+   both repos' contract tests refuse a marker that is anything but `slot`.)*
+2. **The type scale has no step between the title and the body's largest.** `22 → 17 → 14` skips the one a page's
+   second sentence needs, so each surface picked a different existing step. **Fix:** state which step a second line
+   takes, or record that the scale cannot carry one. **S.**
+
+## P0 — the hundred-and-twenty-third list (closed 2026-11-11: the kinds are named, and the band is MEASURED)
+
+The hundred-and-twenty-second list is closed. **This list is rule 8 — *"fewer borders"* — counted instead of admired.**
+
+**THE FIRST COUNT WAS WRONG, AND THE CORRECTION IS THE POINT.** A census of "elements inside `.page` that draw a
+visible border" gave Home **32**, Activity **4**, Settings **23**, Plugins **7** — and read like a frame that had
+drifted 8x. **25 of Home's 32 are `td`/`th` bottom edges from ONE shared rule** (`th, td { border-bottom: 1px solid
+var(--line) }`): a table's ROW RULE doing its grouping, which rule 7 and the `hairline` atom both allow. **Counting an
+element and counting a RULE are different questions**, and the first census answered the wrong one.
+
+**Then the same census, with the two kinds counted apart, made the finding narrower than the item had claimed:**
+
+    REGIONS (a box on a region — rule 8's subject)   Home 6 · Activity 3 · Settings 8 · Plugins 6   **one band**
+    CONTROLS (a box on a control — its affordance)   Home 1 · Activity 1 · Settings **15** · Plugins 1
+    row rules (a table's, ONE per table)             Home 25 · the rest 0
+
+**The regions were already in one band, 3 to 8, on all four pages.** So the frame was never drifting; what differed
+was **15 control edges on a page with 16 controls** — and *a control's edge is its affordance*, which is not a
+defect by count.
+
+1. **A page's border count is a number nothing recorded, and one census read a table's one rule as 25 borders.**
+   *(**Done**, console `819f59e`, panel `e78a77059`: `hairline` names the three kinds — `rowRule`, a `box` on a
+   **region**, a `box` on a **control**.)* **S.**
+2. **The band was missing, and it is a MEASUREMENT rather than a taste.** *(**Done**, `57875ec…`: the atom records
+   `hairline.regionBand { min: 3, max: 8 }` from **four pages of both surfaces** — 6, 3, 8, 6 — and both repos'
+   contract tests refuse a band that is not the measured one. **A page that drew 23 REGION boxes would now be outside
+   it; a page that drew 23 CONTROL boxes would not be — which is exactly the distinction my first census could not
+   make.**)* **S.**
+3. **Activity draws 4 boxes on a page of ~500 rows** — correct by rule 7, and **now inside the band, so the number is
+   recorded rather than unmeasured.** *(**Done with item 2**: the band is what makes 4 a fact instead of a habit.)*
+   **S.**
+4. **The control count is NOT banded, and that is a recorded decision rather than an omission.** Measured: 1, 1, 15,
+   1. **A control's edge is its affordance; its count is the page's FORM** (Settings is a form, Plugins is a list),
+   and no band of this atom can decide a form. **Recorded here so the next round argues with it instead of
+   rediscovering it.** **S.**
+
+## P0 — the hundred-and-twenty-fourth list (closed 2026-11-11: one wash, one on-soft member, and two named colours)
+
+The hundred-and-twenty-third list is closed. **This list is rule 2 — *"a limited palette: greys plus ONE accent plus
+semantic"* — measured as a census of every colour actually painted**, at 1,440 on four pages, rather than of the tokens
+a sheet declares.
+
+    console Home      3 opaque + 2 translucent, 4 text colours
+    console Activity  4 opaque + 1 translucent, 4 text colours
+    panel  Settings   6 opaque + 0 translucent, **6 text colours**
+    panel  Plugins    4 opaque + 2 translucent, 5 text colours
+
+**The greys are one family. The accent is not:**
+
+    console   --accent #bf3a0a · --accent-solid #b03a0a · --accent-soft **#fff0e6** · paint-on-soft: `--accent`
+    panel     --accent #bf3a0a · --accent-solid #b03a0a · --accent-soft **#ffefe5** · paint-on-soft: **#9c3a0a**
+
+**`#fff0e6` against `#ffefe5` is one channel one level apart** — a reader cannot see it and a token gate can. And
+**the panel needed a SIXTH member the console does not have**: `--accent-on-soft #9c3a0a`, because the console paints
+accent text on the wash with `--accent` and measures **4.93:1** where the panel's measures **6.2:1**. **The atom's own
+`accentFamily` records the console's `--accent-on-soft` as `(none)`** — a job with no token, filled by the wrong one.
+
+**And Settings paints SIX text colours where Home paints four**, including `#52525b` and `#a51d1d` that the palette
+atom does not name.
+
+1. **The wash is two values one level apart, and the atom records neither.** **Fix:** both sheets share the atom's
+   wash, or the difference is recorded with its reason. **S.**
+   *(**Done, MERGED, NOT PUSHED (panel)** — panel's `tokens.css` `#ffefe5` → **`#fff0e6`**, the canonical sheet's
+   value, and the atom now records **`accentFamily.washValue: "#fff0e6"`** — *a job whose value each sheet picks is a
+   job that drifts by a level nobody can see.* Both repos' contract tests refuse a wash that is not that literal.
+   **The gate was proven by mutation**: `#ffefe5` back → red.)*
+2. **The console paints accent text on the wash with `--accent` (4.93:1) where the panel uses a sixth member
+   (6.2:1).** The atom already says the job exists and gives the console `(none)`. **Fix:** the console takes the
+   atom's `on-soft` member. **M.**
+   *(**Done, MERGED, NOT DEPLOYED** — `2e99af7`. `--accent-on-soft` is declared in **both blocks of the canonical
+   sheet** (`device/ui/src/lib.rs`, then `generate-tokens.sh` — **not the generated file**, which is the trap this
+   series already paid for once), and it **inverts after dark**: the wash is a dark brown where the light value
+   measures **1.4:1** and the dark accent **7.07:1** — *a member is a JOB; its value is the theme's.*
+   **And FIVE sites took the brand member, not the two I first grepped for** — `.seg`'s pressed segment, the
+   chip-tag hover, and **three `.timeline-*` chips** a single-line grep missed. `palette.accentFamily.names.console`
+   no longer says `(none)`.)*
+3. **Settings paints `#52525b` and `#a51d1d`, which the palette atom does not name**, on one page. **Fix:** name them
+   or replace them with the atom's. **S.**
+   *(**Done, MERGED, NOT DEPLOYED** — `0d283f5`. **And the item was half wrong**: both ARE tokens on the panel
+   (`--chrome-ink-dim` / `--ds-neutral-600` and `--danger-on-soft`), each declared with its own contrast note. **What
+   the atom lacked was not their values — it is their NAMES on this surface's palette**, which it has now.)* *(**Measured, and the item was half wrong**: both are TOKENS on the panel —
+   `#52525b` is `--chrome-ink-dim` / `--ds-neutral-600` and `#a51d1d` is `--danger-on-soft`, declared in
+   `tokens.css` with its own contrast notes. **What the atom lacks is not their values: it is their NAMES on this
+   surface's palette.** The console has neither, so a reader comparing the sheets sees the panel painting two colours
+   the atom's list does not mention.)*
+
+## P0 — the hundred-and-twenty-fifth list (CLOSED 2026-11-11 — 91 literals, two gates, and a ratchet moved)
+
+The hundred-and-twenty-fourth list is closed. **This list is rule 20 — *"alignment and rhythm fixed by a grid, not by
+nudging"* — measured on the SHEETS**, because that is where a nudge is written down.
+
+**And my first probe measured the wrong thing, twice.** A rendered-box census asked whether an element's left edge was
+a multiple of 4 px from the PAGE's edge; it reported 12 off-grid elements on every page and **none of them was a
+nudge** — a cell 25 px in is the card's 16 px inset plus a 1 px border plus an 8 px pad, all three on the atom. **A
+census of rendered boxes cannot separate a border from a nudge.**
+
+**The measurable question is the LITERAL.** The atom's rhythm is `2/4/6/8/10/12/14/16/24`, and it names the two ways
+a value off it can still be right (*a control's height, or the padding inside a fixed target*). Measured 2026-11-11:
+
+    console  `.panel` padding **18** · `.sheet-body` padding **18** · `.terminal-start` padding **18**
+             `.terminal-session` padding **18** (line 2967) · `.path-row` padding **15** top and bottom
+    panel    `.path-empty` padding **26** 20 · a settings block padding **22** … **18**
+
+**Ten values, and not one of them is a control's height or a fixed target's padding** — so by the atom's own words
+they are nudges: **18 is 4·4+2, 15 is 4·3+3, 22 is 4·5+2, 26 is 4·6+2.**
+
+1. **The four 18 px paddings are the same nudge written four times**, on both surfaces and in two repos. **Fix:** they
+   take the nearest rhythm step, or the atom records a reason. **M.**
+   *(**Done — console `2dafd2d`, panel `4bf51699f` (not pushed).** Console `.panel`/`.sheet-body`/`.terminal-start`/
+   `.system-section` 18 → **`--sp-4`, 16**. Panel `.modal-actions` 18 → 16, `.gs-card` 18 → 16, `#conn-form` 28 → 24,
+   `.app-crash-card` 28 → 24. **The four 18s were one nudge**, and neither sheet writes it any more.)*
+2. **The 15 px and 22/26 px paddings are three different answers to "a block's inset"**, where the atom has `--sp-4`
+   (16) and `--sp-5` (24). **Fix:** the same. **S.**
+   *(**Done — same commits.** Console `.path-row` 15 → 16, `.evidence` 22 → 24, `.timeline` 30 → 32. Panel
+   `.path-empty` 26 → 24 and its horizontal 20 → **16** (the tie takes the smaller step), `.gs-card` 22 → 24,
+   `.modal-card` 28 → 24. The panel's `#conn-form` **32/40** and `.app-crash-card` **32/40** → **24**: this surface
+   has no 32 step, and writing one here would have been a lie about the shared ladder.)*
+3. **No gate counts these**, so a nudge is a number nobody measures. **Fix:** a sheet census that fails on a spacing
+   literal off the rhythm without a named reason. **M.**
+   *(**Done — both gates.** Console `2dafd2d`: the ladder is read from `space.scale`, every `>= 4 px`
+   padding/gap/margin literal off it fails, `< 4 px` and the named control padding are admitted. Panel `4bf51699f`:
+   **every sheet in `src/styles/` is scanned by `readdirSync`** (so `base.css` and `dial.css` are not a list someone
+   must remember), **the old 400-character keyword look-back is deleted** — it excused exactly the sites it existed to
+   protect — and a second assertion requires the panel's `--sp-*` values to BE the atom's ladder, so the 32 step
+   cannot appear on one surface alone. **Panel: 77 literals across 71 declarations → 0. Console: 14 → 0.**)*
+
+**All ten values the census named were real, and the gates then found 81 more (14 console, 77 panel).** The panel half
+also moved its own ratchet (`agent/tests/spacing_scale.rs`, whose header says to re-read the baselines when they
+improve): token uses 475 → **565**, off-scale 253 → **153**; console 87 → **115** token, 132 → **127** off-scale; and
+the three on-scale literals that had sat there since round 220 are tokens now, so its on-scale ceiling stays at **0**.
+**The atom's wash mirror rides in `4bf51699f` because the panel's pin is a sha256 of the atom** — the atom, the pin and
+the sheet must land in one commit or that commit is red on its own pin. Two older gates that pinned the spelling
+`padding: 12px` now read the padding through `var(--sp-3)` and compare the **value**: *a gate resolves a value; it does
+not dictate a spelling.*
+
+## P0 — the hundred-and-twenty-sixth list (CLOSED 2026-11-11 — four weights, and 63 numbers named)
+
+Rules 4 (*"use fewer font weights"*) and 5 (*"hierarchy comes from size, weight and colour"*), measured on the sheets
+because a weight is written in one:
+
+    console  font-weight literals 0 · numeric weights in `font:` 0 · tokens 400/500/600/700
+    panel    font-weight literals 1 (400) · numeric weights in `font:` **63** (400×35, 500×2, 600×23, **650×3**)
+             tokens **500/600/700 — no `--fw-regular`**
+
+**`650` is not a step on either surface's scale.** It is fifty above semi and fifty below bold, and it was invented
+three times: `.path-summary-n` (the path summary's count), `.gs-head h2` (a card head) and `.gs-close` (a close
+button). **The atom records the card title at weight 600** (`cardTitle.weight`), so the head has a stated answer and
+the other two are the same "slightly more than semi" nobody named.
+
+**And the panel cannot name 400 at all.** Its token block declares three weights where the console declares four, so
+**36 declarations write `400` by hand** — 35 in the `font:` shorthand and one as `font-weight: 400` in `layout.css`.
+
+**A `font-weight` census cannot see any of it.** 63 of the panel's weights live in the `font:` shorthand, and the
+console's gate (`every_weight_is_one_of_four_tokens`, `device/console/tests/tokens.rs`) scans `font-weight:` lines
+only — it would pass a sheet that wrote `font: 650 …` all the way down.
+
+1. **`650` ×3 is off the four-step scale.** **Fix:** 600, the weight the atom gives a card title, and a gate that
+   refuses a weight outside 400/500/600/700. **S.**
+   *(**Done — `ec06f2b21`, agent repo, not pushed.** `.path-summary-n`, `.gs-head h2` and `.gs-close` are
+   `var(--fw-semi)` now. **The only pixel this list moved**: −50 weight units on three elements.)*
+2. **The panel has no `--fw-regular`**, while the console has one and this surface writes `400` 36 times. **Fix:**
+   declare it and use it. **M.**
+   *(**Done — same commit.** `--fw-regular: 400` joins the block, and 36 declarations name it. The comment that had
+   recorded "the panel's weight scale starts at 500" now records the four-weight family instead: the old note was the
+   reason the gap looked deliberate.)*
+3. **No gate reads the `font:` shorthand**, so 63 weights bypass the vocabulary entirely. **Fix:** a panel gate that
+   requires every written weight — `font-weight:` or the shorthand — to be `var(--fw-*)`, and the four tokens to be
+   exactly 400/500/600/700. **M.**
+   *(**Done — same commit.** `names every written weight, including the ones inside a `font:` shorthand`: comments
+   stripped, every sheet by `readdirSync`, the four tokens compared as an OBJECT (a fifth weight or a moved value
+   fails), every `font-weight:` read as exactly `var(--fw-*)`, and every `font:` shorthand read at its first token
+   after an optional `italic`/`small-caps` — a three-digit number or `bold|bolder|lighter` fails, an omitted weight
+   is admitted. **Mutation, twice**: `font: 600 …` back → red naming `components.css: font: 600 var(--fs-sm)
+   var(--font)`; a planted `font: 650 …` → red. 65 contract tests (was 64); `build-css` now 138 tokens because the
+   fourth weight is one.)*
+
+**The console half needed no change**: `every_weight_is_one_of_four_tokens` (`device/console/tests/tokens.rs`) names
+all four and reads every `font-weight:` line — the measurement found **0 literals and 0 numeric weights in `font:`**
+there. **And two adjacent rules were measured clean while this list was open**: rule 3 on the panel (0 `font-size`
+literals, seven `--fs-*` tokens, no size written in a `font:` shorthand on either surface) and rule 17 (six gradient
+sites in the product, all functional — four fade/hard-stop on the panel, two page-edge fades on the console — none
+decorative).
+
+## P0 — the hundred-and-twenty-seventh list (CLOSED 2026-11-11 — one pane, one name: `--shadow-pop`)
+
+Rule 10 — *"use consistent, limited shadows"* — measured where a shadow is written: the token block and the rules
+that use it.
+
+    console  pane = `--shadow-lg`   · 7 sites · value = the atom's `paneShadow` (three cool layers, both themes)
+             `--glass-shadow` 0 · `--shadow-pop` 0
+    panel    pane = `--shadow-pop`  · 5 sites (tab-menu, session-menu, mem-menu, gs-card, new-menu) · value = `paneShadow`
+             `--shadow-lg`   · 3 sites (`.modal-card`, `.app-crash-card`, `#conn-form`) · **a one-layer
+                             `0 12px 32px rgba(0,0,0,.12)`** — the drop the atom rejected for a pane
+             `--glass-shadow` · declared in BOTH themes · **used 0 times** — and it is the token the atom's
+                             `elevation.pane` names
+
+**So the level has three names and two values.** The console draws every pane on the atom's value under one name; the
+panel draws five of its eight floating surfaces on that value under a second name, three on a different value, and
+declares a third name it never draws.
+
+1. **A modal, a crash card and the login card float on a shadow every other pane refuses.** **Fix:** they take
+   `var(--shadow-pop)`, the atom's `paneShadow`; a pane is one object. **S.**
+   *(**Done — `497685e54`, agent repo, not pushed.** `.modal-card`, `.app-crash-card` and `#conn-form` are the same
+   object as every menu now. **The only pixels this list moved**: those three shadows, one layer → three.)*
+2. **`--glass-shadow` is declared in both themes and used nowhere**, and it is the token the atom names for this
+   level. **Fix:** cut it — the value lives on `--shadow-pop`, and a token that draws nothing is a word that means
+   nothing. **S.**
+   *(**Done — same commit.** It and the panel's one-layer `--shadow-lg` are deleted; `build-css` reports **137** tokens
+   where it reported 140 before the two lists began — every remaining token is drawn with.)*
+3. **The pane has two names across the product and the atom names a third.** **Fix:** one name, `--shadow-pop`; the
+   console's 7 pane sites and 2 token definitions rename, `elevation.pane` records it, and BOTH pin literals move in
+   the same commits. **M.**
+   *(**Done — console `e5bed8e`, panel `497685e54`.** The rename went into the CANONICAL sheet (`device/ui/src/lib.rs`)
+   and was regenerated by `scripts/generate-tokens.sh` — **not** into the generated `tokens.css`, which is the trap the
+   hundred-and-eighteenth list recorded. `elevation.pane` is `--shadow-pop`, its comment records the rule (*a token an
+   atom names must be one a sheet draws with, or the atom is recording a word*), and the pin moved to `14d7dc91…` in
+   both repos in the same pair of commits.)*
+
+**The gate that would have caught it before it happened: the pane test now READS the atom's name** instead of
+restating it (`CONTRACT.elevation.pane`), proves the token is drawn by a rule, and proves the three former
+`--shadow-lg` surfaces use it — a name in the atom that no sheet draws with, or a floater on another shadow, is red.
+**Mutation, twice on the panel and once on the console**: `.modal-card` back to `0 12px 32px rgba(0,0,0,.12)` → *`.modal-card` floats as the pane*; the atom's `pane` back to `--glass-shadow` → *expected \'--glass-shadow\' to be
+\'--shadow-pop\'*.
+
+## P0 — the hundred-and-twenty-eighth list (CLOSED 2026-11-11 — the leading is out of the shorthand)
+
+Rule 13 — *"keep text readable: measure, line-height, contrast"* — measured where a leading is written and where it
+lands. The atom names **three ratios**: `1.5` body, `1.3` tight, `1` mark.
+
+    console   `font:` shorthands with a `/ratio`   **1** — `body`'s `font: var(--fs-base) / 1.55`, which a later
+              `body { line-height: var(--lh-body) }` overrides, so it is **dead**
+              `line-height:` declarations          45, all `var(--lh-*)`
+    panel     `font:` shorthands with a `/ratio`   16, in **seven** ratios:
+                       **1.6 ×6 · 1.5 ×5 · 1.55 ×1 · 1.4 ×1 · 1.3 ×1 · 1.25 ×1 · 1 ×1**
+              `line-height:` declarations          28, all `var(--lh-*)`
+
+**Ten of the product's seventeen shorthand leadings are ratios the atom never named** — the panel's 1.6 (six sites:
+the mono/code blocks, `.gs-lead`, `.gs-click`), 1.55 (`.gs-body p`), 1.4 (`.history-hint`), 1.25 (`.gs-head h2`), and
+the console's dead 1.55 on `body`. **My first census said the console wrote none — it missed the SPACE in
+`var(--fs-base) / 1.55`, which is exactly how a census lies.** A `line-height:` census passes both sheets because the
+number lives in the shorthand.
+
+**AND A RENDERED CENSUS AT 1,440 (both surfaces, six pages) FOUND ELEVEN STYLES WITH NO DECLARED LEADING AT ALL** —
+`line-height: normal`, the user agent's: five on panel Settings (`button`, `.connect-tab`, `.btn`, `.notify-state`)
+and six on panel Memory (`.btn-new`, `.view-switch-btn`, `.approval-*`, `button`), **zero on the console's Home,
+Activity and Device**. For the controls built to `--control-h` that *is* the 18 px line box the `space` atom
+documents (`5 + 5 + 18 = 28`); for `.notify-state`, `.approval-left` and `.view-switch-btn` nothing names it. That is
+the next list's subject, recorded here because the same probe found it.
+
+1. **Ten shorthand leadings are off the atom's three ratios**, and the shorthand is where a `line-height:` census
+   cannot look. **Fix:** the code/guide blocks take `1.5` (the console's own evidence output is `--lh-body`), the
+   heading takes `1.3`, and the console's dead `/ 1.55` is removed from `body`'s shorthand (the later
+   `line-height: var(--lh-body)` is the rule that actually sets it, so **no pixel moves there**). **M.**
+   *(**Done — panel `2b1ee5fc5`, console `dcf0d20`.** The panel's nine sites are `1.5` ×8 and `1.3` ×1; all **17**
+   shorthand leadings across the product are now `1.5` ×14, `1.3` ×2, `1` ×1. **The pixels that move**: 11 px text at
+   1.6 goes 17.6 → 16.5 px a line; the 17 px heading at 1.25 goes 21.25 → 22.1. The console's removal moves none —
+   its computed body leading was already the later rule's 1.5.)*
+2. **No gate reads the `/ratio` inside a `font:` shorthand** — on either surface. **Fix:** a gate per repo that fails
+   on a shorthand ratio that is not one of the atom's three, and reads the atom rather than a copy. **M.**
+   *(**Done — same commits.** Both gates strip comments, scan every sheet, and tolerate `\s*` around the slash — the
+   whitespace that let the first census call the console "0". **Mutation, both repos**: a planted `/1.6` (and, on the
+   console, a SPACED `/ 1.6`) fails naming `file: declaration`; restored green.)*
+
+**And the rendered half is the next list.** The same probe found **eleven styles with no declared leading at all**
+(`line-height: normal`, the user agent's): five on panel Settings and six on panel Memory, **zero on the console's
+Home, Activity and Device**. For the controls built to `--control-h` that is the 18 px line box the `space` atom
+documents (`5 + 5 + 18 = 28`); for `.notify-state`, `.approval-left` and `.view-switch-btn` nothing names it —
+measured, recorded here, and not invented.
+
+## P0 — the hundred-and-twenty-ninth list (CLOSED 2026-11-11 — the ratio is enforced, not inherited)
+
+Rule 13 measured on the RENDERED page, not the sheet: for every visible element that renders text, what box does its
+glyph sit in? The atom names three ratios (1.5 / 1.3 / 1); a control's height is `5 + 5 + an 18 px line box = 28`,
+and **18 is 12 × 1.5** — the ratio, not a user-agent accident.
+
+    before, panel   11 distinct styles with `line-height: normal` — Settings 5, Memory 6 —
+                    heights 19 · 22 · 22 · 22 · 24 · 24 · 26 · 29: no two kinds shared a line box
+    before, console 0 on Home, Activity, Device; `font: inherit` already carried the body's 1.5
+    after, panel    0 styles with `normal`; the four pages paint 1 · 1.3 · 1.5 and nothing else
+    after, console  0 on the three pages; a 12 px control renders an 18 px line box (h 28)
+
+**The panel's controls never inherited the ratio** because the UA stylesheet sets `line-height: normal` on form
+controls — the base rule inherited the FAMILY and stopped there. This app ships to Windows, whose system font's
+metrics are not this box's, so the atom's 18 px line box was an assumption there, not a rule.
+
+1. **The base control rule declared no leading.** **Fix:** `line-height: var(--lh-body)` on
+   `button, input, select, textarea` — the ratio the console's `font: inherit` already carries. **Done — panel
+   `2cb2c65c7` (not pushed).** `.connect-tab` **24 → 28** px and the 12 px header button **19 → 22**; the five
+   controls that still depend on this rule are the mutation below.
+2. **Two text spans rendered `normal`** (`.notify-state`, `.approval-left`). **Fix:** they name their ratio too.
+   **Done — same commit.** At 11 px: `.notify-state` **16 → 20.5**, `.approval-left` **12 → 16.5**. **AND FOUR
+   CONTROLS RESET THE RATIO IN THEIR OWN `font:`**, which a `line-height:` census cannot see: `.btn`,
+   `.approval-actions button`, `.desktop-view-switch .view-switch-btn` and `.btn-new` now carry `/1.5` or
+   `--lh-mark` IN the shorthand — `.btn-new` **26 → 30**, the approval pair **22 → 26.5**.
+3. **Nothing measured the rendered leading.** **Fix:** `scripts/leading-gate.mjs` — four pages, fails on a computed
+   `normal` **and** on a ratio the atom does not name (the previous list found 1.6 / 1.55 / 1.4 / 1.25 in this
+   sheet's shorthands; `normal` is only the failure a stylesheet can hide). The three ratios are read from
+   `leading` in the contract, not copied; xterm is excluded by name. **Done — same commit.** **Mutation:** removing
+   the base rule fails naming the five controls that depend on it (Memory/Plugins/History `button "A−"` 12 px h=19,
+   Settings `"AI client"` h=22, `.connect-tab` h=24); `.btn` back to `/1.55` fails with *ratio 1.55 is in no atom*.
+
+**CORRECTED IN THE HUNDRED-AND-THIRTIETH LIST:** the gate this list added clicked
+`nav button:has-text("Memory")`, which matches no rail button (the rail is labelled by `aria-label`), so three of
+its four clicks missed and it measured the DEFAULT page four times while printing PASS. The four pages it claimed
+were not four pages; History's thirteen undeclared leadings are the next list.
+
+**AND ONE PRE-EXISTING RED WAS FOUND BY RUNNING THE SHEET'S OWN GATES:** `stylesheet_hygiene` failed at HEAD on two
+`tokens.css` comments that quoted a declaration WITH its semicolon, which the ported Rust scanner reads as a value.
+The rebuild cannot ship a red sheet, so the two comments were reworded — no value, name or pixel moved — and the
+gate is green in `2cb2c65c7`. The same probe produced both numbers: the before-shot ran on the tree before the
+fix, the after-shot on the committed one.
+
+## P0 — the hundred-and-thirtieth list (CLOSED 2026-11-11 — a gate that could not say where it stood)
+
+This list is the previous one's PROOF, audited. The browser gate that list added clicked `nav
+button:has-text("Memory")`; the rail's buttons are named by `aria-label` and carry no text, so three of the four
+clicks matched nothing, `.catch(() => {})` swallowed the miss, and the gate measured the DEFAULT page four times
+and printed PASS. **A green check that cannot say which page it measured is a check of nothing.**
+
+**History — the page the fourth click was for — paints THIRTEEN undeclared leadings**, all from `font:` shorthands
+that name a size and a family and therefore reset `line-height` to the user agent's `normal`:
+
+    `.archive-showing`      10 px   11 px box        `.archive-row-last`    10 px   11 px box
+    `.archive-row-name`     11 px   12 px box        `.archive-row-reason`  10 px   (no such row on this page)
+    `.archive-row-kind`     10 px   15 px box        `.archive-row-when`    10 px   11 px box
+
+1. **Five drawn rules and one undrawn sibling name no ratio**, and the page is where that is visible.
+   **Fix:** `/1.5` in the shorthand. **Done — panel `1d140d011` (not pushed).** Rendered boxes:
+   `.archive-row-name` **12 → 16.5**, `.archive-row-kind` **15 → 19**, `.archive-row-when`/`-last` **11 → 15**;
+   `.archive-row` itself **35.5 → 36** — the row was already taller than its cells, so what moved is each cell's
+   box, not the rhythm. `.archive-row-reason` takes the same ratio although no row on this page carries one.
+2. **The gate could not prove where it was.** **Fix:** click `nav[aria-label="Pages"] button[aria-label="<name>"]`,
+   then require `h1.page-title` to say that name BEFORE measuring — a page that never arrived is a FAILURE, not a
+   skip, and a page that paints no text at all is one too. The page the panel OPENS on (the terminal) is measured
+   as well, so the run is **five pages** (Terminal, Memory, Plugins, Settings, History), not four. **Done — same
+   commit.** **Mutation:** `aria-label="Memory"` → `"Memories"` fails with *Memory NEVER ARRIVED — `h1.page-title`
+   says "Terminal", so nothing was measured on it* (the old gate passed this); `.archive-row-name` back to the
+   ratio-less shorthand fails naming `History paints line-height: normal — archive-row-name (span, 11px) h=12px`.
+
+**AND THE SHEET IS A CENSUS, NOT THE INSTRUMENT.** The panel's `src/styles/` names **59 `font:` shorthands with no
+ratio** (four are `font: inherit`, which carries the ratio with the rest). A static rule — "every shorthand names a
+ratio" — would fail 55 of them, most on elements that paint no text or take their leading from a later rule, and a
+55-rule sweep would move pixels nothing asked to move. The ratio that matters is the one the RENDERED page paints,
+so it is measured there and the shorthand count is recorded here: **59, of which 6 were wrong on a page a person
+can open.** The next round to touch `font:` shorthands can use the count without inventing a rule for it.
+
+## P0 — the hundred-and-thirty-first list (CLOSED 2026-11-11 — the record's own number was `undefined`)
+
+Rule 19, whose other half is *"a failed read says what it could not read"*. Activity's first line is built from
+`/audit/day`'s counts, and `call<T>` parses the body and trusts it. Measured 2026-11-11 on the built page against
+an answer that carried no counts (a **200** whose body was `[]` — the shape a proxy, a version skew or a truncated
+write can produce):
+
+    Activity
+    Today: undefined client calls.        <- the day's number, a raw JavaScript value
+    The live stream is down; this is the last read.
+
+Every other sentence on the page said what it could not read; this one invented a word, and it was the first line
+of the record. **The answer came from the probe fixture** (`/tmp/fx.mjs`, which the session's screenshots use) —
+the console's response to it is the defect: nothing between the wire and `activityDaySentence` had asked whether
+the answer was an answer.
+
+1. **A day answer with no counts is not an answer.** **Fix:** `api.auditDay` throws `NoAnswer` when the body has no
+   numeric `client_calls`, so the read fails. **Done — console `d415aa6` + `ab03d27` (pushed; NOT deployed — the
+   console deploy waits on the operator's word).** A malformed day + a good window now draws **the rows, the
+   window's own count, and no `Today:` line**:
+
+       44 client calls in this window · from 13:27, spanning 26 h 5 m
+       Tuesday, 11/10   22 lines
+
+   A counted day still reads `Today: 44 client calls, 3 failed — 1 console failure; 1 unattributed.` The
+   after-shots are in `.superpowers/sdd/2026-11-05-console-polish-backlog/list131/`
+   (`after-malformed-rows-kept.png`, `after-counted.png`) beside `before-undefined.png`.
+**AND THE FIRST FIX WAS COUPLED THE WRONG WAY, measured on the same page.** Refusing the day inside the
+read's `Promise.all` without a catch failed the WHOLE read: with `/audit/day` answering `[]` the record drew **no
+rows and no count**, where the same body before the fix had drawn the rows and one broken sentence — a thousand
+readable lines traded for a sentence that is not the record. **Fixed in `ab03d27`:** the day reads like the source
+line beside it, `.catch(() => null)`, and `setDaySummary` keeps the page's no-answer-no-claim rule. The window is
+the record; the day's count is the header's. A companion fact that fails must cost its own sentence and nothing
+else. **Mutation:** the day read re-coupled to the window fails the new `App.test.tsx` case *keeps the window's
+rows when the day's own read is refused, and claims no count*.
+
+2. **The suite pinned no shape for this route.** **Fix:** three cases in `api.test.ts` — `[]`, `{}`, `null` and an
+   empty body each reject as `NoAnswer`, a non-numeric count rejects, and a counted day is taken with its scope
+   on the path. **Done — same commit.** **Mutation:** deleting the guard fails **2 failed | 34 passed**, naming
+   *refuses a 200 that carries no counts* and *refuses a count that is not a number*; restored 36/36.
+
+**THE NUMBER THAT MADE THIS VISIBLE WAS NOT THE PRODUCT'S.** The fixture is a probe harness, not the hub: its
+`/audit/day` answered `[]` because it was never taught that route. The console is what turned a bad answer into a
+sentence with `undefined` in it, so the product half is real — but the honest provenance is a fixture, and the
+next reader should not go looking for a hub that serves `[]`. What the fixture DID prove for free: the page's
+degraded path is otherwise complete (the amber notice, the Retry, the empty-window line), which is why one guard
+was the whole fix.
+
+## P0 — the hundred-and-thirty-second list (CLOSED 2026-11-11 — one surface, three ways to say when)
+
+Rule 12's sibling — *one vocabulary* — measured on the rendered panel, one page apart, 2026-11-11:
+
+    History row      `2026-11-11 13:05:35`        absolute, fixed width, the console's shape
+    Memory entry     `8/28/2025, 4:53:20 PM`      THE BROWSER'S LOCALE
+
+One panel, one kind of fact — when something happened — two spellings, and the second is not a decision: en-US
+renders `8/28/2025, 4:53:20 PM`, a Chinese browser `2025/8/28 16:53:20`, and neither can be told from the other
+without knowing which locale drew the page. **The console had already recorded exactly this defect for its own
+token sheet** (`format.ts`: *"`toLocaleDateString()` put the browser's order in the token sheet — `11/4/2026` in
+en-US, and a different order in every other locale, so a CN operator could not tell the day from the month"*), and
+its one absolute date is ISO. The panel never got that decision.
+
+1. **Nine files formatted their own moments** — the Memory meta line (`toLocaleString`), the run strip's axis, two
+   update titles, three browser-evidence times, the plugin log's prefix, the trajectory's round time, the restart
+   list's HH:MM and the approval's retirement clock (`toLocaleTimeString` in six of those, one hand-built HH:MM).
+   **Fix:** `src/lib/clock.ts` — `isoDay` / `clockTime` / `clockMinute` / `stamp` / `stampSeconds`, absolute, local,
+   padded — and every site reads it. `lib/archive.ts` keeps its `archiveClock` name and delegates, so a session row
+   and a memory entry cannot diverge again. **Done — panel `bcf08a4ac` (not pushed).** Measured after, same probe:
+   Memory reads `2025-08-28 16:53:20`; the History rows are unchanged because they already had the shape.
+2. **No gate held the vocabulary.** **Fix:** `src/lib/__tests__/clock.test.ts` pins the five shapes (built from LOCAL
+   components, so the test renders the same in every timezone) and then walks all **240 files** under `src/` and
+   fails on any `.toLocaleString|toLocaleDateString|toLocaleTimeString` outside `lib/clock.ts` and the tests. It also
+   fails if the walk reads fewer than 50 sources — a scan over nothing must not pass. **Done — same commit.**
+   **Mutation:** `RunStrip`'s clock back to `new Date(ms).toLocaleTimeString()` fails the scan naming
+   `components/RunStrip.tsx`; restored green.
+
+**WHY NOT A SMALLER FIX.** Patching only the Memory line would have left six other sites taking the browser's
+locale and no rule against the seventh; the console's own history shows the cost of that (its sheet drifted while
+every stylesheet test was green). The scan is the artefact that keeps the decision, and the twelve edits are the
+price of having a decision at all.
+
+## P0 — the hundred-and-thirty-third list (CLOSED 2026-11-11 — the gate pinned the defect it named)
+
+Rule 8 — *fewer borders* — read against the atom the fifty-seventh list wrote. The gate for it in this repo was
+**a test that asserted the atom says one name while requiring a second**:
+
+    expect(contract.hairline.names, "one family, three steps").toBe(1);
+    expect(sheet, "the chrome line is derived from the ink")
+      .toMatch(/--hairline:\s*color-mix\(in srgb, var\(--ink\)/);
+
+The second line is the defect written as an expectation. Its reason was "derived, not restated" — the chrome's line
+should not be a second literal — but the derivation had drifted to `color-mix(in srgb, var(--ink) 8.5%,
+transparent)`: **a fourth alpha the atom does not have** (line .08, strong .14, soft .05) under a **second name**.
+The atom's `names: 1` and the sheet's two names could both be true only because the test said so.
+
+Measured 2026-11-11, sheet and rendered page:
+
+    --line       62 uses   rgba(0,0,0,.08)                       the atom's separating line
+    --hairline   47 uses   color-mix(ink 8.5%)                   a fourth alpha, a second name
+    Home's cards           color(srgb .0941177 … / 0.085)        every card edge, the most-seen edge
+
+1. **47 sites painted a fourth alpha under a second name, and the gate required it.** **Fix:** the sites take
+   `var(--line)` and the declaration goes from both theme blocks. **Done — console `cdb8d42` (pushed; NOT deployed —
+   the console deploy waits on the operator's word).** The card's edge now computes to `rgba(0, 0, 0, 0.08)`, and the
+   chrome, the cards, the folds and the rules are one family at the atom's three steps.
+2. **The test now states the rule it meant:** no fourth name, `names: 1`, and the page draws `var(--line)`. **Done —
+   same commit.** **Mutation:** `--hairline: color-mix(in srgb, var(--ink) 8.5%, transparent)` back in `:root` ->
+   `the family has no fourth name` fails. **And the reverse direction was measured first:** deleting the declaration
+   while the old expectation stood made that test fail — which is what a gate that pins a defect looks like from the
+   other side.
+
+**A ROUND THAT MOVES NO PIXEL, SAID PLAINLY.** 8.5% of `#18181b` over white is one level away from 8% of black; no
+screenshot can show it. What this round buys is the atom being TRUE and the gate no longer protecting a lie — and the
+next reader of `layoutContract.test.ts` cannot re-derive a fourth name without failing it.
+
+## P0 — the hundred-and-thirty-fourth list (CLOSED 2026-11-11 — on the phone the record began below the fold)
+
+The operator's own line — *"Activity is the record"* — measured at 390 x 844 on the built page, 2026-11-11:
+
+    the three filter blocks (Machines · Callers · Search)   320 px
+    the first timeline row                                   y = 676   (two rows above the bottom bar)
+
+The record's page opened with 320 px of controls and two rows of its subject. The forty-third list (audit-40 F5) had
+already dropped the retired machine ids from the phone's chips and said "the record starts above the fold" — it did
+not; the chips were trimmed, the block was not.
+
+1. **The filters are one button on the phone.** **Fix:** a `Filters` button that states how many narrowings are on
+   (`1 active`), carries `aria-expanded` / `aria-controls`, and — the part that matters — **the block is not rendered
+   when collapsed**, because a hidden control that still filters is the trap this list must not create. The media
+   query decides, not a stored preference: `!phone || filtersOpen` means a widened window shows the block again.
+   **Done — console `8edfc6b` (pushed; NOT deployed — the console deploy waits on the operator's word).**
+
+       first timeline row at 390      676 -> 428 px   (two rows -> five)
+       the filters                    320 px of blocks -> one 32 px button
+
+2. **The window's sentence is the RECORD's line, not a filter's.** `44 client calls in this window · from 13:27,
+   spanning 26 h 5 m` stays on the page whether the block is open or not; the button is block-level because an
+   inline-flex one left that sentence starting beside it and wrapping under it — measured, one ragged line.
+3. **The suite's two phone cases reached into the chips directly.** **Fix:** they open the block first (their subject
+   — the retired ids are not chips — survives), and a new case pins the collapse: `aria-expanded=false`, no
+   `Search activity` in the document, click opens it, and `Clients only` makes the button read `1 active`.
+   **Mutation:** the phone condition reverted to `{filterable && (` fails at
+   `expect(screen.queryByRole("searchbox", …)).toBeNull()` — the search is on the page while collapsed.
+
+## P0 — the hundred-and-thirty-fifth list (CLOSED 2026-11-11 — a failed read printed the edge's HTML)
+
+The sixty-third list's rule — *a failure's sentence names the subject, not the transport* — broken by the transport
+itself. Measured 2026-11-11 with an **HTML 200 on `/mcp`** (an Access login page, or any proxy's error page):
+
+    Could not read this device's sessions: <!doctype html> <html lang="en"> <head> <meta charset="utf-8">
+    <meta name="viewport" content="width=devi…
+
+`callTool` caught the parse failure and threw `text.slice(0, 200)`: two hundred characters of markup where a sentence
+goes. The console's own routes already answer a non-JSON 200 with `NoAnswer`; this route kept the body.
+
+1. **Three shapes, three sentences.** **Fix — console `2d44496` (pushed; NOT deployed — the console deploy waits on
+   the operator's word).** A web page (starts with `<`) says *who answered* and the status, and quotes nothing; one
+   short line (≤ 80 characters, no second line) is the proxy's own sentence and is kept, because it is the only text
+   that names the objection; anything else is the status and *the answer was not JSON*. The device's own refusal still
+   passes through verbatim and a JSON-RPC error still reads its message — both pinned.
+2. **The transport had no test of its own.** **Fix:** `terminal.test.ts` — 5 cases over a stubbed `fetch`, one per
+   sentence plus the two pass-throughs. **Mutation:** the classifier replaced by `text.slice(0, 200)` -> **2 failed |
+   3 passed**, naming *does not put a web page in the operator's sentence* and *bounds anything else to the status*.
+
+**THE FIXTURE FOUND IT, THE RULE ALREADY EXISTED.** This session's probe server answers unknown routes with the SPA's
+`index.html`, which is what an edge page is; the defect is the console's — a transport that prints whatever bytes it
+received cannot tell an operator from a proxy. The before/after pair at 1440 is in
+`.superpowers/sdd/2026-11-05-console-polish-backlog/list135/`: 200 characters and one line.
+
+## P0 — the hundred-and-thirty-sixth list (CLOSED 2026-11-11 — the Table's filters and columns disagreed)
+
+Measured 2026-11-11 at 1440 on the built console's Activity → Table:
+
+    the toolbar's field labels     TIME · DEVICE · TOOL OR DETAIL · STATUS
+    the header row beneath them    When · Device · Token · What happened · Status
+
+Two words for one column, one screen apart — and the scope pair (`This machine` / `All machines`) carried only an
+accessible name in a row where every neighbour had a visible one, so it sat on the controls' baseline looking
+unlabelled while the four fields beside it had labels above them.
+
+1. **The fields take the columns' own words.** **Fix — console `5864148` (pushed; NOT deployed — the console deploy
+   waits on the operator's word).** `When`, `Device`, `What happened`, `Status`: every filter label is a header of the
+   table it filters, and no new word was invented. The scope pair gains a visible `Scope` label, and its group takes
+   its accessible name from that label (`aria-labelledby`), so there is one label row and no unlabelled control.
+2. **Nothing held the two halves together.** **Fix:** a new case in `AuditTable.test.tsx` reads the toolbar's field
+   labels and the table's own columns and fails if a label is not a column's word — with both of the measured words
+   excluded by name (`Time`, `Tool or detail`), and a second case holding `Scope` visible and the group named from it.
+   **Mutation:** the filter back to `Time` -> `the field labelled Time names a column: expected [ 'When', 'Device',
+   'Token', …(2) ] to include 'Time'`.
+
+**THE RENAME REACHED FURTHER THAN THE PAGE.** The tests that name the control (`App.test.tsx`, 7 sites) and the
+browser gate's own `getByLabel('Time')` followed it — a label is a contract with the gate as much as with the reader,
+and the gate caught the rename the moment the page changed (`FAIL — locator.waitFor: Timeout 5000 ms` waiting for
+`Time`). Before/after strip in `.superpowers/sdd/2026-11-05-console-polish-backlog/list136/`.
+
+## P0 — the hundred-and-thirty-seventh list (CLOSED 2026-11-12 — a failed read's reason was the route)
+
+The hundred-and-thirty-fifth list fixed the transport's sentence; this is the same rule one layer up. `NoAnswer`
+carried the REQUEST PATH as its `message`, and `describe(cause)` puts that message wherever a reason is drawn.
+Measured 2026-11-12 against an HTML answer from the edge:
+
+    Home      "The console could not read the machine list." + Retry      (no reason in the body)
+    Activity  "The console could not read the audit; this timeline shows only calls that arrive live." + Retry
+    the reason itself, wherever a page or a tooltip draws it      `/audit?limit=20` · `/audit/day` · `/mcp`
+
+Neither page body leaked it — but every `title` that carries the reason did, and any page that names its own read plus
+the cause (`Could not read this device's sessions: …`) would have said `/mcp` where the reason goes.
+
+1. **`NoAnswer` states who answered.** **Fix — console `1711153` (pushed; NOT deployed — the console deploy waits on
+   the operator's word).** `the edge answered this read with a web page, not the console (HTTP 502)`; the route stays
+   as a field (`path`) for a caller that wants it, and the status (`status`) is carried the same way.
+2. **A refusal that is not the edge's must not borrow that sentence.** `/audit/day` answering a 200 with no counts is
+   the route answering incompletely, not a web page; it now carries its own reason (`the day's answer carried no
+   counts`), so the hundred-and-thirty-first list's refusal is said in words instead of being re-labelled a lie.
+3. **The suite pinned the instance, never the message.** **Fix:** a case asserting the sentence, the status, the path
+   and that the message does not contain the route. **Mutation:** `super(reason ?? path)` ->
+   `expected '/audit?limit=20' to be 'the edge answered this read with a we…'`.
+
+**A ROUND WHOSE FIX IS NOT ON SCREEN, SAID PLAINLY.** Both page bodies were already clean; what moves is every tooltip
+and every future page that names its own read — the same class of defect as the transport's, caught one layer earlier
+because the transport's measurement said where to look.
+
+## P0 — the hundred-and-thirty-eighth list (CLOSED 2026-11-12 — three suspicions measured, three disproved, one rule pinned)
+
+A round spent looking for something to fix. Three candidates were measured, and all three were wrong — recorded here so
+nobody "fixes" them later.
+
+1. **"The panel's 86 leadless `font:` shorthands leave their text at `normal`."** The count is true: measured on
+   `agent/resources/panel/panel.css`, **112 `font:` shorthands, 26 carry a leading, 86 do not** (10 of the 86 are
+   `font: inherit`, which inherits the rhythm). The OUTCOME is false: a walk of every text-bearing element on
+   Terminal, Memory and History found **0 at `normal`** and ratios of exactly **1 / 1.3 / 1.5** over **21 / 22 / 26**
+   elements. The rules that matter state their `line-height` where the text is. And the one off-atom ratio the walk
+   produced on the panel — **1.15** on `"d1 shell ready"`, a 13 px line in a 15 px box — is **xterm's own cell**
+   grid; `leading-gate.mjs` excludes `.xterm` **by name** and already scans every text element, not a sample.
+2. **"The device tab strip's nudge is 26 px wide — under the thumb rule."** The rule the console wrote for itself in
+   the twenty-ninth list is **44 px tall**, and the control measures **26 × 44**. It complies; narrowing it is a
+   design decision, not a defect.
+3. **"Six of Home's 38 controls have no focus ring."** False, and the probe is the reason: `el.focus()` from script
+   does not match `:focus-visible` in this browser, so a chip focused by a test reads as ringless while a chip
+   focused by a keyboard draws its ring. The page carries one blanket rule naming every native control type.
+
+**What survives is a guarantee that had nothing holding it:** the blanket focus rule can be deleted by a stylesheet
+edit and no test fails. **Fix — console `cc5c074` (pushed; NOT deployed — the console deploy waits on the operator's
+word):** `layoutContract.test.ts` pins the rule — it must exist, carry `2px solid var(--focus-ring)` at offset 2, and
+name **all six** native control types. **Mutation:** `summary` dropped from the selector ->
+`one rule names every native control: expected null not to be null`.
+
+**A ROUND WITH NO SCREEN CHANGE, AND WHY IT IS STILL A ROUND.** The program's instruction is a rule either enforced by
+a gate or recorded with its numbers; this round produced three records with their numbers and one gate for the thing
+that everyone assumed was already guaranteed. The next list starts from the surfaces' own counts, not from suspicion.
+
+## P0 — the hundred-and-thirty-ninth list (CLOSED 2026-11-12 — a wrapped field kept the desktop's right edge)
+
+Measured 2026-11-12 at **1024**, Activity's filter row (row starts at x=256, 744 px wide):
+
+    the search input     x=712  w=288    right-aligned on its own wrapped line, 456 px of the row empty to its left
+
+The machine chips and `Clients only` fill the first line, so the search wraps — and `.timeline-search`'s
+`margin-left: auto`, the rule that parks it at the desktop row's right-hand column, pushed it to the **right edge of
+the line it wrapped to**. Its left edge sat 456 px from every other control's left edge in the same block.
+
+**Fix — console `5129066` (pushed; NOT deployed — the console deploy waits on the operator's word):** between the
+phone breakpoint (640) and `columns` (1088) the field takes the line it wrapped to — the line's full width, from the
+row's own left edge.
+
+    1024   the search input   x=712 w=288  ->  x=256 w=448
+    1440   unchanged          x=1084 w=288 (the desktop's right-hand column)
+    390    unchanged          the filters are behind `Filters` (the hundred-and-thirty-fourth list)
+
+**TWO GATES SPOKE BEFORE THIS LANDED.** The contract test refused `max-width: 1099px` with `1099 must sit on a
+breakpoint` — a query's width must be a declared breakpoint or its neighbour (the sixty-fourth list) — so the rule is
+`max-width: 1087px`; and the 390 probe returns **no search input at all**, which is the hundred-and-thirty-fourth
+list's collapse working. Before/after strip in `.superpowers/sdd/2026-11-05-console-polish-backlog/list139/`.
+
+## P0 — the hundred-and-fortieth list (CLOSED 2026-11-12 — the console's Forward page speaks a dialect the device does not)
+
+The 59538830 line's open item was *"the forward UI's remaining measured gaps"*. Measured 2026-11-12 by reading both sides'
+source — the console's reader against the device's registered tools and their answers:
+
+| the console sends / reads | the device registers / answers | verdict |
+|---|---|---|
+| `forward.list` | **`forward_list`** (`agent/src/plugins/forward/tools.rs:23`) | wrong name — the call is an unknown tool |
+| `forward.add` | **does not exist, deliberately** (`mod.rs` D6: "a rule is an operator's act"; a test pins its absence) | the Create button calls a tool that must never exist |
+| `forward.remove` | **does not exist** (same design) | the Remove button ditto |
+| a **bare array** of rows | `{ "rules": [ … ] }` (`tools.rs:44`) | the list read refuses every real answer |
+| flat `listening/since_ms/attempts/connections/last_error` | nested under **`state`** (`forward::ForwardState`) | every field undefined — a bound rule draws as not listening |
+| `since_ms === null` for "never" | `since_ms: 0` means never listened | a 1970 stamp would read as an age |
+
+**WHY EVERY TEST IS GREEN.** `ForwardRules.test.tsx`'s fixture is documented as *"copied from `forward.list`"* — and it is the
+console's expectation, not the device's answer: a bare array with flat fields and the name `forward.list`. The suite mocks
+`callTool`, so the fixture and the page agree with each other and with nothing else. **A fixture written from the reader is a
+test of the reader.**
+
+**DONE — console `a63beaa` (pushed; NOT deployed — the console deploy waits on the operator's word), four parts:**
+1. the list read: `forward_list`, `{rules:[…]}`, the nested `state`, and `since_ms: 0` read as "never";
+2. **the branch gate**: `supported` looked for `forward.list` — a name no device registers — so every real machine took
+   the "Older build" branch and the list was never asked for. It looks for `forward_list` now;
+3. **Create and Remove are gone**: the page reads, and its empty state says where a rule is written (`forwards.json` in
+   the machine's data directory) instead of offering a button that called a tool that must not exist;
+4. **the fixture is the device's answer** (`{rules:[…]}` with a nested `state`, copied from the device's own `json!`),
+   and a new case holds the other direction: a BARE ARRAY — the shape this page used to expect — is an unreadable
+   answer, not "no rules".
+
+**MUTATION:** `supported` back to `"forward.list"` -> every case renders "Older build" and nothing is asked; restored
+10/10. **THE PAGE SHRANK BY 486 LINES** (187 insertions, 673 deletions): two sheets and their form logic went with the
+tools they called.
+
+**NOTHING VISIBLE TO SCREENSHOT, SAID PLAINLY.** The section is reached through a live machine's tool catalogue and no
+fixture here advertises one, so the built page shows its "Older build" sentence either way; the change is proven at the
+reader (10 cases around the device's real answer) and in the branch gate.
+
+**WHY THIS ROUND SHIPPED NO CODE.** The reader fix lands with (2) or the page keeps two buttons that cannot work; and a
+half-fix that leaves Create/Remove calling absent tools would be a worse lie than the current one. The measurement is the
+deliverable this round — recorded with the file:line of both sides so the next round starts from evidence, not memory.
+
+## P0 — the hundred-and-forty-first list (CLOSED 2026-11-12 — the console's tool names ARE the device's; the agent's literals are declarations, not the wire)
+
+Found while closing the hundred-and-fortieth list: the Forward page's names were not one bad page, they are the console's WHOLE
+convention. Measured 2026-11-12 by reading both sides' declarations:
+
+    the console's callTool names (30, distinct)   terminal.list · files.read · browser.open · plugins.list · runs.exec …
+    the agent's declared ToolDef names            terminal_list · terminal_read · browser_pw_info · … (underscored)
+    finding a tool on the agent                   `plugin_registry.find_tool(name)` — an EXACT lookup (plugins/mod.rs:176),
+                                                  and the MCP server answers an unknown name with `Unknown tool: …`
+    the panel (the same product's other surface)  `callTool("terminal_read", …)`, and the agent has a gate that pins it
+
+**THE PRECEDENT IS THE POINT.** `agent/tests/panel_tool_names.rs` exists because *"the panel and the agent are two processes that
+agree by spelling"*: it scans every `callTool("…")` in the panel and fails on a name the agent does not declare, with a floor on
+both sides so a scan that reads nothing cannot pass. The panel therefore uses the device's spelling; the console does not, and
+nothing in the console repo compares its names with anything.
+
+**AND THE FORWARD PAGE WAS THE TIP.** `forward.list` was wrong in the same way, and the hundred-and-fortieth list fixed THAT page
+by matching the device (`forward_list`). 29 other names are still dotted.
+
+**ONE THING DOES NOT FIT, AND IT IS THE FIRST THING TO SETTLE.** The backlog's own live record (the fifth list's fix, 2026-11-06)
+says *"17 concurrent `terminal.read` calls … through the console — 16 answered at 15.04-15.09 s"*: a call answered at the WAIT
+bound is a call the device understood, so on that build `terminal.read` reached a terminal reader. Either the console forwarded a
+different name than its page spelled, or a build between then and now renamed the tools, or the audit line's `tool` field is the
+console's label rather than the device's name. **Settle it on a live device before rewriting 30 names**: one `tools/list` from a
+device answers the whole question, and the console's own `/api/devices/:id/tools` (or the Tools page) draws it.
+
+**MEASURED AGAIN 2026-11-12, three more facts — and the question is still open:**
+
+1. **No dotted name has ever existed in the agent.** `git log -S'"terminal.read"' -- agent/src` returns nothing: the device has
+   never declared, aliased or normalised a dotted tool name. `register()` keys `by_name` by `ToolDef.name` exactly, and
+   `find_tool` is `by_name.get(name)`.
+2. **The DEPLOYED console sends the same dotted names.** `0.3.273-ux192` is commit `900efd5`; `git show 900efd5:…TerminalWorkspace.tsx`
+   reads `callTool(grantRef.current, "terminal.read")`, `"terminal.list"`, `"terminal.resize"`. So this is not a branch regression —
+   the live build carries it.
+3. **The agent already records the answer.** `agent/src/mcp/server.rs` logs every `tools/call` it receives (the tool's name and
+   whether it succeeded) to the same 1 MB-rotated `mcp_diag.log` the outgoing bridge uses — *because the device had no way to
+   answer "does anything call this?"*. **That log is the settlement**: one device's `mcp_diag.log` names what the console
+   actually sent and whether the device resolved it, with no source reading required.
+
+So the contradiction (`terminal.read` answered at the 15 s wait bound on 2026-11-06) needs a device, not more grepping: either
+the log shows `terminal.read` succeeding — and something outside this repo's source translates it — or it shows the call arriving
+and failing, and the console's device pages have never worked against the agent while every console gate used a mock that accepts
+any name.
+
+**INVENTORY GATE LANDED — console `6f90d3d` (pushed; NOT deployed — the console deploy waits on the operator's word).**
+`device/console/web/src/toolNames.test.ts` reads every `callTool("…")` under `src/` and holds the 32-name vocabulary in both
+directions: a NEW name fails, a REMOVED name fails, and the file states the open question with the measurement
+(**1 of 32** names is one the agent declares — `forward_list`, from the hundred-and-fortieth list). A direct comparison would
+be red today, and a red gate cannot be committed; the inventory does the two things that matter until the log settles the
+question. **Mutation:** one planted `files.delete` -> `a name this page calls that the inventory does not record: expected [
+'files.delete' ] to deeply equal []`.
+
+**PLAN (next round, M or L):** read one live device's `tools/list`; build the console↔agent name map from it; add the console-side
+equivalent of `panel_tool_names.rs` — a fixture list of the agent's declared names, a scan of every `callTool("…")` in
+`device/console/web/src`, and a mutation that renames one call. The rewrite itself is mechanical once the map is proven.
+
+**WHY THE ROUND STOPS HERE.** A 30-name rewrite on a contradiction would be a guess with a green gate; the measurement above is
+the kind that has to be right before the code moves.
+
+**CLOSED — ANSWERED BY A LIVE DEVICE, NOT BY READING THE AGENT'S SOURCE.** `GET /fleet/<id>/tools` on DESKTOP-9VH92BJ
+(0.3.292) answers **46 tools, all dotted** — `files.read`, `terminal.read`, `browser.open`, `plugins.list`, `system.process_list`,
+`screen.capture`, `host.restart` — and the console's 32 names match **31** of them exactly. The one that does not is
+`forward.list`: that build carries no forward plugin at all, so nothing can confirm or deny it until a device ships one.
+
+**WHAT THE OPENING MEASUREMENT GOT WRONG.** It compared the console's names against `ToolDef::new("…")` LITERALS in `agent/src`
+and concluded the console spoke a dialect the agent did not. Those literals are DECLARATION names; the wire is dotted. The
+mistake renamed the Forward section to `forward_list` for a round (corrected in `83ae6a4`), and the lesson is recorded where it
+belongs: **a name is whatever the running product answers to, and only the running product can say.**
+
+**WHAT REMAINS ENFORCED.** `device/console/web/src/toolNames.test.ts` holds the 32-name inventory in both directions (a new name
+fails, a removed one fails) and names `forward.list` as the single unverified entry.
+
+
+## The hundred-and-forty-second list (CLOSED 2026-11-12 — the deployment, and the page's first eight seconds)
+
+**THE OPERATOR, mid-session: *「部署啊 / 你的审美能好一点吗，感觉做出的东西很乱呢，没有看出层次，还有主次」*.** Both halves were right and both were
+answered with a measurement rather than an opinion.
+
+**DEPLOYED, TWICE — on the operator's word, the constraint as it has stood all program.** `0.3.274-ux193` carried the
+session's console work (Forward's contract, the tool-name inventory, the day's count, the phone's filters, the table's
+labels, the wrapped search field, the transport sentence); `0.3.274-ux194` carried this round's hierarchy change. Both
+swapped through the host's own shell and both answered `/health` with the new version after the swap.
+`83ae6a4`, `399fb73` pushed to `hub/v1`.
+
+**THE MEASUREMENT THAT AGREED WITH HIM** (computed styles, live page, 1440):
+
+| element | before `ux193` | after `ux194` |
+|---|---|---|
+| `.page-head h1` "Home" | **22 px / 700 / ink** | **13 px / 500 / muted** |
+| `.home-verdict` "3 of 4 online · 2 need attention" | 22 px / 600 / ink | 22 px / 600 / ink |
+| `.attention-machine` | 14 / 600 / ink | 14 / 600 / ink |
+| `.fleet-name` (roster) | 17 / 600 / ink | 17 / 600 / ink |
+
+Two headlines at one size, six pixels apart: the page had a title and a claim of equal rank. The fix is a **shared decision**,
+not a local override — `head.nameWhenClaim` {base, medium, muted} is now in `layout-contract.json`, byte-identical in both
+repos, pinned at sha256 `0e225bb2…` by both tests, and the console's stylesheet is held to it at both widths (the first
+version of that test read `ruleFor`'s LAST match and passed a mutation of the desktop rule — the test now reads both and
+proves both).
+
+**WHAT THE SAME EYE STILL FINDS, AND THE NEXT LIST.** The roster is the loudest body text on the page: `.fleet-name` is
+17/600 while the warning card above it draws a machine's name at 14/600 — the less urgent block is the louder one, and the
+installer strip below it is a third block of the same weight. The roster is a REFERENCE; the verdict and the warning are the
+ANSWER. The browser gate currently pins `fleet name 17/600` (measured, and it refused the 14 I tried first), so changing it
+means changing that pin and arguing in the same place — which is the next round's work, not this one's.
+
+## The hundred-and-forty-third list (CLOSED 2026-11-12 — the roster was louder than the answer)
+
+The same eye that found the two headlines found the second inversion: on `0.3.274-ux194` the fleet table drew a machine's
+name at **17/600** while the warning card six pixels above it drew the SAME fact at **14/600**. The reference block was the
+loudest body text on the page, and the page's answer (verdict → warning → door) was quieter than its index.
+
+**FIX.** `.fleet-name` takes `--fs-md` (14), the rung the attention row already gives a machine's name; the browser gate's
+pin moved with it and its comment carries the measurement. The page's ladder is now **22 (verdict) > 14 (names) > 12
+(facts) > 10 (headers)** with nothing competing in between. `9202254`, deployed as `0.3.274-ux195`.
+
+**THE MUTATION THAT DID NOT COUNT, AND WHY IT IS WRITTEN DOWN.** The first attempt changed the stylesheet and ran the gate:
+it PASSED. **The gate drives the built page** (`dist/index.html`), so a source-only edit is invisible to it — the mutation
+had to rebuild first, and then it failed with `the fleet name read 17px/600, not the object rung's 14px/600`. A mutation
+that does not reach the artifact proves nothing about the artifact.
+
+## The hundred-and-forty-fourth list (CLOSED 2026-11-12 — a typed path answered nothing, and Activity's head had Home's tie)
+
+**A TYPED URL WAS A BLANK PAGE.** Found while auditing Activity on the live console:
+
+    GET /           200  text/html  1,007,983 bytes
+    GET /activity   404  —          0 bytes
+
+The page routes in the URL's HASH (`#activity`, `#device/<tab>`), which is right for the links the page makes and a trap for
+every link a person types, pastes or shares. The fallback now answers `303` to `/#<fragment>` for a path that looks like a
+destination, and keeps a plain 404 for `/api/…`, `/mcp`, the device/audit/installer namespaces and any path whose last segment
+carries a dot — a client probing an API must not be handed the page.
+
+**AND THE FRAGMENT SPELLING WAS A SECOND MEASUREMENT.** The first version emitted `/#/activity`; the browser landed on
+`#home`, because the page's own spelling has no slash. Measured in a browser one round after the redirect "worked" — the HTTP
+status was right and the destination was wrong, which is why the check is a rendered page and not a status code.
+
+**ACTIVITY'S HEAD HAD THE SAME TIE AS HOME'S.** Measured live after Home's fix: `Activity` 22/700 above `Today: 153 client
+calls, 10 failed.` at 17/600 — the shape `head.nameWhenClaim` refuses. The rule is about a HEAD WITH A CLAIM, so both pages
+take it; the two older `.activity-page .page-head h1` overrides (which re-declared 22 over the generic 22) are gone. After:
+`Activity` 13/500 muted, the day's sentence 17/600 ink.
+
+**SHIPPED:** `2159fa9` (the redirect), `c12c749` (Activity's head) — deployed as `0.3.274-ux197` and `0.3.274-ux198`.
+
+## The hundred-and-forty-fifth list (CLOSED 2026-11-12 — a silent machine drew a broken-looking chart)
+
+Auditing the third destination (Device → Overview) on the live console found the Now band drawing **thirty 3-px buckets at
+2 px each** when nothing had happened for five minutes — under the sentence `no calls in the last minute`, which made the
+sparkline read as a DASHED PLACEHOLDER, i.e. a chart that failed to load. The DOM's own `aria-label` said the busiest bucket
+was 0: the page knew the window was empty and drew thirty gaps anyway.
+
+**FIX:** zero has one honest shape and it is the axis — a single hairline (119 x 2) when every bucket is empty, one bar per
+ten seconds otherwise. `94691e7`, deployed as `0.3.274-ux199`; the after-shot is `list145/after-ux199.png`.
+
+**WHAT THE SAME PAGE STILL IS, AND THE NEXT LIST.** Measured at 1440: the Overview page is **four full-width blocks stacked in
+one column** — a machine card (name / online / started), a Now band, a chip row (`46 tools · 11 capabilities · 0 plugins`),
+and a Today row — with roughly **500 px of empty page under them**. Four borders around four single lines is what makes it read
+as four separate things rather than one document; the page's own content would fit in one card. That is a structural change
+(JSX + CSS + the gates that count blocks), not a rung, so it is the next round's work rather than this one's.
+
+## The hundred-and-forty-sixth list (CLOSED 2026-11-12 — four boxes around four single lines)
+
+The structural finding under the flat-line fix, taken one step this round: at 1440 the Overview page drew **four bordered
+blocks stacked in one column** — the machine card, the Now band, a counts chip, the day row — with ~500 px of page under them.
+
+**FIX:** the counts answer "what can this machine do", so they belong in the card that names it. The chip keeps its grammar
+(a button to the Tools tab) and its three states (offline / reading / failed); it stops being a block of its own. **Four blocks
+become three** — `8189519`, deployed as `0.3.274-ux200`; the after-shot is `list146/after-ux200.png`.
+
+**WHAT THIS PAGE STILL REPEATS, AND THE NEXT LIST.** Measured on the same shot: the head's h1 reads `Overview` **while the
+selected tab 40 px to its right also reads `Overview`** — the page names itself twice and spends the title's rung on a word the
+strip already carries. The machine's name is the page's subject and sits in a card below, where the topbar also names it. That
+is a head decision (what the h1 of a machine surface is), not a rung, so it goes to the next list.
+
+## The hundred-and-forty-seventh list (CLOSED 2026-11-12 — the device head named itself twice)
+
+Measured on the live console (`0.3.274-ux200`, 1440, Device → Overview):
+
+    .device-head h1   "Overview"   22 / 700 / ink
+    the tab strip      "Overview"   12 / 600   — the SELECTED tab, 40 px to its right
+
+The page spent the title's rung on a word the strip beside it already carried, while the machine — the page's actual subject —
+was a 17/600 card heading below.
+
+**THE RULE IS IN THE CONTRACT, NOT IN THE PAGE.** `head.nameWhenRepeated` {base, medium, muted}: a head whose name a CONTROL
+it renders already says draws that name as context. The condition is mechanical, so it is recorded; `title` still governs
+every head that names something no control repeats. Byte-identical JSON in both repos, pinned at `9b70a26c…` by both tests.
+
+After: `Overview` **13/500 muted**, the strip owns the view's name, the machine's name leads the content. `e0b5eaf`, deployed as
+`0.3.274-ux201`; the after-shot is `list147/after-ux201.png`.
+
+**A MISTAKE WORTH THE RECORD.** The first insertion put `nameWhenRepeated` INSIDE `nameWhenClaim` — valid JSON, right values,
+wrong tree — and the test failed with `Cannot read properties of undefined`. The fix was to parse, move the key and dump; the
+suite only noticed because the test reads the field by name rather than trusting the file's shape.
+
+**WHAT THE FOUR HEAD FIXES SHARE, AND THE RULE THEY NOW MAKE.** Home (claim), Activity (claim), Device (repeated by a control):
+in all three the page's NAME was at the title's rung and the page's SUBJECT was not. The contract now carries two conditions and
+one default; the next audit question is whether any head on either surface still spends `title` on a word the page does not need
+to say.
+
+## The hundred-and-forty-eighth list (CLOSED 2026-11-12 — a disclosure drew a second card inside the card)
+
+Swept the device workspace's five tabs on the live console; Terminal's empty state was the one that read wrong:
+
+    before  `Saved connections`   full-width band, 1 px border, --surface-recessed fill, 12 px / 600 / ink
+    after   `Saved connections`   12 px / 500 / muted, no fill, one hairline above, the card-details triangle
+
+A control nobody had opened was the heaviest object on the screen after the accent button — heavier than the empty sentence it
+sat under. **The product already had this grammar** (`.card-details`: no fill, muted label, a triangle that turns); the terminal's
+disclosure had its own box. It now uses the shared one, tokens and all. `c638c5f`, deployed as `0.3.274-ux202`.
+
+**AND THE SWEEP ITSELF IS THE FINDING.** Five tabs at 1440, one at a time: Overview (three blocks after the last two rounds),
+Terminal (this fix), Files, Runs, Tools, Machine (12 k characters — the busiest). The remaining candidates for the next list are
+Machine's long form and the fact that every one of these frames still leaves its lower half empty at 1440 — which is honest for
+short content and worth ONE measurement rather than six fixes.
+
+## The hundred-and-forty-ninth list (CHECK ONLY 2026-11-12 — the phone still holds what the earlier rounds measured)
+
+No code this round: a verification sweep at 390 against the LIVE build (`0.3.274-ux202`), because every change since the phone
+filters has been made at 1440 and the smallest window is where a rung change is most likely to have broken something.
+
+    page      h1            claim                          result
+    Home      Home 13/500   `3 of 4 online · 2 need attention` 22/600   holds
+    Activity  Activity 13/500  `Today: 3 client calls.` 17/600        holds
+    Device    Overview 13/500  (no claim)                            holds
+    Activity's filters toggle  32 px, aria-expanded=false, block not rendered, first row at y=430  (was 676 before the
+                               hundred-and-thirty-fourth list) — the phone fix still holds after twelve rounds of edits
+
+**TWO HYPOTHESES THE DOM DISPROVED, BOTH FROM LOOKING AT A SCREENSHOT.** (1) The roster's rows "had a grey band and lost their
+status": measured, the row is `rgb(255,255,255)` with a 1 px border and every cell present — `online · seen 10s ago` was in the
+row all along, and the "band" was the row's own top edge against the page's ground. (2) The row "was clipped at the bottom":
+that was the viewport's 844 px, not a layout fault — the page scrolls. **A screenshot can suggest; only the DOM decides.** This is
+the same lesson as the mutation that missed the built page: the check has to be pointed at the thing that can be wrong.
+
+**WHAT THE SWEEP LEFT FOR THE NEXT LIST.** Device → Machine carries **12,338 characters** at 1440 — nine times the Overview tab it
+sits beside — and it has never been through the rung audit. That is the next round's subject, with its own numbers.
+
+## The hundred-and-fiftieth list (CLOSED 2026-11-12 — the panel inside the app card read as its sibling)
+
+Machine is the busiest tab (12,338 characters at 1440) and had never been through the rung audit. Its ladder is mostly right —
+labels 12 muted, values 13 ink, an eyebrow where a group starts — with one inversion:
+
+    before  .system-update > header strong   "Updates"   14 / 600 / ink   (the rung of `This machine` and `The app on this
+                                                                          machine` — the cards that CONTAIN it)
+    after   same label                       "UPDATES"   10 / 600 / muted / 0.5 px tracked (the shared eyebrow atom)
+
+A group of four rows was drawn as a sibling card, and the recessed panel under it as a third surface level. The fix is the
+atom, not a fifth restatement — **and the contract's gates said so twice**: the first attempt added a rule of its own and the
+eyebrow gate refused it (`the eyebrow is ONE rule, not twelve: expected 5 to be less than or equal to 4`); the second put the
+explanatory comment INSIDE the selector list and the label gate refused that (`the label is drawn at the eyebrow's size` — its
+matcher reads the properties within 400 characters of the first selector). Both refusals were right. `c77fded`, deployed as
+`0.3.274-ux203`.
+
+**THE REST OF THE TAB, MEASURED AND LEFT ALONE.** 1,375 elements at 13/400 (the row values), 550 at 11/400 (the memory and disk
+buckets), 263 at 12/500 in the alarm colour (`Restart app` — the one destructive door, correctly the only red thing), 262 at
+14/400 muted (the `⋯` row menus). **Three red rows for one door is not a hierarchy fault; it is the alarm doing its job.**
+Nothing else on this tab spends a rung it does not need.
+
+## The hundred-and-fifty-first list (CHECK ONLY 2026-11-12 — the rest of the workspace, and one door with no verb)
+
+Finished the sweep of the device workspace's remaining tabs on the LIVE build, same technique (leaf elements grouped by
+computed `size/weight/ink`, then a look at the shot):
+
+    tab     distribution (leaf elements)                                        verdict
+    Tools   77 @ 12/400 muted · 47 @ 13/400 ink · 46 @ 14/400 muted (chevrons)   group 14/600 over tool 13/400: a ladder
+            · 11 @ 14/600 (group names) · 11 @ 11/600 (Built-in chips)          with a step at every level
+    Files   66 @ 12/400 ink (names) · 65 @ 10/600 muted (kind) · 65 @ 11/400     name > kind > size; correct
+    Runs    20 @ 11/400 accent (the command BUTTON) · 20 @ 11/600 ok (exit 0)    the accent is the interactive element,
+            · 20 @ 11/400 ink (bytes) · 40 @ 11/400 faint (times)                not an alarm — verified in the markup
+                                                                                 (`.runs-open` is a `<button>`)
+
+**NO INVERSION LEFT IN THESE THREE.** The Runs tab's wall of orange was the one thing that looked like an alarm colour misused;
+the markup says it is a button (`runs-open`, `aria-expanded`, opens the run's record), so the accent is doing its job.
+
+**WHAT THE SWEEP LEAVES, AND IT IS THE OPERATOR'S OWN SENTENCE.** Home's warning card lists three machines with their problems
+in words (`On v0.3.291 · behind 0.3.292.`, `offline · last seen 6d 20h ago`) and offers each one the same door: **`Open`** — to
+the machine's page, where the operator then has to find the action. The standing direction says *"Home is the fleet's verdict
+**and next action**"*; a verdict that names a problem and hands you a doorway is half of it. **The next list: what verb the
+warning row should carry** — `Update` for a machine behind, `Open` for a machine that is simply away — measured against the
+machine page's actual update flow before anything is drawn.
+
+## The hundred-and-fifty-second list (CLOSED 2026-11-12 — the door already went where it should, and the panel still owes the rule)
+
+**A CORRECTION TO THE PREVIOUS LIST'S PREMISE, MEASURED IN THE MARKUP.** The last round said Home's warning rows "offer the
+same door — `Open` — to the machine's page, where the operator then has to find the action". Read the code:
+
+    HomePage.tsx: `onOpenMachine: (id: string) => void` is already a prop, and the attention row calls `props.onOpenMachine`,
+    with the comment: *"it opens Device → Machine rather than the Overview the row/picker doors open"*
+
+So the door already lands on the tab whose panel holds the update facts. **The verb is neutral; the destination is right.** The
+gap is not navigation — it is that the update itself is HELD (the operator's standing constraint), so no `Update` verb can be
+drawn honestly on this page yet.
+
+**AND THE OTHER SURFACE'S SIDE OF THE SAME RULE IS NOW NAMED.** The panel has three heads with a claim (`Memory`, `Plugins`,
+`Settings`' subtitle) and draws `.page-title` at **22/700** with `.page-claim` at **17/600** (`styles/layout.css:121` and `:92`).
+The contract's `head.nameWhenClaim` says a head with a claim draws its NAME as context, and the console enforces it on two pages;
+the panel does not, and its own test only pins the file's hash. **That is an open, measured inconsistency between the surfaces**
+— and fixing it means touching the panel's gates (`panel_sheet_freshness`, the leading gate) in a repo the operator does not see
+this week, so it is recorded rather than rushed.
+
+## The hundred-and-fifty-third list (CLOSED 2026-11-12 — the panel now answers the same question the same way)
+
+The rule the console had already drawn twice is now drawn on the other surface, which is what "one product" means in this
+program:
+
+    before  .page-title 22/700  +  .page-claim 17/600        (Memory, Plugins — panel)
+    after   .page-title.as-context 13/500 muted + the claim  (the same two pages)
+            a head with NO claim keeps 22/700                (Settings, History, Terminal)
+
+**BOTH PAGES COMPUTE THE CONDITION, SO THE CLASS AND THE SENTENCE CANNOT DISAGREE.** Memory's claim text was a ternary inside
+the JSX with an empty-string branch; it is now one `claimText` value used by both the `<h1>`'s class and the `<p>`.
+
+**AND THE PANEL'S GATES SAID NO TWICE, BOTH RIGHT.**
+- `is ONE head whose subtitle is the title's SECOND LINE, on every page` refused a comment I put between `<div>` and `<h1>` —
+  its matcher expects the block's h1 to follow the block's opening tag (`/<div>\s*\n\s*<h1/`), the same shape the console's
+  eyebrow gate refuses.
+- `every page states its own name as its only h1` refused a template literal in the `<h1>` (`expected '0 ? " as-context" : ""}`}>Plugins'
+  to be 'Plugins'`) — the outline gate reads the element's TEXT, so the class moved to a variable and the text stayed literal.
+
+VERIFIED (agent repo, committed `293839bc4`, never pushed): `tsc` 0 · **120 files / 1,065 tests** · panel build 137 tokens / 0
+undefined refs, 696.86 kB · **`panel_sheet_freshness` 1, `spacing_scale` 2, `stylesheet_hygiene` 5 — all pass.** Mutation: the
+rule back to `--fs-xl` -> the new test failed on the size.
+
+## The hundred-and-fifty-fourth list (CHECK ONLY 2026-11-12 — the tablet band, and two judgement calls left alone)
+
+The audit had not looked between 390 and 1440, so: Home, Activity and Device at **768** and **1024**, the two bands where the
+contract's `columns` stop (1088) decides the frame.
+
+    width  page      horizontal overflow   verdict
+    768    all three  scrollW == inner     none; no element crosses the right edge
+    1024   all three  scrollW == inner     none
+
+**TWO THINGS THAT LOOK WRONG AND ARE NOT — WRITTEN DOWN SO A LATER ROUND DOES NOT "FIX" THEM.**
+1. **The head's actions drop to their own line at 768** (`.page-actions` keeps `margin-left: auto`, so the wrapped line ends
+   at the right edge — 566 px from the left, under a title block that starts at 256). It is flexbox doing what the sheet says,
+   and at 1024 the actions still sit on the title's line (744 px of room for a 642 px row). Forcing them into a full row at
+   `max-width: 1087` would change 1024, where the current look is better; a breakpoint at the actual wrap point (~922) is not
+   on a contract stop and would be the fourth rhythm this program exists to stop. **Left alone.**
+2. **The selected machine appears twice on phone/tablet** — as the summary card (with `Connect a client`) and as the
+   highlighted row in the roster directly below. Measured: `.machine-summary` is `display: none` above the phone band and the
+   row's highlight is `--accent-soft` (the selection's own colour, not the alarm's). Two facts, two jobs: the card is the
+   selected machine's DOORS, the row is the roster's place in the fleet. **Left alone.**
+
+## The hundred-and-fifty-sixth list (ABANDONED 2026-11-12 — the installer's box is a recorded decision, not a stray card)
+
+Attempted: demote Home's installer strip from a bordered card to a footnote (hairline, no surface), because the page drew three
+titled blocks with three title treatments — the warning card an eyebrow, the roster none, the strip a card title on its own box.
+
+**THREE THINGS THE ATTEMPT MEASURED, ALL WORTH KEEPING.**
+
+1. **A rule at the wrong specificity is a rule that never ran.** The first version added `.installer-strip { border: 0; … }`
+   (0,1,0) at line 712; the strip's own `.installer.installer-strip` (0,2,0) sits at line 3966 and won. Measured on the deployed
+   page: `background rgb(255,255,255)`, `radius 14px` — the change was in the bundle and had no effect.
+2. **AND THE PAGE'S OWN GATE REFUSED IT WHEN IT DID RUN**: `Home's .installer corner is 0px, the contract says 14px` — the
+   strip's box is pinned to the `card` atom, with the comment that says why (*"THE STRIP IS THE CARD, IN ONE ROW"*).
+3. **SO THE DEMOTION IS A CONTRACT DECISION, NOT A PAGE TWEAK.** Making the installer a footnote means changing `card`'s
+   applicability (both surfaces) and the gate that enforces it — the same size of change as `nameWhenClaim`, which took two
+   rounds and a hash. **Not done in a round's last ten minutes.** The tree is back at `ux203`'s stylesheet, redeployed clean as
+   `0.3.274-ux205`.
+
+**WHAT THIS LEAVES, STATED PLAINLY.** Home's three title treatments are a real inconsistency and they are in the record now,
+with the reason they were not changed: a pinned decision with an argument beats a tidier page with none.
+
+## The hundred-and-fifty-seventh list (CLOSED 2026-11-12 — a footnote is not a card, and the atom says so)
+
+The list the hundred-and-fifty-sixth abandoned is done properly, as a contract decision rather than a page tweak.
+
+    before `ux203`   .installer-strip   surface rgb(255,255,255) · corner 14 px · padding 16 · title 13/700 on its own card
+    after  `ux206`   .installer-strip   surface transparent · corner 0 · hairline above · padding 12 0 0 · title 13/600 muted
+
+**THE ATOM:** `footnote` {radius 0, surface none, borderTop hairline, paddingTop 12, title `base` in `muted`} in
+`layout-contract.json`, byte-identical in both repos, pinned at **`51abc1df…`** by both tests. `card` still governs every block
+that IS the page's content. Home now reads as three things: the head, one warning card, one roster — then a footnote.
+
+**THE GATE LEARNED THE ATOM**, not an exception: the leg that asserted `Home's .installer corner is 14px` now reads the
+installer against the footnote's grammar (corner 0, a 1 px top edge, `12px 0px` padding) while `.attention` and
+`.fleet-table-wrap` keep the card's 14/16.
+
+**TWO MUTATIONS THAT DID NOT COUNT, AND WHY THEY ARE IN THE RECORD.** The first two attempts replaced the FIRST of the rule's
+two textual occurrences and rebuilt — and the gate PASSED, because the mutated rule never reached the bundle (the second
+occurrence is the one that wins, and the first is a dead declaration from the abandoned round). The third attempt grepped
+`dist/index.html` for the mutated rule before believing the result, and then the gate failed by name: `Home's footnote corner is
+14px, the contract says 0`. **A mutation is only a mutation once the artefact carries it** — the same lesson as the roster's
+17/600, learned a second time.
+
+**AND THE DEAD DECLARATION IS GONE**: the `.installer-strip` block that lost to `.installer.installer-strip` on specificity was
+removed, so the sheet no longer carries a rule that cannot run.
+
+## The hundred-and-fifty-eighth list (CLOSED 2026-11-12 — my own rule was applied unconditionally, and the picker paid)
+
+Sweeping the one device surface the audit had not drawn — the picker, with **no machine chosen** — found the hundred-and-forty-
+seventh list's rule applied where its own condition did not hold:
+
+    `.device-head h1` was scoped to 13/500 for EVERY device head, including the one that draws `Choose a machine` and no tab
+    strip at all. Measured live on `#device`: the picker's only sentence was a **13 px grey caption** above four rows.
+
+The contract's `head.nameWhenRepeated` is conditional — *a name a CONTROL in the same head already says* — and the picker's head
+has no control to repeat it. The shell now marks the head only when a machine is chosen (`className={chosen ? "as-context" :
+undefined}`) and the rule follows the mark.
+
+    picker, no machine    `Choose a machine`   22 / 700, no class
+    a machine chosen      `Overview`           13 / 500, `as-context`
+
+**THE TEST HOLDS THE CONDITION, NOT JUST THE NUMBERS**: it reads the rule's `.as-context` selector AND the shell's ternary, so a
+later round that drops the condition fails by name. `55bda45`, deployed as `0.3.274-ux207`.
+
+**THE LESSON IS THE ONE THIS PROGRAM KEEPS RELEARNING.** A rule that a page cannot satisfy is not a rule applied everywhere — it
+is a rule applied where its condition holds. The forty-seventh list wrote the condition down and then the sheet ignored it for
+five rounds.
+
+## The hundred-and-fifty-ninth list (CLOSED 2026-11-12 — the same rule, the same mistake, one page further)
+
+After the picker's regression the question was not "is the number right" but "where else is a conditional rule applied
+unconditionally". The answer was the rule the picker's regression was about, one page over:
+
+    Activity draws `.activity-today` only while the day's count is known
+    (`activityCount !== null && activityRange === null`, App.tsx)
+    …and `.activity-page .page-head h1` was styled as context for the PAGE'S NAME, so a failed day read left the page with a
+    13 px grey caption and NO claim to caption.
+
+**THE FIX IS IN THE SELECTOR**: `.home-page .page-head:has(.home-verdict) h1`,
+`.activity-page .page-head:has(.activity-today) h1` — the condition sits where a reader and a gate can both see it, and a page
+that loses its claim stops being marked. The test now requires every such block to carry `:has(` and names Activity's own
+condition.
+
+**MEASURED LIVE AFTER `0.3.274-ux208`** (`0.3.274-ux208`, 1440):
+
+    Home      `Home`       13 / 500      (verdict present)
+    Activity  `Activity`   13 / 500      (day count present)
+    Device    `Terminal`   13 / 500      (machine chosen, tab strip present)
+    Device    `Overview`   13 / 500      (machine chosen)
+
+and the picker (no machine chosen, `ux207`) keeps 22 / 700.
+
+**MUTATION**: the selectors back to the page's name -> `Activity's head carries a claim too: … to contain
+'.activity-page .page-head:has(.activity-today) h1'`; restored, 59/59.
+
+**THE RULE THIS PROGRAM NOW CARRIES**: a rule records its CONDITION as well as its numbers. Three times this week a conditional
+rule was written down with its condition in prose and then applied to a page where the condition did not hold — the picker, and
+now Activity's failed day. The selector is the cheapest place to make a condition enforceable.
+
+## The hundred-and-sixtieth list (CLOSED 2026-11-12 — the record starts 43 px higher, because the switch went where it belongs)
+
+Activity is the record, and its first row began at **y=369** of a 900 px viewport — 41% of the screen before one line of the
+record. Above it: the head, a hairline, a **40 px bar holding nothing but the Timeline/Table switch**, the filters, the window
+sentence, the day header.
+
+    before  `.stream-bar` > `.seg.stream-views`   a row of its own, 40 px, empty either side
+    after   `.page-actions` > `.seg.stream-views` beside Live and Pause — the page's three controls in one place
+            the first record row: y=369 -> y=326
+
+The switch is a PAGE-level control, and the head already keeps the page's actions; the bar survives only for the table view's
+one sentence (`the audit as rows, with filters and CSV or JSON Lines export`), so in stream view it is gone entirely.
+
+**NOTHING DEPENDED ON THE OLD SHAPE**: no gate referenced `.stream-bar` or `.stream-views`, and the jsdom suite clicks
+`role=tab` by name, which the control keeps along with both tabs' `aria-selected`. `60db954`, deployed as `0.3.274-ux209`.
+
+**AND THE SAME DAY'S EARLIER CHECK, KEPT FOR THE RECORD**: all eight console pages were walked for runtime failure —
+`pageerror`, `console.error` and failed requests — and every one returned **0 / 0** while drawing between 326 and 18,095
+characters. The surface has no page that throws.
+
+## The hundred-and-sixty-first list (CHECK ONLY 2026-11-12 — the dark surface keeps the ladder, and the numbers say by how much)
+
+The audit had only ever drawn the console in the light theme. Measured live at 1440 with `prefers-color-scheme: dark`:
+
+    page      document bg       page name                 the page's claim
+    Home      rgb(19,20,24)     13/500 rgb(162,163,172)   22/600 rgb(236,237,239)
+    Activity  rgb(19,20,24)     13/500 rgb(162,163,172)   17/600 rgb(236,237,239)
+
+**THE SAME TWO RUNGS, THE SAME TWO COLOURS OF MEANING** — the dark block restates the ladder rather than inheriting it, which is
+what rule 15's gate (`the_dark_surfaces_are_restated_not_inherited`) asserts in the sheet; this is the rendered half.
+
+**CONTRAST, COMPUTED FROM THE MEASURED PIXELS (WCAG 2.1 relative luminance):**
+
+    muted ink on the dark ground    rgb(162,163,172) on rgb(19,20,24)   7.34:1
+    the claim on the dark ground    rgb(236,237,239) on rgb(19,20,24)  15.71:1
+    muted ink on the light ground   rgb(113,113,122) on #fff            4.83:1
+
+All three pass AA for their sizes (4.5:1), and the muted pair — the one that carries every label on both surfaces — is **1.5×
+the threshold in the dark theme and 1.07× in the light one**. The light pair is the tighter of the two and is exactly what
+`every_text_pair_reads_on_the_surface_it_sits_on` has pinned since the twenty-sixth list.
+
+## The hundred-and-sixtieth-second list (CLOSED 2026-11-12 — the palette is enforced on the rendered page, not in a table)
+
+Rules 1 and 6 say the page paints from a small named palette, and the audit's own table said that nothing stopped a new colour
+from arriving. Measured live 2026-11-12 at 1440:
+
+    Home     5 text inks   --ink · --muted · --faint · --danger · --accent-on-soft · --accent-fg (white)
+    Activity 6 text inks   the same five plus --warn
+
+Every one of them is a token — the sheet was already doing the right thing, and nothing was watching it. **The browser gate now
+resolves the tokens into computed colours and refuses any text ink that is not one of them**, on the page where the reader sees
+it. 105 steps become 106.
+
+**MUTATION**: `.fleet-name { color: #8a2be2 }` + a rebuild ->
+
+    FAIL — Home paints text in colours that are not tokens: ["rgb(138, 43, 226)"]
+           (allowed ["rgb(105, 106, 116)", "rgb(113, 113, 122)", "rgb(156, 58, 10)", "rgb(156, 90, 8)",
+                     "rgb(179, 38, 30)", "rgb(24, 24, 27)", "rgb(255, 255, 255)"])
+
+and the failure prints the whole allowed palette, so the next person does not have to go looking for the sheet.
+
+## The hundred-and-sixty-third list (CLOSED 2026-11-12 — one activity card, and two candidates still open)
+
+Measured on the live console (`0.3.274-ux209`, 1440, a machine selected):
+
+    Device -> Overview      345 characters      3 cards, all inside the top 300 px; the lower 600 px empty
+    Device -> Machine    10,935 characters
+    Device -> Tools       9,282 characters
+
+The whole page is: the machine's name and `online`, `started 4d 8h ago`, a chip row (`46 tools · 11 capabilities · 0 plugins →`),
+`Now ● Quiet — no calls in the last minute`, and `Today 5 client calls · spanning 4 h 18 m — All activity →`. **Three surfaces for
+three sentences**, one per card, and then nothing.
+
+**CANDIDATE 2 IS DONE (`e8cb177`, `0.3.274-ux210`).** The Now band and the day line were two bordered panels 12 px apart, each
+holding one sentence. They could not simply share a surface because `.live-now` painted `--panel` / 1 px `--line` / `--radius`
+**by hand** — a card in everything but its class, which is why the atom could not reach it:
+
+    before   .live-now   --panel · 1 px --line · radius 10 · padding 14/16   (a hand-painted card)
+             .home-day   .panel                                            (a second panel)
+    after    .overview-activity  .card                                    (ONE surface)
+             .live-now   no surface, layout only — name and no-doors rule kept
+             .home-day   a hairline above, inside the card
+
+The page now draws **two** surfaces where it drew three: the machine's identity, and its activity (Now + today + the door).
+
+**WHY IT WAS NOT CHANGED IN THE SAME ROUND.** Filling it means choosing what the machine's landing page is FOR, and every
+candidate needs a fact the page does not fetch yet: the build (`0.3.292` is on Home's row and on the Machine tab), the platform
+and uptime (Machine), the last five calls (Activity, filtered). Rendering them here is a fetch plus a shape, not a stylesheet
+edit — and this program's rule is that every number comes from a probe, so the list is opened with the measurement rather than
+guessed at with a card.
+
+**THE CANDIDATES, EACH WITH ITS SOURCE NAMED:**
+1. The identity card carries the machine's BUILD and platform — `/system` facts the Machine tab already fetches, drawn where a
+   reader looks first (`0.3.292 · Windows 11 · 12 cores · started 4d 8h ago`).
+2. `Now` and `Today` become ONE card: both are the machine's recent activity, both are one line, and two cards for two lines is
+   the same fault as three title treatments for three peers.
+3. The last five calls, ready on the landing page — `/audit?device=<id>&limit=5`, which Activity already asks for.
+
+## The hundred-and-sixty-fourth list (CLOSED 2026-11-12 — candidate 3 was already refused, and the identity card learned its own facts)
+
+The hundred-and-sixty-third list left two candidates. Both were checked against the record before any code:
+
+**CANDIDATE 3 — the last five calls on the landing page — IS REFUSED BY A DECISION ALREADY MADE.** The sixty-second list removed
+a 29-row copy of Activity's Today card from this page (`audit-42 F1`), and the comment in `OverviewPage.tsx` says why: *"The
+day's count, failures and span stay here because they are the machine's state; the rows are the record's and live in Activity,
+behind this one door."* Re-adding five rows would be the same defect at a fifth of the size. **Dropped, and the reason is here so
+the next round does not re-propose it.**
+
+**CANDIDATE 1 — DONE (`1827f1a`, `0.3.274-ux211`)**, and it needed no new read: `device.host` already carries what the device's
+frame reported, and the Machine tab shows it in full.
+
+    before  DESKTOP-9VH92BJ / online / 46 tools · 11 capabilities · 0 plugins →
+    after   DESKTOP-9VH92BJ / online / Windows 11 · x86_64 · 12 cores · 5.9 GiB free / 46 tools · …
+
+**THREE RULES SHAPED IT.** Only what the device reported (a build that sent no facts draws no line, never a "not reported"
+placeholder); **not the build** (the topbar's picker and the Account menu own the version — the sixty-first list removed the third
+copy, and this card would have been it); and the helpers are the Machine tab's own (`platformLine`, `gib`), **exported rather than
+copied**, so the two pages cannot disagree about what "Platform" means.
+
+**AND THE PAGE IS STILL MOSTLY EMPTY — STATED, NOT HIDDEN.** Two surfaces and ~380 px of content in a 900 px window; with the
+rows refused, what remains to fill it is what the machine is FOR (a call to action on the AI's own door), which is a product
+decision rather than a layout one.
+
+## The hundred-and-sixty-fifth list (CLOSED 2026-11-12 — the first screen said it most quietly)
+
+The audit had never drawn the sign-in page. The gate's own screenshot (1280 × 900) showed the card's name at **17 / 700** — while
+Home's verdict draws 22 and Activity's claim 17: **the one screen a person meets BEFORE they are inside said its purpose more
+quietly than every screen inside.**
+
+    before   .login h1   17 / 700
+    after    .login h1   22 / 600, the display step      (.login h2 keeps 17 for the token disclosure)
+
+**WHY THIS IS THE CONTRACT AND NOT A TASTE CALL**: `head.nameWhenClaim` and `head.nameWhenRepeated` are both CONDITIONAL, and
+neither condition holds here — the head has no claim under it and no control repeating it, so the name IS the claim and takes the
+`title` atom. It is the same rule the picker's `Choose a machine` keeps (22/700) and the tabbed device head drops (13/500).
+
+**AND A TYPOGRAPHIC DEFECT IN THE SAME BLOCK**: the sentence read `the console's  --operator-token-file  names` — the `<code>`
+carried its own leading and trailing spaces inside the element and JSX's line break added a third. Spaces moved outside the
+element; the line now reads `… the console's --operator-token-file names`.
+
+**AND THE 390 CHECK OF THE PREVIOUS ROUND'S CHANGE**: Device -> Overview at 390 draws the facts line at y=248, `scrollW == 390`,
+and the one element past the right edge is `.device-tab` at 460 — the tab strip, which is a scroll container by design.
+
+## The hundred-and-sixty-sixth list (CHECK ONLY 2026-11-12 — the sign-in pair agrees, the account popover is complete, and the audit says where it has run out)
+
+Two surfaces the audit had never drawn, measured on the LIVE build (`0.3.274-ux212`):
+
+    the SIGN-IN PAIR      #signin while signed in    `You are signed in`   22 / 600   (the same h1 rule)
+                          #signin signed out         `Sign in to the console`  22 / 600   (the hundred-and-sixty-fifth list)
+    the ACCOUNT POPOVER   a `<details>` at the rail's foot — identity, `Console 0.3.274-ux212`, Connect a client, Tokens,
+                          Copy console URL, Documentation, Sign out
+
+Both are complete and consistent. Nothing was changed.
+
+**WHERE THIS AUDIT HAS RUN OUT, SAID PLAINLY.** Across the session the console has been measured page by page (Home, Activity,
+Device × 8 tabs, the picker, the sign-in pair, the account popover), at four widths (390 / 768 / 1024 / 1440), in both themes, and
+swept for runtime failure (eight pages, 0 errors, 0 failed requests). Everything the twenty rules can compare — a rung, a radius,
+a border, a colour, a rhythm, a state — is now either a gate (Rust tokens, `layoutContract` on both surfaces, the rendered browser
+gate at 106 steps) or a number in this file. **The remaining work is not polish**: it is the three things no measurement can
+settle — what Device -> Overview is FOR (its empty half), what the machine's landing page should offer the AI's own door, and
+whether the panel this audit keeps in step with is ever going to be shipped to a device (the operator's hold).
+
+**AND THE TWO RULES STILL WITHOUT A GATE**, unchanged from the hundred-and-sixty-second list: shadow KINDS (16) and icons (17).
+
+## The hundred-and-sixty-seventh list (CLOSED 2026-11-12 — the boxes are counted, the families are an inventory, and rule 16 was never as bare as the table said)
+
+Rule 16 (shadows, used sparingly and from one family) was the audit's remaining ungated rule, so it was measured rather than
+argued about. `app.css` declares **47** `box-shadow` values; grouped by what they resolve to:
+
+    none                          10      (a state that removes the shadow, not a shadow)
+    var(--ring)                    9      focus rings — a ring is not an elevation
+    var(--shadow-pop)              7      tokens.css, generated
+    var(--shadow-1)                3      tokens.css, generated
+    var(--shadow-2)                2      tokens.css, generated
+    var(--elev-segment)            3      **declared in app.css:2518, not in the token sheet**
+    var(--elev-2)                  2      **declared in app.css:2520 + a dark override, not in the sheet**
+    var(--ring)                    —      **declared in app.css:2520, not in the sheet**
+    0 0 0 1px var(--accent) inset  2      a ring drawn at the call site
+    inset 3px 0 0 var(--accent)    1      the warning card's edge
+
+**SO THE SHEET HAS SIX ELEVATION FAMILIES, AND THREE OF THEM ARE HAND-WRITTEN WHERE THE PAGE USES THEM** — the segmented
+control's raised sheet (`--elev-segment`), the popover's deep shadow (`--elev-2`, with its own dark value), and the focus ring
+(`--ring`). The generated sheet builds the other three from `device/ui/src/lib.rs`, and the Rust token gate already knows about
+these three because they are USED on the page (it counts `var(token)` uses), which is why nothing was red.
+
+**AND RULE 16 TURNED OUT TO BE MOSTLY HELD ALREADY — THE TABLE WAS WRONG, NOT THE SHEET.** `device/console/tests/tokens.rs` has
+enforced two halves of it since it grew them: **every `box-shadow` must name a `var(--…)`** (so a literal shadow panics by name),
+and **a declared elevation token must be used** (so a fourth family cannot be declared and forgotten). The audit's table said
+rule 16 was held "only as a family size by the scale pass" — that sentence described the browser gate and ignored the Rust one.
+
+**WHAT WAS GENUINELY MISSING** is the drift those two cannot see: a NEW value that names a token and is used once. Measured
+2026-11-12: `app.css` draws **15** distinct shadows — `none`, two transparent rings, two `color-mix` halos, `inset 3px 0 0
+var(--accent)`, `0 0 0 1px var(--accent) inset`, `0 0 0 4px var(--canvas)`, and six elevation families (`--shadow-1`, `--shadow-2`,
+`--shadow-pop`, `--elev-segment`, `--elev-2`, `--ring`). Those 15 are now a literal inventory in `layoutContract.test.ts`: an
+addition fails by name and has to be argued for in the diff. `67b9c0c`.
+
+**MUTATION**: `box-shadow: 0 2px 6px rgba(0,0,0,.08)` on `.card:hover` -> `draws shadows from an inventory, not from whatever the
+page needs` FAILED; restored, 60/60 in that file and 1,141 in the suite.
+
+**WHY IT WAS NOT MOVED IN THIS ROUND.** The tokens are GENERATED (`scripts/generate-tokens.sh` from `device/ui/src/lib.rs`), and
+`device/console/tests/tokens.rs` measures the sheet it produces — including the rule that *a ring is not an elevation and never
+counts as one*. Moving three tokens means editing the Rust source, regenerating, re-running that gate, and deleting the local
+block in the same commit; half of that leaves the sheet and its source disagreeing, which is the exact failure the generator
+exists to prevent. **The change is written down with its shape rather than started with ten minutes left.**
+
+**DONE 2026-11-12 (`8a1248b`, `0.3.274-ux213`).** `--elev-segment`, `--elev-2` (with its dark value) and `--ring` are in
+`device/ui/src/lib.rs`; `scripts/generate-tokens.sh` wrote 156 lines; `app.css`'s local block keeps only the evidence pair; the
+Rust gate's `every_box_shadow_is_an_elevation_token_or_none` and its declared-elevation loop both pass. Measured live after the
+deploy: `--elev-segment` `0 1px 2px rgba(0,0,0,.1)`, `--elev-2` `0 24px 60px -18px …`, `--ring` `0 0 0 4px color-mix(in srgb,
+#bf3a0a 22%, transparent)` — **all three resolve, and 11 elements carry a shadow**, so the move was value-for-value.
+
+    before   six elevation families, three hand-written where the page used them
+    after    six elevation families, all six in the generated sheet — one place answers "what may float"
+
+**THE LESSON, WHICH IS THE PROGRAM'S OWN SUBJECT**: the Rust gate could only count USES because the sheet could not SEE the
+declarations. A measurement that reads the page is weaker than a gate that reads the source the page is generated from.
+
+## The hundred-and-sixty-ninth list (CLOSED 2026-11-12 — the last ungated rule, and all twenty are now held)
+
+Rule 17 (icons, used sparingly and never alone) was the audit's last ungated rule. Measured live 2026-11-12 at 1440:
+
+    Home       5 <svg>   4 aria-hidden   0 unlabelled
+    Activity   5 <svg>   4 aria-hidden   0 unlabelled
+    Device     6 <svg>   4 aria-hidden   0 unlabelled
+
+The surface was already right — five glyphs, every one either decorative or inside a control that carries text. **Nothing was
+watching it**, which is how a product ends up with forty glyphs nobody named.
+
+**THE GATE**: every `<svg>` on Home — at most **8**, and none that is neither `aria-hidden` nor inside a named control. 106 steps
+become 107. `f1e69ce`.
+
+**MUTATION, AND TWO FALSE MUTATIONS FIRST.** Injecting an unlabelled `<svg>` into the sign-in card, then into a component Home
+never renders, both PASSED — the icon never reached the page under test. The third (into the rail, which every page draws) failed
+by name: `Home draws icons that are neither hidden nor labelled: ["rail"]`. **A mutation that never reaches the page proves
+nothing** — the third time this week that lesson has cost a round's worth of confidence, and it is worth writing down again.
+
+**THE LEDGER, CLOSED:**
+
+    1 system             tokens.rs (generated sheet)
+    3 fewer sizes        tokens.rs (seven sizes)
+    4 fewer weights      tokens.rs (four weights)
+    5 hierarchy          head.nameWhenClaim / nameWhenRepeated + the rendered gate
+    6 colour for meaning the palette gate (5-6 inks, all tokens)
+    11 fewer radii       tokens.rs (five canonical radii)
+    12 fewer borders     the footnote atom + the card grammar in the gate
+    13 readable text     tokens.rs (15 named pairs, AA, both themes)
+    15 no pure black     tokens.rs + the dark block's restatement
+    16 shadows           tokens.rs (names a token, declared is used) + the 15-value inventory
+    17 icons             the browser gate (≤ 8, none unlabelled)
+    18 reduced motion    five prefers-reduced-motion blocks, asserted
+    19 empty states      browser gate + jsdom, one state at a time
+    20 rhythm            tokens.rs (rem and px) + the scale pass
+
+## The hundred-and-seventy-first and -second lists (SHIPPED 2026-11-12 — the tool wiring gap, closed by two doors)
+
+SHIP-FAST mode's first two features, both from a measurement rather than a hunch: the LIVE catalogue (`GET /fleet/<id>/tools` on
+DESKTOP-9VH92BJ) advertises **46 tools**, the console's inventory named **32**. Fifteen had no door, and two families held most of
+them.
+
+| shipped | what it is | deploy |
+|---|---|---|
+| **Device → Memory** | the machine's memory read where an operator looks: a search box (`memory.search`), a list (`memory.list`), each entry's title, namespace · source · time, tags and a clamped body. **Read-only**: the writes (`append`/`update`/`delete`) are the next door, because a page that could delete but not restore is worse than one that cannot delete | `0.3.274-ux214` |
+| **Machine → Services this machine watches** | what the device probes on its own timer (`monitor.list`): the address, a WORD for its state (`Up` / `Down` / **`Not probed`** — a null is not a zero), up-since, up %, drops, the last HTTP status | `0.3.274-ux215`, fixed in `-ux216` |
+
+**THE LIVE CHECK EARNED ITS KEEP AGAIN.** `-ux215` shipped and the first live look said *"the machine answered monitor.list
+without a list"*. Measured through the console's own `/mcp`:
+
+    POST /mcp {"name":"monitor.list"} -> {"content":[{"text":"[]","type":"text"}]}
+
+The shipped device (0.3.292) answers a **bare array**; the newer source in this tree answers `{ok, interval_secs, targets:[…]}`.
+The page read only the newer shape, so a machine with nothing to watch reported a failure. `-ux216` reads **both**, and a test
+named for the shape only a live call could reveal pins it. `/fleet` measured after: the section says `This machine watches no
+services.`
+
+**WIRED NOW: 34 of 46.** The remaining twelve: the memory writes (3), the monitor writes (4), `browser.cast`, `host.facts`,
+`state.get`, `terminal.screen`, `forward.list` (that last one needs a device that ships the forward plugin).
+
+## The hundred-and-seventy-third list (SHIPPED 2026-11-12 — the machine can be asked, and the page says which answer it drew)
+
+Third SHIP-FAST feature, and the first one where the console stops trusting the frame: everything the Machine tab says about the
+hardware is the device's last **frame**, which can be hours old and says so. `host.facts` had been on the device all along.
+
+    Machine → This machine → [Read the machine now]
+        the block redraws from the live answer, and says: "Read from the machine just now." + [Show the last frame again]
+
+**DELIBERATELY NOT AUTOMATIC** — a live read costs a round trip and the frame is usually fresh; the case it exists for is a wedged
+channel with a live process, where a five-hour-old frame misleads. `HostFactsBlock.readFrom` gained its third member (`read`) rather
+than letting the two answers mix.
+
+**AND THE LIVE CHECK MEASURED THE WAIT**: the first version's button said `Reading the machine…` and did not move for **more than
+four seconds** (`host.facts` enumerates disks, sessions and the helper on Windows). `-ux218` counts: `Reading the machine… 6 s`.
+A label that does not move for five seconds reads as a hang.
+
+**WIRED NOW: 35 of 46.** Remaining eleven: memory writes (3), monitor writes (4), `browser.cast`, `state.get`, `terminal.screen`,
+`forward.list` (needs a device that ships the forward plugin).
+
+## The hundred-and-seventy-fourth list (SHIPPED 2026-11-12 — the watch list can be written, and the schema said so)
+
+Fourth SHIP-FAST feature: `monitor.add` and `monitor.remove` were two of the eleven unwired tools, and starting a watch meant
+opening a terminal on the machine.
+
+    Machine → Services this machine watches → [Watch a host and port]
+        Host to watch · Port to watch · Path to watch (optional — makes it an HTTP GET) → [Start watching]
+    each row → [Stop watching] → "Stop watching 127.0.0.1:19000? Its series is discarded. [Stop] [Keep]"
+
+**BOTH WRITES NAME THEIR SHADOW WHERE THE OPERATOR READS IT**: a watch is PERSISTED on the machine and survives a restart (said
+in the form), and stopping one DISCARDS its series (said in the confirmation, before the click).
+
+**AND THE LIVE ADD FOUND THE SCHEMA.** `-ux219` shipped and the first real click answered `monitor.add: the arguments do not match
+the tool's input schema`. Measured from the catalogue:
+
+    monitor.add  required: ["kind", "host", "port", "interval_ms"]  ·  additionalProperties: false
+
+The page sent `{host, port, path}`. `-ux220` sends `kind` (following the path the operator gave) and `interval_ms` (the device's
+own 15 s, named). The live proof after `-ux220`:
+
+    Watching 127.0.0.1:19000/health — the machine probes it every 15 s.
+    One target · 127.0.0.1:19000/health · Not probed · [Stop watching]
+
+**THE WATCH IS STILL THERE.** It was created on DESKTOP-9VH92BJ to prove the feature and it watches the console's own `/health`;
+the operator can stop it with the button this round shipped. Named here rather than removed, because a watch on the console's
+own health is worth having.
+
+**WIRED NOW: 37 of 46.** Remaining nine: memory writes (3), `browser.cast`, `state.get`, `terminal.screen`, `forward.list` (needs
+a device that ships the forward plugin), and `monitor.probe`/`monitor.status` (the list already carries what they report).
+
+## The hundred-and-seventy-fifth list (2026-11-12 — a feature REVERTED and three defects the live check found)
+
+The Memory tab shipped in `-ux214` and this round tried to add the soft delete. **It came out again**, and the reason is the round's
+first lesson:
+
+    memory.list (0.3.292, measured from /fleet/<id>/tools):  props ["limit", "tag"]   additionalProperties: false
+    memory.search (same build):                                props ["limit", "query"]
+
+The delete design needed `include_deleted: true` so a retired record would still be listed and could be restored. **This build has
+no such field**, so the Delete would have been a one-way door on the shipped fleet: the record disappears and the Restore the page
+offers can never be reached. `64b2583` reverts it; `memory.update` left the inventory with it. **The soft delete waits for a device
+build that carries the flag.**
+
+**THREE DEFECTS THE LIVE CHECK FOUND ON THE SAME PAGE, ALL FIXED:**
+
+1. **`#device/memory` drew nothing** — `surface-link.ts` kept its own copy of the tab list, so a tab the rail offers was unroutable
+   and the fragment fell through to the overview. The router reads `DEVICE_TABS` now (`691ef97`).
+2. **`the machine answered without a list`** — the shipped device answers `memory.list` with a **bare array of `{id, tags, text}`**
+   (no title, no content, no namespace, no timestamps), while the source in this tree answers `{ok, results:[{id, title, content,
+   namespace, source, created_at, updated_at, deleted}]}`. Both are read now, and a title is derived from the record's own first
+   line when the build has none (`bc12d1e`).
+3. **`no date` printed on every row** — `seconds()` turned an absent timestamp into 0 and `stamp()` printed it. An absent stamp is
+   null, and the meta line joins only the facts the record has (`34d8647`).
+
+**LIVE AFTER `-ux225`**: `5 entries · newest first`, the first reading *"summrise-agent canonical port is 7737 since 2026-11-04 (was
+18080)…"*, tags drawn, no invented date.
+
+**THE PATTERN, NAMED FOR THE NEXT ROUNDS**: the deployed fleet (0.3.292) answers THREE tools in shapes older than this tree's
+source — `monitor.list` (bare array), `memory.list` (bare array of a thinner record), `monitor.add` (four required fields). A console
+that reads only the tree's shape will keep failing on the fleet. **Read the wire, and keep a test for each wire shape found.**
+
+## The hundred-and-seventy-sixth list (SHIPPED 2026-11-12 — the landing page ends with three doors)
+
+First round on **priority 2** (the Overview's empty half). The page answered "what is this machine doing" and then stopped —
+measured 2026-11-12, 380 px of content in a 900 px window. The three things a person does next with a machine existed as tabs and
+none was reachable from the page itself.
+
+    [Open a terminal]          [Watch a service]          [Read its memory]
+     Take this machine's        Probe a host and port      What the AI learned here
+     keyboard                   on it
+
+A door is a TAB'S NAME and goes where it says (`terminal` / `machine` / `memory`) through the same `setTab` the strip uses; the
+notes say what the door is for. The row is cards in the same grammar as every other card, so it reads as part of the page rather
+than a toolbar bolted to the bottom.
+
+**LIVE AFTER `-ux226`**: three doors at y=424, 74 px tall, the page ends at 498; clicking *Read its memory* lands on `#device/memory`
+with the memory panel drawn. **The remaining space below is breathing room, not a gap to fill with rows** — that decision is the
+sixty-second list's and this round does not reopen it.
+
+## The hundred-and-seventy-seventh list (SHIPPED 2026-11-12 — the machine's own record)
+
+Everything else on the Machine tab is the console's claim about the machine; `state.get` is the MACHINE's claim about itself —
+health, release, pid, whether its own state document is readable, and the last ten events it recorded. One of the tools the console
+never called.
+
+    Machine → What the machine says about itself → [The machine's own record]
+        ok · release 0.3.292 · pid 20072 · [Read again]
+        10:08:32 begin state.get        allow · console
+        10:08:32 end                   console · ok
+
+**A POISONED DOCUMENT IS DRAWN, NOT THROWN**: `state: null` with `status: "degraded"` is exactly the state worth seeing, so the page
+says `its state document could not be read` instead of an empty record that reads like "nothing to say".
+
+**AND THE LIVE READ FOUND THE NESTED HEALTH.** `-ux227` shipped and the section drew **`unknown`** beside ten real events: the
+shipped device answers `{health: {pid, poisoned, status, version}, state, events}`, and the page looked for those fields flat.
+`-ux228` reads both, nested first. Live after it: `ok · release 0.3.292 · pid 20072`.
+
+**THE FOURTH WIRE SHAPE THIS WEEK** that the fleet answers differently from this tree's source (`monitor.list`, `memory.list`, `monitor.add`,
+`state.get`). The pattern is now the round's rule: **read the live answer before trusting the source.**
+
+**WIRED NOW: 38 of 46.** Remaining eight: memory writes (3), `browser.cast`, `terminal.screen`, `forward.list` (needs a device that
+ships the forward plugin), `monitor.probe`, `monitor.status`.
+
+## The hundred-and-seventy-eighth list (SHIPPED 2026-11-12 — probe a service now, and stop inventing its count)
+
+The card could only report the device's 15 s cadence, so "is it up NOW?" had no answer in the console. `monitor.probe {id}` takes a
+sample immediately and records it in the series.
+
+    each row → [Probe now] → the row redraws from the DEVICE's summary after the sample
+
+**The page re-reads `monitor.list` instead of drawing the sample it just got**: the device owns the series, and a row composed from
+one sample would be a second opinion beside the device's.
+
+**AND THE LIVE ROW SAID `0% of 0 probes`** — a sentence about nothing. Measured on 0.3.292, the summary is
+`{drops, last_status, since_ms, up_now, up_pct}`: **no `probes`, no `up`, no `down`** (the count lives in `monitor.status`, and the
+series is not in this build's list answer). The page defaulted the absent count to 0 and printed a percentage of it. The count is
+nullable now: `97% of 40 probes` when the build reports one, **`0% up in the window`** when it does not.
+
+**THE DEMO WATCH IS GONE.** The watch created in the hundred-and-seventy-fourth list to prove the feature pointed at
+`127.0.0.1:19000/health` and read **Down** — measured with `monitor.probe`, `{latency_ms: null, ok: false}`: the console does not
+answer on the machine's loopback. A watch that reports a false Down on the operator's page is noise, so it was removed
+(`{"removed": true}`, then `[]`). The feature was proven; the misleading object is not left behind.
+
+**WIRED NOW: 39 of 46.** Remaining seven: memory writes (3, blocked on the shipped schema), `browser.cast`, `terminal.screen`,
+`forward.list` (blocked on a device that ships the plugin), `monitor.status`.
+
+## The hundred-and-seventy-ninth list (SHIPPED 2026-11-12 — the session card shows the session's screen)
+
+`terminal.screen {id, lines}` answers a session's tail **as a person would see it** — escape sequences removed, read cursor untouched.
+It was the last read-only tool with an obvious use and no door: the Terminal page showed the card's facts and then a black rectangle.
+
+    Terminal → the session card → "The session's screen" → the last 8 lines (mono, capped at 12rem) · [Read again]
+
+**A SNAPSHOT, NOT A WINDOW**: the card reads once per session and again when asked; a live tail belongs to the terminal below, and a
+second stream in the card would be two answers to one question. Empty and failed are sentences, not blanks.
+
+**THE CONTRACT'S GATE REFUSED THE FIRST DRAFT**: `no bare line-height survives: expected [ 'line-height: 1.45' ] to deeply equal []`
+— the sheet's `--lh-tight` is what it wanted. A gate doing its job on a CSS line I typed without thinking.
+
+**THE LIVE CHECK COULD NOT SEE IT**: the card only exists once a terminal session does, and the fleet had none open at the time
+(`terminal.list` → `[]`). Recorded as a limit rather than claimed as a screenshot: the component's own tests draw all three states.
+
+**WIRED NOW: 40 of 46.** Remaining six: memory writes (3, blocked on the shipped schema), `browser.cast`, `forward.list` (blocked on
+a device that ships the plugin), `monitor.status`.
+
+## The hundred-and-eightieth list (SHIPPED 2026-11-12 — Home says the fleet's watches in one line)
+
+The console can start a watch on any machine, and Home said nothing about them. One line under the verdict:
+
+    Watching 1 service · all up
+    1 service is down: DESKTOP-9VH92BJ: 100.74.250.98:19000/health
+
+**READ ONCE PER MEMBERSHIP CHANGE, NOT PER POLL**: four online machines are four cheap calls, and a page that re-read them every few
+seconds would spend more on this line than on the fleet itself. A watch that cannot be read is dropped rather than counted as up.
+
+**AND THE LIVE LINE SAID `across 2 machines`** — the read answers for every ONLINE machine, so the count measured the machines that
+answered, not the machines that watch something (`-ux233` drops it).
+
+**`monitor.status` IS DELIBERATELY NOT WIRED**: measured live on 0.3.292 it answers the SAME summary `monitor.list` carries
+(`{drops, last_status, since_ms, up_now, up_pct}`) — a second door to one fact would be a second answer to one question.
+
+**AND ONE USEFUL WATCH NOW EXISTS ON THE FLEET**: `100.74.250.98:19000/health` (the console's own health over Tailscale), added to
+prove the add/status path, measured **up 200, 100%** — it stays, unlike the loopback one from the hundred-and-seventy-eighth list.
+
+**WIRED NOW: 40 of 46, plus one deliberate omission.** Remaining: memory writes (3, blocked on the shipped schema), `browser.cast`,
+`forward.list` (blocked on a device that ships the plugin).
+
+## THE WEEK'S LEDGER (2026-11-12 — SHIP-FAST, rounds 51–64: what shipped, what the live check caught, what is left)
+
+**32 commits, 21 console deployments** (`0.3.274-ux213` → `-ux233`), every one verified on `console.saisi.online` before it was
+recorded here.
+
+### Shipped (each a door or a page a person can see)
+
+| what | deploy | the measurement it answers |
+|---|---|---|
+| **Device → Memory** — search + list of the AI's records on a machine | `-ux214`, `-ux224`, `-ux225` | the device had 6 memory tools and the console had no surface for any of them |
+| **Machine → Services this machine watches** — the device's probes, with a WORD per state | `-ux215`, `-ux216` | 5 monitor tools, no door |
+| **Watch a host and port / Stop watching** | `-ux219`, `-ux220` | start a watch without a terminal on the machine |
+| **Probe now** | `-ux229`, `-ux230` | "is it up NOW?", which the 15 s cadence cannot answer |
+| **Read the machine now** (`host.facts`) | `-ux217`, `-ux218` | the Machine tab only ever showed the last FRAME |
+| **The machine's own record** (`state.get`) | `-ux227`, `-ux228` | the console's claim vs the machine's claim about itself |
+| **The session's screen** (`terminal.screen`) | `-ux231` | the card showed facts, then a black rectangle |
+| **The machine's three doors** on Overview | `-ux226` | 380 px of content in a 900 px window |
+| **Home says the fleet's watches in one line** | `-ux232`, `-ux233` | the fleet's verdict knew nothing about the watches |
+
+**Tool wiring: 32 of 46 → 40 of 46**, plus one deliberate omission (`monitor.status` answers the same summary `monitor.list`
+carries — measured, not assumed).
+
+### What the live check caught that no test would have
+
+**Ten defects, every one found by looking at the deployed page or calling the deployed tool** — not by the suite:
+
+    monitor.list answers a BARE ARRAY                     → "the machine answered monitor.list without a list"
+    monitor.add requires kind, host, port, interval_ms    → "the arguments do not match the tool's input schema"
+    memory.list answers a BARE ARRAY of {id, tags, text}  → "the machine answered without a list"
+    state.get nests its health under "health"             → "unknown" beside ten real events
+    the router kept a SECOND copy of the tab list         → "#device/memory" drew nothing
+    an absent timestamp became 0 and printed "no date"    → five rows, five invented dates
+    an absent probe count became 0                        → "0% of 0 probes"
+    "across 2 machines" counted machines that ANSWERED    → a watch that spanned nothing
+    a 4-second wait with a frozen label                   → reads as a hang
+    the panel bundle's MTIME, not its bytes, was stale    → a device build that refuses to start
+
+**The lesson is a file now**: `docs/superpowers/specs/2026-11-12-device-wire-shapes.md` records what the fleet answers, tool by
+tool, and the rule that follows — **read the live answer before trusting the source, and keep a test per shape found.**
+
+### Numbers, at the close
+
+| | |
+|---|---|
+| console vitest | **70 files / 1,162 tests** (was 67 / 1,141) |
+| console Rust | **437** |
+| browser gate | **107 steps**, PASS |
+| panel vitest | **120 files / 1,066 tests** |
+| panel Rust gates | **1 · 2 · 5** |
+| contract | sha256 `51abc1df…`, byte-identical in both repositories |
+
+### What is left, and why each one is not a defect
+
+1. **The device's forward feature has never run.** No live build carries the plugin (`0.3.292` advertises 46 tools, none
+   `forward.*`). Blocked on a device release — which the operator holds.
+2. **The memory writes (append/update/delete).** `memory.list` on the shipped build accepts only `limit` and `tag`; a soft delete
+   without `include_deleted` is a one-way door, so it was built, tested, and **reverted** (`64b2583`).
+3. **`browser.cast`.** The Screen page already draws the browser view from `browser.screenshot`; the cast stream would be a second
+   answer to one question, and its shape has not been measured.
+4. **TS types generated from Rust.** The engineering debt named earlier in the week and not yet paid: the tool-name inventory and the
+   tab list are hand-kept copies of things Rust already knows. **This is the next round's first job.**
+
+## The hundred-and-eighty-first list (SHIPPED 2026-11-12 — the fleet table opens the week's two pages)
+
+Round 1 of the continued program. The console can watch a service on a machine and read what its AI learned there, and **neither was
+reachable from the table a person uses to PICK a machine** — Home's rows offered Copy diagnostics, Rename and Remove.
+
+    ⋯ → Watch a service   → that machine's Machine tab (where the watch form is)
+        Read its memory   → that machine's Memory tab
+
+The menu is where a row's management already lives, so the doors went there rather than into a new column. **LIVE after `-ux234`**:
+`["Copy diagnostics","Watch a service","Read its memory","Rename","Remove"]`, and clicking *Read its memory* lands on
+`#device/memory` with the panel drawn.
+
+**AND THE ROUND'S FIRST FINDING IS A FLEET FACT, NOT A CONSOLE DEFECT**: the device's browser cannot start —
+
+    browser.list → "the browser did not start: chrome exited with exit code: 1002 before it answered
+                    http://127.0.0.1:65224/json/version; no stderr output"
+
+The Screen page's Browser view already says exactly that (`The device's answer` line), so `browser.cast` stays unwired until a browser
+can run: **a live view of a browser that cannot start is a door to a wall.** The sentence belongs to the device's upgrade, which the
+operator holds.
+
+## The hundred-and-eighty-second list (SHIPPED 2026-11-12 — a down watched service reaches the verdict)
+
+The console can watch services; Home's verdict counted machines away or behind and said nothing about a service the machine's own
+probe reports **DOWN**.
+
+    NEEDS ATTENTION
+      workshop                                     ●
+        A watched service is down: 10.0.0.5:443/health.
+
+**THE PROBE'S OWN ANSWER IS THE EVIDENCE** — `up_now: false`, read from the machine; never inferred from a stale count. The machine
+joins the verdict's "needs attention" count, the row's dot is the block's warn tone, and the clause names the target while the row's
+heading names the machine. **No watch is invented when nothing is down**: the attention model takes an empty map on a healthy fleet
+and the block is unchanged — measured live after `-ux235`: `3 of 4 online · 2 need attention`, `Watching 1 service · all up`, and the
+same two rows as before.
+
+## The hundred-and-eighty-third list (SHIPPED 2026-11-12 — the tool inventory is measured, not typed)
+
+The engineering debt named earlier in the week, paid. `toolNames.test.ts` carried **forty tool names as literals**, added by hand one
+round at a time — forty chances to mistype a name that only a live device can refute.
+
+**THE INVENTORY IS A SNAPSHOT NOW**: `device/console/web/src/device-tools.snapshot.json`, taken from the live fleet
+(`GET /fleet/<id>/tools`, **46 tools, 0.3.292**, each with its `required` and `props`), refreshed by one command —
+
+    bash scripts/device-tools-snapshot.sh <device-id-or-name> [release]
+
+The test fails on **a name this page calls that no measured catalogue has shown**. The one exemption — `forward.list`, because no
+live build carries the forward plugin — is a named constant with its own test: **it must still be called, and it must still be ABSENT
+from the catalogue**, so a device that ships the plugin makes the exemption fail rather than linger for a year.
+
+**MUTATION-PROVEN**: deleting `memory.list` from the snapshot fails the gate with `a name this page calls that no measured catalogue
+has shown: expected [ 'memory.list' ] to deeply equal []`; restoring it passes.
+
+**THE RED LINE HELD**: the snapshot records NAMES AND SCHEMAS, never answer SHAPES. The fleet answers older shapes than the source
+tree — generating TYPES from the tree would re-introduce the five defects that made the wire-shapes file necessary.
+
+## The hundred-and-eighty-fourth list (SHIPPED 2026-11-12 — Activity's Timeline can show only the failures)
+
+Activity's header says `Today: 529 client calls, 51 failed …` and the Timeline — the page's default view — had no way to show only those
+rows: the Table carried a status filter, the Timeline did not. Measured live: the controls were `Timeline | Table | Live | Pause`,
+`MACHINES`, `CALLERS: Clients only`, `SEARCH ACTIVITY`.
+
+    CALLERS: [Clients only] [Failures only]
+
+The page owns the choice (shared with the Table, so a view switch cannot drop it); the timeline applies it over the same `auditFailed`
+rule the row's warning uses — **the derived outcome, not the HTTP status**, because a device's JSON-RPC error arrives as a 200. The
+narrowing counts toward the collapsed-filters number, so a hidden control that still filters cannot exist.
+
+**LIVE AFTER `-ux236`**: `Failures only` present, pressed on click, and the Timeline's rows went **120 → 62**.
+
+## The hundred-and-eighty-fifth list (2026-11-12 — the ledger re-take found a RED gate the deployments had walked past)
+
+**`bash scripts/gate-ledger.sh` was written to re-take a snapshot. This round it found a gate that was actually red.**
+
+    cargo test -p summrise-console   437 passed
+    …
+      test result: FAILED. 14 passed; 1 failed
+    LEDGER: RED — a suite above failed; the ledger's row for it is wrong until it is fixed.
+
+The failure was mine, from the session-screen round:
+
+    border-radius word "var(--r-sm)" is not a radius token or 0:
+      margin: var(--sp-1) 0 0; padding: var(--sp-2); border-radius: var(--r-sm);
+
+`--r-sm` does not exist in this sheet — the radius tokens are `--radius`, `--radius-sm`, `--radius-sm2`, `--radius-xs`,
+`--radius-lg`, `--radius-pill`. So the declaration was INVALID, the radius fell back to 0, and **`-ux231` shipped with a square panel
+where a 10 px one was meant**. The radius gate had been red since that round, and I had run vitest and the browser gate but not the
+Rust suite.
+
+**FIXED** (`var(--radius-sm2)`), the suite is green (**437 · 2 · 1,166 · 107 steps**), and the ledger's own row is updated.
+
+**THE LESSON IS THE TOOL'S**: a deployment is not a verification. The browser gate reads the RENDERED page and cannot see an invalid
+CSS declaration (the browser drops it silently); the Rust token gate can, and it only runs when someone runs it. `gate-ledger.sh`
+exists to be that someone.
+
+## The hundred-and-eighty-sixth list (SHIPPED 2026-11-12 — where the failures are, one click from their rows)
+
+The header said how many failed; nothing said **where**. A person reading `51 failed` needs the three tools doing most of it before
+they can act, and the window already holds them.
+
+    Failures by tool:  runs.exec · 50   browser.list · 3   monitor.status · 2
+
+Each chip narrows to **that tool AND the failures** — the two filter fields the controls already own. Computed from the drawn window
+(`shownActivity`), never from a second read: the page's counts and its rows come from one list.
+
+**LIVE AFTER `-ux238`**: the line reads `Failures by tool: runs.exec · 50 browser.list · 3 monitor.status · 2`, and clicking the
+first chip sets the search box to `runs.exec` and turns `Failures only` on (`aria-pressed: true`).
+
+**AND IT NAMED A REAL FLEET FACT** the record had not said out loud: of the window's failures, **50 are `runs.exec`** — a command door,
+not a display one. The console's own `browser.list` failures (3) and `monitor.status` refusals (2) are the noise this week's rounds
+created, and they are legible now.
+
+## The hundred-and-eighty-seventh list (SHIPPED 2026-11-12 — a schema refusal names what the machine expected)
+
+The failures line from the previous list said `runs.exec · 50`, so the window was read directly:
+
+    runs.exec   status 424   "runs.exec: the arguments do not match the tool's input schema"
+    caller "client", kind "mcp", token b7bd1473…, device fe209… (DESKTOP-84T3LIN, 0.3.291)
+    13 of that token's 17 runs.exec calls failed — and the same token's terminal.* calls: 138, every one ok
+
+**So it is a CLIENT sending wrong arguments to one tool, not a console defect** — but the console's row said only `runs.exec failed`,
+naming no argument, and a reader cannot fix an integration from that sentence.
+
+**THE CONSOLE ALREADY HELD THE ANSWER**: the machine's catalogue carries each tool's `inputSchema`. A row that failed on its
+arguments now shows, in its evidence panel, the fields the machine expects — required first:
+
+    This machine expects   [command · required] [args] [cwd] [env] [shell] [timeout_ms]
+
+Read through `useLiveTools`' shared 30 s cache (three refused rows on one machine cost one read), and nothing is drawn when the
+catalogue has no such tool.
+
+**LIVE AFTER `-ux239`**: opening a failed `runs.exec` row draws exactly `command · required args cwd env shell timeout_ms`.
+
+## The hundred-and-eighty-eighth list (SHIPPED 2026-11-12 — one row goes to all rows of its tool)
+
+Chasing the `runs.exec` cluster meant reading every row of one tool, and the record had no way from a single row to that set.
+
+    Tool  runs.exec  [All rows]   →  the page's own tool filter, set from the row
+
+**AND THE ATTRIBUTION IS MEASURED NOW** (the 400-row window read directly, not the page's 600):
+
+    failures in the window                                     21
+      runs.exec   13 — every one from token b7bd1473… on fe209… (DESKTOP-84T3LIN, 0.3.291)
+      browser.list 3 · monitor.status 2 · monitor.add 2 · memory.list 1 — the console's own probes, unattributed
+
+**Eight of the window's twenty-one failures are this week's own rounds** (the probes that measured the fleet), and the whole
+`runs.exec` cluster is ONE client token sending wrong arguments to ONE tool — not a fleet failure, and not a console defect.
+
+**LIVE AFTER `-ux240`**: the first row's evidence shows `runs.exec` + `[All rows]`; clicking it sets the search to `runs.exec`.
+
+## The hundred-and-eighty-ninth list (SHIPPED 2026-11-12 — the first 390 measurement of this week's tabs, and two fixes it earned)
+
+The week's new tabs (Memory, Machine with its services and its own record) had never been looked at on a phone.
+
+**MEASURED at 390 x 844**: both pages report **0 px of horizontal overflow** and no element wider than the viewport — the page's boxes
+were fine. The defects were inside the parts:
+
+1. **The tab strip's right chevron sat ON the selected tab.** With `Memory` selected the label read `Memor›`: the page had scrolled
+   the tab into view and then drawn "there is more to the right" on top of it. The scroll now keeps clear of the chevron's own width
+   (measured at runtime) and re-runs one frame later, because the chevron is drawn by the first pass's `syncEdges` and cannot be
+   measured before it exists.
+2. **The memory search stacked into two blocks.** The field's `flex: 1 1 16rem` basis is wider than a phone's row, so the button
+   wrapped onto its own line. A 12 rem basis keeps field and button on one row down to 390.
+
+**AFTER `-ux241` and `-ux242`**: `Memory` is fully legible in the strip, the search is one row, and the page still reports 0 px of
+overflow. Screenshots: `/tmp/live-*.png`, the round's own captures at 390 x 844.
+
+## The hundred-and-ninetieth list (SHIPPED 2026-11-12 — the services card at 390: a phantom gap and buttons inside a sentence)
+
+Two defects, both measured at 390 x 844 on the Machine page:
+
+1. **A closed `<details>` reserved its content's space.** The disclosure's box was **44 px** while its `<form>` still computed
+   **201 px** — the form's own `display: flex` keeps it laid out in this engine, and the card drew a void under
+   `Watch a host and port`. Fixed by stating the hiding rather than inheriting it:
+   `.service-add:not([open]) > *:not(summary) { display: none; }`. After: the form computes `display: none`, **0 px**.
+2. **The row's controls sat inside the sentence.** The card read `100% up in the window HTTP 200 Probe now Stop watching` — two
+   buttons mid-text. They start a row of their own now (`.service-actions`), so a row reads as facts, then what a person can do
+   about them.
+
+**AFTER `-ux243`**: the card's children measure `DETAILS h=44 → P.hint → UL.service-list`, the phantom 201 px is gone, and the two
+controls sit on their own line under the facts.
+
+**A NOTE ON WHAT LOOKED BIGGER THAN IT WAS**: the remaining ~68 px between the disclosure and the first row is the disclosure's own
+box (44) plus its margins (12 + 6) — the card's rhythm, not a void. The void was the 201 px that is now zero.
+
+## The hundred-and-ninety-first list (SHIPPED 2026-11-12 — the run form is one field per row on a phone)
+
+The Tools tab at 390 x 844: the command field took a row and the working directory (`flex: 1 1 10rem`) and timeout (`7.5rem`) shared
+the next one, so the form read as **two unequal columns on a screen with no room for columns**.
+
+    @media (max-width: 639px) { .runs-field.command, .runs-field.cwd, .runs-field.timeout { flex: 1 1 100%; } }
+
+**AND THE CONTRACT GATE REFUSED THE FIRST DRAFT**: `no width is claimed by both query forms: expected [ 640 ] to deeply equal []` —
+the sheet folds at **639**, I wrote **640**, and one pixel would have been claimed by both sides of the fold. The gate exists because
+the panel made exactly that mistake; it caught mine before the build did.
+
+**ALSO MEASURED ON THE SAME PASS, AND FOUND FINE**: the Tools list (`46 tools · 11 capabilities`, a group header, each tool's own row)
+and the Processes table (four columns, the fourth labelled for a screen reader because it holds `Protected` or a Kill control) both
+report 0 px of horizontal overflow at 390 and read cleanly.
+
+## The hundred-and-ninety-second list (SHIPPED 2026-11-12 — a gate against the week's mobile defect class)
+
+**The week's four mobile defects had ONE shape**: a width chosen for a desktop row carried into a phone — the chevron over the selected
+tab, the memory search stacked, the run form's two unequal columns, a closed disclosure keeping its form's height. A rule now takes
+the widest of them by the throat:
+
+    a `flex` basis in rem wider than the phone's usable row (~300 px after the page's own padding)
+    must appear inside the `max-width: 639px` fold as well
+
+**MUTATION-PROVEN**: adding `flex: 1 1 26rem` to `.service-list` fails with `a wide rem flex-basis with no 639 fold for its selector:
+expected [ '.service-list (flex basis 26rem)' ] to deeply equal []`; the revert passes.
+
+**AND THE FOLD ITSELF TAUGHT A SECOND LESSON.** The first version of the processes-filter fold went into the file's EARLIEST 639 block —
+four hundred lines above `.system-field.filter { flex: 1 1 16rem; }` — so the base rule won the cascade and the phone still drew the
+filter and `Refresh` stacked, **after `-ux245` had already been deployed**. Both rules were individually right; the order was wrong.
+Found by looking at the 390 screenshot, not by the tests. `-ux246` puts the fold directly after the rule it refines, with the extra
+`.system-toolbar` as specificity's belt: measured after it, the field ends at x=283 and `Refresh` begins at x=291 on the same row.
+
+## The hundred-and-ninety-fourth list (SHIPPED 2026-11-12 — Home says what is happening right now, in one line)
+
+The operator's note that the mobile work is not urgent took the program back to the product's own question. Home answered "what needs
+me" (the verdict, the attention rows) and "what is there" (the fleet table); it never answered **"is anything happening right now"**,
+which lived a whole page away on Activity.
+
+    ● Now: runs.exec on DESKTOP-9VH92BJ · 12 s ago
+
+**ONE LINE, AND IT DISAPPEARS**: drawn only while the console's live stream is `live` AND the newest call is younger than two minutes —
+a quiet fleet shows nothing rather than a stale sentence. It skips channel boundaries (`device.left` is not work), names the machine
+from the fleet list, marks a failed call, and reads no new source: it is the stream Activity and the Machine page already follow.
+
+**LIVE AFTER `-ux247`**, measured twice in one session:
+
+    before the probe   Now: monitor.list on DESKTOP-84T3LIN · 5 s ago
+    after one call     Now: host.facts on DESKTOP-9VH92BJ · 3 s ago
+
+## The hundred-and-ninety-fifth list (SHIPPED 2026-11-12 — the Now line is a door into the call's own record)
+
+The line shipped in the previous list names a call; the next question is always "and what happened". It is a button now:
+
+    ● Now: runs.exec on DESKTOP-9VH92BJ · 12 s ago ›      →   Activity, filtered to that tool on that machine
+
+**NO NEW STATE, NO SECOND READ**: Activity already owns the tool filter and the machine filter; the door sets both and switches the
+page. The line keeps the sentence's own look (a button with no chrome), so the page still reads as prose — the affordance is the
+chevron and the underline on hover.
+
+**LIVE AFTER `-ux248`**: the line read `Now: host.facts on DESKTOP-9VH92BJ · 4 s ago ›`, and clicking it landed on `#activity` with
+the search box set to `host.facts`.
+
+## The hundred-and-ninety-sixth list (SHIPPED 2026-11-12 — a finished run's Now line opens the run itself)
+
+The Now line's door opened Activity scoped to the call — right for a read, wrong for a **run**. `runs.exec` names its run in the
+detail (`run <id> exited 0 in 42 ms`), and what a person wants next is that run's OUTPUT, which the Device page's Runs tab already
+focuses by id.
+
+    ● Now: runs.exec on DESKTOP-9VH92BJ · 12 s ago ›   →  Device → Runs, focused on that run
+    ● Now: files.read on DESKTOP-9VH92BJ · 8 s ago ›   →  Activity, filtered to that tool on that machine
+
+**ONE REGEX, ONE MEANING**: the page hands the line's detail to the app, which applies the same `/^run (\S+) /` rule the audit table
+uses to draw a run link — so a run id is read one way in both places.
+
+**LIVE AFTER `-ux249`**: a real `runs.exec` (`cmd.exe /c echo hi`, exit 0, `run-1794488232172-547`) drew
+`Now: runs.exec on DESKTOP-9VH92BJ · 3 s ago ›`, and clicking it landed on `#run/<device>/run-179448…` with the runs view drawn.
+
+## The hundred-and-ninety-seventh list (SHIPPED 2026-11-12 — Home shows the call that has NOT answered yet)
+
+The console's live stream knows what is IN FLIGHT — a `started` frame without its `finished`, dropped by the proxy's own cut when a
+device goes silent — and Home drew only what had already happened. A long `runs.exec` therefore looked like an idle fleet until it
+answered.
+
+    ● Running: runs.exec on DESKTOP-9VH92BJ · 7 s in
+
+**A CALL IN FLIGHT OUTRANKS ONE THAT ALREADY ANSWERED**: the band draws the run and steps the finished line aside, so the page has one
+pulse at a time, and the age keeps counting from the page's own clock. A start older than two minutes is dropped — the proxy's own
+cut is the authority, and a stale "running" would be a lie.
+
+**THE SHADOW INVENTORY REFUSED THE FIRST DRAFT** — `the shadow inventory: expected [ …(16) ] to deeply equal [ …(15) ]`: the pulse dot
+had been given a glow. The pulse is said in the word `Running:`; the dot is the accent, no glow, no new shadow.
+
+**LIVE AFTER `-ux250`**, one slow call, read twice:
+
+    during   Running: runs.exec on DESKTOP-9VH92BJ · 1 s in
+    after    Now: runs.exec on DESKTOP-9VH92BJ · 1 s ago ›
+
+## The hundred-and-ninety-eighth list (SHIPPED 2026-11-12 — the browser view stops asking a machine that cannot start one)
+
+**The audit named this one two rounds ago** (the failures-by-tool line): `browser.list` STARTS the device's browser, so on a machine
+where chrome cannot come up, **every look at Screen → Browser fired a doomed call** — three `browser.list` failures in one window,
+all of them the console's own.
+
+The pane now remembers the machine whose launch failed, per machine, in memory; it shows **that machine's own answer** (the exit code
+and the port it never answered) and waits for the operator's `Refresh pages` instead of asking again by itself. A launch that works
+retires the memory; another machine is another question.
+
+**LIVE AFTER `-ux251`**, counting `browser.list` lines in the audit directly:
+
+    before the visit                        4
+    after opening Screen → Browser          5     (one call)
+    after leaving and coming back           5     (no second call)
+
+## The hundred-and-ninety-ninth list (SHIPPED 2026-11-12 — a tab from before the deploy is told so)
+
+**THREE FAILURES THE AUDIT COULD ONLY EXPLAIN ONE WAY**: in a single window, `monitor.add`, `memory.list` and `monitor.status` were each
+refused with `the arguments do not match the tool's input schema`, every one `caller: console`, on a build whose own code sends the
+right arguments. A **page left open across a deploy** was calling in the language of the older bundle.
+
+    <meta name="console-version" content="0.3.274-ux254" />    stamped by the server at start
+    /health                            → {"version":"0.3.274-ux254"}
+    differ                             → "A newer console is deployed (…); this page is … Reload to use it."
+
+The server stamps the embedded page once (`stamped_page`, built from the process's own version — a process-wide `OnceLock`, so the
+handlers keep their signatures and the route tests keep passing); the page reads its `<meta>` and compares it with `/health`, re-read
+once a minute because a tab that stays open does not repeat a session probe. The placeholder survives in a `dist/` opened without a
+server, and then the page makes no claim.
+
+**AND THE LIVE PROOF FOUND WHAT THE TESTS COULD NOT** — second pass in the same round: the banner had been written INSIDE the failure
+stack, which the shell draws only when an action has failed. A page stamped `-ux200` against a console serving `-ux253` sat for eighty
+seconds with nothing, while `/health` answered the newer version in the same page. `-ux254` hoists the notice into its own stack above
+the page.
+
+**LIVE AFTER `-ux254`** (the page's own `<meta>` rewritten to an older build by the probe, the server answering the current one):
+
+    A newer console is deployed (0.3.274-ux254); this page is 0.3.274-ux200. Reload to use it.   [Reload]
+
+## The two-hundredth list (SHIPPED 2026-11-12 — Home's verdict carries the day's failures, and the count is a door)
+
+Home answered what needs a person and what is there; **the day's failures** — the number an operator acts on — lived only on Activity.
+
+    ● Today 51 of 529 calls failed ›      →  Activity, with `Failures only` already on
+
+**ONE READ OF THE FLEET'S DAY** (`/audit/day`, no device id — the same answer Activity's default scope shows), and **a silence is not a
+zero**: a failed read draws nothing rather than claiming "no failures today". The sentence names both numbers, so the count cannot be
+read as 51 failures out of nothing.
+
+**LIVE AFTER `-ux255`**: the line read `Today 51 of 529 calls failed ›`, and clicking it landed on `#activity` with `Failures only`
+pressed (`aria-pressed: true`).
+
+## How a round goes
+
+1. Read this file; pick the first item that is not done.
+2. Implement it in the smallest shippable shape; write the tests that prove it.
+3. `npm test`, `npm run typecheck`, `scripts/build-web.sh --check`, the token gate, the browser gate.
+4. Build the console with a new `-uxNN`, swap it on the host, run the live check, screenshot.
+5. Commit with the measurement and a `VERIFIED:` list. Tick the item here in the same commit.
+
+## A decision C4 forced, recorded here
+
+**Per-call approval of destructive tools does not exist in this console, and C4 deleted its last
+vestige.** The `/next/approvals/*` routes were the only approval surface; the pending map nothing
+populated, so no call was ever held. Destructive tools are allowed per grant (`allow_destructive`),
+and the audit records the refusal when a grant does not carry it. If per-call approval is wanted, it
+is a new feature with a real holding mechanism — not a page to restore.
+
+## Not on this list, and why
+
+- **A fleet-wide board.** The toolbar's picker is the model; the operator rejected a second
+  navigation.
+- **Decision events.** The console sees actions; the AI's reasoning is the client's to publish.
+- **The cube.** A renderer for a page that does not exist yet; revisit after P0.
+
+## P0 — the third list (audited 2026-11-05, live 0.3.273-ux43; items done as noted)
+
+Measured on `https://console.saisi.online` with Playwright at 1440×960 and 390×844, 05:00–05:20
+UTC. `/health` read `{"devices":3,"online":3,...,"version":"0.3.273-ux43"}` and `/session`
+answered through the proxy. Every number below is from the page or its own `/audit?limit=1000`
+read; nothing here is a suspicion, and the two lists above are not re-opened.
+
+1. **The day count drops the calls its own token proves.** *(Done 2026-11-05, 327ea3a, live ux44: a line is a client call when the caller says so, or when the caller is absent and it carries a token — 14RJCR8 reads 363, not 62.)* Of the 1000-line window, 30 rows say
+   `caller: "console"`, 62 say `"client"`, and **908 say nothing**; **376 rows carry a `token_id`**
+   and **0 of the 30 console rows do**. Of the 908, 314 carry a token (client calls) and 594 carry
+   neither (unattributed). Today `DESKTOP-14RJCR8`'s window has **940 rows and 363 client calls**
+   (62 marked plus 301 token-only), but its hub reads **"Today 62 client calls · last 04:43"** —
+   **5.9× low; 301 calls (82.9%) missing**. **Cost:** the one number the operator reads in the
+   morning is wrong on the machine that worked, and 594 rows cannot be read as the AI's or the
+   console's. **Fix:** a `token_id` is the client proof, absence of both caller and token is
+   "unattributed", used by the day line, the row mark and the Activity filter; no new server field.
+   **M.**
+
+2. **The machine's day is 51,620 px and its capability line is at the bottom.** *(Done 2026-11-05, 9f17e51: capability line under the Now band; newest 60 rows with a real "Show the rest of today (N more)"; 51,127 px -> 3,731 at 1440, 51,135 -> 3,739 at 390.)* On
+   `DESKTOP-14RJCR8` at 1440 the hub draws **935 rows** (one day) in a **51,620 px** `main`, and
+   "46 tools · 11 capabilities · 0 plugins" sits at **51,599** — 56 screens down; at 390 it is 936
+   rows, 51,684 px, the counts line at 51,669. Even the quiet `DESKTOP-9VH92BJ` spends 4,433 px on
+   64 console rows at 390. **Cost:** the answer to "what can this machine do now" costs a 50k px
+   scroll; the day cannot be scanned. **Fix:** move the counts line into the header and cap the
+   hub's timeline (newest ~100, "All activity" for the rest). **M.**
+
+3. **The run form is 2,940 px below the Tools tab.** *(Done 2026-11-05, 2dfb35f: the form precedes the catalogue — y 3,912 -> 115 at 1440, 4,093 -> 149 at 390; the catalogue keeps its order and search.)* Tools is **3,848 px** tall in a 908 px
+   viewport; "Run a command on this machine" starts at **3,773** and the only path is past the
+   46-tool catalogue (at 390: 4,070 px, 739 px viewport, 3,331 px of scroll). `runs.exec` is 139 of
+   the 1000 lines. **Cost:** two clicks and three screens for the most-used write; Runs, the
+   history, has no run control. **Fix:** put the form at the top of Tools, above the catalogue. **S.**
+
+4. **The cap sentence disappears at exactly 1000.** *(Done 2026-11-05, c704084: "Showing the newest 1000 lines — the window's limit." in both views, from the fetched length; absent at 999.)* `/audit?limit=1000` returns **1000** lines; the
+   page draws **997** (the merge drops 3 duplicates), sets `capped` false, and neither view says
+   "Showing the newest 1000 lines; older ones are not on this page." The oldest row is 16:18
+   yesterday. **Cost:** a 997-row slice reads as the whole record; the lines behind the server's cap
+   are silently gone. **Fix:** set `capped` from the fetched window's length (`>= ACTIVITY_LIMIT`),
+   not from the merged list. **S.**
+
+5. **The biggest stretch is 470 rows and its summary arrives after them.** *(Done 2026-11-05, 7a2cb68: a stretch longer than 10 rows states itself above the rows; a one-call stretch has no label — 666 labels -> 333 in the 1000-row harness, 333 are single-call noise.)* Activity draws **997
+   rows** and **64** stretch labels (05:12); **28 say "1 call"** and one says "2 calls · 0 s". The
+   largest is **"470 calls · 51 m 30 s"**: 470 rows, 25,850 px, 46% of the 56,143 px timeline, and
+   **360 of the 470 are "Read a terminal's output"**; the label is drawn after the 470 rows.
+   **Cost:** the only summary of half the page cannot be used to skip the work it describes, and 28
+   labels mark a single row. **Fix:** draw the summary at the top of the stretch, name the dominant
+   tool, and fold a stretch above 50 rows from its label. **M.**
+
+6. **The fleet row counts the attempts and hides the reason.** *(Done 2026-11-05, a8e67d7: "Reconnected after 3 attempts — HTTP error: 502 Bad Gateway", the device's words verbatim, one line with the full text in the title; absent when there is no reason.)* Two of the three rows read
+   **"Reconnected after 3 attempts"** (`DESKTOP-9VH92BJ`) and **"Reconnected after 4 attempts"**
+   (`DESKTOP-CPH4KB2`); the fleet read's `last_attempt.reason` is **"HTTP error: 502 Bad Gateway"**
+   and **"the console accepted the channel and then dropped it"**, and neither string is on the
+   page. **Cost:** a proxy 502 and a channel drop read as the same healthy reconnect; the operator
+   cannot tell whether to look at the edge or the machine. **Fix:** append the reason to the muted
+   line when the fleet carries one. **S.**
+
+7. **Activity has no day count and no way to narrow to the AI.** *(Done 2026-11-05, c33296d: "Today 363 client calls · 12 failed · 587 unattributed" under the heading, and a "Clients only · N" chip; console rows have their own bucket and are never folded into unattributed.)* It draws **997 rows (980 today)** —
+   363 client-proven, 30 console-marked, 587 unattributed, and 12 failed (the 12 are in the
+   unattributed set; the 62 marked client calls are all 200) — and its header says only
+   "Following the console's audit as it is written." The only client filter is Table → Token
+   (`dsh-aggregate`): two clicks and a select; the timeline's four machine chips cannot separate the
+   AI from the console. The newest row on the page is a console read (its own `plugins.list`).
+   **Cost:** the page's stated job — what the AI did — takes a view switch and a guess. **Fix:** one
+   "Today 363 client calls · 12 failed · 30 console reads · 587 unattributed" line and a Client
+   calls chip using the same rule as 1. **S/M.**
+
+### Cuts
+
+- **C6. The Terminal page says "no session" twice.** *(Done 2026-11-05, 7fcbf21: the top empty card is gone; the sentence next to the session list stays.)* "No session is open on this machine." at
+  y=228 and "No session is open on this device. New session opens a shell; it appears here once it
+  is running." at y=336, 108 px apart; the second carries the action, the first is the page's
+  duplicate. Delete the first. **S.**
+- **C7. The hub's subtitle duplicates the account menu's console version.** *(Done 2026-11-05, bdc0775: the subtitle says Running/Offline; Account keeps the console build.)* "Running · console
+  v0.3.273-ux43" is the page's one subtitle; the Account menu prints "Console 0.3.273-ux43". At 390
+  the header chip drops the device's "v0.3.274", so the one build on the page is the console's,
+  which the menu already has. Delete the version from the subtitle; keep the menu's. **S.**
+
+## Updates, 2026-11-05: what is now true and what is not yet proven
+
+**True, with evidence.** Three machines run 0.3.275 (9VH92BJ, 14RJCR8, CPH4KB2) and 14R's
+`C:\SummriseInstall\current.txt` names `0.3.275` with `versions\0.3.275\summrise-device.exe` present —
+the versioned layout is live, not planned. The canary channel is re-signed to 0.3.275 and
+`scripts/verify-release.sh` passes (artifact digest, installer served, sha256 a693ab2a…). The
+launcher's own `--migrate-layout` reports "already on the versioned layout", and the device's
+`state.json` records `update {phase, to, outcome, lastResultAtMs}`, `lastVerdict`, a
+`baseline.sha256`, and a `rolledBack` history — so checking, verdicts and rollbacks are not
+theoretical.
+
+**Not yet proven, and the next rehearsal.** No machine has yet walked from 0.3.275 to a newer
+version *by itself* in front of us: that needs a 0.3.276 build published to the channel and the
+device's own scheduled check to stage it, the launcher to probe it on a scratch port, the pointer to
+flip, and `current.txt` to follow — with the old directory left behind for the rollback. Until that
+run is watched, "zero-human update" is structurally true and experimentally unverified; this note is
+here so nobody upgrades the claim without the run.
+
+### The rehearsal, as far as it got (2026-11-05 08:21 UTC)
+
+0.3.276 was published (installer served, channel pointer 0.3.276 read back from
+`release-canary.json`). `SummriseRepair` was triggered on DESKTOP-14RJCR8; within the same minute the
+machine left the tailnet (`tailscale status`: "offline, last seen 3m ago"; `tailscale ping` timed
+out), so it is asleep or off the network, not a dead service — a dead service leaves the peer online.
+**Unknown until it wakes:** whether the pointer flipped to 0.3.276 (the rehearsal passed) or stayed
+at 0.3.275 (the probe refused). Both outcomes are safe by design: a refused candidate leaves the
+pointer untouched. When the machine is back, read `C:\SummriseInstall\current.txt`, the `versions\`
+directories, and `state.json`'s `update`/`lastVerdict`; that is the evidence, not the version in the
+fleet alone.
+
+### Why an installed 0.3.276 did not become current (measured 2026-11-05)
+
+On DESKTOP-9VH92BJ after installing 0.3.276 (installer exit 0, health still 0.3.275):
+
+```
+C:\Program Files\Summrise\versions = 0.3.275, 0.3.276
+C:\Program Files\Summrise\current.txt = 0.3.275
+C:\Program Files\Summrise\versions\0.3.276\summrise-device.exe exists = True
+```
+
+The installer **did** stage the new version; the **pointer never moved**. The NSIS script runs
+`summrise-launch --migrate-layout`, which on an already-migrated install answers "already on the
+versioned layout" and does nothing — so every upgrade after the first migration installs files that
+nothing points at. The installer understands the first migration and not the second upgrade.
+
+**The fix:** after the files land, the installer must call the launcher's upgrade path —
+`--install-version <versions\V> <sidecar>` (probe, then atomic pointer write) or `--apply` — and the
+page must show the result. Until then, "installer exit 0" means "files copied", never "running".
+
+### The real reason a staged version is never made current (measured 2026-11-05, host)
+
+Running the launcher's own upgrade path by hand on DESKTOP-9VH92BJ:
+
+```
+summrise-launch.exe --install-version "…\versions\0.3.276" "…\versions\0.3.276\summrise-device.json" …
+launch: version 0.3.276 failed its health check and was not made current:
+cannot copy C:\ProgramData\Summrise\device.lock: another program has locked a part of the file
+(os error 33)
+EXIT=1
+```
+
+The probe copies the whole data directory to run the candidate on a scratch port, and the **running
+app holds `device.lock`**. So the candidate can never start, the probe always fails, and the pointer
+never moves — on every machine, every time. The NSIS script calling `--migrate-layout` is the second
+bug; this is the first and it alone would block every upgrade.
+
+**The fix:** the probe's copy must exclude the files the running app owns — `device.lock`,
+`device.pid`, `device.port`, `restarts.jsonl`'s open handle — and give the candidate its own lock and
+port file. A test must run a probe while the data dir contains a locked `device.lock` and still pass.
+
+### The last gap after 182a064 (2026-11-05) — closed
+
+The probe now survives a locked `device.lock`, the installer calls `--install-version` on a migrated
+install, and it accepts the launcher-signed sidecar — so a staged version can be verified and the
+pointer moved. But `--install-version` is **pointer-only by design**: after it returns, the running
+service still serves the old version until its next start, and the setup does not restart it. So an
+install would still end with `current.txt` naming the new version while the old process answers
+`/api/health` — the same visible symptom as before, for a different reason.
+
+**Closed by `installer: after the pointer moves, the process follows and the version is proven`.**
+After a successful `--install-version`, `summrise.nsi` stops and starts `SummriseLaunch` with a
+bounded wait, then polls `http://127.0.0.1:<port>/api/health` for up to 30 s until the body reports
+`"version":"<setup version>"`. The launcher also accepts `--install-version --restart`, which
+commits `current.txt`, restarts the owner through the same seam `--migrate-layout` uses, and
+requires the restarted process to answer with the installed version. A restart or version mismatch
+is non-zero; `current.txt` keeps naming the new version, `previous.txt` keeps naming the old one, and
+the old version's directory is untouched — so the operator's rollback is one pointer write.
+
+**The contract, in one sentence:** setup exit 0 ⇒ `/api/health` reports `${VERSION}`; setup exit
+non-zero ⇒ the old version still serves (the launcher's start watch rolls `current.txt` back to
+`previous.txt` after two failed starts, and the pointers are left in place for the operator's own
+rollback).
+
+## Updates, 2026-11-05 09:45 UTC: the upgrade path is proven on two machines
+
+Two machines walked 0.3.275 → 0.3.277 through the fixed chain (stage `versions\<V>\`, probe the
+candidate on a scratch port while the live `device.lock` stays locked, write the pointer atomically,
+restart, require `/api/health` to report the new version):
+
+- DESKTOP-9VH92BJ: 0.3.275 → **0.3.277**, online, and `/fleet` carries its own words —
+  `update.current = 0.3.277`, `update.verdict = {outcome: ok, detail: started 0.3.277}`.
+- DESKTOP-CPH4KB2: 0.3.275 → **0.3.277**, online.
+- DESKTOP-14RJCR8: still 0.3.275 and **off the tailnet** (asleep since 08:21). It is not a failed
+  update: a failed service leaves the peer online. Upgraded when it wakes.
+
+The three bugs that made every earlier install a no-op are fixed and tested: the probe copied a
+locked `device.lock` (os error 33), the installer only ever ran `--migrate-layout`, and a moved
+pointer did not restart the process. The contract now holds: **setup exit 0 ⇒ `/api/health` reports
+the installed version; non-zero ⇒ the old version still serves and the pointers are left for a
+one-write rollback.**
+
+## P0 — the fifth list (audited 2026-11-05, live 0.3.273-ux49)
+
+Measured on `https://console.saisi.online` with Playwright at 1440×960 and 390×844, 09:46–10:15 UTC.
+`/health` read `{"devices":3,"online":2,...,"version":"0.3.273-ux49"}`; `/fleet` had
+DESKTOP-9VH92BJ and DESKTOP-CPH4KB2 on 0.3.277 and DESKTOP-14RJCR8 offline on 0.3.275, which
+carries no `update` section. Every number below is from the page or from its own `/audit` answer. The folding
+holds: 60 rows, then 108 after “Show the rest of today (47 more)”, then 112 after four live lines,
+with the control gone; the capability line is at 410 px at 1440 and 426 at 390; a paused page says
+“Paused” in the live chip and froze 949 rows for 11 s. The offline device with no `update` section
+draws no update line — correctly: it said nothing.
+
+1. **A tool's own refusal is written as a success.** *(Done 2026-11-05: the device answers a
+   failed `runs.exec` with MCP's tool-level error — `{"result":{"content":[{"type":"text","text":
+   "runs.exec: program not found"}],"isError":true}}` — and the console now reads that `isError`
+   where it actually is: inside the device's JSON-RPC `result`, not at the top of the forwarded
+   body. The previous unit and console tests built a bare `{content,isError}`, a shape no device
+   emits, so they were green while `/audit` stayed 200 with no detail. A device that predates the
+   rule and answers a `tools/call` with a JSON-RPC error envelope is a refusal too: 424 with the
+   bounded envelope message, while ping/initialize/tools.list keep 200. The two console tests now
+   send the device's real envelope and record the measured call as
+   `{"tool":"runs.exec","status":424,"detail":"runs.exec: program not found"}`; the device tests
+   pin the missing-program, exit-2 and timeout results and keep a malformed request an error
+   envelope.)* At 10:00:17 on DESKTOP-9VH92BJ the Tools form
+   ran `echo audit5-live` and answered **“Could not run the command: runs.exec: program not found”**
+   in 4 ms; the same call is `/audit`'s 10:00:17 line — `runs.exec`, **status 200**, sentence “Ran a
+   command”, no `detail` — and the timeline draws it “Ran `echo audit5-live` … console 4 ms” with no
+   *failed* word. The browser already treats `result.isError` as a refusal (`terminal.ts:87-89`); the
+   proxy treats every `Reply::Result` as `ok` (`http.rs:3113-3121`), and `run_detail` returns `None`
+   for a result that is not a run, so nothing in the file records the refusal. **Cost:** the record
+   cannot answer which of today's runs failed: the operator's failed run is a green row, and a
+   client's `runs.exec` that returns `isError` is a successful client call that never reaches the
+   failed count. **Fix:** when a `tools/call` result carries `isError: true`, write the device's
+   message as `detail` and `ok:false` on the audit line and the live event (`AuditLine.ok` already
+   exists), and let `auditFailed` read it. **M.**
+
+2. **Activity's “M failed” counts every caller, beside a client-call count.** At 09:52 the header
+   read **“Today 301 client calls · 55 failed · 21 unattributed”**; the page's own
+   `/audit?limit=1000` answer (1000 lines, 949 drawn after 34 `device.left`/`device.joined` lines and
+   17 duplicate `(ts,tool,status)` keys) holds **54 non-200 rows: 37 client, 15 console, 2
+   unattributed** — and the header read 55, one failed row more than the fetched window held.
+   **Cost:** 18 of the 55 failed rows (33%) are not the AI's calls; the sentence's grammar (“301
+   client calls · 55 failed”) reads as a failure rate for the AI that the record does not support
+   (37/301 = 12.3%, not 18.3%), and the hub's own line counts client failures only (“Today 283
+   client calls · 38 failed” on 14RJCR8), so the word means two things on two pages. **Fix:** count
+   the failures per bucket on the hub's rule and put the client's first — “Today 301 client calls ·
+   37 failed · 21 unattributed · 15 console reads failed”. **S.**
+   *(Done 2026-11-05: the sentence leads with the client's calls and the client's failures, names the
+   console's failures as their own clause and states the failures among the unattributed rows in a
+   parenthetical — “Today 301 client calls · 37 failed · 15 console failures · 21 unattributed (2
+   failed)”. With `Clients only` on, the header is the hub's shape — “Today 301 client calls · 37
+   failed” — and the chip's two caller counts are the two rows the list draws. Measured on the
+   fixture: `Today 2 client calls · 1 failed · 1 console failure · 2 unattributed (1 failed)`, then
+   `Today 2 client calls · 1 failed` with only the two client rows drawn; `npx vitest run` 602 passed
+   across 51 files; typecheck clean; build clean; `./scripts/build-web.sh --check` clean.)*
+
+3. **The machine that is down has no age, and the only absence it dates says it came back.**
+   DESKTOP-14RJCR8's newest `device.left` is **08:18:06** (1 h 49 m at 10:07); `/fleet` serves
+   `online:false`, no `last_frame_ms`, `last_seen_ms` 08:06:04 and `last_outage {away_ms:1009,
+   back_at_ms:08:06:04}`. The fourth list's pair derivation (8449fc8) only closes an absence on a
+   later join, and this one has no join after the 08:18 close, so `/fleet` serves the previous pair
+   instead. The fleet row at 1440 and 390 reads **“DESKTOP-14RJCR8 offline v0.3.275”** with no age
+   (45 px at 1440, 87 at 390); the device notice reads “This machine is offline. Nothing on this page
+   can reach it until it reconnects…” with no age; the machine menu reads **“Offline · v0.3.275 back
+   2h ago after 1s”**. **Cost:** the one absence the console witnessed (the close at 08:18) is on no
+   surface, while the only line that dates an absence says a one-second one ended two hours ago. A
+   machine down for two hours reads like one that just dropped, and the compare line says it is
+   back. **Fix:** serve the newest `device.left` with no join after it (`audit.rs` already names that
+   case “a device that is still away”) as the silence's start, age it on the row, the notice and the
+   menu (“offline · since 08:18, 1 h 49 m”), and draw `last_outage`'s “back…” line only for an online
+   machine. **S.**
+   *(Done 2026-11-05: `/fleet` serves `last_left_ms` — the newest `device.left` that no
+   `device.joined` closed, from the same newest-2,000-line read as `last_outage`, omitted when absent.
+   The row, the notice and the terminal's notice age an offline machine from the newest evidence the
+   console has: `last_frame_ms`, then that close, then the registry's `last_seen_ms`; the minutes are
+   stated, so 1 h 49 m cannot read as “2h ago”. The measured sentence is **“offline · last seen 1h 49m
+   ago”** at both 1440 and 390 against a fixture with no `last_frame_ms`. The machine menu draws the
+   pair's “back …” line only when no later close has started a silence: the measured stale pair now
+   reads **“away since 08:18”** (with the disk: “C: 312 GiB free · away since 08:18”), while a current
+   return still reads **“back 2h ago after 41m”**. Measured: `cargo test -p summrise-console` 365
+   passed / 0 failed / 2 ignored (1 new audit unit test, 1 new fleet integration test); clippy
+   `--all-targets -- -D warnings` clean; `cargo fmt --check` clean; `npx vitest run` 613 passed across
+   51 files (11 new); typecheck and build clean; `./scripts/build-web.sh --check` clean; browser gate
+   PASS 19 steps (the offline row read at 1440 and 390, and the chip-on header); `a11y-audit` 0
+   findings across 16 page states.)*
+
+4. **The console's own reads are most of both timelines.** Activity at 1440 draws **949 rows, 627 of
+   them console-marked (66%)**, in **55,973 px**. The “Clients only” chip (c33296d) works — 301
+   rows, 18,236 px — but it is off by default, and the hub has no equivalent. DESKTOP-9VH92BJ's hub
+   draws **60 rows, 56 console (93%)**, above **“Today 4 client calls · last 08:55”**; at 390 its
+   first screen is two “Listed the plugins … console” rows. (14RJCR8's hub is the other way — 13
+   console of 60 — because it is offline and the console cannot poll it.) **Cost:** the 60-row fold,
+   added to make the day scannable, buys four rows of the AI's work on the busiest machine; the
+   page's own count and Now band already decide the console's reads are not the AI's, and the rows
+   still are the list. **Fix:** draw client-proven rows on both timelines and fold the
+   console's own reads behind one counted line (“56 console reads today”), keeping them in the Table.
+   **M.**
+   *(Done 2026-11-05: the hub's timeline now draws what its day count counts — a line is the
+   AI's call when its caller says so, or when no caller is recorded and it carries a token — and the
+   console's own reads are folded behind one `Console reads · N` chip, off by default and per view,
+   one click to add and one to fold. The chip counts the day's console rows, the rows stay in
+   Activity and the Table, and an AI-empty hub says “No client calls yet; the console's own reads
+   are hidden.” with the chip still offered. Activity is the audit and keeps every caller by default:
+   its existing “Clients only” chip is the narrowing, and the hub's chip is not rendered there. The
+   day fold follows the drawn list, so it counts the AI's rows rather than the console's polling.
+   Measured in the browser-gate harness with the measured shape in the fixture (4 client calls + 73
+   console reads; the newest 60 hold 56 console): at 1440 the hub went from **60 rows / 3,969 px to
+   4 rows / 908 px**, and at 390 from **60 / 3,977 to 4 / 812**; the chip read `Console reads · 73`
+   and one click restored 60 rows / 4,005 px (77 after “Show the rest of today”; the 60-row/56-console
+   case pins 4 rows and `Console reads · 56` in jsdom). Measured: `npx vitest run` 620 passed across
+   51 files (4 new); typecheck and build clean; `./scripts/build-web.sh --check` clean; browser gate
+   PASS 21 steps; `a11y-audit` 0 findings across 16 page states.)*
+
+5. **The update line repeats the running version and dates nothing.** On the 1440 fleet row,
+   `v0.3.277` sits at x=1233 and **“started 0.3.277 (updated)”** at x=350, 22 px apart; at 390 the
+   same card spends two of its lines on `v0.3.277` and `started 0.3.277 (updated)`. Every device tab
+   at 1440 shows `Running · v0.3.277` in the header and the same started line at y=129, and the
+   Machine tab adds `build 0.3.277 · online` — three copies. `/fleet`'s `update.last_update` is
+   `{to: "0.3.273", applied, 2026-11-04 19:11}` on 9VH92BJ (14 h 30 m before its 09:41 start of
+   0.3.277) and `{to: "0.3.275", applied, 07:21}` on CPH4KB2 (2 h 22 m before its 09:43 start), so
+   “(updated)” is attached to a start it predates and names neither the version it moved to nor
+   when. **Cost:** the story's one question — “did the 0.3.277 update take?” — cannot be answered
+   from the line, while the running version is printed twice on the row and three times on the
+   Machine tab. **Fix:** draw the version once and, when `last_update.to` is not `update.current`,
+   print the update's own target and age (“last update to 0.3.273, 15 h ago”) or nothing. **S.**
+   *(Done 2026-11-05: the line now states only the fact the chips cannot. The newest entry in the
+   host frame's `restarts` journal is when the running process started; an updater's answer with
+   `at_ms` before that moment is history — the start it produced proves the update took — so the
+   row draws no update sentence for the measured 9VH92BJ/CPH4KB2 shapes at all. An answer inside
+   the current start is drawn as `updated 12m ago` (applied), `update to 0.3.276 refused`, or the
+   rollback sentence, never as `(updated)` attached to the start. The version is no longer
+   repeated: the fleet row's own chip and the header's `Running · v…` each keep one copy, a start
+   sentence whose only content is that version draws no line, and a start naming a version the
+   surface does not show is kept as the contradiction it is. The Machine tab's line is now
+   `online`/`offline` with no `build X`. Measured: the gate's online row read `update to 0.3.43
+   refused` with its version exactly once; the Machine tab carried no `build `; `npx vitest run`
+   631 passed across 51 files (11 new); typecheck and build clean; `./scripts/build-web.sh
+   --check` clean with dist committed; browser gate PASS 23 steps; `a11y-audit` 0 findings across
+   16 page states.)*
+
+6. **The cap sentence's 1000 is the fetch's, not the list's.** The sentence landed in c704084; its
+   number is the fetched window's, not the drawn list's. DESKTOP-14RJCR8's hub at 09:57 says
+   **“Showing the newest 1000 lines; older ones are not on this page.”** and, 60 rows later, **“Show
+   the rest of today (917 more)”** — 977 rows. Its `/audit?device=` (the same window, whose newest
+   line is 09:23:43) has 1000 lines, 6 `device.left`/`device.joined` and 17 duplicate keys: 977
+   drawn, 23 not. Activity at 1440 draws **949** rows under **“Showing the newest 1000 lines — the
+   window's limit.”**; its 1000-line window has 34 boundaries and 17 duplicates: 51 not drawn.
+   **Cost:** the page's two counts cannot both be true (1000 and 60 + 917), and the 23/51 rows are
+   hidden by rules the sentence does not name; the cap sentence is the only place a cut is
+   explained. **Fix:** say what was read and what is drawn (“1000 read · 977 shown; 23 channel facts
+   and repeated lines are not drawn”), from the same list the fold counts. **S.**
+   *(Done 2026-11-05: the sentence is built from the counts the merge already makes.
+   `mergeActivityReport` returns the repeated keys it dropped, `mergeActivityWindow` adds the two
+   reads' length and the channel boundaries in the window it holds, and `capSentence` names the
+   drawn/fetched pair and only the kinds that were withheld: **“Showing the newest 949 lines of 1000
+   fetched (34 channel events, 17 repeats not drawn).”** With nothing withheld it keeps the simple
+   form. The timeline and the hub use the timeline's counts (boundaries dropped); the audit Table is
+   the audit and draws the boundaries, so it reads **“Showing the newest 983 lines of 1000 fetched (17
+   repeats not drawn).”** A paused page freezes the counts with its rows: the measured fixture held
+   949 of 1000 while a live line arrived, then read 950 of 1001 on Resume. Measured on the measured
+   fixtures: Activity 949/34/17; the hub 977/6/17 above “Show the rest of today (917 more)”.
+   `npx vitest run` 642 passed across 51 files (11 new); typecheck and build clean;
+   `./scripts/build-web.sh --check` clean with dist committed; browser gate PASS 23 steps;
+   `a11y-audit` 0 findings across 16 page states.)*
+
+### Cuts
+
+- **C8. The `echo hello` example.** *(Done 2026-11-05: replaced, not deleted. The field names the
+  program the device's own `host.os.name` says it has — `cmd.exe /c echo hello` on Windows,
+  `uname -a` elsewhere — and says `program and arguments`, with no example, when the fleet has no
+  OS fact (an offline machine, or a console that restarted since the last frame). Measured on
+  DESKTOP-9VH92BJ with the form's exact argv (`command: "cmd.exe"`, `args: ["/c", "echo",
+  "hello"]`): exit 0, stdout `hello`, 40 ms (run-1793879410419-7), where the old placeholder's
+  shape answered `runs.exec: program not found` in 4 ms; `uname` is `/usr/bin/uname` on the Linux
+  host. The shell-mode placeholder keeps
+  `echo hello && echo bye`, because there `echo` is the shell's own command.)* The run form's
+  placeholder is `echo hello` at both widths and the
+  help says “Split on whitespace; no quoting.” On the two machines that answer — both Windows 11 —
+  `echo` is a shell builtin, not a program: running the placeholder's own shape (`echo audit5-live`)
+  answered “runs.exec: program not found” in 4 ms and wrote the green line in item 1. Delete the
+  placeholder, or name a program the machines have; the help already says how the field splits. **S.**
+- **C9. The fleet row's “Reconnected after 1 attempt — …” subline.** *(Done 2026-11-05: deleted from
+  the row, not dated. `/fleet` serves `last_attempt` as a count and a reason with no moment of its
+  own, and the row's only moment — the last frame — is after the reconnect, not at it, so any date
+  there would state a different fact. No fleet row draws a reconnect line now: an online row reads
+  “online · seen 12s ago”, its version, and the device's own “started 0.3.277 (updated)” when it
+  sent an update story. The attempt stays in Copy diagnostics, below the ISO moment the console
+  last heard the machine.)* Both online rows carry it (17 px
+  each), both carry `last_attempt {attempts: 1, reason: "the console accepted the channel and then
+  dropped it"}`, and neither dates it; the 0.3.277 restarts at 09:41 and 09:43 are the one failed
+  attempt, and at 10:07 the sentence still reads as a fault. Delete it from the row (Copy
+  diagnostics already carries the device record), or date it in the machine menu. **S.**
+
+## P0 — the sixth list (audited 2026-11-05, live 0.3.273-ux55)
+
+Measured on `https://console.saisi.online` with Playwright at 1440×960 and 390×844, 21:07–21:35
++08:00 (13:07–13:35 UTC), browser timezone `Asia/Shanghai` — the console host's own (`Get-TimeZone`
+on DESKTOP-9VH92BJ: `China Standard Time`). `/health` read
+`{"devices":3,"online":3,...,"version":"0.3.273-ux55"}`; DESKTOP-14RJCR8 read offline from 13:24
+(its Terminal said `Last seen 3m ago`) and `offline · last seen 6m ago` at 13:33. Visited at both
+widths: the fleet, the machine menu, all three hubs, Activity's timeline, table and an opened
+record, the device tabs, the Connect sheet's Endpoint and Tokens sections, and a run's record. The
+record's own facts are from
+`C:\SummriseConsole\audit.jsonl` on the console host: **28,056 lines, 4,995,461 bytes**, first line
+2026-10-22 10:55:58 UTC, last 2026-11-05 13:14:06 UTC (14.1 days). It is not unbounded: the console
+rotates it at 8 MiB to one `audit.1.jsonl` (`AUDIT_MAX_BYTES`), which does not exist yet, so the
+whole record is ~16 MiB at most.
+
+What holds, measured: a refusal is a **424 with its reason** (`runs.exec: program not found` at
+11:08:38, `device reconnecting` at 09:23:43, the 504 sentence at 17:23:41); an offline machine's age
+is the newest evidence (`offline · last seen 6m ago` on the fleet row, `Last seen 3m ago` on its
+Terminal); the console's own reads are folded behind a counted chip (`Console reads · 552`); the
+update line no longer repeats the running version; the run form's placeholder is
+`cmd.exe /c echo hello`; and no fleet row draws a reconnect sentence.
+
+1. **There is no route to an answer older than the window.** *(Superseded 2026-11-05 by the seventh
+   list's item 2: `GET /audit?from=&to=` plus the Time control is the real read, and the item's own
+   "make the Time select a real read or delete it" is answered — the select now issues the range and
+   the URL carries it. No separate commit; the seventh item's done note is the record.)* `/audit`
+   takes `limit` and `device` and nothing else, and `limit` is clamped to **1000** (`MAX_LOG_LIMIT`, `http.rs:50`). The fleet's
+   window is **8.5 h** (04:35:49–13:15:28 UTC); DESKTOP-14RJCR8's 1,000 lines are **10.3%** of its
+   9,747 (9.7 h), DESKTOP-9VH92BJ's **5.7%** of 17,606 (22.8 h). The Table's Time control (All time /
+   Last hour / Last day / Last week) flips to `Last week` with **0 requests** and the same **985
+   rows**; no control on Activity or a hub fetches an older answer — the only "more" is the hub's
+   `Show the rest of today (223 more)`, which expands the list in hand. The Files tab offers
+   Workspace and Shared; its Workspace root lists 54 deploy/scratch files and not `audit.jsonl`, so
+   the 27,000 lines behind the window are reachable only by a shell on the console host reading
+   `C:\SummriseConsole\audit.jsonl`. **Cost:** "what happened at 09:00 yesterday" costs a remote
+   shell and a text search, and the one control that reads as a time query is a filter over eight and
+   a half hours. **Fix:** add `GET /audit?before=<ts>` (scan from the cursor, return the previous
+   1,000) with one older control in Activity and on the hub, and make the Time select a real read or
+   delete it. **M.**
+
+2. **"Today" is the window's today, and the pages disagree about it.** At 21:23 the Activity header
+   read `Today 269 client calls · 39 failed · 16 console failures · 0 unattributed`; the same local
+   day in the audit file holds **649** client calls and **74** failures (2,017 rows from 00:00).
+   DESKTOP-14RJCR8's hub read `Today 283 client calls · 38 failed · last 17:23` against **554** client
+   calls and **53** failures in the file — **271 calls (49%) and 15 failures (28%) are older than its
+   window**, which starts at 11:23 local. The three hubs read **11 + 283 + 84 = 378** client calls,
+   so Activity's 269 and the hubs' 378 disagree with each other and both are under the file's 649
+   (Activity is 41% of the day; 380 calls missing). The fifth list fixed *who* the count counts; it
+   still counts only the lines the window holds. **Cost:** the morning number is half the busiest
+   machine's day, its failure count is 28% short, and two surfaces of the same day print different
+   totals. **Fix:** when the window's oldest line is after local midnight, count the day from the
+   file (a bounded scan of today's lines) or state the hours the number covers, with one rule for the
+   hub and Activity. **S/M.**
+   *(Done 2026-11-05: `GET /audit/day` scans `audit.jsonl` backwards from the newest line, stops at
+   local midnight, and counts the page's four buckets; `/fleet`'s `today` and the hub's day sentence
+   read the same day, and Activity's header reads the route while its cap sentence keeps describing
+   the fetched window. A file that starts after midnight says `since HH:MM`; the 50,000-line bound
+   says `bounded` and names the bound. Tests first: a fixture whose window holds 3 of the day's 10
+   client calls reports 10 for today and 3 for the window; a count taken twice as the window slides
+   does not decrease; a file starting mid-day reports `since`.)*
+
+3. **The hub's summary counts lines it cannot show and never names the rows it hides.**
+   DESKTOP-14RJCR8's hub draws **60** rows under `Showing the newest 974 lines of 1004 fetched (9
+   channel events, 21 repeats not drawn); older ones are not on this page.`, with `Show the rest of
+   today (223 more)` and `Console reads · 552`; expanding the rest draws **283**, adding the console's
+   rows draws **835**, and the sentence still says **974** — the lines beyond both controls are the
+   rows with no caller, which the same machine's Activity header counts as `120 unattributed (1
+   failed)` and the hub offers no row, chip or count for. The fifth list's cap-sentence fix counts
+   the merged day list; on the hub that list is 974, and what is drawn is 60 before either control.
+   DESKTOP-9VH92BJ's hub draws **11** rows and `Console reads · 122` under `Today 11 client calls ·
+   1 failed`, while its Activity header counts `111 unattributed (7 failed)`; there is no cap
+   sentence because that window is not cut, so the 111 rows get no sentence at all. **Cost:** the
+   one sentence that explains a cut claims 139 more lines than the page can show, and a day with
+   111–140 rows the console cannot attribute reads as 11 client calls and nothing else. **Fix:**
+   build the hub's day line and cap sentence from the three buckets it can draw, name the
+   unattributed rows with Activity's count, and replace the single "showing" number with what the
+   controls hold (`60 drawn · 223 more · 552 console reads`). **S.**
+   *(Done 2026-11-05: the hub's window sentence counts the three buckets its fold and two chips can
+   draw — client calls, console reads, unattributed — and no longer prints the fetched total. The live
+   before sentence was `Showing the newest 974 lines of 1004 fetched (9 channel events, 21 repeats not
+   drawn); older ones are not on this page.` while expanding and the console chip reached **835** and
+   the rows with no caller (Activity counted `120 unattributed` for that day) had no control. For the
+   shape this item pins — 974 drawable, 1004 fetched, 60 folded, 111 unattributed — the sentence is
+   now `Showing the newest 60 of 974 lines (283 client calls, 580 console reads, 111 unattributed; 9
+   channel events, 21 repeats not drawn); older ones are not on this page.`, and `Showing all 974
+   lines (...)` once the fold and both chips are on. The third fold `Unattributed · 111` is the bucket
+   Activity's header already counted; it is drawn whenever it has rows, so DESKTOP-9VH92BJ's uncut
+   window (19 client calls, 145 console reads, 111 unattributed) gets the chip even without a cap
+   sentence. Polls are not reads on this page; they, the channel boundaries and the repeats are named
+   "not drawn". One rule, stated in the comment: the same `isClientCall`/`isConsoleRead`/`isPoll`/
+   `isUnattributed` predicates Activity's header uses, so the sentence's 283 client calls is the day
+   line's 283. A test parses every number in the sentence and pins it ≤ the 974 rows the controls
+   draw and expanding reaches the last claimed row (`Unattributed 110`). Measured on the gate's own
+   974-row window (the same 283/580/111 shape): at 390, 60 rows drawn and 974 reachable after the two
+   chips (fold label 914 more); at 1440, the fold draws 974 and the sentence says all 974; no fetched
+   number appears. `npx vitest run` 666 passed across 51 files; typecheck and build clean;
+   `./scripts/build-web.sh --check` clean with dist committed; browser gate PASS 29 steps;
+   `a11y-audit` 0 findings across 16 page states.)*
+
+4. **The fleet compares presence and disk; nothing compares work.** The three fleet rows are 45 px
+   of dot, name, `online · seen 44s ago`, version and `›` — no calls. The machine menu's three rows
+   add the disk and nothing else: `I: 24.3 GiB free`, `C: 19.7 GiB free`, `E: 30.1 GiB free`. The
+   day counts are **11 / 283 / 84** client calls, one per hub; Activity's machine chips can produce
+   them one at a time (measured **11 / 290 / 91**) in three chip clicks, and the chips carry no
+   counts. The menu's silence is also incomplete: at 390 DESKTOP-14RJCR8, offline by frame silence,
+   read `Offline · v0.3.275` and its disk line with no age, while the fleet row behind it read
+   `offline · last seen 6m ago`. **Cost:** "which machine is doing the work / failing / quiet" is
+   three screens, the one screen whose job is comparing compares disk, and the machine that went
+   quiet without a close loses the one fact its row has. **Fix:** serve a per-device day summary from
+   `/fleet` (client calls, failures, last call, from the audit's today scan) as one muted line on the
+   fleet row, and read the menu's silence from the same `lastHeardMs` evidence as the row. **M.**
+   *(Done 2026-11-05: `/fleet` serves `today {client_calls, failed}` per device from the one
+   newest-2,000-line read that already feeds the absences — `caller: "client"`, or a token with no
+   caller; never a failed poll, the console's own read, or a channel boundary. It is omitted for a
+   machine the window names nowhere, so a row draws nothing rather than a zero; the fleet list and
+   the rename's single-row answer read the same window once. The row states it on its presence line
+   (`283 calls · 38 failed`, `· failed` gone at zero) and the machine menu draws it beside the disk
+   (`C: 19.7 GiB free · 283 calls · 38 failed`). Measured on the gate's fixture: at 1440 the three
+   rows read `283 calls · 38 failed`, `11 calls`, `84 calls · 2 failed`, the two without a verdict
+   line measured 45 px and 44 px (one line; the live console's 45 px, the browser's font rounding),
+   and at 390 they read the same three strings, the counts wrapped to their own line under the
+   state with the name keeping the row above — 109 px and 108 px plain, 130 px with the update
+   verdict — and no sideways scroll. `npx vitest run` 653 passed across 51 files; typecheck and
+   build clean; `./scripts/build-web.sh --check` clean with dist committed; browser gate PASS 25
+   steps (three rows' counts read at both widths); `a11y-audit` 0 findings across 16 page states.)*
+
+5. **At 390 the audit table spends three lines on the machine's name.** The table is **320 px** wide:
+   When **64**, Device **67**, Token **48**, What happened **96**, Status **45**; `DESKTOP-9VH92BJ
+   console` in the 67 px Device cell breaks as `DESKTO / P- / 9VH92BJ` and the row is **91 px** tall
+   (1440: Device 297 px, row 41 px). The same width clips the offline notice's reason: `the console
+   accepted the channel and then dro…` — 283 px of text in 265, the rest only in a `title`, which a
+   phone cannot hover. **Cost:** every row of the phone's audit spends two extra lines on the one
+   column that identifies the machine, and the sentence that says why a machine is down loses its
+   last word. **Fix:** at ≤639 fold the machine into the What happened cell and drop the mostly-empty
+   Token column, and let the notice's reason wrap to two lines. **S.**
+   *(Done 2026-11-05: at ≤639 the Device cell draws the name without the fleet's shared prefix —
+   `9VH92BJ`, `14RJCR8`, `CPH4KB2` — with the full name as its accessible name and in its `title`;
+   the cell stays its own column rather than folding into What happened. `DESKTOP-9VH92BJ console`
+   is two lines instead of three, and the row measures **61 px**, not **91** (cell 67×61). The
+   offline notice's reason is inline and wraps: the measured 283 px sentence is whole in two lines
+   (258 px) with no mid-word `…`. `npx vitest run` 658 passed across 51 files; typecheck and build
+   clean; `./scripts/build-web.sh --check` clean with dist committed; browser gate PASS 27 steps
+   (the 390 device tail, row height and reason read); `a11y-audit` 0 findings across 16 page
+   states.)*
+
+### Cuts
+
+- **C10. The Activity page's Refresh button.** It is the same read as the app's five-second poll —
+  one click fired `/fleet`, `/audit?limit=1000&device=…` and `/tokens` — and it cannot show its
+  answer while the page is paused: with the page paused at **955** rows the click left **955** rows,
+  and only `Resume` shows what arrived. The poll and `Resume` own the two jobs; delete it. **S.**
+  *(Done 2026-11-05: `Refresh` is deleted, not replaced. The five-second poll is the page's read and
+  `Resume` is the paused page's only way back — the two jobs this cut named. The Activity header
+  renders `Pause`/`Resume` alone; a unit test holds the audit read count across a Resume click, so
+  the control reveals what the poll fetched instead of fetching again. The gate's 390 leg asserts
+  the header offers no `Refresh` and that `Pause` then `Resume` returns the page. `npx vitest run`
+  659 passed across 51 files; typecheck and build clean; `./scripts/build-web.sh --check` clean with
+  dist committed; browser gate PASS 28 steps; `a11y-audit` 0 findings across 16 page states.)*
+
+## P0 — the seventh list (opened 2026-11-05, after the sixth audit's questions)
+
+The sixth audit asked two questions and answered them: **there is no route past the window** (the only
+audit query is `limit` + `device`, clamped to 1,000; the Table's `Last week` fires no request; the
+older ~27,000 lines of a 28,056-line / 14.1-day file are reachable only by a shell on the console
+host) and **there is now a way to compare machines** (the fleet carries each machine's day). This
+list is what is left of the page's sense of time, measured.
+
+1. **Nothing on the page says what file it is reading.** *(Done 2026-11-05: `GET /audit/source`
+   reports the current `file`, `bytes`, `oldest_ts_ms` and `newest_ts_ms`, the configured
+   `max_bytes`/`rotations`, and `rotated` only when the predecessor exists (its `oldest_ts_ms` only
+   when readable); Activity draws one muted line beside the cap sentence — the measured live shape
+   `Reading audit.jsonl — 8.4 MiB, lines since 11-02 09:12; rotated once, older lines start
+   11-02 03:10.` — and draws nothing when the route does not answer.)* The audit rotates at 8 MiB to
+   one `audit.1.jsonl`; a day's read now says `since HH:MM` when its start is gone, but nowhere does
+   the operator see the file's size, its retention, or that a rotation happened. The page should
+   state the source it reads and its bounds — one line, in the place that already explains the
+   window. **S.**
+2. **A moment older than the window still has no route.** `/audit/day` reads a whole day, but a
+   *chosen* day or a time range is not addressable: no query takes `from`/`to`, and nothing in the
+   UI asks for one. The shape: `GET /audit?from=&to=&device=` bounded by the same scan rules, and a
+   time field in the Activity Table's filter that actually issues it (today it filters in the
+   browser and fires nothing). **M.**
+   *(Done 2026-11-05: `GET /audit?from=<ms>&to=<ms>&device=&limit=` answers `{lines, lines_read,
+   since_ms?, bounded?, scan_limit?, at_limit?}` — the lines whose `ts_ms` is in `[from, to)`,
+   newest first, from the day read's same backwards scan of the current file (50,000-line bound).
+   `bounded` is omitted unless the bound cut the scan; `since_ms` is present when the range starts
+   before the file; `at_limit` when the range held more lines than the page's window. A request with
+   neither `from` nor `to` keeps the bare array this route has always served. The Table's Time
+   control is the request: `Newest window` (the default, and what the page has always drawn),
+   `Last hour`, `Today`, `Yesterday`, `Last week`, and a custom `From`/`To`. A chosen range is
+   `#activity?from=<ms>&to=<ms>`, so a link restores both the range and the Table view, and the
+   sentence above the rows names what it drew — the gate measured `Showing 18:08–19:08 of 11-05, 2
+   lines` over 2 rows. A range that starts before the file says `since 10-22 10:55`; a range the
+   scan bound cut says `the 50,000-line scan bound cut it`; a range the 1,000-line window cut says
+   `the window's limit`. The 50,001-line route fixture measured `bounded: true`, `scan_limit:
+   50,000`, `since_ms` at the oldest line the bound read, and `at_limit: true` for the newest 1,000.
+   Until a range is chosen the control says `Newest window` and the five-second poll is unchanged.
+   `cargo test -p summrise-console` 390 passed (148 unit, 1 main, 231 console, 10 tokens; 2
+   ignored); clippy and fmt clean. `npx vitest run` 696 passed across 53 files; typecheck and build
+   clean; `./scripts/build-web.sh --check` clean with dist committed; browser gate PASS 31 steps
+   (the preset fires `/audit?from=&to=`, the sentence counts the rows, the fragment carries the
+   range); `a11y-audit` 0 findings across 16 page states.)*
+3. **A day cannot leave the product.** *(Done 2026-11-06: `GET /audit/export?from=&to=&device=`
+   serves a chosen range as `application/x-ndjson` — the range query's own lines, oldest first, one
+   audit line per line and no header row — with `Content-Disposition` naming the requested bounds
+   and the machine's short id, `X-Audit-Range`, and `X-Audit-Since` when the file starts after
+   `from`; a range the same 50,000-line scan bound cannot prove is `413 range_too_large` with the
+   console's sentence and no file. The Table's `Export JSONL` sits beside Time: a chosen range asks
+   the route for the drawn bounds and device, the newest window is written in the browser, and the
+   record ignores the Token/Tool/Status narrowing; the existing `Export CSV` still writes the rows
+   on screen. The route fixture measured 2 lines at 1,001,000 and 1,002,999 ms oldest first with
+   `summrise-audit-19700101T001641.000Z_to_19700101T001644.000Z_a1a1a1a1a1a1.ndjson`; the
+   50,001-line fixture measured `413`, `x-audit-bounded: 50000` and no `Content-Disposition`; at 390
+   the gate asked `/audit/export` for the drawn bounds and received the attachment. `cargo test -p
+   summrise-console` 394 passed (148 unit, 1 main, 235 console, 10 tokens; 2 ignored), clippy and
+   fmt clean; `npx vitest run` 701 passed across 53 files; typecheck and build clean;
+   `./scripts/build-web.sh --check` clean with dist committed; browser gate PASS 32 steps;
+   `a11y-audit` 0 findings across 16 page states. Live 2026-11-06 in `0.3.273-ux63`: on
+   console.saisi.online at 1440, `Last hour` drew 20 lines and `Export JSONL` downloaded
+   `summrise-audit-20261106T042044.933Z_to_20261106T052044.933Z.ndjson` — 20 lines, 4,788 bytes,
+   oldest first, every line a JSON audit object — from the live `audit.jsonl` (4.8 MiB, lines since
+   10-22 10:55); the button is on screen at 390 and the page raised no error.)*
+
+Not items, measured: the day count is now the day's (14c4331, a wake check also landed in 2d4c7ec);
+the hub's numbers are the rows its controls reach (d3c0503); a failed run is 424 with its reason
+(live-verified).
+
+## P0 — the eighth list (opened 2026-11-06, from the first real install)
+
+Measured on 2026-11-06: `SummriseSetup-0.3.279.exe` was run on a Windows machine into
+`E:\Program Files\Summrise`, and the installer aborted after writing the files. Its dialog said
+**"The device runtime could not be installed (exit 1060)"** — the exit of the `sc start` attempted
+*after* the launcher's `--install-service` had already failed — with `[SC] ... 指定的服务未安装`.
+The launcher's own exit and message are written to `%TEMP%\summrise-setup.log`; the operator saw
+neither, and no sentence said where to look. The product's own public doors were absent or 267 builds
+behind: the console page (live `0.3.273-ux63`) carries **no installer URL** (`grep` of
+`device/console/web/src`: only the data-export downloads), and the landing at `summrise.saisi.online`
+sends "Download for Windows" to GitHub releases whose newest installer is **`v0.3.12`
+(2026-10-23, `SummriseSetup-0.3.12.exe`)** while the fleet runs `0.3.279`. The only 0.3.279 installer
+URL in use was the build box's tailnet mirror
+`http://100.85.163.159:18100/SummriseSetup-0.3.279.exe`, which a normal user cannot reach.
+
+1. **The console hands out the enrollment command but not the installer.** *(Done 2026-11-06, 9bed334 + 9bcab60, live 0.3.273-ux64: the fleet and the Add-a-machine panel draw `Install the device runtime` with the console's own filename, size and short sha — `SummriseSetup-0.3.280.exe · 6.3 MB · sha256 26d39c12…` — and a same-origin `/installer/download`; the live download was exactly 6,638,339 bytes with sha256 `26d39c1239f9…`; with no staged installer the sentence is true before a code exists and no link is drawn; 402 console tests, web 706, gate 34 steps, a11y 0 findings; screenshots /tmp/live-installer-1440.png and /tmp/live-installer-390.png.)* The Add-a-machine flow
+   mints a 15-minute code and prints `summrise-device.exe --enroll <console> <code> --data …`, which
+   assumes the binary is already installed; no control on the page offers the installer, and the
+   only download actions in the page are data exports. **Cost:** the operator's first minute depends
+   on a file from outside the product — in this round, a tailnet URL or a 0.3.12 release. **Fix:** the
+   Add-a-machine flow offers the installer for the release the console serves (a console route for
+   the setup the release carries, with its sha256), and says so plainly when the release has no
+   installer. **M.**
+2. **A failed install names the wrong error, and only the log knows the cause.** *(Done 2026-11-06, fe9617d: the dialog keeps the launcher's `$R0`/`$R1` across the `sc` answer, shows the launcher's exit and message, names `%TEMP%\summrise-setup.log`, and puts sc's answer on the last line; the shipped binaries are static-CRT so a clean Windows can start the launcher. Built into 0.3.280 (6,638,339 B, sha256 `26d39c12…`), which the operator ran on Windows; the failure dialog itself was not re-exercised.)* `summrise.nsi`
+   overwrites the launcher's `$0`/`$1` with the `sc start` result before the MessageBox, so a
+   launcher that refused before registering the service reads as "1060, service not installed"; the
+   real exit and stack are one file away (`$TEMP\summrise-setup.log`, `install-service: exit N`).
+   **Cost:** a missing runtime, a seed-sidecar refusal and an AV block are indistinguishable on the
+   machine that has the problem. **Fix:** keep the launcher's exit and message in the dialog (and
+   name the log path), put `sc`'s answer on a second line. **S.**
+3. **The installer takes a working service down before it knows it can install.** *(Implemented 2026-11-06, 55f5480: the setup reads `HKLM\...\Uninstall\Summrise\InstallLocation` in the 64-bit view before anything else, refuses a different chosen root (page leave, `/S` and `/D=` all checked), stages `versions\<version>` and proves it with the launcher it carries — a 0.3.275/0.3.276 launcher's `--install-version` accepts only the release key — and only then stops the service, waits it out, replaces the flat images and starts it again with a version-aware health poll; a failed proof leaves the service running and `current.txt` untouched. Compiled with the repository's extracted NSIS: `SummriseSetup-0.3.281.exe` 159,413 B with stub payloads, exit 0. NOT YET RUN ON WINDOWS: the guard dialogs, the staged proof, the stop/wait and both upgrade paths are unexercised; the operator's next install is the first execution. Tick after that run.)* `.onInit` runs
+   `sc stop SummriseLaunch` and taskkills the app before the section checks the path, seeds the
+   baseline or touches the service; the directory page accepts any root, and nothing reads an
+   existing install's `HKLM\...\InstallLocation`. **Cost:** a second-root attempt on a machine that
+   works stops the working service first, and a failure leaves it stopped until `SummriseRepair`
+   (≤5 min) or a manual start. **Fix:** detect an existing install, keep its root (upgrade in place)
+   or refuse a different one with a sentence, and stop the service only once the new generation is
+   staged and provable. **M.**
+4. **The public download is 267 builds old.** *(Measured 2026-11-06: not a console-repo defect. The landing at `summrise.saisi.online` and the `SilasVale/summrise` releases it links to live in the other working tree `/home/zss/summrise` (`index/`); this repo has no landing source. This repo's own `.github/workflows/installer.yml` already attaches the installer to a `v*` tag release (`gh release upload`), so the console side of the pipeline exists — closing this needs the landing repo to point at the release the console serves, i.e. a product decision about which product the public door sells, made there. Left open, out of this repo's scope.)* `GET /repos/SilasVale/summrise/releases?per_page=1`
+   answers `v0.3.12` (2026-10-23); the console is `0.3.273-ux63` and the fleet `0.3.279`. **Cost:** a
+   person following the product's own download enrols a console-compatible device from a build 267
+   device versions behind; the current installer lives on a tailnet address. **Fix:** publish the
+   installer with every console-compatible release and point the landing at the release the console
+   serves — the old product's setup block already knows to offer a download only when the manifest
+   carries one. **M.**
+
+### P1
+
+5. **The export's refusal reads as a hint and outlives its range.** *(Done 2026-11-06, c10e37f + c170bda, live 0.3.273-ux65: the refusal is an inline `.alert-inline` with `role=alert` and Dismiss, carrying the range key it answered for; it clears on a range change, on Clear, on Dismiss and on a later success. jsdom 711 tests (+5), typecheck 0, `build-web --check` clean, a11y 0 findings, browser gate PASS 35 steps — the 413 is drawn and cleared in a real browser (screenshot /tmp/console-browser-gate/07f-export-refusal-390.png). A real 413 on the live console could not be produced: the audit holds fewer lines than the route's 50,000-line scan bound; the live ux65 serves the same bundle the gate exercised. Live Activity screenshot /tmp/live-activity-ux65-1440.png.)* `exportNotice` is a muted
+   `.hint` paragraph with `role=alert`, and it stays after the Time control changes, so it can
+   describe a range the page no longer shows. **Fix:** clear it when the range changes and draw it on
+   the console's alert surface. **S.** *(From the seventh list's item 3 review: behaviour correct,
+   surface not.)*
+
+### Cuts
+
+- **C11. The landing's GitHub-releases download.** It serves `v0.3.12` while the console runs
+  `0.3.273-ux63`; replace it with the release the console serves — one door, not two. *(Item 4.)*

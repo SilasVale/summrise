@@ -1,0 +1,9 @@
+Device panel (/panel on 127.0.0.1:18090), rendered on 9VH
+  light: round90-panel-light.png — captured by embedding the loopback panel in an iframe inside
+         the installed app window (the window's navigation guard refuses to leave the shim origin,
+         and Edge headless produces no file in session 0). Visible: brand, "this machine",
+         Copy diagnostics, the moon theme button, Running hero, Console linked card, Build card
+         (version 2.0.0 / canary / f992f007 / pid 47152), Updates phase idle.
+  dark:  NOT captured this round. The iframe was gone on the next screenshot and an attempt to
+         click the moon through CDP hit the page instead. The dark stylesheet is present in the
+         served HTML ([data-theme="dark"] + id="theme"); only the pixel proof is missing.

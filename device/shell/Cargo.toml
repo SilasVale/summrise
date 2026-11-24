@@ -1,0 +1,42 @@
+[package]
+name = "summrise-shell"
+description = "The tray icon and the window: one process, the system's WebView2, the console's page."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# Windows-only, like `summrise-winsys` and `summrise-winsec`: on any other target this crate builds a
+# stub that says so. The tray is a Win32 surface and the window is WebView2 — both are the operating
+# system's, which is the point: no second Chromium, no second Node, no second updater.
+# The health document is parsed on every platform, so its dependencies are not Windows-only: CI's
+# Linux job runs the probe's tests, where the tray itself cannot run.
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The capture verb: PNG because a screen is not JSON, base64 because the answer is JSON.
+png = "0.17"
+base64 = "0.22"
+
+[target.'cfg(windows)'.dependencies]
+tao = "0.34"
+# `devtools` is a wry feature, not a debug-only affordance: `open_devtools` is compiled for release
+# only when it is named here, and the menu's Toggle Developer Tools row must exist in the shipped
+# binary too.
+wry = { version = "0.53", features = ["devtools"] }
+# The tray left `tao` in 0.28 and lives in its own crate now; `tray-icon` is that crate, and it owns
+# the menu type too (through `muda`), which is why the menu comes from `tray-icon` here.
+tray-icon = "0.21"
+# The screen capture itself is Win32 (GDI), so it lives in the crate that already allows unsafe.
+summrise-winsys = { path = "../winsys" }
+# Windows 11 keeps a new tray icon in the overflow until the app asks to be shown; that flag lives in
+# `HKCU\Control Panel\NotifyIconSettings`, and a safe registry client is the shortest way to set it.
+windows-sys = { version = "0.52", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+    "Win32_System_Ole",
+    "Win32_System_Threading",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }

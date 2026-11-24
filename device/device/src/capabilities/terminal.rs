@@ -12,7 +12,11 @@
 //! the bytes after it and the new cursor. The cursor is the client's resume token: a second call
 //! with the returned cursor returns exactly what arrived in between. The ring keeps the newest
 //! [`BUFFER_BYTES`]; a cursor older than that window is a typed refusal, because bytes that were
-//! dropped cannot be invented.
+//! dropped cannot be invented. A read may name a byte `limit`: it then copies at most that many
+//! retained bytes, oldest first, and the answered cursor advances by the bytes copied, so a
+//! catch-up can be paged without changing what a cursor means. Reading never waits for the feed:
+//! the registry lock is released before the ring lock, so a flooding line cannot hold up the
+//! device's other terminal calls.
 //!
 //! The caps are the capability's, not a client convention: at most [`MAX_SESSIONS`] live sessions,
 //! [`BUFFER_BYTES`] retained per session, [`MAX_INPUT_BYTES`] per write, and a session that no client
@@ -50,7 +54,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::io::{self, Read, Write};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -60,7 +64,9 @@ use nix::sys::signal::{kill, killpg, Signal};
 use nix::unistd::Pid;
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serialport::{DataBits, Parity as SerialParity, SerialPort, StopBits};
-use summrise_core::{SessionKind, SessionRow, SessionState};
+use summrise_core::{
+    may_write_goal, Goal, GoalError, Holder, HolderKind, SessionKind, SessionRow, SessionState,
+};
 
 use crate::capabilities::ssh;
 use crate::store::Store;
@@ -88,17 +94,11 @@ pub const WRITE_TIMEOUT_MS: u64 = 5_000;
 /// accept more than a terminal's queue can hold at once.
 const WRITE_CHUNK_BYTES: usize = 1024;
 
-/// The largest row or column count a PTY may be given.
-pub const MAX_DIMENSION: u16 = 1000;
-
-/// The baud rate a serial create uses when the caller names none: the conventional console rate.
-pub const DEFAULT_BAUD: u32 = 115_200;
-
-/// The data bits a serial create uses when the caller names none.
-pub const DEFAULT_DATA_BITS: u8 = 8;
-
-/// The stop bits a serial create uses when the caller names none.
-pub const DEFAULT_STOP_BITS: u8 = 1;
+/// The declaration's caps: the schema, the guide and this implementation read the same numbers.
+pub use summrise_core::capabilities::terminal::{
+    DEFAULT_BAUD, DEFAULT_COLS, DEFAULT_DATA_BITS, DEFAULT_ROWS, DEFAULT_SCREEN_LINES,
+    DEFAULT_STOP_BITS, MAX_DIMENSION, MAX_SCREEN_LINES,
+};
 
 /// How long one serial read may wait for bytes.
 ///
@@ -396,6 +396,10 @@ pub struct SessionInfo {
     pub kind: Kind,
     /// When the session was created, on the device's clock.
     pub started_at_ms: u64,
+    /// The door that opened the session: attribution, never authority.
+    pub holder: Holder,
+    /// The sentence the session is for, when one was declared.
+    pub goal: Option<Goal>,
     /// The program running in it, `user@host:port` for a remote shell, or the port path for a
     /// serial line.
     pub shell: String,
@@ -409,6 +413,36 @@ pub struct SessionInfo {
     pub alive: bool,
     /// The child's process id for a PTY; `None` for an SSH or serial session, which has no child.
     pub pid: Option<u32>,
+}
+
+/// The exit facts of a reaped child, kept together because they describe one event.
+///
+/// A child either exits with a code or is killed by a signal; a serial or SSH session has no child
+/// and keeps the default, both `None`. The MCP answer flattens the two fields to its wire keys.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct EndFacts {
+    /// The child's exit code, when it exited with one.
+    pub(crate) exit_code: Option<i32>,
+    /// The signal that ended the child, in the platform's spelling, when it was killed by one.
+    pub(crate) signal: Option<String>,
+}
+
+/// The answer to one read: the bytes after the cursor, the new cursor, and what is known about the
+/// session's end.
+///
+/// `alive` is false once the reader saw the output end or the child's status. The end facts are the
+/// child's own: a serial or SSH session has no child, so both stay `None`, and a still-running child
+/// has neither yet.
+#[derive(Debug)]
+pub struct ReadAnswer {
+    /// The retained output after the caller's cursor.
+    pub data: Vec<u8>,
+    /// The absolute stream position after this answer; the next call's cursor.
+    pub cursor: u64,
+    /// Whether the session is still producing. False once the reader saw the output end.
+    pub alive: bool,
+    /// The child's exit code and signal, once the reader reaped it.
+    pub(crate) end: EndFacts,
 }
 
 /// Why a terminal operation was refused or failed.
@@ -491,6 +525,18 @@ pub enum PtyError {
         /// The OS/backend report, including a refused baud or framing ioctl.
         message: String,
     },
+    /// The operating system refused the open with an access error, which means another process
+    /// holds the port and this build cannot know which one.
+    ///
+    /// The platform reports "access denied", not a holder, so the rendered sentence names the likely
+    /// holder (this machine's own headless browser, the one capability whose pages open Web Serial
+    /// ports) and the two actions that release it. `message` is kept as the evidence.
+    SerialAccess {
+        /// The port path the caller named.
+        port: String,
+        /// The OS report that was actually measured.
+        message: String,
+    },
     /// Another live session already holds the serial port this create named.
     PortBusy {
         /// The port path the caller named.
@@ -518,6 +564,15 @@ pub enum PtyError {
         /// The operation that was refused.
         operation: &'static str,
     },
+    /// The caller may not write this session's goal: only the holder that created it or an Owner
+    /// door (`install`, `panel`) may. The goal is a claim, and its author is the caller.
+    NotGoalWriter {
+        /// The session whose goal was not written.
+        id: String,
+    },
+    /// The text is not one goal: empty, longer than [`summrise_core::GOAL_MAX_CHARS`], or more than
+    /// one line.
+    Goal(GoalError),
     /// The session could not be recorded in or removed from the state document.
     State(String),
     /// Writing to the session's input failed.
@@ -572,6 +627,13 @@ impl fmt::Display for PtyError {
             PtyError::Serial { port, message } => {
                 write!(f, "serial port {port} could not be opened: {message}")
             }
+            PtyError::SerialAccess { port, message } => write!(
+                f,
+                "serial port {port} could not be opened: {message}. Another process has the port; \
+                 quite possibly this machine's own headless browser holding a Web Serial port. \
+                 Close the browser's pages with browser.close, or restart the device app, which \
+                 now reaps the browser."
+            ),
             PtyError::PortBusy { port, holder } => write!(
                 f,
                 "serial port {port} is already open in session {holder}; close that session first"
@@ -587,6 +649,12 @@ impl fmt::Display for PtyError {
             PtyError::UnsupportedOperation { kind, operation } => {
                 write!(f, "a {} session has no {operation}", kind.as_str())
             }
+            PtyError::NotGoalWriter { id } => write!(
+                f,
+                "not_goal_writer: session {id}'s goal is written only by the holder that created it \
+                 or an Owner door (the install door, the panel)"
+            ),
+            PtyError::Goal(error) => write!(f, "{error}"),
             PtyError::State(message) => {
                 write!(f, "could not update the state document: {message}")
             }
@@ -654,8 +722,17 @@ impl Ring {
         self.total - self.bytes.len() as u64
     }
 
-    /// Copy everything from `cursor` to the current end.
-    fn read_from(&self, cursor: u64) -> Result<(Vec<u8>, u64), PtyError> {
+    /// Everything the ring still holds, oldest first, without moving any cursor.
+    fn snapshot(&self) -> Vec<u8> {
+        self.bytes.iter().copied().collect()
+    }
+
+    /// Copy from `cursor`, at most `limit` bytes, oldest first; `None` copies to the end.
+    ///
+    /// The returned cursor advances by exactly the bytes copied, so a paged reader resumes where
+    /// its page ended. The refusal rules come before the limit and do not depend on it: a cursor
+    /// the ring dropped, or one past the end, is the same typed error either way.
+    fn read_from(&self, cursor: u64, limit: Option<usize>) -> Result<(Vec<u8>, u64), PtyError> {
         let earliest = self.earliest();
         if cursor > self.total {
             return Err(PtyError::CursorAhead {
@@ -667,23 +744,142 @@ impl Ring {
             return Err(PtyError::CursorTooOld { cursor, earliest });
         }
         let skip = (cursor - earliest) as usize;
-        Ok((self.bytes.iter().skip(skip).copied().collect(), self.total))
+        let retained = self.bytes.len() - skip;
+        let take = limit.map_or(retained, |limit| limit.min(retained));
+        let data = self.bytes.iter().skip(skip).take(take).copied().collect();
+        Ok((data, cursor + take as u64))
     }
 }
 
-/// The reader thread's half of a session: the ring plus the two facts a client can observe.
+/// Render a byte stream as the last `lines` lines of plain text.
+///
+/// A screen is not a transcript: the escape sequences a real terminal consumes are noise to a
+/// reader, `\r` is a cursor movement whose effect is already reflected in the stream, and only the
+/// tail is on screen. Control characters that a terminal would act on rather than show are dropped
+/// with the escapes; tabs and newlines survive because they are layout a person sees.
+fn screen_text(bytes: &[u8], lines: usize) -> String {
+    if lines == 0 {
+        return String::new();
+    }
+    let text = strip_ansi(&String::from_utf8_lossy(bytes));
+    let mut kept: Vec<&str> = text.split('\n').collect();
+    // A stream that ends on a newline has an empty last element; a person does not count it.
+    if kept.last().is_some_and(|line| line.is_empty()) {
+        kept.pop();
+    }
+    let start = kept.len().saturating_sub(lines);
+    kept[start..].join("\n")
+}
+
+/// Remove the ANSI escape sequences a terminal would consume.
+///
+/// Covers CSI (`ESC [ … final`), OSC (`ESC ] … BEL` or `ESC \\`) and the two-byte escapes; anything
+/// that is not an escape is kept byte for byte after a lossy UTF-8 conversion.
+fn strip_ansi(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\u{1b}' {
+            match chars.next() {
+                Some('[') => {
+                    // CSI: parameter and intermediate bytes, then one final byte in @..~.
+                    for inner in chars.by_ref() {
+                        if ('\u{40}'..='\u{7e}').contains(&inner) {
+                            break;
+                        }
+                    }
+                }
+                Some(']') => {
+                    // OSC: ends on BEL or on ST (ESC backslash).
+                    while let Some(inner) = chars.next() {
+                        if inner == '\u{7}' {
+                            break;
+                        }
+                        if inner == '\u{1b}' {
+                            if chars.peek() == Some(&'\\') {
+                                chars.next();
+                            }
+                            break;
+                        }
+                    }
+                }
+                Some(_) => {}
+                None => break,
+            }
+            continue;
+        }
+        if ch == '\r' {
+            continue;
+        }
+        if ch.is_control() && ch != '\n' && ch != '\t' {
+            continue;
+        }
+        out.push(ch);
+    }
+    out
+}
+
+/// The reader thread's half of a session: the ring plus the facts a client can observe.
 struct Output {
     ring: Ring,
+    /// Wakes a long-poll reader when output arrives or the reader reaches EOF.
+    notify: Arc<tokio::sync::Notify>,
     /// The child's output ended (a natural exit or a read error), not necessarily a close.
     eof: bool,
     /// The session is being closed; the reader must stop.
     closed: bool,
+    /// The child's exit facts, once the reader reaped it. A serial or SSH session has no child, so
+    /// it keeps the default (both `None`).
+    end: EndFacts,
+}
+
+impl Output {
+    /// Append output and wake one long-poll reader. `notify_one` keeps a permit when no reader is
+    /// waiting, so an append between the reader's check and its await is not lost.
+    fn push(&mut self, chunk: &[u8]) {
+        self.ring.append(chunk);
+        self.notify.notify_one();
+    }
+
+    /// Mark the end and wake a reader so it can return `alive: false` without waiting out its poll.
+    fn finish(&mut self) {
+        self.eof = true;
+        self.notify.notify_one();
+    }
+}
+
+/// Snapshot one read answer from a session's output, and the notifier a long poll parks on.
+///
+/// Only this session's ring lock is taken here; the registry is not involved. That is what keeps a
+/// flooded feed from stalling a call about another session. `closed` is not read for the same reason
+/// [`PtyRegistry::read_with_limit`] cannot see it: a closing session is already out of the registry,
+/// so the end a reader can read is the reader's EOF.
+fn read_output(
+    output: &Mutex<Output>,
+    cursor: u64,
+    limit: Option<usize>,
+) -> Result<(ReadAnswer, Arc<tokio::sync::Notify>), PtyError> {
+    let output = lock(output);
+    let (data, cursor) = output.ring.read_from(cursor, limit)?;
+    Ok((
+        ReadAnswer {
+            data,
+            cursor,
+            alive: !output.eof,
+            end: output.end.clone(),
+        },
+        Arc::clone(&output.notify),
+    ))
 }
 
 /// One live session.
 struct Session {
     id: SessionId,
     kind: Kind,
+    /// The door that opened the session.
+    holder: Holder,
+    /// What the session is for, when its creator declared it.
+    goal: Option<Goal>,
     /// The program the session runs: the shell of a PTY, or `user@host:port` for SSH.
     shell: String,
     /// When the session was created, on the device's clock.
@@ -897,6 +1093,9 @@ pub struct PtyRegistry {
     state_lock: Arc<tokio::sync::Mutex<()>>,
     clock: Clock,
     limits: Limits,
+    /// The process's event bus, attached once the process has one. A registry without it is silent,
+    /// which is what tests and standalone callers want.
+    bus: OnceLock<Arc<summrise_bus::Bus>>,
 }
 
 impl PtyRegistry {
@@ -928,6 +1127,20 @@ impl PtyRegistry {
             state_lock,
             clock,
             limits,
+            bus: OnceLock::new(),
+        }
+    }
+
+    /// Attach the process's event bus. The first attach wins; a second is ignored.
+    pub fn attach_bus(&self, bus: Arc<summrise_bus::Bus>) {
+        let _ = self.bus.set(bus);
+    }
+
+    /// Publish one event when a bus is attached. The journal's failure is not the call's failure:
+    /// a session that opened is open even when its record could not be written.
+    fn publish(&self, kind: &str, payload: serde_json::Value) {
+        if let Some(bus) = self.bus.get() {
+            let _ = bus.publish(kind, payload);
         }
     }
 
@@ -980,16 +1193,29 @@ impl PtyRegistry {
     /// updated the session is dropped (killing a PTY's child, closing an SSH connection) and the
     /// create fails, so a live session can never be invisible to `/api/state`.
     ///
+    /// `holder` is the door the call arrived through, and `goal` the optional sentence its creator
+    /// declared. The goal is validated **before** anything is opened, so a text that is not one
+    /// sentence cannot leave a shell running; its author is `holder`, never a string the caller
+    /// supplied separately.
+    ///
     /// The SSH connect is awaited before the audit/state lock is taken: a handshake that takes
     /// seconds must not stop the audit log, and the second cap check keeps a concurrent create
     /// from pushing the registry past its limit.
     pub async fn create(
         &self,
+        holder: Holder,
+        goal: Option<&str>,
         target: CreateTarget<'_>,
         rows: u16,
         cols: u16,
     ) -> Result<SessionId, PtyError> {
         validate_size(rows, cols)?;
+        let goal = match goal {
+            Some(text) => Some(
+                Goal::new(text, holder.clone(), (self.clock)() as i64).map_err(PtyError::Goal)?,
+            ),
+            None => None,
+        };
         if lock(&self.sessions).len() >= self.limits.max_sessions {
             return Err(PtyError::TooManySessions {
                 max: self.limits.max_sessions,
@@ -998,9 +1224,17 @@ impl PtyRegistry {
 
         let kind = target.kind();
         let session = match target {
-            CreateTarget::Pty { shell } => self.spawn_pty(&resolve_shell(shell), rows, cols)?,
-            CreateTarget::Ssh(target) => self.spawn_ssh(&target, rows, cols).await?,
-            CreateTarget::Serial(target) => self.spawn_serial(&target, rows, cols).await?,
+            CreateTarget::Pty { shell } => {
+                self.spawn_pty(&resolve_shell(shell), rows, cols, &holder, goal.as_ref())?
+            }
+            CreateTarget::Ssh(target) => {
+                self.spawn_ssh(&target, rows, cols, &holder, goal.as_ref())
+                    .await?
+            }
+            CreateTarget::Serial(target) => {
+                self.spawn_serial(&target, rows, cols, &holder, goal.as_ref())
+                    .await?
+            }
         };
         let id = session.id.clone();
 
@@ -1023,8 +1257,61 @@ impl PtyRegistry {
         // leaving a live one the state document does not know about.
         self.append_row(&row)?;
         sessions.insert(id.clone(), session);
+        drop(sessions);
+        self.publish(
+            "session.opened",
+            serde_json::json!({ "id": id.as_str(), "kind": kind.as_str() }),
+        );
 
         Ok(id)
+    }
+
+    /// Set a session's goal to `text`, or clear it when `text` is `None`.
+    ///
+    /// `by` is the door the call arrived through: it is the goal's author, and it decides who may
+    /// write. Only the holder that created the session or an Owner door
+    /// ([`summrise_core::may_write_goal`]) may; everyone else is refused with
+    /// [`PtyError::NotGoalWriter`] and nothing changes. The text is validated by [`Goal::new`], so a
+    /// refused text also leaves the recorded goal untouched.
+    ///
+    /// Returns the goal now on the session: `Some` after a set, `None` after a clear (and after
+    /// clearing a goal that was already absent — clearing is idempotent). Setting a goal is not
+    /// activity: it does not postpone the idle sweeper.
+    pub fn set_goal(
+        &self,
+        id: &SessionId,
+        text: Option<&str>,
+        by: &Holder,
+        at_ms: i64,
+    ) -> Result<Option<Goal>, PtyError> {
+        let mut sessions = lock(&self.sessions);
+        let session = sessions.get_mut(id).ok_or_else(|| unknown(id))?;
+        if !may_write_goal(&session.holder, by) {
+            return Err(PtyError::NotGoalWriter {
+                id: id.as_str().to_owned(),
+            });
+        }
+        let goal = match text {
+            Some(text) => Some(Goal::new(text, by.clone(), at_ms).map_err(PtyError::Goal)?),
+            None => None,
+        };
+        session.goal = goal.clone();
+        Ok(goal)
+    }
+
+    /// The goal a live session carries, or `None` when it has none (or the id is not live).
+    #[cfg(all(test, unix))]
+    pub fn goal_of(&self, id: &SessionId) -> Option<Goal> {
+        lock(&self.sessions)
+            .get(id)
+            .and_then(|session| session.goal.clone())
+    }
+
+    /// The door that opened a live session, or `None` when the id is not live.
+    pub fn holder_of(&self, id: &SessionId) -> Option<Holder> {
+        lock(&self.sessions)
+            .get(id)
+            .map(|session| session.holder.clone())
     }
 
     /// Write UTF-8 bytes to a session's input.
@@ -1120,14 +1407,121 @@ impl PtyRegistry {
         }
     }
 
-    /// Copy a session's output from `cursor` to the current end.
-    pub fn read(&self, id: &SessionId, cursor: u64) -> Result<(Vec<u8>, u64), PtyError> {
+    /// Copy a session's output from `cursor` to the current end, with the session's end facts.
+    pub fn read(&self, id: &SessionId, cursor: u64) -> Result<ReadAnswer, PtyError> {
+        self.read_with_limit(id, cursor, None)
+    }
+
+    /// Copy at most `limit` bytes of a session's output from `cursor`, oldest first.
+    ///
+    /// **THE REGISTRY LOCK IS NOT HELD ACROSS THE RING.** A live session's reader thread — the
+    /// flood's — holds that session's output lock on every chunk it appends, so this takes the
+    /// output handle under the registry lock, releases the registry, and only then waits for the
+    /// ring. A read therefore cannot park every other terminal call (`list`, `create`, `write`,
+    /// `close`) behind a busy feed; it waits for at most the chunk in flight.
+    ///
+    /// `limit` pages a retained tail without changing what a cursor means: the answered cursor
+    /// advances by the bytes carried, and `None` is the whole retained tail — exactly what
+    /// [`read`](Self::read) has always returned.
+    pub fn read_with_limit(
+        &self,
+        id: &SessionId,
+        cursor: u64,
+        limit: Option<usize>,
+    ) -> Result<ReadAnswer, PtyError> {
+        let output = self.output_handle(id)?;
+        Ok(read_output(&output, cursor, limit)?.0)
+    }
+
+    /// Append output to a live session's ring, exactly as its reader would.
+    ///
+    /// Test-only: the console transport's lag test needs a producer it can pace. A real pty would
+    /// make the flood a shell command whose rate is the platform's, and the test would then be
+    /// measuring the shell. This writes the same ring [`read_with_limit`](Self::read_with_limit)
+    /// serves from, so the follow, its cursor and its ring boundary are the real ones.
+    #[cfg(test)]
+    pub(crate) fn push_output_for_test(
+        &self,
+        id: &SessionId,
+        bytes: &[u8],
+    ) -> Result<(), PtyError> {
+        let output = self.output_handle(id)?;
+        lock(&output).push(bytes);
+        Ok(())
+    }
+
+    /// The live session's output handle, its idle clock refreshed, with the registry released when
+    /// this returns.
+    fn output_handle(&self, id: &SessionId) -> Result<Arc<Mutex<Output>>, PtyError> {
         let mut sessions = lock(&self.sessions);
         let session = sessions.get_mut(id).ok_or_else(|| unknown(id))?;
         session.last_active_ms = (self.clock)();
-        let read = lock(&session.output).ring.read_from(cursor);
-        drop(sessions);
-        read
+        Ok(Arc::clone(&session.output))
+    }
+
+    /// Read, waiting up to `wait` for output when the cursor is already at the end.
+    ///
+    /// This is the panel's long poll. A read that has nothing to return parks on the session's
+    /// notifier instead of making the browser ask again every 150 ms; an append wakes it, and the
+    /// deadline is the answer when nothing arrives. A wait of zero is exactly [`read`].
+    pub async fn read_wait(
+        &self,
+        id: &SessionId,
+        cursor: u64,
+        wait: Duration,
+    ) -> Result<ReadAnswer, PtyError> {
+        self.read_wait_with_limit(id, cursor, wait, None).await
+    }
+
+    /// [`read_wait`](Self::read_wait) with an optional byte cap.
+    ///
+    /// A cap is a page, not a wait: as soon as the ring retains bytes after the cursor the read
+    /// answers with at most `limit` of them, and the wait only happens at the end where there is
+    /// nothing to page. The registry lock is released before the ring lock in every iteration, so
+    /// a long poll on a flooded session cannot hold another terminal call.
+    pub async fn read_wait_with_limit(
+        &self,
+        id: &SessionId,
+        cursor: u64,
+        wait: Duration,
+        limit: Option<usize>,
+    ) -> Result<ReadAnswer, PtyError> {
+        if wait.is_zero() {
+            return match limit {
+                None => self.read(id, cursor),
+                Some(limit) => self.read_with_limit(id, cursor, Some(limit)),
+            };
+        }
+        let deadline = Instant::now() + wait;
+        loop {
+            let (answer, notify) = {
+                let output = self.output_handle(id)?;
+                read_output(&output, cursor, limit)?
+            };
+            if !answer.data.is_empty() || !answer.alive || wait.is_zero() {
+                return Ok(answer);
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Ok(answer);
+            }
+            tokio::select! {
+                _ = notify.notified() => {}
+                _ = tokio::time::sleep(remaining) => return Ok(answer),
+            }
+        }
+    }
+
+    /// The tail of a session's output as a person would see it, without moving the read cursor.
+    ///
+    /// `read` is for a client that replays bytes; this is for a client that wants to know what is
+    /// on the screen *now*. Escape sequences are removed (`read` leaves them for the terminal that
+    /// will render them), `\r` is dropped, and only the last `lines` lines are returned. It counts
+    /// as activity for the idle sweeper, because a client watching a screen is using the session.
+    pub fn screen(&self, id: &SessionId, lines: usize) -> Result<String, PtyError> {
+        let output = self.output_handle(id)?;
+        let bytes = lock(&output).ring.snapshot();
+        Ok(screen_text(&bytes, lines))
     }
 
     /// Resize the terminal; a local shell receives `SIGWINCH` and reflows, an SSH shell gets a
@@ -1184,6 +1578,9 @@ impl PtyRegistry {
         // need to hold the audit lock.
         drop(state_guard);
         drop(session);
+        if result.is_ok() {
+            self.publish("session.closed", serde_json::json!({ "id": id.as_str() }));
+        }
         result
     }
 
@@ -1196,6 +1593,8 @@ impl PtyRegistry {
                 id: session.id.clone(),
                 kind: session.kind,
                 started_at_ms: session.started_at_ms,
+                holder: session.holder.clone(),
+                goal: session.goal.clone(),
                 shell: session.shell.clone(),
                 rows: session.rows,
                 cols: session.cols,
@@ -1278,7 +1677,14 @@ impl PtyRegistry {
     }
 
     /// Open the PTY, spawn the shell, and start the reader thread.
-    fn spawn_pty(&self, shell: &str, rows: u16, cols: u16) -> Result<Session, PtyError> {
+    fn spawn_pty(
+        &self,
+        shell: &str,
+        rows: u16,
+        cols: u16,
+        holder: &Holder,
+        goal: Option<&Goal>,
+    ) -> Result<Session, PtyError> {
         let number = self.next_number.fetch_add(1, Ordering::SeqCst);
         let id = SessionId::mint(number);
         let started_at_ms = (self.clock)();
@@ -1297,7 +1703,7 @@ impl PtyRegistry {
         // The shell inherits the device's environment and working directory; no capability-level
         // sandbox applies to a terminal.
         let command = CommandBuilder::new(shell);
-        let child = pair
+        let mut child = pair
             .slave
             .spawn_command(command)
             .map_err(|error| PtyError::Backend(format!("cannot start {shell}: {error}")))?;
@@ -1306,17 +1712,36 @@ impl PtyRegistry {
         // from ever seeing EOF after the shell exits (the old agent's round-87 trap): drop it here.
         drop(pair.slave);
 
-        let reader = pair.master.try_clone_reader().map_err(|error| {
-            PtyError::Backend(format!("cannot read the pseudo-terminal: {error}"))
-        })?;
-        let writer = pair.master.take_writer().map_err(|error| {
-            PtyError::Backend(format!("cannot write the pseudo-terminal: {error}"))
-        })?;
+        // A SPAWNED CHILD MUST NOT OUTLIVE A FAILED SETUP. `spawn_command` succeeded, so the shell is
+        // already running in its own session; if the reader or the writer cannot be taken, returning
+        // an error would leave a shell with no session and no reader, and nothing to reap it.
+        let reader = match pair.master.try_clone_reader() {
+            Ok(reader) => reader,
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(PtyError::Backend(format!(
+                    "cannot read the pseudo-terminal: {error}"
+                )));
+            }
+        };
+        let writer = match pair.master.take_writer() {
+            Ok(writer) => writer,
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(PtyError::Backend(format!(
+                    "cannot write the pseudo-terminal: {error}"
+                )));
+            }
+        };
 
         let output = Arc::new(Mutex::new(Output {
             ring: Ring::new(self.limits.buffer_bytes),
+            notify: Arc::new(tokio::sync::Notify::new()),
             eof: false,
             closed: false,
+            end: EndFacts::default(),
         }));
         // portable-pty's Unix spawn calls setsid(), so this pid is the child's session and process
         // group id; the descendants a close has to reach inherit it.
@@ -1329,7 +1754,9 @@ impl PtyRegistry {
         if let Err(error) = thread.spawn(move || {
             drain_reader(reader, thread_output, thread_child, pid);
         }) {
-            let _ = lock(&child).kill();
+            let mut child = lock(&child);
+            let _ = child.kill();
+            let _ = child.wait();
             return Err(PtyError::Backend(format!(
                 "cannot start the session's reader thread: {error}"
             )));
@@ -1338,6 +1765,8 @@ impl PtyRegistry {
         Ok(Session {
             id,
             kind: Kind::Pty,
+            holder: holder.clone(),
+            goal: goal.cloned(),
             shell: shell.to_owned(),
             started_at_ms,
             backend: Backend::Pty(PtyBackend {
@@ -1365,6 +1794,8 @@ impl PtyRegistry {
         target: &SshTarget<'_>,
         rows: u16,
         cols: u16,
+        holder: &Holder,
+        goal: Option<&Goal>,
     ) -> Result<Session, PtyError> {
         let number = self.next_number.fetch_add(1, Ordering::SeqCst);
         let id = SessionId::mint(number);
@@ -1392,8 +1823,10 @@ impl PtyRegistry {
 
         let output = Arc::new(Mutex::new(Output {
             ring: Ring::new(self.limits.buffer_bytes),
+            notify: Arc::new(tokio::sync::Notify::new()),
             eof: false,
             closed: false,
+            end: EndFacts::default(),
         }));
         let task_output = Arc::clone(&output);
         let reader_task = tokio::spawn(async move {
@@ -1402,14 +1835,16 @@ impl PtyRegistry {
                 if output.closed {
                     return;
                 }
-                output.ring.append(&chunk);
+                output.push(&chunk);
             }
-            lock(&task_output).eof = true;
+            lock(&task_output).finish();
         });
 
         Ok(Session {
             id,
             kind: Kind::Ssh,
+            holder: holder.clone(),
+            goal: goal.cloned(),
             shell: label,
             started_at_ms,
             backend: Backend::Ssh(SshBackend {
@@ -1432,13 +1867,16 @@ impl PtyRegistry {
     /// read's poll interval.
     ///
     /// Framing is validated before the port is touched, and a value the port itself rejects comes
-    /// back as [`PtyError::Serial`] with the backend's message: this build never retries a rejected
-    /// mode with a default one, because that would corrupt every frame on a line configured wrong.
+    /// back as [`PtyError::Serial`] (or [`PtyError::SerialAccess`] when the OS's access check was
+    /// what refused it) with the backend's message: this build never retries a rejected mode with
+    /// a default one, because that would corrupt every frame on a line configured wrong.
     async fn spawn_serial(
         &self,
         target: &SerialTarget<'_>,
         rows: u16,
         cols: u16,
+        holder: &Holder,
+        goal: Option<&Goal>,
     ) -> Result<Session, PtyError> {
         let number = self.next_number.fetch_add(1, Ordering::SeqCst);
         let id = SessionId::mint(number);
@@ -1482,8 +1920,10 @@ impl PtyRegistry {
 
         let output = Arc::new(Mutex::new(Output {
             ring: Ring::new(self.limits.buffer_bytes),
+            notify: Arc::new(tokio::sync::Notify::new()),
             eof: false,
             closed: false,
+            end: EndFacts::default(),
         }));
         let thread_output = Arc::clone(&output);
         let thread_name = format!("summrise-serial-reader-{id}");
@@ -1499,6 +1939,8 @@ impl PtyRegistry {
         Ok(Session {
             id,
             kind: Kind::Serial,
+            holder: holder.clone(),
+            goal: goal.cloned(),
             shell: target.port.to_owned(),
             started_at_ms,
             backend: Backend::Serial(SerialBackend {
@@ -1561,6 +2003,7 @@ fn drain_reader(
 ) {
     let mut buffer = [0u8; READ_CHUNK_BYTES];
     let mut child_exited = false;
+    let mut status: Option<portable_pty::ExitStatus> = None;
     loop {
         if lock(&output).closed {
             return;
@@ -1570,17 +2013,24 @@ fn drain_reader(
                 child_exited = true;
                 break;
             }
-            Ok(n) => lock(&output).ring.append(&buffer[..n]),
+            Ok(n) => {
+                let mut output = lock(&output);
+                output.push(&buffer[..n]);
+            }
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                 // The patched ConPTY reader reports no data this way, and the pipe never EOFs while
                 // the HPCON lives. Poll the child instead: a natural exit ends the drain after the
-                // bytes already buffered have been read.
+                // bytes already buffered have been read. `try_wait` consumes the status, so keep it.
                 if child_exited {
                     break;
                 }
                 let mut child = lock(&child);
                 match child.try_wait() {
-                    Ok(Some(_)) | Err(_) => child_exited = true,
+                    Ok(Some(exit)) => {
+                        status = Some(exit);
+                        child_exited = true;
+                    }
+                    Err(_) => child_exited = true,
                     Ok(None) => {
                         drop(child);
                         thread::sleep(Duration::from_millis(WOULD_BLOCK_POLL_MS));
@@ -1605,10 +2055,41 @@ fn drain_reader(
         if !lock(&output).closed {
             close_session(pid);
         }
-        let _ = child.try_wait();
+        // The ConPTY would-block path may have reaped the child already; this call then has no status
+        // to give, and the one captured above is the child's own.
+        if status.is_none() {
+            if let Ok(Some(exit)) = child.try_wait() {
+                status = Some(exit);
+            }
+        }
     }
+    let end = status.as_ref().map(exit_facts).unwrap_or_default();
     let mut output = lock(&output);
-    output.eof = true;
+    output.end = end;
+    output.finish();
+}
+
+/// Split a reaped child's status into the end facts the wire carries.
+///
+/// `portable-pty` 0.8.1 exposes `success()` and `exit_code()`, but its `signal` field is private and
+/// has no accessor. Its `Display` is therefore the only public way to tell a signal death from a
+/// nonzero exit: the crate writes `Terminated by <signal>` for the former and `Exited with code <n>`
+/// for the latter. Without that distinction a shell killed by a signal would be reported with the
+/// crate's synthetic code 1, which is an invented code. A serial or SSH session has no child and
+/// never reaches this function.
+fn exit_facts(status: &portable_pty::ExitStatus) -> EndFacts {
+    let rendered = status.to_string();
+    if let Some(signal) = rendered.strip_prefix("Terminated by ") {
+        EndFacts {
+            exit_code: None,
+            signal: Some(signal.to_owned()),
+        }
+    } else {
+        EndFacts {
+            exit_code: i32::try_from(status.exit_code()).ok(),
+            signal: None,
+        }
+    }
 }
 
 /// The reader thread of a serial session: drain the port into the ring and stop when it closes.
@@ -1630,7 +2111,10 @@ fn drain_serial(mut reader: Box<dyn SerialPort>, output: Arc<Mutex<Output>>) {
                 #[cfg(not(windows))]
                 break;
             }
-            Ok(n) => lock(&output).ring.append(&buffer[..n]),
+            Ok(n) => {
+                let mut output = lock(&output);
+                output.push(&buffer[..n]);
+            }
             Err(error)
                 if matches!(
                     error.kind(),
@@ -1641,14 +2125,16 @@ fn drain_serial(mut reader: Box<dyn SerialPort>, output: Arc<Mutex<Output>>) {
             Err(_) => break,
         }
     }
-    lock(&output).eof = true;
+    lock(&output).finish();
 }
 
 /// Open a serial port with the framing the caller asked for.
 ///
 /// `serialport` opens and configures in one call, so an open error can be a path the OS cannot
 /// open *or* a line mode the port refuses. Both are [`PtyError::Serial`] with the backend's own
-/// message, which is where the OS error lives; this build does not retry with a default mode.
+/// message, which is where the OS error lives — except an access refusal, which is
+/// [`PtyError::SerialAccess`] so its sentence can name the likely holder and the way out. This
+/// build does not retry with a default mode.
 fn open_serial(
     port: &str,
     baud: u32,
@@ -1672,14 +2158,48 @@ fn open_serial(
             Err(error) if is_exclusive_refusal(&error) && Instant::now() < deadline => {
                 thread::sleep(SERIAL_LOCK_RETRY);
             }
-            Err(error) => {
-                return Err(PtyError::Serial {
-                    port: port.to_owned(),
-                    message: error.to_string(),
-                })
-            }
+            Err(error) => return Err(serial_refusal(port, error)),
         }
     }
+}
+
+/// The typed refusal for an open the OS rejected.
+///
+/// `serialport` folds Windows' `ERROR_ACCESS_DENIED` into `NoDevice` — the same kind it reports for a
+/// path that is not there — so the kind alone cannot tell "another process holds it" from "it does
+/// not exist". The description can, and on Unix the kind is already `PermissionDenied`. An access
+/// refusal gets [`PtyError::SerialAccess`], whose sentence names the likely holder and the two
+/// actions; every other refusal stays [`PtyError::Serial`] with its own OS report. The holder is
+/// never asserted: the platform did not measure one.
+fn serial_refusal(port: &str, error: serialport::Error) -> PtyError {
+    if is_access_refusal(&error) {
+        PtyError::SerialAccess {
+            port: port.to_owned(),
+            message: error.to_string(),
+        }
+    } else {
+        PtyError::Serial {
+            port: port.to_owned(),
+            message: error.to_string(),
+        }
+    }
+}
+
+/// Whether the open failed the operating system's access check.
+///
+/// The two spellings are one condition: Windows says "Access is denied." (which `serialport` maps to
+/// `NoDevice`, not to an I/O kind), and a Unix tty says "Permission denied" with
+/// `ErrorKind::Io(PermissionDenied)`. Neither says who holds the port; that is why the rendered
+/// sentence offers the likely holder rather than naming one.
+fn is_access_refusal(error: &serialport::Error) -> bool {
+    if matches!(
+        error.kind,
+        serialport::ErrorKind::Io(io::ErrorKind::PermissionDenied)
+    ) {
+        return true;
+    }
+    let description = error.description.to_ascii_lowercase();
+    description.contains("access is denied") || description.contains("permission denied")
 }
 
 /// Whether the open was refused by the port's exclusivity rather than by the device being gone.
@@ -2009,6 +2529,17 @@ fn system_clock() -> Clock {
     })
 }
 
+/// The wall clock a claim is stamped with, in Unix milliseconds.
+///
+/// [`PtyRegistry::set_goal`] takes its time as an argument (a claim's time is the caller's to
+/// supply, and a test supplies it); this is what the MCP dispatch supplies in production.
+fn now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis().min(i64::MAX as u128) as i64)
+        .unwrap_or(0)
+}
+
 /// Lock a mutex, recovering the data from a poisoned lock instead of panicking a second time.
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
@@ -2018,13 +2549,16 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 #[cfg(all(test, unix))]
 mod tests {
+    // These tests reach `exit_facts` through a real pty, which is Unix-only work. The parser's
+    // cross-platform cases live in `end_facts` below, so the exit-code/signal split is exercised on
+    // every target; `windows_tests` below executes the ConPTY path on Windows CI.
     use std::fs;
     use std::os::unix::io::RawFd;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{Duration, Instant};
 
-    use summrise_core::{SessionKind, SessionState};
+    use summrise_core::{SessionKind, SessionState, GOAL_MAX_CHARS};
 
     use crate::config::Release;
     use crate::test_support::{process_is_dead, wait_until_dead, TempDir};
@@ -2087,6 +2621,279 @@ mod tests {
                 .expect("the state document loads")
                 .sessions
         }
+    }
+
+    #[tokio::test]
+    async fn a_session_publishes_opened_and_closed() {
+        let fixture = Fixture::new("publish");
+        let bus = Arc::new(
+            summrise_bus::Bus::open(fixture._dir.join("journal")).expect("the journal opens"),
+        );
+        fixture.registry.attach_bus(Arc::clone(&bus));
+
+        let id = fixture
+            .registry
+            .create(holder(), None, CreateTarget::Pty { shell: None }, 24, 80)
+            .await
+            .expect("the session opens");
+        let mut subscription = bus.subscribe(1).expect("the journal replays");
+        let opened = subscription.next().await.expect("session.opened");
+        assert_eq!(opened.kind, "session.opened");
+        assert_eq!(opened.payload["id"], id.as_str());
+
+        fixture
+            .registry
+            .close(&id)
+            .await
+            .expect("the session closes");
+        let closed = subscription.next().await.expect("session.closed");
+        assert_eq!(closed.kind, "session.closed");
+        assert_eq!(closed.payload["id"], id.as_str());
+    }
+
+    /// The default test door: the device's own, as the direct /mcp client arrives.
+    fn holder() -> Holder {
+        Holder::install()
+    }
+
+    /// One holder, written the way a door writes it.
+    fn a_holder(kind: HolderKind, token_id: Option<&str>) -> Holder {
+        Holder {
+            kind,
+            token_id: token_id.map(str::to_owned),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_session_records_the_goal_its_creator_declared() {
+        let fixture = Fixture::new("session-goal");
+        let creator = a_holder(HolderKind::Token, Some("srm_a"));
+        fixture.advance(40);
+
+        let id = fixture
+            .registry
+            .create(
+                creator.clone(),
+                Some("ship the spine"),
+                CreateTarget::Pty { shell: None },
+                24,
+                80,
+            )
+            .await
+            .expect("the session opens");
+
+        assert_eq!(
+            fixture.registry.holder_of(&id),
+            Some(creator.clone()),
+            "the session records the door that opened it"
+        );
+        let goal = fixture.registry.goal_of(&id).expect("the goal is recorded");
+        assert_eq!(goal.text(), "ship the spine");
+        assert_eq!(
+            goal.by(),
+            &creator,
+            "the goal's author is the caller that declared it"
+        );
+        assert_eq!(goal.at_ms(), 1_040, "the device's clock stamps the claim");
+
+        let listed = fixture.registry.list();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].holder, creator);
+        assert_eq!(
+            listed[0].goal.as_ref().map(Goal::text),
+            Some("ship the spine"),
+            "the list answers the goal beside its holder"
+        );
+
+        fixture
+            .registry
+            .close(&id)
+            .await
+            .expect("the session closes");
+    }
+
+    #[tokio::test]
+    async fn the_goal_is_written_by_its_creator_or_an_owner_door() {
+        let fixture = Fixture::new("session-goal-author");
+        let creator = a_holder(HolderKind::Token, Some("srm_a"));
+        let id = fixture
+            .registry
+            .create(
+                creator.clone(),
+                None,
+                CreateTarget::Pty { shell: None },
+                24,
+                80,
+            )
+            .await
+            .expect("the session opens");
+
+        let mine = fixture
+            .registry
+            .set_goal(&id, Some("keep the parser honest"), &creator, 20)
+            .expect("the creator writes its own goal")
+            .expect("a goal was set");
+        assert_eq!(mine.by(), &creator);
+
+        for owner in [
+            a_holder(HolderKind::Install, None),
+            a_holder(HolderKind::Panel, None),
+        ] {
+            let written = fixture
+                .registry
+                .set_goal(&id, Some("the owner's sentence"), &owner, 21)
+                .expect("an Owner door writes the goal")
+                .expect("a goal was set");
+            assert_eq!(written.by(), &owner, "the author is the door that wrote it");
+        }
+
+        for other in [
+            a_holder(HolderKind::Token, Some("srm_b")),
+            a_holder(HolderKind::Console, Some("operator")),
+            a_holder(HolderKind::Grant, None),
+            a_holder(HolderKind::Mesh, None),
+        ] {
+            assert!(
+                matches!(
+                    fixture.registry.set_goal(&id, Some("not mine"), &other, 22),
+                    Err(PtyError::NotGoalWriter { .. })
+                ),
+                "{:?} is neither the creator nor an Owner door",
+                other.kind
+            );
+        }
+        assert_eq!(
+            fixture
+                .registry
+                .goal_of(&id)
+                .map(|goal| goal.text().to_owned()),
+            Some("the owner's sentence".to_owned()),
+            "a refused write leaves the recorded goal untouched"
+        );
+
+        let unknown = SessionId::parse("session-99").expect("a well-formed id");
+        assert!(matches!(
+            fixture
+                .registry
+                .set_goal(&unknown, Some("nowhere"), &creator, 23),
+            Err(PtyError::UnknownSession { .. })
+        ));
+
+        fixture
+            .registry
+            .close(&id)
+            .await
+            .expect("the session closes");
+    }
+
+    #[tokio::test]
+    async fn a_goal_that_is_not_one_sentence_is_refused() {
+        let fixture = Fixture::new("session-goal-bounds");
+        let creator = a_holder(HolderKind::Token, Some("srm_a"));
+        let id = fixture
+            .registry
+            .create(
+                creator.clone(),
+                None,
+                CreateTarget::Pty { shell: None },
+                24,
+                80,
+            )
+            .await
+            .expect("the session opens");
+
+        let too_long = "x".repeat(GOAL_MAX_CHARS + 1);
+        for text in ["", "   ", "a\nb", too_long.as_str()] {
+            assert!(
+                matches!(
+                    fixture.registry.set_goal(&id, Some(text), &creator, 20),
+                    Err(PtyError::Goal(_))
+                ),
+                "{text:?} is not one sentence"
+            );
+        }
+        assert!(
+            fixture.registry.goal_of(&id).is_none(),
+            "a refused goal writes nothing"
+        );
+
+        for text in ["", "a\nb", too_long.as_str()] {
+            assert!(
+                matches!(
+                    fixture
+                        .registry
+                        .create(
+                            creator.clone(),
+                            Some(text),
+                            CreateTarget::Pty { shell: None },
+                            24,
+                            80,
+                        )
+                        .await,
+                    Err(PtyError::Goal(_))
+                ),
+                "{text:?} is refused before a session is opened"
+            );
+        }
+        assert_eq!(
+            fixture.registry.list().len(),
+            1,
+            "a refused goal opens no second session"
+        );
+
+        fixture
+            .registry
+            .close(&id)
+            .await
+            .expect("the session closes");
+    }
+
+    #[tokio::test]
+    async fn the_goal_clears_to_absence() {
+        let fixture = Fixture::new("session-goal-clear");
+        let creator = a_holder(HolderKind::Console, Some("operator"));
+        let id = fixture
+            .registry
+            .create(
+                creator.clone(),
+                Some("first sentence"),
+                CreateTarget::Pty { shell: None },
+                24,
+                80,
+            )
+            .await
+            .expect("the session opens");
+
+        let cleared = fixture
+            .registry
+            .set_goal(&id, None, &creator, 30)
+            .expect("the creator clears its own goal");
+        assert!(
+            cleared.is_none(),
+            "clearing answers absence, not a sentence"
+        );
+        assert!(fixture.registry.goal_of(&id).is_none());
+        assert!(fixture.registry.list()[0].goal.is_none());
+        assert_eq!(
+            fixture.registry.holder_of(&id),
+            Some(creator),
+            "clearing the goal does not touch the holder"
+        );
+
+        assert!(
+            fixture
+                .registry
+                .set_goal(&id, None, &a_holder(HolderKind::Panel, None), 31)
+                .expect("an Owner door may clear an absent goal")
+                .is_none(),
+            "clearing an absent goal is a successful no-op"
+        );
+
+        fixture
+            .registry
+            .close(&id)
+            .await
+            .expect("the session closes");
     }
 
     /// A pseudo-terminal pair standing in for a serial line.
@@ -2167,10 +2974,10 @@ mod tests {
         let mut cursor = 0;
         let mut text = String::new();
         while Instant::now() < deadline {
-            let (bytes, next) = registry.read(id, cursor).expect("a live session reads");
-            if next > cursor {
-                text.push_str(&String::from_utf8_lossy(&bytes));
-                cursor = next;
+            let answer = registry.read(id, cursor).expect("a live session reads");
+            if answer.cursor > cursor {
+                text.push_str(&String::from_utf8_lossy(&answer.data));
+                cursor = answer.cursor;
             }
             if text.contains(marker) {
                 return text;
@@ -2178,6 +2985,31 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
         panic!("{marker:?} did not arrive within {MARKER_TIMEOUT:?}; output so far: {text:?}");
+    }
+
+    /// Read a moving cursor until `marker` appears, stepping over the refusal a dropped cursor gets.
+    ///
+    /// A stream larger than the ring cannot be read from cursor 0: the earliest cursor moves while
+    /// the client reads, so the client follows it exactly as a browser does.
+    async fn read_until_after_drop(registry: &PtyRegistry, id: &SessionId, marker: &str) {
+        let deadline = Instant::now() + MARKER_TIMEOUT;
+        let mut cursor = 0u64;
+        let mut text = String::new();
+        while Instant::now() < deadline {
+            match registry.read(id, cursor) {
+                Ok(answer) => {
+                    text.push_str(&String::from_utf8_lossy(&answer.data));
+                    cursor = answer.cursor;
+                }
+                Err(PtyError::CursorTooOld { earliest, .. }) => cursor = earliest,
+                Err(error) => panic!("a live session reads: {error}"),
+            }
+            if text.contains(marker) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("{marker:?} did not arrive within {MARKER_TIMEOUT:?}");
     }
 
     /// Read until `marker` is followed by ASCII digits anywhere in the output.
@@ -2191,10 +3023,10 @@ mod tests {
         let mut cursor = 0;
         let mut text = String::new();
         while Instant::now() < deadline {
-            let (bytes, next) = registry.read(id, cursor).expect("a live session reads");
-            if next > cursor {
-                text.push_str(&String::from_utf8_lossy(&bytes));
-                cursor = next;
+            let answer = registry.read(id, cursor).expect("a live session reads");
+            if answer.cursor > cursor {
+                text.push_str(&String::from_utf8_lossy(&answer.data));
+                cursor = answer.cursor;
             }
             if let Some(number) = number_after(&text, marker) {
                 return number;
@@ -2224,11 +3056,333 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_long_poll_wakes_when_new_output_arrives() {
+        let fixture = Fixture::new("pty-long-poll");
+        let id = fixture
+            .registry
+            .create(
+                holder(),
+                None,
+                CreateTarget::Pty {
+                    shell: Some("/bin/sh"),
+                },
+                24,
+                80,
+            )
+            .await
+            .expect("a shell starts");
+        fixture
+            .registry
+            .write(&id, b"echo READY\n")
+            .await
+            .expect("the first command is written");
+        let _ = read_until(&fixture.registry, &id, "READY").await;
+        let cursor = fixture
+            .registry
+            .read(&id, 0)
+            .expect("the session reads")
+            .cursor;
+
+        let writer = async {
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            fixture
+                .registry
+                .write(&id, b"echo WAKE\n")
+                .await
+                .expect("the second command is written");
+        };
+        let read = fixture
+            .registry
+            .read_wait(&id, cursor, Duration::from_secs(2));
+        let (answer, ()) = tokio::join!(read, writer);
+        let answer = answer.expect("the read returns");
+        // The prompt can trail the marker, so the first wake may carry it rather than WAKE; what
+        // this test pins is that the read parked and returned new output promptly, not empty after
+        // the full two seconds.
+        assert!(
+            !answer.data.is_empty(),
+            "the wait returned the new output: {:?}",
+            String::from_utf8_lossy(&answer.data)
+        );
+        assert!(answer.cursor > cursor);
+    }
+
+    /// **A READ WAITING FOR THE FEED MUST NOT HOLD THE REGISTRY.**
+    ///
+    /// A flooding line's reader holds its session's output lock on every chunk it appends. A read
+    /// that takes the registry lock and then waits for that ring turns one busy line into every
+    /// other terminal call timing out. This test fills a large retained tail, holds the ring as the
+    /// feed does, parks a read on it, and proves the read is parked *and* the registry is free —
+    /// the two facts that let another call (a `list`, a `create`, a `write`) run meanwhile.
+    #[tokio::test]
+    async fn a_read_waits_for_the_feed_without_holding_the_registry() {
+        let fixture = Fixture::with_limits(
+            "read-lock-scope",
+            Limits {
+                buffer_bytes: 256 * 1024,
+                ..Limits::default()
+            },
+        );
+        let id = fixture
+            .registry
+            .create(
+                holder(),
+                None,
+                CreateTarget::Pty {
+                    shell: Some("/bin/sh"),
+                },
+                24,
+                80,
+            )
+            .await
+            .expect("a shell starts");
+        // The read stamps the session's idle clock when it starts; a different value names the
+        // moment it is past the registry lock.
+        fixture.advance(4_000);
+        let output = {
+            let sessions = lock(&fixture.registry.sessions);
+            Arc::clone(&sessions.get(&id).expect("the session is live").output)
+        };
+        // A large retained tail, as a flooded feed leaves it.
+        {
+            let mut output = lock(&output);
+            output.push(&vec![b'x'; 200 * 1024]);
+        }
+        let start = lock(&output).ring.earliest();
+        let held = lock(&output);
+        std::thread::scope(|scope| {
+            let registry = &fixture.registry;
+            let read_id = id.clone();
+            let (started_tx, started) = std::sync::mpsc::channel();
+            let (done_tx, done) = std::sync::mpsc::channel();
+            scope.spawn(move || {
+                let _ = started_tx.send(());
+                let answer = registry.read(&read_id, start);
+                // The receiver is dropped if an assertion above fails; the read still returns.
+                let _ = done_tx.send(answer);
+            });
+            started.recv().expect("the read thread started");
+
+            let mut parked = false;
+            let mut registry_free = true;
+            let mut blocked = 0;
+            for _ in 0..1_000 {
+                match registry.sessions.try_lock() {
+                    Ok(sessions) => {
+                        blocked = 0;
+                        if sessions
+                            .get(&id)
+                            .is_some_and(|session| session.last_active_ms == 5_000)
+                        {
+                            parked = true;
+                            break;
+                        }
+                        drop(sessions);
+                    }
+                    Err(std::sync::TryLockError::WouldBlock) => {
+                        blocked += 1;
+                        if blocked > 200 {
+                            // Two hundred milliseconds is far longer than any chunk append; a
+                            // sustained hold is the lock order this test exists to forbid.
+                            registry_free = false;
+                            break;
+                        }
+                    }
+                    Err(std::sync::TryLockError::Poisoned(_)) => {
+                        panic!("the registry lock is poisoned")
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            assert!(
+                registry_free,
+                "a read waiting for the feed held the registry, so every other terminal call waits too"
+            );
+            assert!(
+                parked,
+                "the read reached the ring lock (the session's activity was stamped)"
+            );
+
+            // Releasing the feed's chunk lets the parked read finish. It copies the retained tail
+            // and returns; it does not wait for the line to produce more output.
+            drop(held);
+            let answer = done
+                .recv_timeout(Duration::from_secs(5))
+                .expect("the parked read returns once the feed releases its chunk");
+            let answer = answer.expect("the retained ring reads");
+            assert!(
+                answer.data.len() >= 200 * 1024,
+                "the read copied the large retained tail: {} bytes",
+                answer.data.len()
+            );
+            assert_eq!(
+                answer.cursor - start,
+                answer.data.len() as u64,
+                "the cursor advances by exactly the bytes the answer carried"
+            );
+        });
+    }
+
+    /// A page is the oldest retained bytes, and its cursor advances by exactly what it carried;
+    /// paging the whole ring reconstructs the no-limit answer byte for byte.
+    #[tokio::test]
+    async fn a_limited_read_pages_the_ring_and_a_read_without_a_limit_returns_it_whole() {
+        let fixture = Fixture::new("read-pages");
+        let id = fixture
+            .registry
+            .create(
+                holder(),
+                None,
+                CreateTarget::Pty {
+                    shell: Some("/bin/sh"),
+                },
+                24,
+                80,
+            )
+            .await
+            .expect("a shell starts");
+        // `PAGE-END-42` is computed by the shell, so the pty's echo of the command (which carries
+        // `PAGE-END-%s` and `$((6*7))`) cannot satisfy the wait; the trailing sleep keeps the
+        // prompt out of the ring while the pages are read.
+        fixture
+            .registry
+            .write(
+                &id,
+                b"i=0; while [ $i -lt 4000 ]; do printf 'PAGE-%04d\\n' \"$i\"; i=$((i+1)); done; printf 'PAGE-END-%s\\n' \"$((6*7))\"; sleep 30\n",
+            )
+            .await
+            .expect("the print command is written");
+        let _ = read_until(&fixture.registry, &id, "PAGE-END-42").await;
+        let whole = fixture
+            .registry
+            .read(&id, 0)
+            .expect("the retained ring reads");
+        assert!(
+            whole.data.len() > 40_000,
+            "the ring holds the whole print: {} bytes",
+            whole.data.len()
+        );
+        let start = whole.cursor - whole.data.len() as u64;
+
+        let mut cursor = start;
+        let mut paged = Vec::new();
+        loop {
+            let page = fixture
+                .registry
+                .read_with_limit(&id, cursor, Some(4_096))
+                .expect("a page reads");
+            assert!(
+                page.data.len() <= 4_096,
+                "a page is capped: {} bytes",
+                page.data.len()
+            );
+            assert_eq!(
+                page.cursor,
+                cursor + page.data.len() as u64,
+                "the page's cursor advances by its bytes"
+            );
+            if page.data.is_empty() {
+                break;
+            }
+            paged.extend_from_slice(&page.data);
+            cursor = page.cursor;
+        }
+        assert_eq!(
+            paged, whole.data,
+            "the pages are exactly the whole ring, oldest first"
+        );
+        assert_eq!(cursor, whole.cursor, "paging ends at the stream end");
+
+        // No limit is unchanged: `read_with_limit(.., None)` and `read` both answer the whole
+        // retained tail with the stream-end cursor.
+        let unlimited = fixture
+            .registry
+            .read_with_limit(&id, start, None)
+            .expect("a no-limit read");
+        assert_eq!(unlimited.data, whole.data, "no limit is the whole tail");
+        assert_eq!(unlimited.cursor, whole.cursor);
+        let plain = fixture
+            .registry
+            .read(&id, start)
+            .expect("read is the no-limit form");
+        assert_eq!(plain.data, whole.data);
+        assert_eq!(plain.cursor, whole.cursor);
+    }
+
+    /// A page does not soften a refusal: a cursor the ring dropped is still refused with the same
+    /// sentence, and the retained start it names is readable in pages.
+    #[tokio::test]
+    async fn a_limited_read_still_refuses_a_cursor_the_ring_dropped() {
+        let fixture = Fixture::new("read-too-old");
+        let id = fixture
+            .registry
+            .create(
+                holder(),
+                None,
+                CreateTarget::Pty {
+                    shell: Some("/bin/sh"),
+                },
+                24,
+                80,
+            )
+            .await
+            .expect("a shell starts");
+        fixture
+            .registry
+            .write(
+                &id,
+                b"yes | head -c 1200000; printf 'BIG-END-%s\\n' \"$((6*7))\"; sleep 30\n",
+            )
+            .await
+            .expect("the flood command is written");
+        read_until_after_drop(&fixture.registry, &id, "BIG-END-42").await;
+
+        let refused = fixture.registry.read_with_limit(&id, 0, Some(4_096));
+        let earliest = match refused {
+            Err(PtyError::CursorTooOld {
+                cursor: 0,
+                earliest,
+            }) => earliest,
+            other => panic!(
+                "a dropped cursor is refused with the earliest retained cursor, limit or not: {other:?}"
+            ),
+        };
+        assert!(
+            earliest > 0,
+            "the ring dropped the beginning of a 1.2 MB stream"
+        );
+        let page = fixture
+            .registry
+            .read_with_limit(&id, earliest, Some(4_096))
+            .expect("the retained start reads");
+        assert_eq!(page.data.len(), 4_096);
+        assert_eq!(page.cursor, earliest + 4_096);
+
+        // The long-poll form refuses identically before it would ever park.
+        let waited = fixture
+            .registry
+            .read_wait_with_limit(&id, 0, Duration::from_secs(2), Some(4_096))
+            .await;
+        assert!(
+            matches!(
+                waited,
+                Err(PtyError::CursorTooOld {
+                    cursor: 0,
+                    earliest: refused_at
+                }) if refused_at == earliest
+            ),
+            "a long poll with a limit is the same refusal: {waited:?}"
+        );
+    }
+
+    #[tokio::test]
     async fn a_shell_answers_a_marker_and_the_cursor_resumes() {
         let fixture = Fixture::new("pty-round-trip");
         let id = fixture
             .registry
             .create(
+                holder(),
+                None,
                 CreateTarget::Pty {
                     shell: Some("/bin/sh"),
                 },
@@ -2260,14 +3414,15 @@ mod tests {
 
         // The cursor is a resume token: reading from an old cursor returns the retained tail again,
         // and reading from the newest cursor returns nothing new.
-        let (all, end) = fixture
+        let all = fixture
             .registry
             .read(&id, 0)
             .expect("the retained output is readable from the start");
-        assert!(String::from_utf8_lossy(&all).contains("SUMMRISE42"));
-        let (empty, same) = fixture.registry.read(&id, end).expect("a caught-up read");
-        assert!(empty.is_empty());
-        assert_eq!(same, end);
+        assert!(String::from_utf8_lossy(&all.data).contains("SUMMRISE42"));
+        let end = all.cursor;
+        let empty = fixture.registry.read(&id, end).expect("a caught-up read");
+        assert!(empty.data.is_empty());
+        assert_eq!(empty.cursor, end);
 
         fixture
             .registry
@@ -2305,12 +3460,137 @@ mod tests {
         );
     }
 
+    /// A shell that exits naturally is reported once, with the child's own exit facts.
+    #[tokio::test]
+    async fn a_natural_exit_reports_the_code_and_keeps_the_output() {
+        let fixture = Fixture::new("pty-natural-exit-facts");
+        let id = fixture
+            .registry
+            .create(
+                holder(),
+                None,
+                CreateTarget::Pty {
+                    shell: Some("/bin/sh"),
+                },
+                24,
+                80,
+            )
+            .await
+            .expect("a shell starts");
+        let live = fixture.registry.read(&id, 0).expect("a live session reads");
+        assert!(live.alive, "a session that is running says so");
+        assert_eq!(live.end.exit_code, None, "a running child has no exit code");
+
+        fixture
+            .registry
+            .write(&id, b"echo BYE-SESSION-END\nexit 7\n")
+            .await
+            .expect("the marker and the exit are written");
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut ended = fixture
+            .registry
+            .read(&id, 0)
+            .expect("the session reads while it ends");
+        while ended.alive && Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            ended = fixture
+                .registry
+                .read(&id, 0)
+                .expect("the ended session still reads");
+        }
+        assert!(!ended.alive, "the reader saw the shell exit");
+        let printed = String::from_utf8_lossy(&ended.data);
+        assert!(
+            printed.contains("BYE-SESSION-END"),
+            "the retained output outlives the shell: {printed:?}"
+        );
+        assert_eq!(
+            ended.end.exit_code,
+            Some(7),
+            "the child's own exit code is reported"
+        );
+
+        let second = fixture
+            .registry
+            .create(
+                holder(),
+                None,
+                CreateTarget::Pty {
+                    shell: Some("/bin/sh"),
+                },
+                24,
+                80,
+            )
+            .await
+            .expect("a second shell starts");
+        let running = fixture
+            .registry
+            .read(&second, 0)
+            .expect("the running session reads");
+        assert!(running.alive, "a session that is still running says alive");
+        assert_eq!(
+            running.end.exit_code, None,
+            "a live session does not borrow the ended one's code"
+        );
+    }
+
+    /// A shell killed by a signal is reported as a signal, not with an invented exit code.
+    #[tokio::test]
+    async fn a_signal_death_is_reported_as_a_signal() {
+        let fixture = Fixture::new("pty-signal-exit-facts");
+        let id = fixture
+            .registry
+            .create(
+                holder(),
+                None,
+                CreateTarget::Pty {
+                    shell: Some("/bin/sh"),
+                },
+                24,
+                80,
+            )
+            .await
+            .expect("a shell starts");
+
+        fixture
+            .registry
+            .write(&id, b"kill -KILL $$\n")
+            .await
+            .expect("the signal is sent to the shell");
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut ended = fixture
+            .registry
+            .read(&id, 0)
+            .expect("the session reads while it ends");
+        while ended.alive && Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            ended = fixture
+                .registry
+                .read(&id, 0)
+                .expect("the ended session still reads");
+        }
+        assert!(!ended.alive, "the reader saw the shell die");
+        assert_eq!(
+            ended.end.exit_code, None,
+            "a signal death is not an exit code, and the crate's synthetic 1 must not be reported"
+        );
+        assert!(
+            ended.end.signal.is_some(),
+            "the signal that ended the child is reported: {:?}",
+            ended.end.signal
+        );
+    }
+
     #[tokio::test]
     async fn the_list_reports_the_kind_and_the_creation_time() {
         let fixture = Fixture::new("pty-list-shape");
         let id = fixture
             .registry
             .create(
+                holder(),
+                None,
                 CreateTarget::Pty {
                     shell: Some("/bin/sh"),
                 },
@@ -2383,7 +3663,13 @@ mod tests {
 
         let opened = fixture
             .registry
-            .create(CreateTarget::Serial(SerialTarget::new(&port)), 24, 80)
+            .create(
+                holder(),
+                None,
+                CreateTarget::Serial(SerialTarget::new(&port)),
+                24,
+                80,
+            )
             .await;
         let id = match opened {
             Ok(id) => id,
@@ -2479,7 +3765,13 @@ mod tests {
 
         let error = fixture
             .registry
-            .create(CreateTarget::Serial(SerialTarget::new(port)), 24, 80)
+            .create(
+                holder(),
+                None,
+                CreateTarget::Serial(SerialTarget::new(port)),
+                24,
+                80,
+            )
             .await
             .expect_err("there is no device at that path");
 
@@ -2524,13 +3816,25 @@ mod tests {
         let port = line.port();
         let first = fixture
             .registry
-            .create(CreateTarget::Serial(SerialTarget::new(port)), 24, 80)
+            .create(
+                holder(),
+                None,
+                CreateTarget::Serial(SerialTarget::new(port)),
+                24,
+                80,
+            )
             .await
             .expect("the first session opens the port");
 
         let refused = fixture
             .registry
-            .create(CreateTarget::Serial(SerialTarget::new(port)), 24, 80)
+            .create(
+                holder(),
+                None,
+                CreateTarget::Serial(SerialTarget::new(port)),
+                24,
+                80,
+            )
             .await
             .expect_err("the port already has a session");
         match &refused {
@@ -2581,7 +3885,13 @@ mod tests {
             .expect("the holder closes");
         let second = fixture
             .registry
-            .create(CreateTarget::Serial(SerialTarget::new(port)), 24, 80)
+            .create(
+                holder(),
+                None,
+                CreateTarget::Serial(SerialTarget::new(port)),
+                24,
+                80,
+            )
             .await
             .expect("the closed port is free again");
         assert_ne!(second, first, "the second session has its own id");
@@ -2696,7 +4006,13 @@ mod tests {
 
         let session = fixture
             .registry
-            .create(CreateTarget::Serial(SerialTarget::new(line.port())), 24, 80)
+            .create(
+                Holder::install(),
+                None,
+                CreateTarget::Serial(SerialTarget::new(line.port())),
+                24,
+                80,
+            )
             .await
             .expect("the create waits out the lock instead of refusing a free port");
         released.await.expect("the holder drops");
@@ -2725,7 +4041,13 @@ mod tests {
         let started = Instant::now();
         let error = fixture
             .registry
-            .create(CreateTarget::Serial(SerialTarget::new(line.port())), 24, 80)
+            .create(
+                Holder::install(),
+                None,
+                CreateTarget::Serial(SerialTarget::new(line.port())),
+                24,
+                80,
+            )
             .await
             .expect_err("a port another holder keeps is still refused");
         let waited = started.elapsed();
@@ -2750,7 +4072,13 @@ mod tests {
         let line = PtyLine::new();
         let id = fixture
             .registry
-            .create(CreateTarget::Serial(SerialTarget::new(line.port())), 24, 80)
+            .create(
+                Holder::install(),
+                None,
+                CreateTarget::Serial(SerialTarget::new(line.port())),
+                24,
+                80,
+            )
             .await
             .expect("a serial session opens");
 
@@ -2784,7 +4112,13 @@ mod tests {
         // The sweep released the port's claim too, not just its session row.
         let again = fixture
             .registry
-            .create(CreateTarget::Serial(SerialTarget::new(line.port())), 24, 80)
+            .create(
+                Holder::install(),
+                None,
+                CreateTarget::Serial(SerialTarget::new(line.port())),
+                24,
+                80,
+            )
             .await
             .expect("the swept port is free again");
         fixture
@@ -2802,6 +4136,8 @@ mod tests {
             let id = fixture
                 .registry
                 .create(
+                    holder(),
+                    None,
                     CreateTarget::Pty {
                         shell: Some("/bin/sh"),
                     },
@@ -2817,6 +4153,8 @@ mod tests {
         let refused = fixture
             .registry
             .create(
+                holder(),
+                None,
                 CreateTarget::Pty {
                     shell: Some("/bin/sh"),
                 },
@@ -2834,6 +4172,8 @@ mod tests {
         let refused_serial = fixture
             .registry
             .create(
+                holder(),
+                None,
                 CreateTarget::Serial(SerialTarget::new("/dev/no-such-serial-port")),
                 24,
                 80,
@@ -2868,6 +4208,8 @@ mod tests {
         let id = fixture
             .registry
             .create(
+                holder(),
+                None,
                 CreateTarget::Pty {
                     shell: Some("/bin/sh"),
                 },
@@ -2911,6 +4253,8 @@ mod tests {
         let id = fixture
             .registry
             .create(
+                holder(),
+                None,
                 CreateTarget::Pty {
                     shell: Some("/bin/sh"),
                 },
@@ -2957,6 +4301,8 @@ mod tests {
         let first = fixture
             .registry
             .create(
+                holder(),
+                None,
                 CreateTarget::Pty {
                     shell: Some("/bin/sh"),
                 },
@@ -2973,6 +4319,8 @@ mod tests {
         let second = fixture
             .registry
             .create(
+                holder(),
+                None,
                 CreateTarget::Pty {
                     shell: Some("/bin/sh"),
                 },
@@ -3033,6 +4381,8 @@ mod tests {
         let id = fixture
             .registry
             .create(
+                holder(),
+                None,
                 CreateTarget::Pty {
                     shell: Some("/bin/sh"),
                 },
@@ -3073,6 +4423,8 @@ mod tests {
         let id = fixture
             .registry
             .create(
+                holder(),
+                None,
                 CreateTarget::Pty {
                     shell: Some("/bin/sh"),
                 },
@@ -3164,6 +4516,8 @@ mod tests {
         let id = fixture
             .registry
             .create(
+                holder(),
+                None,
                 CreateTarget::Pty {
                     shell: Some("/bin/sh"),
                 },
@@ -3214,6 +4568,8 @@ mod tests {
         let id = fixture
             .registry
             .create(
+                holder(),
+                None,
                 CreateTarget::Pty {
                     shell: Some("/bin/sh"),
                 },
@@ -3284,7 +4640,7 @@ mod tests {
         assert_eq!(ring.earliest(), 2);
         assert!(
             matches!(
-                ring.read_from(0),
+                ring.read_from(0, None),
                 Err(PtyError::CursorTooOld {
                     cursor: 0,
                     earliest: 2
@@ -3293,7 +4649,7 @@ mod tests {
             "bytes the ring dropped are not invented"
         );
         assert!(matches!(
-            ring.read_from(11),
+            ring.read_from(11, None),
             Err(PtyError::CursorAhead {
                 cursor: 11,
                 total: 10
@@ -3301,19 +4657,46 @@ mod tests {
         ));
 
         assert_eq!(
-            ring.read_from(2).expect("the retained tail reads"),
+            ring.read_from(2, None).expect("the retained tail reads"),
             (b"23456789".to_vec(), 10)
         );
         assert_eq!(
-            ring.read_from(9)
+            ring.read_from(9, None)
                 .expect("a mid-tail cursor reads only what follows"),
             (b"9".to_vec(), 10)
         );
         assert_eq!(
-            ring.read_from(10)
+            ring.read_from(10, None)
                 .expect("a caught-up cursor reads nothing"),
             (Vec::new(), 10)
         );
+
+        // A page is the oldest bytes from the cursor, and its cursor advances by exactly what it
+        // carried — never to the ring's end.
+        assert_eq!(
+            ring.read_from(2, Some(3)).expect("a page reads"),
+            (b"234".to_vec(), 5)
+        );
+        assert_eq!(
+            ring.read_from(5, Some(100))
+                .expect("a page larger than the tail reads the tail"),
+            (b"56789".to_vec(), 10)
+        );
+        assert_eq!(
+            ring.read_from(10, Some(1))
+                .expect("a caught-up page is empty"),
+            (Vec::new(), 10)
+        );
+        // The limit does not soften a refusal: a dropped cursor and a cursor past the end are the
+        // same typed errors they are without one.
+        assert!(matches!(
+            ring.read_from(0, Some(1)),
+            Err(PtyError::CursorTooOld { .. })
+        ));
+        assert!(matches!(
+            ring.read_from(11, Some(1)),
+            Err(PtyError::CursorAhead { .. })
+        ));
     }
 
     #[test]
@@ -3389,4 +4772,812 @@ mod tests {
         );
         std::fs::remove_dir_all(&root).expect("cleanup");
     }
+
+    #[test]
+    fn a_screen_drops_the_escapes_a_terminal_would_consume() {
+        let raw = b"\x1b[31mred\x1b[0m plain\r\n\x1b]0;title\x07after";
+        assert_eq!(screen_text(raw, 10), "red plain\nafter");
+    }
+
+    #[test]
+    fn a_screen_keeps_only_the_last_lines_a_person_would_see() {
+        let raw = b"one\n\ntwo\nthree\n";
+        assert_eq!(screen_text(raw, 2), "two\nthree");
+        assert_eq!(screen_text(raw, 10), "one\n\ntwo\nthree");
+        assert_eq!(screen_text(raw, 0), "");
+    }
+
+    #[test]
+    fn a_screen_strips_an_osc_terminated_by_st() {
+        let raw = b"a\x1b]8;;https://example.test\x1b\\b";
+        assert_eq!(screen_text(raw, 10), "ab");
+    }
+}
+
+/// The ConPTY path, executed where it exists: a Windows host starts a real console through the
+/// registry the device serves.
+///
+/// The Unix module above starts `/bin/sh`; this one starts `cmd.exe`, the shell whose availability
+/// on a Windows runner is certain. Every wait has a deadline and panics with the output it has, so a
+/// console that never answers fails the job instead of holding it.
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use std::fs;
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    use crate::config::Release;
+    use crate::test_support::TempDir;
+
+    use super::*;
+
+    /// How long one read loop waits before failing with the output it has.
+    const READ_TIMEOUT: Duration = Duration::from_secs(20);
+
+    struct Fixture {
+        /// Kept alive so the store's paths exist for the whole test; declared before the registry so
+        /// it drops after it (the registry kills children, which writes nothing).
+        _dir: TempDir,
+        registry: PtyRegistry,
+    }
+
+    impl Fixture {
+        fn new(label: &str) -> Fixture {
+            let dir = TempDir::new(label);
+            let data = dir.join("data");
+            fs::create_dir_all(&data).expect("the data directory is creatable");
+            let store = Store::new(dir.join("install"), &data, Release::standalone());
+            // A device always has a document before it serves; the fixture builds one for the same
+            // reason the Unix fixture does, so a create has a state file to update.
+            store
+                .save(&store.initial())
+                .expect("the fixture state saves");
+            let clock: Clock = Arc::new(|| 1_000);
+            let registry = PtyRegistry::with_clock(
+                store,
+                Arc::new(tokio::sync::Mutex::new(())),
+                clock,
+                Limits::default(),
+            );
+            Fixture {
+                _dir: dir,
+                registry,
+            }
+        }
+    }
+
+    /// Read from the start until `marker` appears, returning everything read and the new cursor.
+    async fn read_until_marker(
+        registry: &PtyRegistry,
+        id: &SessionId,
+        marker: &str,
+    ) -> (String, u64) {
+        let deadline = Instant::now() + READ_TIMEOUT;
+        let mut cursor = 0;
+        let mut text = String::new();
+        while Instant::now() < deadline {
+            let answer = registry.read(id, cursor).expect("a live session reads");
+            if answer.cursor > cursor {
+                text.push_str(&String::from_utf8_lossy(&answer.data));
+                cursor = answer.cursor;
+            }
+            if text.contains(marker) {
+                return (text, cursor);
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("{marker:?} did not arrive within {READ_TIMEOUT:?}; output so far: {text:?}");
+    }
+
+    /// Read from `cursor` until the session stops being alive, returning the output and the answer.
+    async fn read_until_end(
+        registry: &PtyRegistry,
+        id: &SessionId,
+        mut cursor: u64,
+        mut text: String,
+    ) -> (String, ReadAnswer) {
+        let deadline = Instant::now() + READ_TIMEOUT;
+        loop {
+            let answer = registry.read(id, cursor).expect("the session still reads");
+            if answer.cursor > cursor {
+                text.push_str(&String::from_utf8_lossy(&answer.data));
+                cursor = answer.cursor;
+            }
+            if !answer.alive {
+                return (text, answer);
+            }
+            if Instant::now() >= deadline {
+                panic!("the session did not end within {READ_TIMEOUT:?}; output so far: {text:?}");
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+
+    /// The registry, not a raw `portable-pty` call, starts the console: this is the device's path.
+    #[tokio::test]
+    async fn cmd_exe_answers_a_marker_and_reports_its_exit() {
+        let fixture = Fixture::new("conpty-round-trip");
+        let id = fixture
+            .registry
+            .create(
+                Holder::install(),
+                None,
+                CreateTarget::Pty {
+                    shell: Some("cmd.exe"),
+                },
+                24,
+                80,
+            )
+            .await
+            .expect("a cmd.exe console starts");
+
+        fixture
+            .registry
+            .write(&id, b"echo SUMMRISE42\r\n")
+            .await
+            .expect("the command is written");
+
+        // The marker is searched for anywhere in the stream: ConPTY echoes the typed line and the
+        // shell's prompt shape is not a contract, so neither position nor line shape is asserted.
+        let (text, cursor) = read_until_marker(&fixture.registry, &id, "SUMMRISE42").await;
+
+        fixture
+            .registry
+            .write(&id, b"exit\r\n")
+            .await
+            .expect("the exit is written");
+
+        let (text, ended) = read_until_end(&fixture.registry, &id, cursor, text).await;
+        assert!(!ended.alive, "the reader saw cmd.exe exit: {text:?}");
+        assert_eq!(
+            ended.end.exit_code,
+            Some(0),
+            "cmd.exe exits with its own code; output: {text:?}"
+        );
+        assert!(
+            text.contains("SUMMRISE42"),
+            "the retained output carries the marker after the session ends: {text:?}"
+        );
+    }
+}
+
+/// The end facts are a pure function of the crate's `ExitStatus`, so their cases run everywhere.
+///
+/// The pty tests above reach the same parser through a real child, which only a Unix host can start.
+/// The constructors used here exist on every target, so this module proves the exit-code versus
+/// signal split on Windows CI; `windows_tests` below additionally starts a real console there.
+#[cfg(test)]
+mod end_facts {
+    use super::*;
+
+    /// A child that exits with a code keeps that code and has no signal.
+    #[test]
+    fn an_exit_code_is_reported_and_no_signal_is_invented() {
+        let facts = exit_facts(&portable_pty::ExitStatus::with_exit_code(7));
+        assert_eq!(facts.exit_code, Some(7), "the child's own code is reported");
+        assert_eq!(facts.signal, None, "a plain exit has no signal");
+    }
+
+    /// Zero is a code, not the absence of one.
+    #[test]
+    fn a_zero_exit_code_is_reported_as_zero() {
+        let facts = exit_facts(&portable_pty::ExitStatus::with_exit_code(0));
+        assert_eq!(facts.exit_code, Some(0));
+        assert_eq!(facts.signal, None);
+    }
+
+    /// A signal death is read from the Display prefix, not from the crate's synthetic code 1.
+    #[test]
+    fn a_signal_death_is_reported_as_a_signal_not_a_code() {
+        let facts = exit_facts(&portable_pty::ExitStatus::with_signal("Killed"));
+        assert_eq!(facts.signal.as_deref(), Some("Killed"));
+        assert_eq!(
+            facts.exit_code, None,
+            "the crate's synthetic 1 must not be reported as an exit code"
+        );
+    }
+
+    /// A serial or SSH session has no child, so its end facts are the default.
+    #[test]
+    fn the_default_has_neither_an_exit_code_nor_a_signal() {
+        let facts = EndFacts::default();
+        assert_eq!(facts.exit_code, None);
+        assert_eq!(facts.signal, None);
+    }
+}
+
+/// The sentences an operator reads when a serial port will not open.
+///
+/// The access refusal is the incident's: `chrome-headless-shell` held `COM4` and the console said
+/// only "Access is denied", naming neither the likely holder nor an action. These tests fix the
+/// words, and keep the busy and missing-port sentences their own.
+#[cfg(test)]
+mod serial_refusals {
+    use super::*;
+
+    /// The Windows access refusal, exactly as `serialport` spells it: it folds
+    /// `ERROR_ACCESS_DENIED` into `NoDevice`, so only the description tells it apart from a path
+    /// that does not exist.
+    fn access_denied() -> serialport::Error {
+        serialport::Error::new(serialport::ErrorKind::NoDevice, "Access is denied.")
+    }
+
+    fn missing() -> serialport::Error {
+        serialport::Error::new(
+            serialport::ErrorKind::NoDevice,
+            "The system cannot find the file specified.",
+        )
+    }
+
+    fn busy() -> serialport::Error {
+        serialport::Error::new(
+            serialport::ErrorKind::Io(io::ErrorKind::WouldBlock),
+            "Device or resource busy",
+        )
+    }
+
+    /// The access refusal says a process has the port, names the likely holder with the evidence,
+    /// and names both actions that release it. It never claims to have measured the holder.
+    #[test]
+    fn an_access_refusal_names_the_likely_holder_and_the_two_actions() {
+        let error = serial_refusal("COM4", access_denied());
+        match &error {
+            PtyError::SerialAccess { port, message } => {
+                assert_eq!(port, "COM4", "the refusal names the port that was tried");
+                assert!(
+                    message.contains("Access is denied"),
+                    "the OS report stays as the evidence: {message}"
+                );
+            }
+            other => panic!("an access refusal is the typed access error, not {other:?}"),
+        }
+
+        let text = error.to_string();
+        assert!(
+            text.contains("Another process has the port"),
+            "the sentence says a process has the port: {text}"
+        );
+        assert!(
+            text.contains(
+                "quite possibly this machine's own headless browser holding a Web Serial port"
+            ),
+            "the sentence names the likely holder without claiming to know it: {text}"
+        );
+        assert!(
+            text.contains("browser.close"),
+            "the sentence names closing the browser's pages: {text}"
+        );
+        assert!(
+            text.contains("restart the device app"),
+            "the sentence names restarting the device app: {text}"
+        );
+        assert!(
+            text.contains("which now reaps the browser"),
+            "the sentence says the restart ends the browser: {text}"
+        );
+    }
+
+    /// Busy and missing stay their own sentences: neither inherits the holder sentence, and they
+    /// do not become one refusal with two spellings.
+    #[test]
+    fn a_busy_port_and_a_missing_port_keep_their_own_sentences() {
+        let busy = serial_refusal("COM4", busy());
+        assert!(
+            matches!(busy, PtyError::Serial { .. }),
+            "a busy port is the serial refusal, not an access refusal: {busy:?}"
+        );
+        let busy_text = busy.to_string();
+        assert!(
+            busy_text.contains("Device or resource busy"),
+            "the busy sentence keeps the OS report: {busy_text}"
+        );
+
+        let missing = serial_refusal("COM4", missing());
+        assert!(
+            matches!(missing, PtyError::Serial { .. }),
+            "a missing port is the serial refusal, not an access refusal: {missing:?}"
+        );
+        let missing_text = missing.to_string();
+        assert!(
+            missing_text.contains("cannot find the file specified"),
+            "the missing sentence keeps the OS report: {missing_text}"
+        );
+
+        assert_ne!(
+            busy_text, missing_text,
+            "a port another program holds and a port that is not there are different sentences"
+        );
+        for text in [&busy_text, &missing_text] {
+            assert!(
+                !text.contains("headless browser"),
+                "a refusal the platform did not call an access error does not claim a holder: {text}"
+            );
+        }
+
+        // A port another live session of this device holds is a third, actionable sentence.
+        let held = PtyError::PortBusy {
+            port: "COM4".to_owned(),
+            holder: "session-3".to_owned(),
+        };
+        let held_text = held.to_string();
+        assert!(
+            held_text.contains("already open in session session-3")
+                && held_text.contains("close that session first"),
+            "the device's own holder is named with the action: {held_text}"
+        );
+        assert!(
+            !held_text.contains("headless browser"),
+            "a session this device holds is not blamed on a browser: {held_text}"
+        );
+    }
+
+    /// Linux gives the same refusal as a permission error; it must take the same sentence.
+    #[test]
+    fn a_permission_error_is_an_access_refusal_on_every_platform() {
+        let error = serialport::Error::new(
+            serialport::ErrorKind::Io(io::ErrorKind::PermissionDenied),
+            "Permission denied (os error 13)",
+        );
+        let refusal = serial_refusal("/dev/ttyUSB0", error);
+        assert!(
+            matches!(refusal, PtyError::SerialAccess { .. }),
+            "a permission error is the access refusal: {refusal:?}"
+        );
+        assert!(refusal.to_string().contains("browser.close"));
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The declaration's implementation: the device side of `summrise_core::capabilities::terminal`.
+// ---------------------------------------------------------------------------------------------
+
+use base64::Engine as _;
+use serde_json::{json, Map, Value};
+
+use crate::mcp::{parse, ToolError, BASE64};
+
+/// Whether `tool` is one this capability declares.
+pub fn owns(tool: &str) -> bool {
+    summrise_core::capabilities::terminal::CAPABILITY
+        .tools
+        .iter()
+        .any(|declared| declared.name == tool)
+}
+
+/// Every tool this capability declares, for the registry-alignment test.
+#[cfg(test)]
+pub fn names() -> impl Iterator<Item = &'static str> {
+    summrise_core::capabilities::terminal::CAPABILITY
+        .tools
+        .iter()
+        .map(|tool| tool.name)
+}
+
+/// Run one of this capability's tools against the session registry.
+///
+/// `holder` is the door the call arrived through. It is derived once by the MCP path and is the
+/// author of everything this capability writes on the caller's behalf: the session's holder at
+/// create, and the goal's author whenever a goal is set.
+pub async fn call(
+    terminal: &PtyRegistry,
+    holder: &Holder,
+    tool: &str,
+    arguments: Map<String, Value>,
+) -> Result<String, ToolError> {
+    match tool {
+        "terminal.create" => {
+            let arguments: PtyCreateArgs = parse(arguments, tool)?;
+            let kind = Kind::parse(&arguments.kind).map_err(|error| refused(tool, error))?;
+            let serial_port: String;
+            let target = match kind {
+                Kind::Pty => {
+                    reject_serial_framing(&arguments, tool)?;
+                    if arguments.host.is_some()
+                        || arguments.port.is_some()
+                        || arguments.user.is_some()
+                        || arguments.auth.is_some()
+                        || arguments.host_key.is_some()
+                    {
+                        return Err(ToolError::Arguments(format!(
+                            "{tool}: kind pty takes shell, rows and cols; host, port, user, auth and host_key are for kind ssh"
+                        )));
+                    }
+                    CreateTarget::Pty {
+                        shell: arguments.shell.as_deref(),
+                    }
+                }
+                Kind::Ssh => {
+                    reject_serial_framing(&arguments, tool)?;
+                    if arguments.shell.is_some() {
+                        return Err(ToolError::Arguments(format!(
+                            "{tool}: kind ssh takes host, port, user, auth and optional host_key; shell is for kind pty"
+                        )));
+                    }
+                    let required = |field: &str| {
+                        ToolError::Arguments(format!(
+                            "{tool}: {field} is required when kind is ssh"
+                        ))
+                    };
+                    let host = arguments.host.as_deref().ok_or_else(|| required("host"))?;
+                    let port = match arguments.port.as_ref() {
+                        Some(PortArg::Ssh(port)) => *port,
+                        Some(PortArg::Serial(_)) => {
+                            return Err(ToolError::Arguments(format!(
+                                "{tool}: kind ssh names its TCP port as a number, not a port path"
+                            )));
+                        }
+                        None => return Err(required("port")),
+                    };
+                    let user = arguments.user.as_deref().ok_or_else(|| required("user"))?;
+                    let auth = arguments.auth.as_ref().ok_or_else(|| required("auth"))?;
+                    CreateTarget::Ssh(SshTarget {
+                        host,
+                        port,
+                        user,
+                        auth,
+                        host_key: arguments.host_key.as_deref(),
+                    })
+                }
+                Kind::Serial => {
+                    if arguments.shell.is_some()
+                        || arguments.host.is_some()
+                        || arguments.user.is_some()
+                        || arguments.auth.is_some()
+                        || arguments.host_key.is_some()
+                    {
+                        return Err(ToolError::Arguments(format!(
+                            "{tool}: kind serial takes port and optional baud, parity, data_bits and stop_bits; shell, host, user, auth and host_key are for kind pty or ssh"
+                        )));
+                    }
+                    let port = match arguments.port.as_ref() {
+                        Some(PortArg::Serial(port)) if !port.is_empty() => port.clone(),
+                        Some(PortArg::Serial(_)) => {
+                            return Err(ToolError::Arguments(format!(
+                                "{tool}: kind serial needs a non-empty port path"
+                            )));
+                        }
+                        Some(PortArg::Ssh(_)) => {
+                            return Err(ToolError::Arguments(format!(
+                                "{tool}: kind serial names an OS port path as a string, not a TCP port number"
+                            )));
+                        }
+                        None => {
+                            return Err(ToolError::Arguments(format!(
+                                "{tool}: port is required when kind is serial; it names the OS port, e.g. COM3 or /dev/ttyUSB0"
+                            )));
+                        }
+                    };
+                    let parity = Parity::parse(arguments.parity.as_deref().unwrap_or("none"))
+                        .map_err(|error| refused(tool, error))?;
+                    serial_port = port;
+                    CreateTarget::Serial(SerialTarget {
+                        baud: arguments.baud.unwrap_or(DEFAULT_BAUD),
+                        parity,
+                        data_bits: arguments.data_bits.unwrap_or(DEFAULT_DATA_BITS),
+                        stop_bits: arguments.stop_bits.unwrap_or(DEFAULT_STOP_BITS),
+                        ..SerialTarget::new(&serial_port)
+                    })
+                }
+            };
+            let label = target.label();
+            let id = terminal
+                .create(
+                    holder.clone(),
+                    arguments.goal.as_deref(),
+                    target,
+                    arguments.rows.unwrap_or(DEFAULT_ROWS),
+                    arguments.cols.unwrap_or(DEFAULT_COLS),
+                )
+                .await
+                .map_err(|error| goal_or_refused(tool, error))?;
+            Ok(json!({
+                "id": id.as_str(),
+                "kind": kind.as_str(),
+                "shell": label,
+            })
+            .to_string())
+        }
+        "terminal.write" => {
+            let arguments: PtyWriteArgs = parse(arguments, tool)?;
+            let id = session_id(tool, &arguments.id)?;
+            let written = terminal
+                .write(&id, arguments.data.as_bytes())
+                .await
+                .map_err(|error| refused(tool, error))?;
+            Ok(json!({ "written": written }).to_string())
+        }
+        "terminal.read" => {
+            let arguments: PtyReadArgs = parse(arguments, tool)?;
+            let id = session_id(tool, &arguments.id)?;
+            let wait = Duration::from_millis(arguments.wait_ms.unwrap_or(0).min(30_000));
+            let limit = match arguments.limit {
+                Some(0) => {
+                    return Err(ToolError::Arguments(format!(
+                        "{tool}: limit is a byte count and must be at least 1"
+                    )));
+                }
+                Some(limit) => Some(usize::try_from(limit).unwrap_or(usize::MAX)),
+                None => None,
+            };
+            let answer = terminal
+                .read_wait_with_limit(&id, arguments.cursor.unwrap_or(0), wait, limit)
+                .await
+                .map_err(|error| refused(tool, error))?;
+            Ok(json!({
+                "data": String::from_utf8_lossy(&answer.data),
+                "data_base64": BASE64.encode(&answer.data),
+                "cursor": answer.cursor,
+                "alive": answer.alive,
+                "exit_code": answer.end.exit_code,
+                "signal": answer.end.signal,
+            })
+            .to_string())
+        }
+        "terminal.resize" => {
+            let arguments: PtyResizeArgs = parse(arguments, tool)?;
+            let id = session_id(tool, &arguments.id)?;
+            terminal
+                .resize(&id, arguments.rows, arguments.cols)
+                .await
+                .map_err(|error| refused(tool, error))?;
+            Ok(json!({
+                "resized": true,
+                "rows": arguments.rows,
+                "cols": arguments.cols,
+            })
+            .to_string())
+        }
+        "terminal.close" => {
+            let arguments: PtyIdArgs = parse(arguments, tool)?;
+            let id = session_id(tool, &arguments.id)?;
+            terminal
+                .close(&id)
+                .await
+                .map_err(|error| refused(tool, error))?;
+            Ok(json!({ "closed": true }).to_string())
+        }
+        "terminal.list" => {
+            let sessions: Vec<Value> = terminal
+                .list()
+                .iter()
+                .map(|session| {
+                    json!({
+                        "id": session.id.as_str(),
+                        "kind": session.kind.as_str(),
+                        "started_at_ms": session.started_at_ms,
+                        "holder": holder_json(&session.holder),
+                        "goal": session.goal.as_ref().map(goal_json),
+                    })
+                })
+                .collect();
+            Ok(Value::Array(sessions).to_string())
+        }
+        "terminal.goal" => {
+            let arguments: GoalArgs = parse(arguments, tool)?;
+            let id = session_id(tool, &arguments.id)?;
+            let text = match arguments.action.as_str() {
+                "set" => Some(arguments.goal.as_deref().ok_or_else(|| {
+                    ToolError::Arguments(format!(
+                        "{tool}: goal is required when action is set; it is one sentence saying \
+                         what the session is for"
+                    ))
+                })?),
+                "clear" => {
+                    if arguments.goal.is_some() {
+                        return Err(ToolError::Arguments(format!(
+                            "{tool}: action clear takes no goal; it removes the one the session has"
+                        )));
+                    }
+                    None
+                }
+                other => {
+                    return Err(ToolError::Arguments(format!(
+                        "{tool}: action must be \"set\" or \"clear\", not {other:?}"
+                    )))
+                }
+            };
+            let goal = terminal
+                .set_goal(&id, text, holder, now_ms())
+                .map_err(|error| goal_or_refused(tool, error))?;
+            Ok(json!({
+                "id": arguments.id,
+                "goal": goal.as_ref().map(goal_json),
+            })
+            .to_string())
+        }
+        "terminal.screen" => {
+            let arguments: ScreenArgs = parse(arguments, tool)?;
+            let id = session_id(tool, &arguments.id)?;
+            let lines = arguments
+                .lines
+                .unwrap_or(DEFAULT_SCREEN_LINES)
+                .min(MAX_SCREEN_LINES);
+            let text = terminal
+                .screen(&id, lines)
+                .map_err(|error| refused(tool, error))?;
+            Ok(json!({
+                "id": arguments.id,
+                "text": text,
+                "lines": text.lines().count(),
+            })
+            .to_string())
+        }
+        other => Err(ToolError::Internal(format!(
+            "{other}: the terminal capability does not declare this tool"
+        ))),
+    }
+}
+
+fn refused(tool: &str, error: impl std::fmt::Display) -> ToolError {
+    ToolError::Refused(format!("{tool}: {error}"))
+}
+
+/// A refusal from a goal-writing path.
+///
+/// A text that is not one sentence is the caller's argument, not a device refusal, so it is
+/// answered as `Arguments` (the same code a schema violation gets). Everything else — the writer
+/// rule, an unknown session — is the capability's refusal.
+fn goal_or_refused(tool: &str, error: PtyError) -> ToolError {
+    match error {
+        PtyError::Goal(error) => ToolError::Arguments(format!("{tool}: {error}")),
+        // I2: a writer-rule refusal is a **decline**, not an untyped capability failure. The kind
+        // is a closed name, so the audit's `error_kind` and the live event's `call.denied` reason
+        // say `not_goal_writer` rather than `refused`, and a reader can group it without prose.
+        PtyError::NotGoalWriter { .. } => ToolError::Declined {
+            kind: "not_goal_writer",
+            message: format!("{tool}: {error}"),
+            data: None,
+        },
+        other => refused(tool, other),
+    }
+}
+
+/// The wire spelling of a holder's door.
+fn holder_kind_name(kind: HolderKind) -> &'static str {
+    match kind {
+        HolderKind::Install => "install",
+        HolderKind::Panel => "panel",
+        HolderKind::Console => "console",
+        HolderKind::Token => "token",
+        HolderKind::Grant => "grant",
+        HolderKind::Mesh => "mesh",
+    }
+}
+
+/// One holder as `terminal.list` and `terminal.goal` answer it.
+pub(crate) fn holder_json(holder: &Holder) -> Value {
+    json!({
+        "kind": holder_kind_name(holder.kind),
+        "token_id": holder.token_id,
+    })
+}
+
+/// One goal as `terminal.list` and `terminal.goal` answer it: the sentence, its author, its time.
+pub(crate) fn goal_json(goal: &Goal) -> Value {
+    json!({
+        "text": goal.text(),
+        "by": holder_json(goal.by()),
+        "at_ms": goal.at_ms(),
+    })
+}
+
+fn reject_serial_framing(arguments: &PtyCreateArgs, name: &str) -> Result<(), ToolError> {
+    if arguments.baud.is_some()
+        || arguments.parity.is_some()
+        || arguments.data_bits.is_some()
+        || arguments.stop_bits.is_some()
+    {
+        return Err(ToolError::Arguments(format!(
+            "{name}: baud, parity, data_bits and stop_bits are for kind serial"
+        )));
+    }
+    Ok(())
+}
+
+fn session_id(tool: &str, text: &str) -> Result<SessionId, ToolError> {
+    SessionId::parse(text).ok_or_else(|| {
+        ToolError::Refused(format!(
+            "{tool}: the id is not a session id; use one terminal.list returned"
+        ))
+    })
+}
+
+/// The arguments `terminal.create` takes; only the kind is required, because every other field has
+/// a platform default.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PtyCreateArgs {
+    kind: String,
+    /// The local program for `kind: "pty"`.
+    shell: Option<String>,
+    /// The remote target for `kind: "ssh"`.
+    host: Option<String>,
+    /// The remote TCP port for `kind: "ssh"`, or the OS port path for `kind: "serial"`.
+    port: Option<PortArg>,
+    user: Option<String>,
+    auth: Option<ssh::Auth>,
+    host_key: Option<String>,
+    /// The serial framing; all optional, default 115200 8N1.
+    baud: Option<u32>,
+    parity: Option<String>,
+    data_bits: Option<u8>,
+    stop_bits: Option<u8>,
+    rows: Option<u16>,
+    cols: Option<u16>,
+    /// The sentence the creator declares the session is for; absent means no goal.
+    goal: Option<String>,
+}
+
+/// The arguments `terminal.goal` takes: the session, and what to do to its goal.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GoalArgs {
+    id: String,
+    /// `"set"` writes `goal`; `"clear"` removes the sentence and takes no `goal`.
+    action: String,
+    /// The sentence to write; required for `"set"` and forbidden for `"clear"`.
+    goal: Option<String>,
+}
+
+/// The `port` a create names: a TCP port for SSH, a path for serial.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(untagged)]
+enum PortArg {
+    /// `kind: "ssh"` names a TCP port by number.
+    Ssh(u16),
+    /// `kind: "serial"` names an OS port path, e.g. `COM3` or `/dev/ttyUSB0`.
+    Serial(String),
+}
+
+/// The arguments `terminal.write` takes.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PtyWriteArgs {
+    id: String,
+    data: String,
+}
+
+/// The arguments `terminal.read` takes.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PtyReadArgs {
+    id: String,
+    cursor: Option<u64>,
+    /// How long to park when the cursor is already at the end. Absent means answer now; the device
+    /// caps the wait so a client cannot hold a connection for arbitrary time.
+    wait_ms: Option<u64>,
+    /// The most bytes this page may carry. Absent means the whole retained tail; zero is refused.
+    limit: Option<u64>,
+}
+
+/// The arguments `terminal.resize` takes.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PtyResizeArgs {
+    id: String,
+    rows: u16,
+    cols: u16,
+}
+
+/// The arguments `terminal.close` takes.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PtyIdArgs {
+    id: String,
+}
+
+/// The arguments `terminal.screen` takes.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ScreenArgs {
+    id: String,
+    lines: Option<usize>,
 }

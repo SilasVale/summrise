@@ -17,7 +17,6 @@ use std::path::{Path, PathBuf};
 
 use ed25519_dalek::VerifyingKey;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 use crate::auth::constant_time_eq;
 use crate::config::{self, StartupError};
@@ -39,8 +38,18 @@ pub struct Device {
     pub name: Option<String>,
     /// When the device first registered, in Unix milliseconds.
     pub registered_at_ms: u64,
-    /// When the console last heard from the device, in Unix milliseconds.
+    /// When the console last accepted this device's channel, in Unix milliseconds.
+    ///
+    /// A channel opening is not a frame. Presence (`/fleet`'s `online`) and the moment the page
+    /// calls "seen" come from the live channel's last frame, not from this persisted connect time.
     pub last_seen_ms: u64,
+    /// The last version the device announced on its channel, remembered across console restarts.
+    ///
+    /// The channel knows the *live* version; this is the fallback that keeps an offline device from
+    /// reading "no version" after the console is restarted — exactly when the operator is looking at
+    /// a machine that is down and wants to know what it was running.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_version: Option<String>,
 }
 
 /// One device as it is stored: the public facts plus the hash of its channel token.
@@ -149,6 +158,7 @@ impl DeviceRegistry {
                     name: name.or_else(|| existing.device.name.clone()),
                     registered_at_ms: existing.device.registered_at_ms,
                     last_seen_ms: now_ms,
+                    last_version: existing.device.last_version.clone(),
                 }
             }
             None => Device {
@@ -157,6 +167,7 @@ impl DeviceRegistry {
                 name,
                 registered_at_ms: now_ms,
                 last_seen_ms: now_ms,
+                last_version: None,
             },
         };
 
@@ -172,6 +183,52 @@ impl DeviceRegistry {
         Ok(device)
     }
 
+    /// Forget a device: its registration and the token hash that admits it.
+    ///
+    /// `false` means no such device. The file is written before memory changes, so a failed write
+    /// leaves the registry admitting exactly what it admitted before.
+    pub(crate) fn remove(&mut self, id: &str) -> Result<bool, RegisterError> {
+        if !self.devices.contains_key(id) {
+            return Ok(false);
+        }
+        let mut next = self.devices.clone();
+        next.remove(id);
+        self.persist(&next).map_err(|_| RegisterError::Storage)?;
+        self.devices = next;
+        Ok(true)
+    }
+
+    /// Give a device the name the operator knows it by, or clear it.
+    ///
+    /// The name is the console's label, not the device's claim: a machine that announces
+    /// `STUDIO-PC` can be recorded as `studio`. `None` clears it, which lets the announced name
+    /// show through again. The write happens before the in-memory list changes, so a failed write
+    /// leaves the registry serving what is still on disk.
+    pub(crate) fn rename(
+        &mut self,
+        id: &str,
+        name: Option<String>,
+    ) -> Result<Option<Device>, RegisterError> {
+        let Some(existing) = self.devices.get(id).cloned() else {
+            return Ok(None);
+        };
+        let mut next = self.devices.clone();
+        let updated = Device {
+            name,
+            ..existing.device.clone()
+        };
+        next.insert(
+            id.to_owned(),
+            StoredDevice {
+                device: updated.clone(),
+                token_hash: existing.token_hash.clone(),
+            },
+        );
+        self.persist(&next).map_err(|_| RegisterError::Storage)?;
+        self.devices = next;
+        Ok(Some(updated))
+    }
+
     /// Every device, ordered by id so the wire list and the file are stable.
     pub(crate) fn list(&self) -> Vec<Device> {
         self.devices
@@ -183,6 +240,39 @@ impl DeviceRegistry {
     /// Record that the device opened a channel, so the operator's list can say when it was last
     /// heard. In memory only: the file keeps the registration, and a console restart shows the
     /// registration time again rather than inventing a heartbeat it did not persist.
+    /// One device's record, by id.
+    pub(crate) fn get(&self, id: &str) -> Option<&Device> {
+        self.devices.get(id).map(|stored| &stored.device)
+    }
+
+    /// Remember the version a device announced, when it differs from what is stored.
+    ///
+    /// Persisted like a rename, so a console restart does not lose it; the write happens only when the
+    /// value changes, which is once per upgrade rather than once per reconnect.
+    pub(crate) fn record_version(&mut self, id: &str, version: &str) -> Result<(), RegisterError> {
+        let Some(existing) = self.devices.get(id).cloned() else {
+            return Ok(());
+        };
+        if existing.device.last_version.as_deref() == Some(version) {
+            return Ok(());
+        }
+        let mut next = self.devices.clone();
+        let updated = Device {
+            last_version: Some(version.to_owned()),
+            ..existing.device.clone()
+        };
+        next.insert(
+            id.to_owned(),
+            StoredDevice {
+                device: updated,
+                token_hash: existing.token_hash.clone(),
+            },
+        );
+        self.persist(&next).map_err(|_| RegisterError::Storage)?;
+        self.devices = next;
+        Ok(())
+    }
+
     pub(crate) fn touch(&mut self, id: &str, now_ms: u64) {
         if let Some(stored) = self.devices.get_mut(id) {
             stored.device.last_seen_ms = now_ms;
@@ -217,7 +307,9 @@ impl DeviceRegistry {
 impl DeviceRegistry {
     fn persist(&self, devices: &BTreeMap<String, StoredDevice>) -> std::io::Result<()> {
         let list: Vec<&StoredDevice> = devices.values().collect();
-        store::write_json_atomic(&self.path, &list)
+        // The backup is a recovery copy of the **current** registry, never a history: a removed
+        // device must not reappear when the primary is lost and the backup is read.
+        store::write_json_atomic_mirrored(&self.path, &list)
     }
 }
 
@@ -232,8 +324,7 @@ fn parse_public_key(public_key: &str) -> Option<[u8; 32]> {
 }
 
 fn hash_token(token: &[u8; 32]) -> String {
-    let digest = Sha256::digest(token);
-    hex::encode(&digest)
+    crate::hash::sha256_hex(token)
 }
 
 fn validate(stored: &StoredDevice) -> Result<(), String> {
@@ -249,4 +340,142 @@ fn validate(stored: &StoredDevice) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod remove_tests {
+    use super::*;
+
+    /// Revocation is a fact on disk: a console that restarts must not admit a device the operator
+    /// removed, and removing one that is not there is a no-op, not an error.
+    #[test]
+    fn a_removed_device_is_gone_from_memory_and_from_the_file() {
+        let dir = std::env::temp_dir().join(format!("summrise-remove-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let mut registry = DeviceRegistry::load(&dir).expect("an empty registry loads");
+        let key = ed25519_dalek::SigningKey::from_bytes(&[8u8; 32]);
+        let id = hex::encode(&key.verifying_key().to_bytes());
+        registry
+            .register(&id, &id, None, &[3u8; 32], 1_000)
+            .expect("the device registers");
+
+        assert!(registry.remove(&id).expect("the write succeeds"));
+        assert!(DeviceRegistry::load(&dir)
+            .expect("the registry reloads")
+            .list()
+            .is_empty());
+        assert!(!registry.remove(&id).expect("a second removal is a no-op"));
+
+        // The recovery copy is the current registry, not the pre-removal one: losing the primary
+        // must not resurrect the revoked device.
+        let backup = store::backup_path(&dir.join(REGISTRY_FILE));
+        assert!(
+            !std::fs::read_to_string(&backup)
+                .unwrap_or_default()
+                .contains(&id),
+            "the backup does not name the removed device"
+        );
+        std::fs::remove_file(dir.join(REGISTRY_FILE)).expect("the primary is lost");
+        assert!(
+            DeviceRegistry::load(&dir)
+                .expect("the backup recovers an empty registry")
+                .list()
+                .is_empty(),
+            "a lost primary recovered from the backup does not admit the removed device"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The version an offline device last announced survives a console restart: the channel's answer
+    /// is memory, and the registry is the file.
+    #[test]
+    fn the_last_announced_version_survives_a_reload() {
+        let dir = std::env::temp_dir().join(format!("summrise-version-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let mut registry = DeviceRegistry::load(&dir).expect("an empty registry loads");
+        let key = ed25519_dalek::SigningKey::from_bytes(&[8u8; 32]);
+        let public = hex::encode(&key.verifying_key().to_bytes());
+        registry
+            .register(&public, &public, None, &[9u8; 32], 1_000)
+            .expect("the device registers");
+
+        registry
+            .record_version(&public, "0.3.133")
+            .expect("the write succeeds");
+        assert_eq!(
+            DeviceRegistry::load(&dir)
+                .expect("the registry reloads")
+                .list()[0]
+                .last_version
+                .as_deref(),
+            Some("0.3.133"),
+            "the version is on disk, where an offline device is read from"
+        );
+
+        // A second record of the same version is not a write, and an unknown device is not created.
+        registry
+            .record_version(&public, "0.3.133")
+            .expect("no second write");
+        let unknown = "00".repeat(32);
+        registry
+            .record_version(&unknown, "9.9.9")
+            .expect("an unknown device is not an error");
+        assert_eq!(
+            DeviceRegistry::load(&dir).expect("still one device").len(),
+            1
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+}
+
+#[cfg(test)]
+mod rename_tests {
+    use super::*;
+
+    /// The operator's label is the console's fact: it persists, it can be cleared, and clearing it
+    /// lets the announced name show through again.
+    #[test]
+    fn a_device_can_be_named_and_unnamed() {
+        let dir = std::env::temp_dir().join(format!("summrise-rename-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let mut registry = DeviceRegistry::load(&dir).expect("an empty registry loads");
+        let key = ed25519_dalek::SigningKey::from_bytes(&[7u8; 32]);
+        let public = hex::encode(&key.verifying_key().to_bytes());
+        let id = public.clone();
+        registry
+            .register(&id, &public, None, &[9u8; 32], 1_000)
+            .expect("the device registers");
+
+        let renamed = registry
+            .rename(&id, Some("studio".to_owned()))
+            .expect("the write succeeds")
+            .expect("the device exists");
+        assert_eq!(renamed.name.as_deref(), Some("studio"));
+        assert_eq!(
+            DeviceRegistry::load(&dir)
+                .expect("the registry reloads")
+                .list()[0]
+                .name
+                .as_deref(),
+            Some("studio"),
+            "the label is on disk, not only in memory"
+        );
+
+        let cleared = registry
+            .rename(&id, None)
+            .expect("the write succeeds")
+            .expect("the device exists");
+        assert_eq!(cleared.name, None);
+        assert_eq!(
+            registry
+                .rename("00".repeat(32).as_str(), Some("x".to_owned()))
+                .expect("no write"),
+            None,
+            "an unknown device is not created by a rename"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }

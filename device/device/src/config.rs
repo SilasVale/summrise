@@ -2,6 +2,7 @@
 //!
 //! The launcher starts the app with `--install`, `--data`, `--port`, `--release-version`,
 //! `--release-sha` and `--release-channel`; an operator may add `--token-file`, `--files-root`,
+//! `--files-shared-root` (a second, named `shared` root such as `H:\tmp`),
 //! `--console-url`/`--console-token-file` or `--mesh-broker`/`--mesh-relay`/`--mesh-stun`. A human
 //! starting it by hand may set most facts through the environment. Flags win over the
 //! environment, one spelling for each fact, and a missing install or data directory is a typed
@@ -20,8 +21,9 @@ use std::path::PathBuf;
 use serde::Deserialize;
 use summrise_release::Channel;
 
-/// Port the app serves on when neither `--port` nor `SUMMRISE_PORT` is set.
-pub const DEFAULT_PORT: u16 = 18_080;
+/// Port the app serves on when neither `--port` nor `SUMMRISE_PORT` is set. `7737` since 2026-11-04
+/// (the operator's fleet convention; `18080` before it).
+pub const DEFAULT_PORT: u16 = 7_737;
 
 /// The flag naming the console's base URL. Absent means the console link is off.
 pub const CONSOLE_URL_FLAG: &str = "--console-url";
@@ -53,6 +55,24 @@ pub const MESH_STUN_FLAG: &str = "--mesh-stun";
 /// name is the one the file has always had; it now carries both. The launcher writes it with mode
 /// 0600 (Unix); the app refuses a looser one.
 pub const CONSOLE_FILE: &str = "console.json";
+
+/// The console's old port, and the one it moved to on 2026-11-04.
+pub const OLD_CONSOLE_PORT: u16 = 19_000;
+/// Where the console listens since 2026-11-04.
+pub const CONSOLE_PORT: u16 = 7_736;
+
+/// A console URL written before the 2026-11-04 move, in this build's port.
+///
+/// A one-release migration, deliberately narrow: only the exact old port is rewritten, and only
+/// when it appears as `:<port>` — a host, a path or a token that happens to contain those digits
+/// is left alone.
+fn migrate_console_url(url: &str) -> Option<String> {
+    let old = format!(":{OLD_CONSOLE_PORT}");
+    if !url.contains(&old) {
+        return None;
+    }
+    Some(url.replace(&old, &format!(":{CONSOLE_PORT}")))
+}
 
 /// The release facts the running build was started from (fix design F6).
 ///
@@ -96,12 +116,19 @@ pub struct Config {
     pub token_file: PathBuf,
     /// The root the `files` capability is sandboxed to; defaults to `<data>/workspace`.
     pub files_root: PathBuf,
+    /// An optional second, operator-configured root (`--files-shared-root`, e.g. `H:\tmp`). It is
+    /// exposed to `files.*` as `root: "shared"` and never enabled by the AI: only this flag does.
+    pub files_shared_root: Option<PathBuf>,
     /// `--release-version` from the launcher, or `None` for a standalone development start.
     pub release_version: Option<String>,
     /// `--release-sha` from the launcher, or `None` for a standalone development start.
     pub release_sha: Option<String>,
     /// `--release-channel` from the launcher, or `None` for a standalone development start.
     pub release_channel: Option<Channel>,
+    /// Whether the process that started this one supervises it (`SUMMRISE_SUPERVISED=1`, set by the
+    /// launcher for its child). Only a supervised app may exit after a panel enrollment: a process an
+    /// operator started by hand would not come back.
+    pub supervised: bool,
     /// The console's base URL, when the console link is on.
     ///
     /// Both console facts are optional, and they are all-or-nothing: a URL without the token file
@@ -109,6 +136,13 @@ pub struct Config {
     pub console_url: Option<String>,
     /// The file holding the console registration response (`id` and `token`).
     pub console_token_file: Option<PathBuf>,
+    /// Whether a plaintext `ws://` channel to a host that is not this machine is allowed.
+    ///
+    /// Off by default: the registration token crosses the link, so plaintext to another machine is a
+    /// credential on the wire. A URL named on the command line is explicit operator intent and counts
+    /// as an allowance; a `console.json` must say `"allow_plaintext": true`, which enrollment writes
+    /// when it was given `--allow-plaintext`.
+    pub console_allow_plaintext: bool,
     /// The mesh rendezvous broker's origin, when the mesh link is on.
     ///
     /// It is kept as the operator wrote it and validated where the link is built: the mesh knows
@@ -212,6 +246,7 @@ impl Config {
         let mut port = None;
         let mut token_file = None;
         let mut files_root = None;
+        let mut files_shared_root = None;
         let mut release_version = None;
         let mut release_sha = None;
         let mut release_channel = None;
@@ -220,6 +255,12 @@ impl Config {
         let mut mesh_broker: Option<String> = None;
         let mut mesh_relay: Option<String> = None;
         let mut mesh_stun: Option<String> = None;
+
+        // The launcher's own mark, not an inference from the argv: a hand-started process given the
+        // launcher's release flags is still not supervised, and must not exit after an enrollment.
+        let supervised = env("SUMMRISE_SUPERVISED")
+            .and_then(|value| value.to_str().map(|text| text == "1"))
+            .unwrap_or(false);
 
         let mut arguments = args.into_iter();
         while let Some(argument) = arguments.next() {
@@ -235,6 +276,7 @@ impl Config {
                 Flag::Port => port = Some(parse_port(&value)?),
                 Flag::TokenFile => token_file = Some(PathBuf::from(value)),
                 Flag::FilesRoot => files_root = Some(PathBuf::from(value)),
+                Flag::FilesSharedRoot => files_shared_root = Some(PathBuf::from(value)),
                 Flag::ReleaseVersion => release_version = Some(text_value(&value, flag.name())?),
                 Flag::ReleaseSha => release_sha = Some(text_value(&value, flag.name())?),
                 Flag::ReleaseChannel => release_channel = Some(parse_channel(&value)?),
@@ -273,6 +315,8 @@ impl Config {
         let files_root = files_root
             .or_else(|| env("SUMMRISE_FILES_ROOT").map(PathBuf::from))
             .unwrap_or_else(|| data.join("workspace"));
+        let files_shared_root =
+            files_shared_root.or_else(|| env("SUMMRISE_FILES_SHARED_ROOT").map(PathBuf::from));
 
         let console_url = console_url.or_else(|| {
             env("SUMMRISE_CONSOLE_URL").and_then(|value| value.to_str().map(str::to_owned))
@@ -316,15 +360,19 @@ impl Config {
             });
         }
 
+        let console_allow_plaintext = console_url.is_some();
         Ok(Config {
             install,
             data,
             port,
             token_file,
             files_root,
+            files_shared_root,
             release_version,
             release_sha,
             release_channel,
+            supervised,
+            console_allow_plaintext,
             console_url,
             console_token_file,
             mesh_broker,
@@ -347,7 +395,8 @@ impl Config {
         // the other.
         let console_named = self.console_url.is_some() || self.console_token_file.is_some();
         let mesh_named = self.mesh_broker.is_some();
-        if console_named && mesh_named {
+        let files_named = self.files_shared_root.is_some();
+        if console_named && mesh_named && files_named {
             return Ok(());
         }
         let path = self.data.join(CONSOLE_FILE);
@@ -408,6 +457,16 @@ impl Config {
                     }
                     self.console_url = Some(url.clone());
                     self.console_token_file = Some(token_file.clone());
+                    self.console_allow_plaintext = link.allow_plaintext;
+                    // 2026-11-04: the console moved from 19000 to 7736. A device enrolled before
+                    // the move still names the old port in this file and has no other way to learn
+                    // the new one, so the link is migrated here — once — instead of retrying a dead
+                    // port forever. Best effort: a data directory that refuses the write must not
+                    // stop the link this start.
+                    if let Some(migrated) = migrate_console_url(url) {
+                        self.console_url = Some(migrated.clone());
+                        let _ = fs::write(&path, text.replace(url.as_str(), &migrated));
+                    }
                 }
                 _ => {
                     return Err(ConfigError::ConsoleFile {
@@ -462,16 +521,29 @@ impl Config {
             }
         }
 
+        if !files_named {
+            if let Some(root) = &link.files_shared_root {
+                if root.as_os_str().is_empty() {
+                    return Err(ConfigError::ConsoleFile {
+                        path: path.clone(),
+                        detail: "the files_shared_root is empty".to_owned(),
+                    });
+                }
+                self.files_shared_root = Some(root.clone());
+            }
+        }
+
         if link.url.is_none()
             && link.token_file.is_none()
             && link.mesh_broker.is_none()
             && link.mesh_relay.is_none()
             && link.mesh_stun.is_none()
+            && link.files_shared_root.is_none()
         {
             return Err(ConfigError::ConsoleFile {
                 path,
-                detail: "names neither the console (url, token_file) nor the mesh (mesh_broker, \
-                         mesh_relay, mesh_stun)"
+                detail: "names neither the console (url, token_file), the mesh (mesh_broker, \
+                         mesh_relay, mesh_stun) nor a files_shared_root"
                     .to_owned(),
             });
         }
@@ -511,6 +583,8 @@ struct ConsoleLinkFile {
     #[serde(default)]
     url: Option<String>,
     #[serde(default)]
+    allow_plaintext: bool,
+    #[serde(default)]
     token_file: Option<PathBuf>,
     #[serde(default)]
     mesh_broker: Option<String>,
@@ -518,9 +592,12 @@ struct ConsoleLinkFile {
     mesh_relay: Option<String>,
     #[serde(default)]
     mesh_stun: Option<String>,
+    /// A second files root the operator configured, e.g. `H:\\tmp`.
+    #[serde(default)]
+    files_shared_root: Option<PathBuf>,
 }
 
-/// The thirteen flags the app accepts, so an unknown argument can be refused by name.
+/// The fourteen flags the app accepts, so an unknown argument can be refused by name.
 #[derive(Clone, Copy)]
 enum Flag {
     Install,
@@ -528,6 +605,7 @@ enum Flag {
     Port,
     TokenFile,
     FilesRoot,
+    FilesSharedRoot,
     ReleaseVersion,
     ReleaseSha,
     ReleaseChannel,
@@ -546,6 +624,7 @@ impl Flag {
             "--port" => Some(Flag::Port),
             "--token-file" => Some(Flag::TokenFile),
             "--files-root" => Some(Flag::FilesRoot),
+            "--files-shared-root" => Some(Flag::FilesSharedRoot),
             "--release-version" => Some(Flag::ReleaseVersion),
             "--release-sha" => Some(Flag::ReleaseSha),
             "--release-channel" => Some(Flag::ReleaseChannel),
@@ -565,6 +644,7 @@ impl Flag {
             Flag::Port => "--port",
             Flag::TokenFile => "--token-file",
             Flag::FilesRoot => "--files-root",
+            Flag::FilesSharedRoot => "--files-shared-root",
             Flag::ReleaseVersion => "--release-version",
             Flag::ReleaseSha => "--release-sha",
             Flag::ReleaseChannel => "--release-channel",
@@ -635,7 +715,7 @@ mod tests {
     }
 
     #[test]
-    fn all_thirteen_flags_are_parsed() {
+    fn all_fourteen_flags_are_parsed() {
         let config = parse(
             &[
                 "--install",
@@ -648,6 +728,8 @@ mod tests {
                 "/etc/summrise/token",
                 "--files-root",
                 "/srv/summrise/workspace",
+                "--files-shared-root",
+                "/srv/summrise/shared",
                 "--release-version",
                 "2.0.3",
                 "--release-sha",
@@ -673,11 +755,14 @@ mod tests {
                 port: 18_081,
                 token_file: PathBuf::from("/etc/summrise/token"),
                 files_root: PathBuf::from("/srv/summrise/workspace"),
+                files_shared_root: Some(PathBuf::from("/srv/summrise/shared")),
                 release_version: Some("2.0.3".to_owned()),
                 release_sha: Some("b1946ac92492d2347c6235b4d2611184".to_owned()),
                 release_channel: Some(Channel::Canary),
+                supervised: false,
                 console_url: None,
                 console_token_file: None,
+                console_allow_plaintext: false,
                 mesh_broker: Some("http://127.0.0.1:8080".to_owned()),
                 mesh_relay: Some("127.0.0.1:9000".to_owned()),
                 mesh_stun: Some("203.0.113.10:3478".to_owned()),
@@ -890,7 +975,7 @@ mod tests {
         .expect("install and data are enough");
 
         assert_eq!(config.port, DEFAULT_PORT);
-        assert_eq!(config.port, 18_080);
+        assert_eq!(config.port, 7_737);
         assert_eq!(
             config.token_file,
             PathBuf::from("/var/lib/summrise/token"),
@@ -949,11 +1034,14 @@ mod tests {
                 port: 18_082,
                 token_file: PathBuf::from("/etc/summrise/token"),
                 files_root: PathBuf::from("/srv/summrise/workspace"),
+                files_shared_root: None,
                 release_version: None,
                 release_sha: None,
                 release_channel: None,
+                supervised: false,
                 console_url: None,
                 console_token_file: None,
+                console_allow_plaintext: false,
                 mesh_broker: None,
                 mesh_relay: None,
                 mesh_stun: None,
@@ -985,6 +1073,37 @@ mod tests {
         assert_eq!(config.data, PathBuf::from("/env/data"));
         assert_eq!(config.port, 19_000);
         assert_eq!(config.files_root, PathBuf::from("/flag/files"));
+    }
+
+    #[test]
+    fn the_launcher_marks_its_child_as_supervised() {
+        let args = [
+            "--install",
+            "/opt/summrise",
+            "--data",
+            "/var/lib/summrise",
+            "--port",
+            "18081",
+            "--token-file",
+            "/etc/summrise/token",
+            "--files-root",
+            "/srv/summrise/workspace",
+        ];
+        let plain = parse(&args, &[]).expect("the command line parses");
+        assert!(
+            !plain.supervised,
+            "a hand-started process is not supervised"
+        );
+
+        let marked =
+            parse(&args, &[("SUMMRISE_SUPERVISED", "1")]).expect("the launcher's mark parses");
+        assert!(
+            marked.supervised,
+            "the launcher's child knows it is supervised"
+        );
+
+        let other = parse(&args, &[("SUMMRISE_SUPERVISED", "0")]).expect("any other value parses");
+        assert!(!other.supervised, "only 1 is the mark");
     }
 
     #[test]
@@ -1232,6 +1351,34 @@ mod tests {
             (config.console_url, config.console_token_file),
             (None, None),
             "a mesh-only install arms no console"
+        );
+    }
+
+    #[test]
+    fn a_supervised_install_reads_the_files_shared_root_from_the_link() {
+        let dir = crate::test_support::TempDir::new("link-files-shared");
+        let data = dir.join("data");
+        std::fs::create_dir_all(&data).expect("the data directory is creatable");
+        write_link_fixture(&data, r#"{"files_shared_root":"/srv/summrise/shared"}"#);
+
+        let mut config = parse(
+            &[
+                "--install",
+                "/opt/summrise",
+                "--data",
+                data.to_str().expect("the fixture path is UTF-8"),
+            ],
+            &[],
+        )
+        .expect("the supervised command line parses");
+        config
+            .resolve_console_file()
+            .expect("the persisted files root is readable");
+
+        assert_eq!(
+            config.files_shared_root.as_deref(),
+            Some(std::path::Path::new("/srv/summrise/shared")),
+            "a supervised install can carry the second root without an environment variable"
         );
     }
 

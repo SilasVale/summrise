@@ -1,0 +1,134 @@
+{
+  "$comment": "A3 light presentation decisions for the current React Console and Rust/Maud Device. These are design roles, not measured screenshot budgets. Static checks establish source/semantic contracts; browser and platform gates establish rendered behavior. Device shares the canonical prefix and owns its task-specific composition.",
+  "version": "A3-light",
+  "ground": {
+    "light": "#f4f7fb",
+    "surface": "#ffffff",
+    "dark": null,
+    "decorativeGradients": false
+  },
+  "palette": {
+    "ink": "#172c38",
+    "muted": "#4c5d73",
+    "faint": "#60718b",
+    "accent": "#2559cc",
+    "danger": "#a53a37",
+    "semantic": ["ok", "warn", "danger", "focus"],
+    "accentFamily": {
+      "hover": "#1c47a8",
+      "onSoft": "#1c47a8",
+      "washValue": "#edf2fc"
+    },
+    "sidebar": {
+      "surface": "#ffffff",
+      "ink": "#172c38",
+      "muted": "#60718b",
+      "selected": "#edf2ff",
+      "onSelected": "#1c47a8",
+      "focus": "#2559cc"
+    }
+  },
+  "page": {
+    "max": 1440,
+    "pad": 32,
+    "phonePad": 16,
+    "gap": 24,
+    "boxSizing": "border-box",
+    "workspace": "available-width",
+    "$comment": "Overview/prose has a fluid maximum; selected-device work areas use available width. Lists and detail panes own their local spacing rather than inheriting a blanket card layout."
+  },
+  "header": { "height": 64, "background": "surface", "borderBottom": 1 },
+  "rail": {
+    "console": 232,
+    "icon": 72,
+    "compactMin": 640,
+    "compactMax": 1100,
+    "phoneMax": 639,
+    "phoneMode": "labelled-drawer",
+    "deviceSections": 160
+  },
+  "navigation": {
+    "global": ["home", "machines", "activity", "access"],
+    "contextual": "device",
+    "overviewLabel": "Overview",
+    "deviceSections": ["overview", "terminal", "screen", "files", "runs", "tools", "memory", "machine"]
+  },
+  "title": { "size": 28, "line": 36, "weight": 650 },
+  "section": {
+    "h2": { "size": 18, "line": 26, "weight": 600 },
+    "detail": { "size": 14, "line": 21, "weight": 600 },
+    "label": { "size": 12, "line": 18, "weight": 600 }
+  },
+  "metric": { "size": 32, "line": 40, "weight": 650 },
+  "text": {
+    "body": { "size": 14, "line": 21 },
+    "status": { "size": 13, "line": 19.5 },
+    "metadata": { "size": 12, "line": 18 }
+  },
+  "head": {
+    "gap": 16,
+    "align": "flex-start",
+    "maxHeadsPerPage": 1,
+    "pageLevel": 1,
+    "toolLevel": 2,
+    "subtitleSlot": ".page-description",
+    "$comment": "One page h1 identifies Overview, Machines, Activity, Access or the selected machine. Its tool uses h2. Cards, dialogs, metrics and supporting facts keep their own roles; claims do not demote the page name."
+  },
+  "space": {
+    "scale": [2, 4, 6, 8, 10, 12, 14, 16, 24, 32],
+    "controlH": 32,
+    "controlPadY": 5,
+    "target": 32,
+    "targetTouch": 40,
+    "$comment": "Control geometry and native checkbox/radio glyphs are separate from the spacing rhythm. Fixed action clearances and local task layouts are not global list budgets."
+  },
+  "card": { "radius": 12, "pad": 24, "gap": 16 },
+  "radius": {
+    "page": { "card": 12, "row": 10, "control": 8, "mark": 6 },
+    "overlay": { "sheet": 16, "dialog": 12 },
+    "pill": 999
+  },
+  "hairline": {
+    "line": "#e1e7f0",
+    "strong": "#8190a5",
+    "soft": "color-mix(in srgb, var(--ink) 7%, var(--panel))",
+    "stateMarksCarryOwnColour": true,
+    "stateMarksCarryWord": true
+  },
+  "leading": { "body": 1.5, "tight": 1.3, "mark": 1 },
+  "measure": { "prose": "66ch", "codeExempt": true },
+  "elevation": {
+    "flat": "none",
+    "pane": "--shadow-pop",
+    "raised": "--shadow",
+    "recess": "color-mix(in srgb, var(--ink) 7%, var(--panel))",
+    "recessTint": 1.074,
+    "cardTint": 1.072,
+    "$comment": "cardTint remains the existing a11y-audit consumer's minimum region-separation ratio; it is not an exact measured card value. Focus is an outline. State marks may use named inset accents without inventing a floating pane."
+  },
+  "empty": {
+    "wayBack": true,
+    "inCardSurface": "none",
+    "inCardBorder": 0,
+    "inCardShadow": "none"
+  },
+  "loading": { "rows": 3, "role": "status", "labelRequired": true },
+  "motion": {
+    "reducedMotion": "blanket",
+    "cap": "0.01ms",
+    "namedAnimationsStop": true,
+    "interactionMs": 120
+  },
+  "accessibility": {
+    "textContrast": 4.5,
+    "controlContrast": 3,
+    "focusWidth": 2,
+    "hiddenIsAuthoritative": true,
+    "forcedColors": "system-colors"
+  },
+  "theme": { "decides": "single-light", "override": false },
+  "surfaces": {
+    "console": { "renderer": "React", "shared": "canonical-generated-tokens" },
+    "device": { "renderer": "Rust/Maud", "shared": "canonical-prefix", "geometry": "device-owned-composition" }
+  }
+}

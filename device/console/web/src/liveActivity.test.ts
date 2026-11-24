@@ -1,0 +1,590 @@
+import { describe, expect, it, vi } from "vitest";
+import { mergeActivity } from "./activityMerge";
+import {
+  deviceLine,
+  liveActivityPath,
+  openLiveActivity,
+  type DeviceEvent,
+  type EventSourceLike
+} from "./liveActivity";
+
+class FakeSource implements EventSourceLike {
+  listeners = new Map<string, (event: MessageEvent) => void>();
+  closed = false;
+  onerror: ((event: Event) => void) | null = null;
+  constructor(public url: string) {}
+  addEventListener(type: string, listener: (event: MessageEvent) => void) {
+    this.listeners.set(type, listener);
+  }
+  close() {
+    this.closed = true;
+  }
+  emit(type: string, data: unknown) {
+    this.listeners.get(type)?.({ data: JSON.stringify(data) } as MessageEvent);
+  }
+  fail() {
+    this.onerror?.(new Event("error"));
+  }
+}
+
+const line = (ts: number, sentence: string) => ({ ts_ms: ts, kind: "mcp", status: 200, ok: true, sentence });
+
+describe("the live activity stream", () => {
+  it("opens the console's route", () => {
+    expect(liveActivityPath()).toBe("/events");
+  });
+
+  it("replaces the list with each snapshot", () => {
+    const source = new FakeSource("/events");
+    const handlers = { snapshot: vi.fn(), activity: vi.fn(), lagged: vi.fn(), error: vi.fn() };
+    const feed = openLiveActivity(handlers, () => source);
+    expect(feed).not.toBeNull();
+    source.emit("snapshot", { lines: [line(1, "Read `a.txt`"), line(2, "Issued a grant")] });
+    expect(handlers.snapshot).toHaveBeenCalledWith(
+      [
+        { ts_ms: 1, kind: "mcp", status: 200, ok: true, sentence: "Read `a.txt`" },
+        { ts_ms: 2, kind: "mcp", status: 200, ok: true, sentence: "Issued a grant" }
+      ],
+      []
+    );
+  });
+
+  it("keeps a snapshot row's token through the merge", () => {
+    // The snapshot is the newest 40 lines, and the merge shows the live copy of a line the fetched
+    // window also holds. If the snapshot dropped the token, the newest rows would say "—" while the
+    // `/audit` copy behind them names it.
+    const source = new FakeSource("/events");
+    const handlers = { snapshot: vi.fn(), activity: vi.fn(), lagged: vi.fn(), error: vi.fn() };
+    openLiveActivity(handlers, () => source);
+    const token = "a".repeat(64);
+    source.emit("snapshot", {
+      lines: [
+        {
+          ...line(5, "Read notes.txt"),
+          tool: "files.read",
+          token_id: token,
+          caller: "client"
+        }
+      ]
+    });
+    const snapshot = handlers.snapshot.mock.calls[0][0];
+    expect(snapshot[0].token_id).toBe(token);
+    const merged = mergeActivity([], snapshot);
+    expect(merged[0].token_id).toBe(token);
+    expect(merged[0].caller).toBe("client");
+  });
+
+  it("hands one new line to activity", () => {
+    const source = new FakeSource("/events");
+    const handlers = { snapshot: vi.fn(), activity: vi.fn(), lagged: vi.fn(), error: vi.fn() };
+    openLiveActivity(handlers, () => source);
+    source.emit("activity", {
+      ...line(3, "Ran `cargo test`"),
+      device_id: "abc",
+      tool: "runs.exec",
+      ms: 120,
+      live: true
+    });
+    expect(handlers.activity).toHaveBeenCalledWith({
+      ts_ms: 3, kind: "mcp", status: 200, ok: true, sentence: "Ran `cargo test`", device_id: "abc", tool: "runs.exec", ms: 120, live: true
+    });
+  });
+
+  it("keeps a proxied call's trace on its line, which is the join with the machine's journal", () => {
+    const source = new FakeSource("/events");
+    const handlers = { snapshot: vi.fn(), activity: vi.fn(), lagged: vi.fn(), error: vi.fn() };
+    openLiveActivity(handlers, () => source);
+    source.emit("activity", {
+      ...line(5, "Read the machine's facts"),
+      device_id: "abc",
+      tool: "host.facts",
+      trace: "console-abc-1",
+      live: true
+    });
+    expect(handlers.activity).toHaveBeenCalledWith(
+      expect.objectContaining({ trace: "console-abc-1", tool: "host.facts" })
+    );
+  });
+
+  it("keeps the machine's position on a live line, so an opened row can be read back", () => {
+    const source = new FakeSource("/events");
+    const handlers = { snapshot: vi.fn(), activity: vi.fn(), lagged: vi.fn(), error: vi.fn() };
+    openLiveActivity(handlers, () => source);
+    source.emit("activity", {
+      ...line(6, "Read the machine's facts"),
+      device_id: "abc",
+      tool: "host.facts",
+      machine_seq: 814,
+      live: true
+    });
+    expect(handlers.activity).toHaveBeenCalledWith(
+      expect.objectContaining({ machine_seq: 814, tool: "host.facts" })
+    );
+  });
+
+  it("drops a line that has no sentence, because a page cannot describe it", () => {
+    const source = new FakeSource("/events");
+    const handlers = { snapshot: vi.fn(), activity: vi.fn(), lagged: vi.fn(), error: vi.fn() };
+    openLiveActivity(handlers, () => source);
+    source.emit("activity", { ts_ms: 4, kind: "mcp", status: 200 });
+    expect(handlers.activity).not.toHaveBeenCalled();
+  });
+
+  it("hands the dropped-line count to the page, and reports a dropped connection", () => {
+    const source = new FakeSource("/events");
+    const handlers = { snapshot: vi.fn(), activity: vi.fn(), lagged: vi.fn(), error: vi.fn() };
+    openLiveActivity(handlers, () => source);
+    source.emit("lagged", { dropped: 3 });
+    source.fail();
+    // The hole is a number the page can say out loud; discarding the frame body is what let the
+    // page keep its "Following" sentence over it.
+    expect(handlers.lagged).toHaveBeenCalledWith(3);
+    expect(handlers.error).toHaveBeenCalledOnce();
+  });
+
+  it("says when a snapshot arrived after the connection dropped, and only then", () => {
+    const source = new FakeSource("/events");
+    const handlers = {
+      snapshot: vi.fn(),
+      activity: vi.fn(),
+      lagged: vi.fn(),
+      error: vi.fn(),
+      recovered: vi.fn()
+    };
+    openLiveActivity(handlers, () => source);
+
+    // The first snapshot opens the stream; it is not a recovery from anything.
+    source.emit("snapshot", { lines: [line(1, "Read `a.txt`")] });
+    expect(handlers.recovered).not.toHaveBeenCalled();
+
+    source.fail();
+    source.emit("snapshot", { lines: [line(2, "Wrote `b.txt`")] });
+    // The reconnect's snapshot replaced the list; the page is told once so it can reread the gap.
+    expect(handlers.recovered).toHaveBeenCalledOnce();
+
+    // Later snapshots on the healthy connection are not new recoveries.
+    source.emit("snapshot", { lines: [line(3, "Read `c.txt`")] });
+    expect(handlers.recovered).toHaveBeenCalledOnce();
+  });
+
+  it("closes the connection once, and is null where the runtime has no EventSource", () => {
+    const source = new FakeSource("/events");
+    const handlers = { snapshot: vi.fn(), activity: vi.fn(), lagged: vi.fn(), error: vi.fn() };
+    const feed = openLiveActivity(handlers, () => source)!;
+    feed.close();
+    feed.close();
+    expect(source.closed).toBe(true);
+    expect(openLiveActivity(handlers, null)).toBeNull();
+  });
+  it("hands a started frame to the page with its caller, and a finished frame its id", () => {
+    const source = new FakeSource("/events");
+    const handlers = {
+      snapshot: vi.fn(),
+      activity: vi.fn(),
+      lagged: vi.fn(),
+      error: vi.fn(),
+      started: vi.fn(),
+      finished: vi.fn()
+    };
+    openLiveActivity(handlers, () => source);
+
+    // The frame the proxy publishes before the device answers: the shape is the announcement, and
+    // the caller is top-level because the band filters on it.
+    source.emit("started", {
+      started: {
+        device_id: "abc",
+        tool: "runs.exec",
+        id: "call-7",
+        at_ms: 1_000
+      },
+      caller: "client"
+    });
+    expect(handlers.started).toHaveBeenCalledWith({
+      device_id: "abc",
+      tool: "runs.exec",
+      id: "call-7",
+      at_ms: 1_000,
+      caller: "client"
+    });
+
+    source.emit("finished", { finished: { id: "call-7" } });
+    expect(handlers.finished).toHaveBeenCalledWith("call-7");
+  });
+
+  it("keeps a started call's evidence and token, so a running call can be scoped", () => {
+    const source = new FakeSource("/events");
+    const handlers = {
+      snapshot: vi.fn(),
+      activity: vi.fn(),
+      lagged: vi.fn(),
+      error: vi.fn(),
+      started: vi.fn()
+    };
+    openLiveActivity(handlers, () => source);
+
+    // The proxy announced the call before the device answered. The arguments it already built are
+    // the only way to know which session the running call belongs to; the token is who made it.
+    source.emit("started", {
+      started: {
+        id: "call-9",
+        tool: "terminal.write",
+        at_ms: 500,
+        device_id: "abc",
+        evidence: { session: "session-1", input: "npm test" },
+        token_id: "token-1"
+      },
+      caller: "client"
+    });
+    expect(handlers.started).toHaveBeenCalledWith({
+      id: "call-9",
+      tool: "terminal.write",
+      at_ms: 500,
+      device_id: "abc",
+      evidence: { session: "session-1", input: "npm test" },
+      token_id: "token-1",
+      caller: "client"
+    });
+  });
+
+  it("replaces the running list with each snapshot's in-flight calls", () => {
+    const source = new FakeSource("/events");
+    const handlers = { snapshot: vi.fn(), activity: vi.fn(), lagged: vi.fn(), error: vi.fn() };
+    openLiveActivity(handlers, () => source);
+
+    // A reconnect must not forget a call that is still running, and must not keep one it missed the
+    // clear for: the registry's snapshot is the whole list, not an increment.
+    source.emit("snapshot", {
+      lines: [],
+      running: [{ id: "call-8", tool: "files.read", at_ms: 2_000, caller: "console" }]
+    });
+    expect(handlers.snapshot).toHaveBeenCalledWith(
+      [],
+      [{ id: "call-8", tool: "files.read", at_ms: 2_000, caller: "console" }]
+    );
+  });
+
+  it("keeps a snapshot running call's evidence and token too", () => {
+    const source = new FakeSource("/events");
+    const handlers = { snapshot: vi.fn(), activity: vi.fn(), lagged: vi.fn(), error: vi.fn() };
+    openLiveActivity(handlers, () => source);
+
+    // The snapshot's running list is the same facts as a started frame; a reconnect must not lose
+    // the session a call belongs to or the token that made it.
+    source.emit("snapshot", {
+      lines: [],
+      running: [
+        {
+          id: "call-8",
+          tool: "terminal.write",
+          at_ms: 2_000,
+          device_id: "abc",
+          caller: "client",
+          evidence: { session: "session-1", input: "npm test" },
+          token_id: "token-1"
+        }
+      ]
+    });
+    expect(handlers.snapshot).toHaveBeenCalledWith(
+      [],
+      [
+        {
+          id: "call-8",
+          tool: "terminal.write",
+          at_ms: 2_000,
+          device_id: "abc",
+          caller: "client",
+          evidence: { session: "session-1", input: "npm test" },
+          token_id: "token-1"
+        }
+      ]
+    );
+  });
+
+  it("gives a session event the session it names, so the rail can scope it", () => {
+    // A session's own event is not a call and has no HTTP status; its payload names the terminal.
+    // The rail filters rows by device and session, so the row must carry that session structurally
+    // rather than leaving the reader to parse the sentence.
+    const opened: DeviceEvent = {
+      v: 1,
+      plane: "control",
+      seq: 42,
+      ts: "2026-11-13T10:00:00.000Z",
+      type: "session.opened",
+      payload: { id: "2", kind: "pty" }
+    };
+    expect(deviceLine("abc", opened)).toMatchObject({
+      kind: "session",
+      device_id: "abc",
+      session: "2",
+      sentence: "terminal 2 opened on abc"
+    });
+
+    const closed: DeviceEvent = {
+      ...opened,
+      seq: 43,
+      type: "session.closed",
+      ts: "2026-11-13T10:05:00.000Z"
+    };
+    expect(deviceLine("abc", closed)).toMatchObject({
+      session: "2",
+      sentence: "terminal 2 closed on abc"
+    });
+  });
+
+  it("leaves a device call sessionless rather than guessing one", () => {
+    // A call the console did not proxy reaches the page as a journal pair with a tool and outcome,
+    // not the arguments a session would be read from. The rail withholds and counts it.
+    const row = deviceLine("abc", {
+      v: 1,
+      plane: "control",
+      seq: 44,
+      ts: "2026-11-13T10:00:02.000Z",
+      type: "call.finished",
+      payload: { tool: "files.read", ok: true }
+    });
+    expect(row).not.toBeNull();
+    expect(row?.session).toBeUndefined();
+  });
+
+  it("hands a relayed device event to the page with its envelope parsed", () => {
+    const source = new FakeSource("/events");
+    const handlers = {
+      snapshot: vi.fn(),
+      activity: vi.fn(),
+      lagged: vi.fn(),
+      error: vi.fn(),
+      device: vi.fn()
+    };
+    openLiveActivity(handlers, () => source);
+
+    // The console relays the device's journal line as the device wrote it; the machine's id sits
+    // outside the envelope, so the page is told both.
+    source.emit("device", {
+      device_event: {
+        device: "abc",
+        event: {
+          v: 1,
+          plane: "control",
+          seq: 42,
+          ts: "2026-11-13T10:00:00.000Z",
+          type: "session.opened",
+          subject: { session: "2" },
+          payload: { id: "2", kind: "pty" }
+        }
+      }
+    });
+
+    expect(handlers.device).toHaveBeenCalledWith("abc", {
+      v: 1,
+      plane: "control",
+      seq: 42,
+      ts: "2026-11-13T10:00:00.000Z",
+      type: "session.opened",
+      subject: { session: "2" },
+      payload: { id: "2", kind: "pty" }
+    });
+  });
+
+  it("hands a call event's tool, outcome, reason and trace to the page", () => {
+    const source = new FakeSource("/events");
+    const handlers = {
+      snapshot: vi.fn(),
+      activity: vi.fn(),
+      lagged: vi.fn(),
+      error: vi.fn(),
+      device: vi.fn()
+    };
+    openLiveActivity(handlers, () => source);
+
+    // The journal's call pair carries the facts a row needs and the id the console's own line joins
+    // on. The relay does not rewrite either, so the page must read them as the device wrote them.
+    source.emit("device", {
+      device_event: {
+        device: "abc",
+        event: {
+          v: 1,
+          plane: "control",
+          seq: 43,
+          ts: "2026-11-13T10:00:01.000Z",
+          type: "call.denied",
+          trace: { call: "call-7" },
+          payload: { tool: "files.read", ok: false, reason: "denied" }
+        }
+      }
+    });
+
+    expect(handlers.device).toHaveBeenCalledWith("abc", {
+      v: 1,
+      plane: "control",
+      seq: 43,
+      ts: "2026-11-13T10:00:01.000Z",
+      type: "call.denied",
+      payload: { tool: "files.read", ok: false, reason: "denied" },
+      trace: { call: "call-7" }
+    });
+  });
+
+  it("refuses a call event that cannot name its tool and outcome", () => {
+    const source = new FakeSource("/events");
+    const handlers = {
+      snapshot: vi.fn(),
+      activity: vi.fn(),
+      lagged: vi.fn(),
+      error: vi.fn(),
+      device: vi.fn()
+    };
+    openLiveActivity(handlers, () => source);
+
+    // A call row is drawn from the tool and the outcome; an event without them would be a row of
+    // blanks, and the device is the only one that can say. The page refuses the event rather than
+    // guessing what ran, exactly as it refuses any other frame it cannot read.
+    source.emit("device", {
+      device_event: {
+        device: "abc",
+        event: {
+          v: 1,
+          plane: "control",
+          seq: 44,
+          ts: "2026-11-13T10:00:02.000Z",
+          type: "call.finished",
+          payload: { tool: 42, ok: "yes" }
+        }
+      }
+    });
+    source.emit("device", {
+      device_event: {
+        device: "abc",
+        event: {
+          v: 1,
+          plane: "control",
+          seq: 45,
+          ts: "2026-11-13T10:00:03.000Z",
+          type: "call.denied",
+          payload: {}
+        }
+      }
+    });
+    source.emit("device", {
+      device_event: {
+        device: "abc",
+        event: {
+          v: 1,
+          plane: "control",
+          seq: 46,
+          ts: "2026-11-13T10:00:04.000Z",
+          type: "call.finished",
+          payload: null
+        }
+      }
+    });
+    expect(handlers.device).not.toHaveBeenCalled();
+  });
+
+  it("keeps a call whose trace is unreadable but whose facts are sound", () => {
+    const source = new FakeSource("/events");
+    const handlers = {
+      snapshot: vi.fn(),
+      activity: vi.fn(),
+      lagged: vi.fn(),
+      error: vi.fn(),
+      device: vi.fn()
+    };
+    openLiveActivity(handlers, () => source);
+
+    // The trace is the join key, not the call itself: a row that cannot be joined is still a call
+    // the page can report, so an unreadable trace is dropped rather than the event.
+    source.emit("device", {
+      device_event: {
+        device: "abc",
+        event: {
+          v: 1,
+          plane: "control",
+          seq: 47,
+          ts: "2026-11-13T10:00:05.000Z",
+          type: "call.finished",
+          trace: "call-9",
+          payload: { tool: "runs.exec", ok: true }
+        }
+      }
+    });
+
+    expect(handlers.device).toHaveBeenCalledWith("abc", {
+      v: 1,
+      plane: "control",
+      seq: 47,
+      ts: "2026-11-13T10:00:05.000Z",
+      type: "call.finished",
+      payload: { tool: "runs.exec", ok: true }
+    });
+  });
+
+  it("ignores a device frame it cannot read, without throwing", () => {
+    const source = new FakeSource("/events");
+    const handlers = {
+      snapshot: vi.fn(),
+      activity: vi.fn(),
+      lagged: vi.fn(),
+      error: vi.fn(),
+      device: vi.fn()
+    };
+    openLiveActivity(handlers, () => source);
+    const listener = source.listeners.get("device")!;
+
+    // A broken body, an event without its envelope, and an envelope without a machine are all
+    // silence: the page does not control what a device's journal writes, and a bad frame must not
+    // stop the stream.
+    expect(() => listener({ data: "not json" } as MessageEvent)).not.toThrow();
+    source.emit("device", { device_event: { device: "abc" } });
+    source.emit("device", { device_event: { event: { type: "session.opened" } } });
+    source.emit("device", {});
+    expect(handlers.device).not.toHaveBeenCalled();
+  });
+
+  it("hands a journal reset to the page with the gap it names", () => {
+    const source = new FakeSource("/events");
+    const handlers = {
+      snapshot: vi.fn(),
+      activity: vi.fn(),
+      lagged: vi.fn(),
+      error: vi.fn(),
+      reset: vi.fn()
+    };
+    openLiveActivity(handlers, () => source);
+
+    // The journal dropped rows this page still needs; the frame names the machine, the snapshot it
+    // resumed at, and the range that is gone.
+    source.emit("reset", {
+      device: "abc",
+      snapshot_seq: 1000,
+      lost: { from: 41, to: 999 }
+    });
+
+    expect(handlers.reset).toHaveBeenCalledWith({
+      device: "abc",
+      snapshot_seq: 1000,
+      lost: { from: 41, to: 999 }
+    });
+  });
+
+  it("ignores a reset frame it cannot read, without throwing", () => {
+    const source = new FakeSource("/events");
+    const handlers = {
+      snapshot: vi.fn(),
+      activity: vi.fn(),
+      lagged: vi.fn(),
+      error: vi.fn(),
+      reset: vi.fn()
+    };
+    openLiveActivity(handlers, () => source);
+    const listener = source.listeners.get("reset")!;
+
+    // Malformed bytes, a missing range, a missing sequence, and a range that is not numbers are all
+    // silence: a reset the page cannot read must not take the stream down with it.
+    expect(() => listener({ data: "not json" } as MessageEvent)).not.toThrow();
+    source.emit("reset", { device: "abc", snapshot_seq: 1000 });
+    source.emit("reset", { device: "abc", lost: { from: 41, to: 999 } });
+    source.emit("reset", { device: "abc", snapshot_seq: 1000, lost: { from: "41", to: 999 } });
+    source.emit("reset", {});
+    expect(handlers.reset).not.toHaveBeenCalled();
+  });
+});

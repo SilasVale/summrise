@@ -6,11 +6,19 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
+# The page role is its own crate: this console implements its read-only seam and mounts its
+# router, and the page crate cannot name anything from this workspace back.
+summrise-console-page = { path = "../console-page" }
+summrise-ui = { path = "../ui" }
 # `ws` is the device channel: the device dials the console, and the console forwards the operator's
 # MCP exchange over that socket.
 axum = { version = "0.7", features = ["ws"] }
 # The grant key signs; the grant is verified by the device against a pinned public key.
 ed25519-dalek = "2"
+# The day read cuts at the console host's local midnight, the same midnight the page's timeline
+# cuts at. `clock` is only the local-timezone lookup; the console keeps no calendar of its own.
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+jsonwebtoken = "9"
 # Session tokens, enrollment codes and device tokens are OS randomness. `rand_core` is the RNG
 # boundary `ed25519-dalek` already speaks, so the console does not carry a second RNG stack.
 rand_core = { version = "0.6", features = ["getrandom"] }
@@ -19,6 +27,14 @@ serde_json = "1"
 # A device token is stored as a hash, never as the token itself.
 sha2 = "0.10"
 summrise-core = { path = "../core" }
+summrise-protocol = { path = "../protocol" }
+summrise-record = { path = "../record" }
+# The mesh: the readiness probe asks the broker whether a device is registered, and the console's
+# data path will speak the mesh's envelope (docs/superpowers/specs/2026-10-25-console-mesh-surface-design.md).
+summrise-mesh = { path = "../mesh" }
+# The terminal stream is one `Stream` of SSE events; `unfold` is what makes it a stream rather than
+# a hand-written `Stream` impl, and axum already builds on this crate.
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 # `sync` carries the channel's outbound queue and the waiters; `time` is the proxy's 30 s bound;
 # `fs` is the audit index, whose writer must not block the async runtime.
 tokio = { version = "1", features = [
@@ -34,6 +50,12 @@ tokio = { version = "1", features = [
 # WebSocket tests need a real listener and a client, because a handshake is not a tower response.
 [dev-dependencies]
 futures-util = "0.3"
+# `test-util` gives the approval gate's ten-minute deadline a virtual clock: a test that waits ten
+# real minutes is a test nobody runs, and the expiry path is the one a person never sees.
+tokio = { version = "1", features = ["test-util"] }
+# The page's Access sign-in is tested with a real signed assertion, not a stub: the verifier the
+# test exercises is the one the deployment runs.
+jsonwebtoken = "9"
 tokio-tungstenite = { version = "0.24", default-features = false, features = [
     "connect",
     "handshake",

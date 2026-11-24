@@ -185,6 +185,29 @@ impl Registration {
     }
 }
 
+/// The exact bytes a poll signature covers.
+///
+/// `poll\n{peer_id}\n{now_ms}`. The peer is the only party that can produce it, so the broker hands
+/// an inbox to its owner instead of to whoever knows the key (which is public).
+pub fn poll_message(peer_id: &str, now_ms: u64) -> Vec<u8> {
+    format!("poll\n{peer_id}\n{now_ms}").into_bytes()
+}
+
+/// How far a poll's timestamp may differ from the broker's clock.
+///
+/// The signature is replayable inside this window (the URL carries it), which is the price of a GET;
+/// the queue is drained once, so a replayed poll finds it empty. Two minutes is generous for clock
+/// drift between two machines on the same tailnet, and short enough that a captured URL is not useful
+/// for long.
+pub const POLL_SKEW_MS: u64 = 2 * 60 * 1000;
+
+/// How many candidates one lookup may contribute to a dial.
+///
+/// The list is written by a peer; the dialer pays a QUIC handshake per address it tries. A device
+/// publishes a handful (its observed address, a local fallback, maybe a note's), so eight is generous
+/// and bounds what one hostile registration can cost a punch.
+pub const MAX_CANDIDATES: usize = 8;
+
 /// What a lookup returns: the fresh candidates and the freshness stamp.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LookupResponse {
@@ -390,6 +413,57 @@ pub fn now_ms() -> u64 {
 /// purpose: phase 2's broker is a local process, and phase 2b owns the
 /// relay/broker reachable over the internet.
 ///
+/// Validate a broker URL without contacting it: the same rule every request applies.
+///
+/// Returns the canonical `host:port` authority (a trailing slash is accepted and stripped). This is
+/// the console's startup check — a console that named an impossible broker should say so at start,
+/// not on the first readiness request.
+pub fn validate_broker_url(broker_url: &str) -> Result<String, RendezvousError> {
+    origin(broker_url)
+}
+
+/// Ask a broker for a peer's current candidates, WITHOUT holding an identity.
+///
+/// A lookup is unauthenticated and signs nothing, so the console (or any readiness probe) can ask
+/// "is this peer registered right now?" without a key of its own. `now_ms` is the caller's clock; the
+/// broker ignores it for freshness (its own clock decides), but it remains in the wire for
+/// compatibility. `timeout` bounds the whole exchange.
+pub async fn lookup_candidates(
+    broker_url: &str,
+    peer_id: &str,
+    now_ms: u64,
+    timeout: std::time::Duration,
+) -> Result<Vec<Candidate>, RendezvousError> {
+    // The broker's path segment is a hex key; canonicalising it here keeps the request path to bytes
+    // that cannot mean anything else.
+    let key = Identity::public_from_hex(peer_id).map_err(|error| {
+        RendezvousError::Malformed(format!("{peer_id:?} is not a mesh peer id: {error}"))
+    })?;
+    let peer_id = keys::hex_encode(&key);
+    let path = format!("/lookup/{peer_id}?now_ms={now_ms}");
+
+    let (status, body) = request(broker_url, "GET", &path, None, timeout).await?;
+    match status {
+        200 => {
+            let answer: LookupResponse = serde_json::from_slice(&body)
+                .map_err(|error| RendezvousError::Malformed(error.to_string()))?;
+            // THE LIST COMES FROM ANOTHER PEER, through the broker. A registration may name a
+            // thousand addresses (the broker's body cap allows it), and every one of them is a QUIC
+            // handshake the dialer would pay for; a handful is what a real device publishes.
+            let mut candidates = answer.candidates;
+            if candidates.len() > MAX_CANDIDATES {
+                candidates.truncate(MAX_CANDIDATES);
+            }
+            Ok(candidates)
+        }
+        404 => Err(RendezvousError::UnknownPeer(peer_id)),
+        status => Err(RendezvousError::Refused {
+            status,
+            detail: response_detail(&body),
+        }),
+    }
+}
+
 /// It is [`Clone`] because a serving session hands one copy to its inbox
 /// poller task while the session keeps its own.
 #[derive(Clone)]
@@ -485,27 +559,7 @@ impl Rendezvous {
         broker_url: &str,
         peer_id: &str,
     ) -> Result<Vec<Candidate>, RendezvousError> {
-        // The broker's path segment is a hex key; canonicalising it here keeps
-        // the request path to bytes that cannot mean anything else.
-        let key = Identity::public_from_hex(peer_id).map_err(|error| {
-            RendezvousError::Malformed(format!("{peer_id:?} is not a mesh peer id: {error}"))
-        })?;
-        let peer_id = keys::hex_encode(&key);
-        let path = format!("/lookup/{peer_id}?now_ms={}", (self.clock)());
-
-        let (status, body) = request(broker_url, "GET", &path, None, self.request_timeout).await?;
-        match status {
-            200 => {
-                let answer: LookupResponse = serde_json::from_slice(&body)
-                    .map_err(|error| RendezvousError::Malformed(error.to_string()))?;
-                Ok(answer.candidates)
-            }
-            404 => Err(RendezvousError::UnknownPeer(peer_id)),
-            status => Err(RendezvousError::Refused {
-                status,
-                detail: response_detail(&body),
-            }),
-        }
+        lookup_candidates(broker_url, peer_id, (self.clock)(), self.request_timeout).await
     }
 
     /// Leave a signed connect request for `target_id` at `broker_url`.
@@ -556,7 +610,16 @@ impl Rendezvous {
         peer_id: &str,
     ) -> Result<Vec<ConnectRequest>, RendezvousError> {
         let peer_id = canonical_peer(peer_id)?;
-        let path = format!("/requests/{peer_id}?now_ms={}", (self.clock)());
+        // The poll's stamp is wall time, not the registration clock a test injects: the broker
+        // compares it with its own wall clock, and a test clock is a knob for ttl, not for freshness.
+        let polled_at_ms = now_ms();
+        // The broker verifies this against the key its registration names: knowing a peer's public
+        // key is not the same as being that peer, and the inbox is the peer's own.
+        let signature = self.identity.sign(&poll_message(&peer_id, polled_at_ms));
+        let path = format!(
+            "/requests/{peer_id}?now_ms={polled_at_ms}&sig={}",
+            keys::hex_encode(&signature)
+        );
         let (status, body) = request(broker_url, "GET", &path, None, self.request_timeout).await?;
         match status {
             200 => {
@@ -1179,12 +1242,66 @@ mod tests {
         assert_eq!(answer, candidates);
     }
 
+    /// **THE BROKER'S CLOCK IS THE ONE THAT AGES A REGISTRATION.** This test used to assert the
+    /// opposite — that the client's `now_ms` is the clock the broker saw — which was the defect: a client
+    /// an hour ahead deleted every other peer's registration. A far-ahead client now sees exactly what a
+    /// correct one does, because the broker does not read the number it sends.
+    #[test]
+    fn a_broker_url_is_validated_without_contacting_it() {
+        assert_eq!(
+            validate_broker_url("http://127.0.0.1:8080/").expect("a plain origin"),
+            "127.0.0.1:8080"
+        );
+        for bad in [
+            "https://broker.example",
+            "http://host:1/path",
+            "broker.example:1",
+            "http://host:1?x=1",
+        ] {
+            assert!(
+                matches!(validate_broker_url(bad), Err(RendezvousError::BadUrl(_))),
+                "{bad:?} must be refused at startup, not at the first lookup"
+            );
+        }
+    }
+
     #[tokio::test]
-    async fn a_lookup_after_the_ttl_is_an_unknown_peer() {
+    async fn a_lookup_needs_no_identity() {
+        let broker = spawn_broker().await;
+        let identity = Identity::generate();
+        let peer_id = identity.public_hex();
+        let registrar = client(&identity, Vec::new(), 1_000, 30_000);
+        registrar
+            .register(&broker)
+            .await
+            .expect("the peer registers");
+
+        // The free function answers with the candidates and signs nothing.
+        let candidates = lookup_candidates(&broker, &peer_id, 1_000, Duration::from_secs(2))
+            .await
+            .expect("a registered peer is found");
+        assert!(candidates.is_empty(), "no candidates were published");
+
+        let unknown = Identity::generate().public_hex();
+        assert_eq!(
+            lookup_candidates(&broker, &unknown, 1_000, Duration::from_secs(2)).await,
+            Err(RendezvousError::UnknownPeer(unknown))
+        );
+        assert!(
+            matches!(
+                lookup_candidates(&broker, "not-a-key", 1_000, Duration::from_secs(2)).await,
+                Err(RendezvousError::Malformed(_))
+            ),
+            "a malformed peer id is refused before any request leaves"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_lookup_with_a_client_clock_far_ahead_still_sees_the_registration() {
         let broker = spawn_broker().await;
         let identity = Identity::generate();
         let candidates = vec![Candidate::new(CandidateKind::Udp, "10.0.0.1:5000", 900)];
-        let early = client(&identity, candidates.clone(), 1_000, 500);
+        let early = client(&identity, candidates.clone(), 1_000, 30_000);
         early
             .register(&broker)
             .await
@@ -1194,11 +1311,11 @@ mod tests {
             .await
             .expect("the registration is fresh at its issue instant");
 
-        let late = client(&identity, candidates, 1_501, 500);
+        let fast = client(&identity, candidates.clone(), 3_600_000, 30_000);
         assert_eq!(
-            late.lookup(&broker, &identity.public_hex()).await,
-            Err(RendezvousError::UnknownPeer(identity.public_hex())),
-            "the client's clock is the now_ms the broker sees"
+            fast.lookup(&broker, &identity.public_hex()).await,
+            Ok(candidates),
+            "freshness is the broker's clock; the caller's cannot age another peer's entry"
         );
     }
 
@@ -1235,6 +1352,9 @@ mod tests {
         );
     }
 
+    /// **THE TTL RUNS FROM RECEIPT, and this is the one test that lets real time pass**, because the
+    /// boundary under test IS the broker's wall clock: a note's signed stamp cannot be advanced by a
+    /// caller without also changing that caller's clock, which the broker now ignores.
     #[tokio::test]
     async fn an_expired_connect_request_is_not_delivered() {
         let broker = spawn_broker().await;
@@ -1247,18 +1367,17 @@ mod tests {
             .register(&broker)
             .await
             .expect("the target registers");
-        // Signed and offered at 1000; this client's clock is already 1501.
         let requester = client(&requester_identity, Vec::new(), 1_000, 30_000);
         requester
-            .request(&broker, &target_id, "relay-session", 500)
+            .request(&broker, &target_id, "relay-session", 1)
             .await
-            .expect("the broker accepts the request before its ttl");
-        let late = client(&target_identity, Vec::new(), 1_501, 30_000);
+            .expect("the broker accepts the request");
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
 
         assert_eq!(
-            late.requests(&broker, &target_id).await,
+            target.requests(&broker, &target_id).await,
             Ok(Vec::new()),
-            "a request past its ttl is dropped, not delivered"
+            "a request past its ttl measured from receipt is dropped, not delivered"
         );
     }
 

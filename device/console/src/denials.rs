@@ -20,10 +20,12 @@
 
 use std::path::Path;
 
+use serde_json::Value;
+
 use crate::audit::Entry;
 use crate::jsonl::JsonLines;
 
-/// The largest the denial file may become before it is rotated to `denials.1.jsonl`.
+/// The denial record's retention budget: the rows' JSON bytes.
 pub(crate) const DENIALS_MAX_BYTES: u64 = 2 * 1024 * 1024;
 
 /// How many denial lines one window may hold before the rest are suppressed.
@@ -80,6 +82,11 @@ impl Denials {
                         status: 429,
                         detail: Some(detail.as_str()),
                         tool: None,
+                        token_id: None,
+                        caller: None,
+                        trace: None,
+                        txn: None,
+                        machine_seq: None,
                     })
                     .await;
             }
@@ -96,5 +103,10 @@ impl Denials {
         } else {
             window.suppressed += 1;
         }
+    }
+
+    /// The newest `limit` denial lines, newest first.
+    pub(crate) async fn newest(&self, limit: usize) -> Vec<Value> {
+        self.file.newest(limit).await
     }
 }

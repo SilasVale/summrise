@@ -1,0 +1,10 @@
+Output previews, end to end, through the installed release candidate
+  installer: SummriseSetup-2.0.0-canary.exe 96,877,017 bytes sha256 4479d466bc176ae5...
+  install:   silent on DESKTOP-9VH92BJ via SYSTEM task, exit 0
+  device:    sha 07ba344bb3fc3ca3..., health ok, shell=0
+  ACL:       installed SummriseDesktop.exe carries BUILTIN\Users:(I)(RX)
+  Run:       SummriseShell -> C:\Program Files\Summrise\desktop\SummriseDesktop.exe
+
+  run:       cmd /c echo srm_cafebabe9999  (run-1794702762245-1)
+  record:    stdout_preview = "srm_***\r\n"   (19 bytes total, secret replaced)
+  page:      /activity served from the installed desktop app contains the preview renderer

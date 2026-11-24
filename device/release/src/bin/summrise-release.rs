@@ -2,17 +2,20 @@
 //!
 //! The command is parsed by hand on purpose: the workspace has no argument-parsing dependency, and
 //! the signer's one command is small enough that a typed `CliError` is clearer than a framework.
-//! The key never appears in `argv`; `--key-file` names a 0600 file whose contents the signer reads
-//! and never prints.
+//! The signing seed never appears in `argv`; `--key-file` names a 0600 file whose contents the
+//! signer reads and never prints. Offline verification accepts only a caller-trusted public key.
 
 use std::ffi::OsString;
 use std::fmt;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use ed25519_dalek::VerifyingKey;
+
 use summrise_release::{
     generate_seed, hex_encode, now_ms, read_seed, revoke_file, sign_file, sign_sidecar,
-    version_is_plain, Channel, RevokeError, RevokeRequest, SignError, SignRequest,
+    verify_artifact_file, verify_document_file, version_is_plain, ArtifactVerificationError,
+    Channel, DocumentVerificationError, RevokeError, RevokeRequest, SignError, SignRequest,
 };
 
 const SIGN_USAGE: &str = "usage: summrise-release sign --key-file <hex-seed-file> \
@@ -28,6 +31,15 @@ const SIDECAR_USAGE: &str = "usage: summrise-release sidecar --key-file <hex-see
                              --artifact <file> --version X.Y.Z --channel stable|canary \
                              --out <path>";
 
+const VERIFY_ARTIFACT_USAGE: &str = "usage: summrise-release verify-artifact --artifact <file> \
+    --sidecar <file> --public-key <64-hex-public-key> --version X.Y.Z --channel stable|canary\n\
+    Verifies signed bytes/version/channel; does not establish installer kind or installation.";
+
+const VERIFY_DOCUMENT_USAGE: &str = "usage: summrise-release verify-document --document <file> \
+    --public-key <64-hex-public-key> --version X.Y.Z --channel stable|canary\n\
+    Verifies native policy/artifact signatures, freshness and expected version/channel; \
+    does not verify payload bytes or installation state.";
+
 const PUBKEY_USAGE: &str = "usage: summrise-release pubkey --key-file <hex-seed-file>";
 
 const KEYGEN_USAGE: &str = "usage: summrise-release keygen --out <new-seed-file>";
@@ -35,6 +47,8 @@ const KEYGEN_USAGE: &str = "usage: summrise-release keygen --out <new-seed-file>
 const USAGE: &str = "usage: summrise-release sign ...   (see --help after the subcommand)\n\
                      usage: summrise-release revoke ...\n\
                      usage: summrise-release sidecar ...\n\
+                     usage: summrise-release verify-artifact ...\n\
+                     usage: summrise-release verify-document ...\n\
                      usage: summrise-release pubkey ...\n\
                      usage: summrise-release keygen ...";
 
@@ -51,6 +65,9 @@ enum CliError {
     InvalidChannel(String),
     InvalidVersion(String),
     InvalidSha256(String),
+    InvalidPublicKey,
+    VerifyArtifact(ArtifactVerificationError),
+    VerifyDocument(DocumentVerificationError),
     ConflictingSource,
     Sign(SignError),
     Revoke(RevokeError),
@@ -59,7 +76,7 @@ enum CliError {
 impl CliError {
     fn is_usage(&self) -> bool {
         match self {
-            CliError::Sign(_) => false,
+            CliError::Sign(_) | CliError::VerifyArtifact(_) | CliError::VerifyDocument(_) => false,
             CliError::Revoke(error) => error.is_usage(),
             _ => true,
         }
@@ -78,12 +95,12 @@ impl fmt::Display for CliError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             CliError::MissingCommand => f.write_str(
-                "missing the `sign`, `revoke`, `sidecar`, `pubkey` or `keygen` subcommand",
+                "missing the `sign`, `revoke`, `sidecar`, `verify-artifact`, `verify-document`, `pubkey` or `keygen` subcommand",
             ),
             CliError::UnknownCommand(command) => {
                 write!(
                     f,
-                    "unknown subcommand {command:?}; expected `sign`, `revoke`, `sidecar`, `pubkey` or `keygen`"
+                    "unknown subcommand {command:?}; expected `sign`, `revoke`, `sidecar`, `verify-artifact`, `verify-document`, `pubkey` or `keygen`"
                 )
             }
             CliError::NonUnicode => f.write_str("an argument is not valid UTF-8"),
@@ -106,6 +123,11 @@ impl fmt::Display for CliError {
             CliError::InvalidSha256(sha256) => {
                 write!(f, "the artifact sha256 {sha256:?} is not 64 hex characters")
             }
+            CliError::InvalidPublicKey => f.write_str(
+                "the public key is not a valid 64-hex-character Ed25519 public key",
+            ),
+            CliError::VerifyArtifact(error) => write!(f, "cannot verify the artifact: {error}"),
+            CliError::VerifyDocument(error) => write!(f, "cannot verify the document: {error}"),
             CliError::ConflictingSource => {
                 f.write_str("give either --document or --version/--sha256, not both")
             }
@@ -120,6 +142,8 @@ impl std::error::Error for CliError {
         match self {
             CliError::Sign(error) => Some(error),
             CliError::Revoke(error) => Some(error),
+            CliError::VerifyArtifact(error) => Some(error),
+            CliError::VerifyDocument(error) => Some(error),
             _ => None,
         }
     }
@@ -147,6 +171,8 @@ fn run() -> Result<(), CliError> {
         "sign" => sign(args),
         "revoke" => revoke(args),
         "sidecar" => sidecar(args),
+        "verify-artifact" => verify_artifact(args),
+        "verify-document" => verify_document(args),
         "pubkey" => pubkey(args),
         "keygen" => keygen(args),
         "--help" | "-h" => {
@@ -380,6 +406,149 @@ where
         out.display()
     );
     Ok(())
+}
+
+/// Offline verification of signed bytes, with expectations supplied by the caller.
+fn verify_artifact<I>(mut args: I) -> Result<(), CliError>
+where
+    I: Iterator<Item = OsString>,
+{
+    let mut artifact = None;
+    let mut sidecar = None;
+    let mut public_key = None;
+    let mut version = None;
+    let mut channel = None;
+    while let Some(flag) = args.next() {
+        let flag = flag.to_str().ok_or(CliError::NonUnicode)?;
+        match flag {
+            "--artifact" => set_path(
+                &mut artifact,
+                next_value(&mut args, "--artifact")?,
+                "--artifact",
+            )?,
+            "--sidecar" => set_path(
+                &mut sidecar,
+                next_value(&mut args, "--sidecar")?,
+                "--sidecar",
+            )?,
+            "--public-key" => set_text(
+                &mut public_key,
+                next_value(&mut args, "--public-key")?,
+                "--public-key",
+            )?,
+            "--version" => set_text(
+                &mut version,
+                next_value(&mut args, "--version")?,
+                "--version",
+            )?,
+            "--channel" => {
+                if channel.is_some() {
+                    return Err(CliError::DuplicateFlag("--channel"));
+                }
+                let text = next_text(&mut args, "--channel")?;
+                channel = Some(
+                    text.parse::<Channel>()
+                        .map_err(|_| CliError::InvalidChannel(text))?,
+                );
+            }
+            "--help" | "-h" => {
+                println!("{VERIFY_ARTIFACT_USAGE}");
+                return Ok(());
+            }
+            other if other.starts_with('-') => return Err(CliError::UnknownFlag(other.to_owned())),
+            other => return Err(CliError::UnexpectedArgument(other.to_owned())),
+        }
+    }
+    let artifact = artifact.ok_or(CliError::MissingFlag("--artifact"))?;
+    let sidecar = sidecar.ok_or(CliError::MissingFlag("--sidecar"))?;
+    let public_key = public_key.ok_or(CliError::MissingFlag("--public-key"))?;
+    let version = version.ok_or(CliError::MissingFlag("--version"))?;
+    let channel = channel.ok_or(CliError::MissingFlag("--channel"))?;
+    if !version_is_plain(&version) {
+        return Err(CliError::InvalidVersion(version));
+    }
+    let key = parse_public_key(&public_key)?;
+    let verified = verify_artifact_file(&artifact, &sidecar, &key, &version, channel)
+        .map_err(CliError::VerifyArtifact)?;
+    println!(
+        "verified artifact {} ({}) sha256 {}",
+        verified.version, verified.channel, verified.sha256
+    );
+    Ok(())
+}
+
+/// Offline authentication of both native document signatures and freshness, with exact expectations.
+fn verify_document<I>(mut args: I) -> Result<(), CliError>
+where
+    I: Iterator<Item = OsString>,
+{
+    let mut document = None;
+    let mut public_key = None;
+    let mut version = None;
+    let mut channel = None;
+    while let Some(flag) = args.next() {
+        let flag = flag.to_str().ok_or(CliError::NonUnicode)?;
+        match flag {
+            "--document" => set_path(
+                &mut document,
+                next_value(&mut args, "--document")?,
+                "--document",
+            )?,
+            "--public-key" => set_text(
+                &mut public_key,
+                next_value(&mut args, "--public-key")?,
+                "--public-key",
+            )?,
+            "--version" => set_text(
+                &mut version,
+                next_value(&mut args, "--version")?,
+                "--version",
+            )?,
+            "--channel" => {
+                if channel.is_some() {
+                    return Err(CliError::DuplicateFlag("--channel"));
+                }
+                let text = next_text(&mut args, "--channel")?;
+                channel = Some(
+                    text.parse::<Channel>()
+                        .map_err(|_| CliError::InvalidChannel(text))?,
+                );
+            }
+            "--help" | "-h" => {
+                println!("{VERIFY_DOCUMENT_USAGE}");
+                return Ok(());
+            }
+            other if other.starts_with('-') => return Err(CliError::UnknownFlag(other.to_owned())),
+            other => return Err(CliError::UnexpectedArgument(other.to_owned())),
+        }
+    }
+    let document = document.ok_or(CliError::MissingFlag("--document"))?;
+    let public_key = public_key.ok_or(CliError::MissingFlag("--public-key"))?;
+    let version = version.ok_or(CliError::MissingFlag("--version"))?;
+    let channel = channel.ok_or(CliError::MissingFlag("--channel"))?;
+    if !version_is_plain(&version) {
+        return Err(CliError::InvalidVersion(version));
+    }
+    let key = parse_public_key(&public_key)?;
+    let verified = verify_document_file(&document, &key, &version, channel)
+        .map_err(CliError::VerifyDocument)?;
+    println!(
+        "verified document {} ({}) sha256 {} (policy and artifact signatures; freshness checked)",
+        verified.version, verified.channel, verified.sha256
+    );
+    Ok(())
+}
+
+fn parse_public_key(text: &str) -> Result<VerifyingKey, CliError> {
+    if !is_sha256_hex(text) {
+        return Err(CliError::InvalidPublicKey);
+    }
+    let mut bytes = [0u8; 32];
+    for (i, byte) in bytes.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&text[i * 2..i * 2 + 2], 16)
+            .map_err(|_| CliError::InvalidPublicKey)?;
+    }
+    VerifyingKey::from_bytes(&bytes).map_err(|_| CliError::InvalidPublicKey)
 }
 
 /// The `revoke` subcommand: append one withdrawn release and sign the list with the release key.

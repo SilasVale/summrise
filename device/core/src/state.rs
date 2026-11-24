@@ -192,27 +192,85 @@ pub enum SessionState {
 pub struct Update {
     /// The phase the update is in.
     pub phase: UpdatePhase,
-    /// The version the update is heading to, or `None` when nothing is in flight.
+    /// The version the update last named.
     ///
-    /// The three `Option` fields (`to`, `outcome`, `lastResultAtMs`) tolerate absence on the wire:
-    /// serde reads a missing `Option` as `None` (the latter two also say `#[serde(default)]` so the
-    /// rule is explicit), which is what keeps a document written by an older build readable. Every
-    /// non-`Option` field is refused when missing.
+    /// While an update is in flight it is the target; after a result it is the version that result
+    /// applied, refused or rolled back from. `None` until the device records an update fact.
+    ///
+    /// The four `Option` fields (`to`, `outcome`, `lastResultAtMs`, `lastCheck`) tolerate absence on
+    /// the wire: serde reads a missing `Option` as `None` (the latter three also say
+    /// `#[serde(default)]` so the rule is explicit), which is what keeps a document written by an
+    /// older build readable. Every non-`Option` field is refused when missing.
     pub to: Option<String>,
-    /// What the supervisor's last swap result said, once this app has recorded it.
+    /// What the last recorded update result said.
     ///
-    /// This is the terminal half of the update story: `phase` says what is in flight, `outcome`
-    /// says how the last swap ended. `#[serde(default)]` keeps a document written before the field
-    /// existed readable instead of turning an upgrade into a schema error (I1).
+    /// The supervisor's swap answer when one was folded in, or `applied` for the version change a
+    /// claimed start proves: the versioned handoff (`--install-version`/`--apply`) moves the
+    /// pointer and writes no `swap.result.json`, so the start that first runs a different version is
+    /// the record (`Store::record_version_change`). This is the terminal half of the update story:
+    /// `phase` says what is in flight, `outcome` says how the last update ended. `#[serde(default)]`
+    /// keeps a document written before the field existed readable instead of turning an upgrade into
+    /// a schema error (I1).
     #[serde(default)]
     pub outcome: Option<UpdateOutcome>,
-    /// The `at_ms` of the last `swap.result.json` this app has folded into the document.
+    /// The moment of the last recorded result.
     ///
-    /// The result file is the supervisor's, not the app's; this is how the app records one result
-    /// exactly once across restarts and the one-second reconciliation. `#[serde(default)]` makes it
-    /// optional on the wire (I1).
+    /// The `at_ms` of the `swap.result.json` this app folded in, or the boot moment of the version
+    /// change it recorded from its own claimed start (the same value the restart journal carries).
+    /// This is how the app records one result exactly once across restarts and the one-second
+    /// reconciliation. `#[serde(default)]` makes it optional on the wire (I1).
     #[serde(default)]
     pub last_result_at_ms: Option<u64>,
+    /// The last time this device checked for a release, and what asked it to.
+    ///
+    /// A scheduled check that fires while the machine sleeps never runs, so a machine can sit on an
+    /// old release indefinitely. The start of the service and the console channel's return are what
+    /// wake it; this field is the one piece of evidence that says the device did check, and why.
+    /// `#[serde(default)]` keeps a document written before the field existed readable (I1).
+    #[serde(default)]
+    pub last_check: Option<UpdateCheck>,
+}
+
+/// One update check this device ran: when it started, and what asked for it.
+///
+/// This is deliberately one field in [`Update`]: a person asking "did it check when it woke?" reads
+/// `lastCheck.atMs` and `lastCheck.trigger` together, and a document cannot record one without the
+/// other.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UpdateCheck {
+    /// Millisecond Unix time the check started.
+    pub at_ms: u64,
+    /// What asked for the check.
+    pub trigger: UpdateCheckTrigger,
+}
+
+/// What asked the device to look for a release.
+///
+/// Three, and no more: the schedule the operator configured, the service starting, and the console
+/// channel coming back after the machine was asleep. A manual panel request is a schedule wake —
+/// the same timer loop consumes it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UpdateCheckTrigger {
+    /// The service started (a boot, or a supervisor restart).
+    Start,
+    /// The console channel connected for the first time after a start, or after an absence longer
+    /// than five minutes: the machine was asleep, not merely idle.
+    Channel,
+    /// The configured interval (or the panel's manual request) fired.
+    Schedule,
+}
+
+impl UpdateCheckTrigger {
+    /// The lowercase spelling the state document and the log line use.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            UpdateCheckTrigger::Start => "start",
+            UpdateCheckTrigger::Channel => "channel",
+            UpdateCheckTrigger::Schedule => "schedule",
+        }
+    }
 }
 
 /// How the last swap ended, as the supervisor reported it.
@@ -404,6 +462,27 @@ mod tests {
         let state = State::parse(&document).expect("the optional update fields default");
         assert_eq!(state.update.outcome, None);
         assert_eq!(state.update.last_result_at_ms, None);
+    }
+
+    /// The wake record is one field: when the last check started and what asked for it. A document
+    /// written before it existed reads as "never checked", and the pair round-trips in camelCase.
+    #[test]
+    fn the_last_update_check_defaults_and_round_trips() {
+        let mut state = State::parse(EXAMPLE).expect("the design's example is a valid document");
+        assert_eq!(state.update.last_check, None);
+
+        state.update.last_check = Some(UpdateCheck {
+            at_ms: 1_762_364_400_000,
+            trigger: UpdateCheckTrigger::Channel,
+        });
+        let document = state.to_json();
+        let value: serde_json::Value = serde_json::from_str(&document).expect("state is JSON");
+        assert_eq!(value["update"]["lastCheck"]["atMs"], 1_762_364_400_000u64);
+        assert_eq!(value["update"]["lastCheck"]["trigger"], "channel");
+        assert_eq!(
+            State::parse(&document).expect("what to_json writes parses"),
+            state
+        );
     }
 
     /// I3: the repair-log offset is a fact in the one document, so it has one writer and survives a

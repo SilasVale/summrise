@@ -1,0 +1,19 @@
+Release candidate built from this tree
+  installer: SummriseSetup-2.0.0-canary.exe
+  size:      96840452 bytes
+  sha256:    22bf24d31d3225c237f8d580bbdfbcfa120fc78c7e9271fc067023529bed1d77
+  payload:   summrise-launch/device/console/shell.exe (windows-gnu release), launcher-signed seed sidecar,
+             desktop win-unpacked (sd19: tray menu, transcript filter/expand)
+
+Installed on DESKTOP-9VH92BJ (silent, SYSTEM scheduled task, exit 0)
+  /api/health: {"status":"ok","version":"2.0.0","channel":"canary","pid":8472}
+  device:      C:\Program Files\Summrise\versions\2.0.0\summrise-device.exe
+               --release-sha 68bd2233bc3465c47a1c1aa0770eb7bd0987ce96ed387b5388903cc9ff781168
+  pointer:     2.0.0
+  shell=0, desktop=4
+  ACL:         SummriseDesktop.exe  BUILTIN\Users:(I)(RX)   (applied by the installer, not by hand)
+  Run:         SummriseShell -> "C:\Program Files\Summrise\desktop\SummriseDesktop.exe"
+  panel:       /activity served with id="filter" and /api/runs/
+  terminal:    pty session-1 created and read (alive=true)
+  transcript:  GET /api/runs/run-1794700942150-2 ->
+               {"command":"cmd /c echo rc-install-ok","exit_code":0,"stdout_bytes":16}

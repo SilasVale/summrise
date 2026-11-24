@@ -1,0 +1,978 @@
+//! The installer's second install is an **upgrade**, not a second migration.
+//!
+//! `device/installer/summrise.nsi` cannot be run on Linux, so this test holds the two halves the NSIS
+//! script owns to the launcher's own seam:
+//!
+//! 1. the script text: an upgrade is guarded by `current.txt`, runs the launcher's
+//!    `--install-version <version-dir> <sidecar> --install ... --data ... --port ...`, and keeps
+//!    `--migrate-layout` for the no-pointer branch only;
+//! 2. the argv: the exact command the setup would run is tokenized and handed to the launcher's
+//!    `parse_config`, so a flag the launcher refuses is a failing test rather than a broken install;
+//! 3. the transaction: a migrated tree with `versions/0.3.275` gains a staged `versions/0.3.276`
+//!    (the installer's own launcher-signed pair, which `--install-version` now accepts) and the
+//!    pointer moves only when the candidate's probe succeeds.
+
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
+
+use ed25519_dalek::{Signer, SigningKey};
+use summrise_launch::{
+    current_pointer, hex_encode, install_version, parse_config, previous_pointer,
+    read_current_pointer, read_previous_pointer, save_sidecar, sha256_bytes,
+    validate_install_version_with, version_dir, version_exe, version_sidecar, Config, Pointer,
+    Sidecar, VersionProbe, VERSION_SIDECAR,
+};
+
+/// The installer script, compiled into the test: editing the upgrade call without changing this
+/// test is not possible.
+const NSI: &str = include_str!("../../installer/summrise.nsi");
+
+/// The version the test setup is installing, and the one `current.txt` already names.
+const NEW_VERSION: &str = "0.3.276";
+const OLD_VERSION: &str = "0.3.275";
+
+/// The legal command inside the NSIS script: its argv is separated by spaces and double quotes, and
+/// it has no embedded quote.
+fn upgrade_command() -> String {
+    let line = NSI
+        .lines()
+        .find(|line| line.contains("--install-version") && line.contains("nsExec::ExecToStack"))
+        .expect("the installer has an upgrade command");
+    let body = line
+        .trim()
+        .strip_prefix("nsExec::ExecToStack '")
+        .expect("the installer runs the launcher through nsExec")
+        .strip_suffix('\'')
+        .expect("the nsExec argument is quoted");
+    body.to_string()
+}
+
+/// Split a Windows command line into argv: double quotes group, spaces outside them separate.
+fn tokenize(command: &str) -> Vec<String> {
+    let mut argv = Vec::new();
+    let mut token = String::new();
+    let mut quoted = false;
+    let mut started = false;
+    for character in command.chars() {
+        match character {
+            '"' => {
+                quoted = !quoted;
+                started = true;
+            }
+            character if character.is_whitespace() && !quoted => {
+                if started {
+                    argv.push(std::mem::take(&mut token));
+                    started = false;
+                }
+            }
+            character => {
+                token.push(character);
+                started = true;
+            }
+        }
+    }
+    if started {
+        argv.push(token);
+    }
+    argv
+}
+
+/// The command with the NSIS variables replaced by what the setup would pass.
+fn substitute(command: &str, install: &str, data: &str) -> String {
+    command
+        .replace("${DATA_DIR}", data)
+        .replace("${VERSION}", NEW_VERSION)
+        .replace("${PORT}", "7737")
+        .replace("$INSTDIR", install)
+}
+
+struct TempDir(PathBuf);
+
+impl TempDir {
+    fn new(tag: &str) -> TempDir {
+        static NEXT: AtomicU32 = AtomicU32::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "summrise-installer-upgrade-{}-{}-{tag}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = fs::remove_dir_all(&path);
+        fs::create_dir_all(&path).expect("create the test root");
+        TempDir(path)
+    }
+
+    fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+/// The one signing key this test uses; its public half is the "launcher" key the installer's sidecar
+/// carries. The key value is arbitrary: the point is that the version pair verifies against it.
+fn signing_key() -> SigningKey {
+    SigningKey::from_bytes(&[7u8; 32])
+}
+
+fn sidecar_for(version: &str, bytes: &[u8], key: &SigningKey) -> Sidecar {
+    let sha256 = sha256_bytes(bytes);
+    let channel = "stable";
+    let signature = key.sign(format!("{version}\n{channel}\n{sha256}").as_bytes());
+    Sidecar {
+        version: version.to_string(),
+        channel: channel.to_string(),
+        sha256,
+        signature: hex_encode(&signature.to_bytes()),
+    }
+}
+
+struct Probe(Result<(), String>);
+
+impl VersionProbe for Probe {
+    fn probe(&self, _config: &Config, _version: &summrise_launch::Version) -> Result<(), String> {
+        self.0.clone()
+    }
+}
+
+fn write_version(install: &Path, version: &str, bytes: &[u8]) {
+    fs::create_dir_all(version_dir(install, version)).expect("create the version directory");
+    fs::write(version_exe(install, version), bytes).expect("write the version app");
+    save_sidecar(
+        &version_sidecar(install, version),
+        &sidecar_for(version, bytes, &signing_key()),
+    )
+    .expect("write the version sidecar");
+}
+
+#[test]
+fn the_setup_calls_the_upgrade_on_a_migrated_install_and_migration_only_once() {
+    let executes = |flag: &str| {
+        NSI.lines()
+            .filter(|line| line.contains("nsExec::ExecToStack") && line.contains(flag))
+            .count()
+    };
+    assert_eq!(
+        executes("--install-version"),
+        1,
+        "the installer calls the upgrade exactly once"
+    );
+    assert_eq!(
+        executes("--migrate-layout"),
+        1,
+        "the first migration remains the only migration call"
+    );
+
+    let guard = NSI
+        .find("${If} ${FileExists} \"$INSTDIR\\current.txt\"")
+        .expect("the upgrade is guarded by current.txt");
+    let upgrade = NSI
+        .find("nsExec::ExecToStack '\"$INSTDIR\\summrise-launch-${VERSION}.exe\" --install-version")
+        .expect("the installer has an upgrade call");
+    let migrate = NSI
+        .find("nsExec::ExecToStack '\"$INSTDIR\\summrise-launch.exe\" --migrate-layout")
+        .expect("the installer has a migration call");
+    // `${If} $R8 != "2"` is the one that opens the no-current.txt branch. The upgrade branch has
+    // its own nested `${If}`/`${Else}` pair (the stop proof and the restart), so an unqualified
+    // search would stop at an inner one.
+    let otherwise = NSI
+        .find("\n  ${If} $R8 != \"2\"\n    ; THE ONE-TIME MOVE")
+        .expect("the migration is the no-current.txt branch");
+
+    assert!(guard < upgrade, "the upgrade is inside the pointer guard");
+    assert!(
+        upgrade < otherwise && otherwise < migrate,
+        "migration is the no-current.txt branch, not a second step after the upgrade"
+    );
+
+    let command = upgrade_command();
+    let expected = "--install-version \"$INSTDIR\\versions\\${VERSION}\" \
+                    \"$INSTDIR\\versions\\${VERSION}\\summrise-device.json\" \
+                    --install \"$INSTDIR\" --data \"${DATA_DIR}\" --port ${PORT}";
+    assert!(
+        command.contains(expected),
+        "the upgrade argv is the launcher's contract: {command}"
+    );
+    for staging in [
+        "SetOutPath \"$INSTDIR\\versions\\${VERSION}\"",
+        "File /oname=summrise-device.exe \"${SOURCE}\\summrise-device.exe\"",
+        "File /oname=summrise-device.json \"${SOURCE}\\summrise-device.sidecar.json\"",
+    ] {
+        assert!(
+            NSI.contains(staging),
+            "the setup stages its own pair into versions\\<version>: {staging}"
+        );
+    }
+
+    let failure = &NSI[upgrade..otherwise];
+    assert!(
+        failure.contains("SetErrorLevel 1"),
+        "a failed upgrade must make the installer exit non-zero"
+    );
+    assert!(
+        failure.contains("$1"),
+        "the failure message reports the launcher's stderr"
+    );
+    assert!(
+        !NSI.contains("Delete \"$INSTDIR\\current.txt\""),
+        "the installer never removes the pointer; the launcher owns it"
+    );
+}
+
+#[test]
+fn the_setup_starts_the_service_after_the_pointer_moves_and_requires_the_new_version() {
+    let upgrade = NSI
+        .find("nsExec::ExecToStack '\"$INSTDIR\\summrise-launch-${VERSION}.exe\" --install-version")
+        .expect("the installer has an upgrade call");
+    let otherwise = NSI
+        .find("\n  ${If} $R8 != \"2\"\n    ; THE ONE-TIME MOVE")
+        .expect("the migration is the no-current.txt branch");
+    let branch = &NSI[upgrade..otherwise];
+
+    // The proof comes first: `--install-version` runs before anything running is stopped, and the
+    // stop is a call site, not the init path (a failed proof must leave the service serving).
+    let stop = branch
+        .find("Call StopRuntime")
+        .expect("the setup stops what is running only in the section");
+    let flat = branch
+        .find("File /oname=summrise-launch.exe")
+        .expect("the flat launcher is replaced");
+    let install_service = branch
+        .find("--install-service --replace-baseline")
+        .expect("the setup re-registers the service it stopped");
+    let started = branch
+        .find("sc start: exit $0")
+        .expect("the setup starts the service after re-registering it");
+    let verified = branch[started..]
+        .find("Call EnsureServiceRunning")
+        .map(|offset| started + offset)
+        .expect("the setup proves the service it started is RUNNING");
+    let health = branch
+        .find("http://127.0.0.1:${PORT}/api/health")
+        .expect("the setup polls the health endpoint");
+    let version = branch
+        .find(r#""$\"version$\":$\"${VERSION}$\"""#)
+        .expect("the poll requires the reported version to equal ${VERSION}");
+    assert!(
+        stop < flat,
+        "the service is stopped before its images are replaced"
+    );
+    assert!(
+        install_service < started && started < verified,
+        "the service is started and then asked for its state"
+    );
+    assert!(
+        verified < health,
+        "the service is proven RUNNING before the device is polled"
+    );
+    assert!(
+        health < version,
+        "the health answer is matched against the setup's version"
+    );
+    assert!(
+        branch.contains("StrCpy $R5 30") && branch.contains("Sleep 1000"),
+        "the version poll is bounded"
+    );
+
+    // A failed stop must put the service back rather than abort with it down.
+    let failed_stop = branch
+        .find("${If} $R6 == \"0\"")
+        .expect("the setup checks whether the service stopped");
+    let failed_stop_end = branch[failed_stop..]
+        .find("FileClose $6")
+        .expect("the failed-stop branch closes the log");
+    assert!(
+        branch[failed_stop..failed_stop + failed_stop_end].contains("Call EnsureServiceRunning"),
+        "a stop the setup cannot prove starts the service again before aborting"
+    );
+
+    // A mismatch is reported, not repaired: the pointer and previous.txt stay where the launcher
+    // left them, so the operator can still roll back with one write and the old version stays on
+    // disk.
+    let failure = branch
+        .find("health: no ${VERSION} answer on port ${PORT}")
+        .expect("a version that never answers is logged");
+    assert!(
+        version < failure,
+        "the failure comes after the poll saw a non-matching answer"
+    );
+    assert!(
+        branch[failure..].contains("SetErrorLevel 1"),
+        "a version mismatch makes the setup exit non-zero"
+    );
+    assert!(
+        branch[failure..].contains("$4"),
+        "the last health answer is logged with the failure"
+    );
+    assert!(
+        branch[failure..].contains("previous.txt"),
+        "the failure names the rollback target the operator still has"
+    );
+    assert!(
+        !branch.contains("Delete \"$INSTDIR\\current.txt\"")
+            && !branch.contains("Delete \"$INSTDIR\\previous.txt\""),
+        "the installer never removes a pointer; the launcher and the operator own them"
+    );
+}
+
+#[test]
+fn the_installer_argv_is_the_launchers_upgrade_argv() {
+    let install = r"C:\Program Files\Summrise";
+    let data = r"C:\ProgramData\Summrise";
+    let argv = tokenize(&substitute(&upgrade_command(), install, data));
+
+    assert_eq!(
+        argv[0],
+        format!(r"{install}\summrise-launch-{NEW_VERSION}.exe"),
+        "the setup proves the candidate with the launcher it carries, not the running one"
+    );
+    assert_eq!(argv[1], "--install-version");
+    assert_eq!(
+        argv[2],
+        format!(r"{install}\versions\{NEW_VERSION}"),
+        "the version directory is versions\\<version>"
+    );
+    assert_eq!(
+        argv[3],
+        format!(r"{install}\versions\{NEW_VERSION}\{VERSION_SIDECAR}"),
+        "the sidecar sits beside the app binary"
+    );
+
+    // The tail is exactly the launcher's usual install/data/port parser: a flag the launcher does
+    // not own would fail here, before any installer is built.
+    let config = parse_config(&argv[4..], Path::new(r"C:\nowhere"), None)
+        .expect("the launcher accepts the installer's install/data/port flags");
+    assert_eq!(config.install, PathBuf::from(install));
+    assert_eq!(config.data, PathBuf::from(data));
+    assert_eq!(config.port, 7737);
+}
+
+#[test]
+fn an_installer_upgrade_stages_a_version_and_moves_the_pointer() {
+    let tmp = TempDir::new("moves-pointer");
+    let install = tmp.path().join("install");
+    let data = tmp.path().join("data");
+    fs::create_dir_all(&data).expect("create the data directory");
+    write_version(&install, OLD_VERSION, b"the running build");
+    fs::write(current_pointer(&install), format!("{OLD_VERSION}\n")).expect("the pointer");
+
+    // What the setup does on a migrated layout: stage its own pair as versions/<version>.
+    write_version(&install, NEW_VERSION, b"the new setup's app");
+
+    let pubkey = hex_encode(signing_key().verifying_key().as_bytes());
+    let pair = validate_install_version_with(
+        &version_exe(&install, NEW_VERSION),
+        &version_sidecar(&install, NEW_VERSION),
+        &[&pubkey],
+    )
+    .expect("the installer's launcher-signed pair verifies for --install-version");
+
+    let config = Config {
+        install: install.clone(),
+        data,
+        port: 7_737,
+    };
+    let installed = install_version(&config, NEW_VERSION, &pair, &Probe(Ok(())))
+        .expect("a proven upgrade becomes current");
+
+    assert_eq!(installed.version.name, NEW_VERSION);
+    assert_eq!(installed.previous.as_deref(), Some(OLD_VERSION));
+    assert_eq!(
+        read_current_pointer(&install),
+        Pointer::Version(NEW_VERSION.to_string())
+    );
+    assert_eq!(
+        read_previous_pointer(&install),
+        Pointer::Version(OLD_VERSION.to_string()),
+        "the version the setup replaced stays as the rollback target"
+    );
+    assert!(
+        version_exe(&install, OLD_VERSION).is_file(),
+        "the old version directory is kept for a rollback"
+    );
+    assert_eq!(
+        fs::read(version_exe(&install, NEW_VERSION)).expect("the new app"),
+        b"the new setup's app"
+    );
+}
+
+#[test]
+fn a_failed_installer_upgrade_leaves_the_pointer_alone() {
+    let tmp = TempDir::new("failed-upgrade");
+    let install = tmp.path().join("install");
+    let data = tmp.path().join("data");
+    fs::create_dir_all(&data).expect("create the data directory");
+    write_version(&install, OLD_VERSION, b"the running build");
+    fs::write(current_pointer(&install), format!("{OLD_VERSION}\n")).expect("the pointer");
+    write_version(&install, NEW_VERSION, b"the unproven setup");
+
+    let pubkey = hex_encode(signing_key().verifying_key().as_bytes());
+    let pair = validate_install_version_with(
+        &version_exe(&install, NEW_VERSION),
+        &version_sidecar(&install, NEW_VERSION),
+        &[&pubkey],
+    )
+    .expect("the staged pair verifies");
+    let config = Config {
+        install: install.clone(),
+        data,
+        port: 7_737,
+    };
+
+    let error = install_version(
+        &config,
+        NEW_VERSION,
+        &pair,
+        &Probe(Err("it never answered /api/health".to_string())),
+    )
+    .expect_err("a candidate that cannot serve is refused");
+    assert!(error.contains("health"), "{error}");
+    assert_eq!(
+        read_current_pointer(&install),
+        Pointer::Version(OLD_VERSION.to_string()),
+        "the launcher writes the pointer only after the probe; a failure leaves it untouched"
+    );
+    assert!(
+        !previous_pointer(&install).exists(),
+        "a failed probe never records a previous version either"
+    );
+    assert!(
+        version_exe(&install, OLD_VERSION).is_file(),
+        "the running version is still on disk"
+    );
+}
+
+/// The relay function's text, from its `Function` line to its matching `FunctionEnd`.
+fn relay_function() -> &'static str {
+    let start = NSI
+        .find("Function RelaySupervisedSetup")
+        .expect("the installer has the supervised hand-off");
+    let end = NSI[start..]
+        .find("\nFunctionEnd")
+        .expect("the relay function ends");
+    &NSI[start..start + end]
+}
+
+#[test]
+fn a_supervised_silent_setup_hands_the_stop_to_a_task_before_the_upgrade_or_stop() {
+    let relay = relay_function();
+
+    // The condition is the supervisor's own mark, silent mode, an existing install, and a service
+    // there is something to stop. The marker is read from the environment, not guessed from argv:
+    // the launcher sets it for the app and `runs.exec` commands inherit it (measured 2026-11-07).
+    assert!(
+        relay.contains("${IfNot} ${Silent}"),
+        "an interactive wizard is not handed off"
+    );
+    assert!(relay.contains(r#"ReadEnvStr $0 "SUMMRISE_SUPERVISED""#));
+    assert!(
+        relay.contains(r#"${StrStr} $0 "$CMDLINE" "/RELAYED""#),
+        "the relayed run cannot relay again"
+    );
+    assert!(
+        relay.contains(r#"${If} $R8 == "0""#),
+        "a first install has no SummriseLaunch to stop"
+    );
+    assert!(
+        relay.contains(r#"findstr /I "RUNNING""#),
+        "the hand-off is only for a service the stop would take down"
+    );
+
+    // The task runs the same executable with the silent marker. `\$\"` is what makes NSIS emit
+    // the `\"` schtasks needs; with a root that has a space the unquoted form stored `C:\Program`,
+    // and the over-quoted 0.3.289 form stored nothing at all.
+    assert!(relay.contains(
+        r#"schtasks /create /tn ${RELAY_TASK} /tr "\$\"$EXEDIR\$EXEFILE\$\"$R1" /sc onstart /ru SYSTEM /rl HIGHEST /f"#
+    ));
+    assert!(relay.contains(r#"StrCpy $R1 " /S /RELAYED""#));
+    assert!(
+        relay.contains(r#"StrCpy $R1 "$R1 /CONSOLE=$ConsoleUrl /CODE=$EnrollCode""#),
+        "the operator's enrolment pair travels with the relay"
+    );
+    assert!(relay.contains("schtasks /run /tn ${RELAY_TASK}"));
+    assert!(
+        relay.contains(r#"StrCpy $R3 "-1""#),
+        "a task that cannot be created or started is a failure, not a silent continue"
+    );
+
+    // The call site: the hand-off is before the staging copy of the carried proving launcher,
+    // before its `--install-version` call and before the stop. A relay that ran after any of them
+    // would be too late for the process the stop kills. (The repair script written above the call
+    // is not a running image: no process holds `repair.cmd`.)
+    let call = NSI
+        .find("Call RelaySupervisedSetup")
+        .expect("the section calls the relay");
+    let staged = NSI
+        .find(r#"File /oname=summrise-launch-${VERSION}.exe"#)
+        .expect("the setup carries the proving launcher");
+    let upgrade = NSI
+        .find("nsExec::ExecToStack '\"$INSTDIR\\summrise-launch-${VERSION}.exe\" --install-version")
+        .expect("the setup proves the candidate");
+    let stop = NSI
+        .find("Call StopRuntime")
+        .expect("the setup stops what is running only in the section");
+    assert!(
+        call < staged && call < upgrade && call < stop,
+        "the relay runs before the first write or stop"
+    );
+    let block_end = NSI[call..]
+        .find("${EndIf}")
+        .expect("the hand-off branch ends");
+    let handoff = &NSI[call..call + block_end];
+    assert!(
+        handoff.contains(r#"${If} $R3 == "1""#),
+        "only the started hand-off exits 3"
+    );
+    assert!(
+        handoff.contains("SetErrorLevel 3") && handoff.contains("Quit"),
+        "the supervised setup quits with the hand-off code"
+    );
+}
+
+#[test]
+fn the_relayed_run_appends_its_log_and_deletes_its_task() {
+    let start = NSI
+        .find("Function .onInit")
+        .expect("the installer has an init");
+    let end = NSI[start..]
+        .find("\nFunctionEnd")
+        .expect("the init function ends");
+    let init = &NSI[start..start + end];
+
+    // One install, two processes: the first run's header explains the hand-off, and the task's run
+    // appends the stop/copy/start. Truncating would erase the reason the first process returned.
+    assert!(init.contains(r#"${StrStr} $R3 "$CMDLINE" "/RELAYED""#));
+    assert!(init.contains(r#"FileOpen $6 "$TEMP\summrise-setup.log" w"#));
+    assert!(init.contains(r#"FileOpen $6 "$TEMP\summrise-setup.log" a"#));
+    assert!(
+        init.contains("relayed=1"),
+        "the log says which process wrote the line"
+    );
+    assert!(
+        init.contains("nsExec::Exec 'schtasks /delete /tn ${RELAY_TASK} /f'"),
+        "the task is one-shot: a boot-time repeat install is not left registered"
+    );
+}
+
+/// Expand the NSIS escapes and variables the registration lines carry. The install root has a
+/// space on purpose: that is the input that broke the registration twice — once unquoted, once
+/// over-quoted.
+fn expand_registration(line: &str) -> String {
+    line.replace("$\\\"", "\"")
+        .replace("${RELAY_TASK}", "SummriseSetupRelay")
+        .replace(
+            "$EXEDIR\\$EXEFILE",
+            r"C:\Windows\Temp\SummriseSetup-0.3.999.exe",
+        )
+        .replace("$INSTDIR", r"E:\Program Files\Summrise")
+        .replace("$R1", " /S /RELAYED")
+}
+
+/// Split a Windows command line the way `CommandLineToArgvW` does for the shapes the installer
+/// sends: backslashes are literal unless they precede a double quote; `\"` is a literal quote and
+/// a bare `"` toggles the quoted state. A `/tr` value that arrives split at a space fails here for
+/// the same reason it failed on the device.
+fn windows_argv(command: &str) -> Vec<String> {
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut quoted = false;
+    let mut backslashes = 0usize;
+    let mut started = false;
+    for character in command.chars() {
+        match character {
+            '\\' => backslashes += 1,
+            '"' => {
+                current.push_str(&"\\".repeat(backslashes / 2));
+                if backslashes.is_multiple_of(2) {
+                    quoted = !quoted;
+                } else {
+                    current.push('"');
+                }
+                backslashes = 0;
+                started = true;
+            }
+            character if character.is_whitespace() && !quoted => {
+                current.push_str(&"\\".repeat(backslashes));
+                backslashes = 0;
+                if started {
+                    args.push(std::mem::take(&mut current));
+                    started = false;
+                }
+            }
+            character => {
+                current.push_str(&"\\".repeat(backslashes));
+                backslashes = 0;
+                current.push(character);
+                started = true;
+            }
+        }
+    }
+    current.push_str(&"\\".repeat(backslashes));
+    if started {
+        args.push(current);
+    }
+    args
+}
+
+#[test]
+fn every_task_registered_from_a_path_with_a_space_has_the_escaped_quote() {
+    // Two measured failures, one line each. The 0.3.279 form `/tr "$INSTDIR\repair.cmd"` stored
+    // `Command=E:\Program` + `Arguments=Files\Summrise\repair.cmd` and last result 0x80070002. The
+    // 0.3.289 form `"$\"...$\""` expanded to `""<path>""`, which schtasks rejected with "invalid
+    // argument/option" and created no task at all (`shell task create: -2147467259` on the 84T's
+    // relayed `/S`). The value schtasks must receive is one argument: `"<path>"`, or
+    // `"<path>" <args>` for the relay.
+    let creates: Vec<&str> = NSI
+        .lines()
+        .filter(|line| line.contains("schtasks /create"))
+        .collect();
+    assert!(
+        creates.len() >= 3,
+        "the setup registers the repair, the shell start and the relay"
+    );
+
+    let expected: [(&str, &str, &str); 3] = [
+        (
+            "SummriseRepair",
+            r#""E:\Program Files\Summrise\repair.cmd""#,
+            "",
+        ),
+        (
+            "SummriseShellStart",
+            r#""E:\Program Files\Summrise\start-shell.cmd""#,
+            "",
+        ),
+        (
+            "SummriseSetupRelay",
+            r#""C:\Windows\Temp\SummriseSetup-0.3.999.exe""#,
+            " /S /RELAYED",
+        ),
+    ];
+
+    let registrations: Vec<String> = creates
+        .iter()
+        .map(|line| expand_registration(line))
+        .collect();
+    for (name, _, _) in expected {
+        assert!(
+            registrations
+                .iter()
+                .any(|line| line.contains(&format!(" /tn {name} "))),
+            "the setup registers {name}"
+        );
+    }
+
+    for line in &creates {
+        assert!(
+            !line.contains(r#""$\""#),
+            "the over-quoted form expands to `\"\"<path>\"\"`, which schtasks rejects: {line}"
+        );
+        let argv = windows_argv(&expand_registration(line));
+        let task = &argv[argv
+            .iter()
+            .position(|argument| argument == "/tn")
+            .expect("a create line names its task")
+            + 1];
+        let value = &argv[argv
+            .iter()
+            .position(|argument| argument == "/tr")
+            .expect("a create line carries /tr")
+            + 1];
+        let (_, command, arguments) = expected
+            .iter()
+            .find(|(name, _, _)| name == task)
+            .unwrap_or_else(|| panic!("unexpected task {task}"));
+        assert!(
+            value.starts_with(command),
+            "schtasks must receive the quoted executable as one value, not a path split at its space: {value:?}"
+        );
+        assert_eq!(
+            &value[command.len()..],
+            *arguments,
+            "the relayed arguments must survive after the quoted executable: {value:?}"
+        );
+    }
+
+    // A failed create leaves no task to start; the old code still called `/run` and logged a
+    // second, misleading "cannot find the file" instead of surfacing the create line.
+    assert!(NSI.contains("shell task not created; the tray waits for the login Run entry"));
+    assert!(
+        NSI.contains("nsExec::Exec 'schtasks /delete /tn ${RELAY_TASK} /f'"),
+        "the uninstaller takes a hand-off task back"
+    );
+}
+
+/// **A SETUP THAT ENDS AT THE STOP HAS ALREADY RE-REGISTERED THE REPAIR TASK.** The 9VH's 0.3.288
+/// `/S` log ends at `stop: sc stop: exit 0` — the supervised stop killed the setup before its next
+/// line — and the registration that sat after the copy and the stop never ran. The 0.3.279 task
+/// (`Command=C:\Program` + `Arguments=Files\Summrise\repair.cmd`, last result 0x80070002) survived
+/// two releases because of it. The script and the task now precede the hand-off, the stop and the
+/// copy, so no step that can end the setup can leave a repair task that cannot start.
+#[test]
+fn the_repair_task_is_registered_before_the_steps_that_can_end_the_setup() {
+    let script = NSI
+        .find(r#"FileOpen $9 "$INSTDIR\repair.cmd" w"#)
+        .expect("the setup writes the repair script");
+    let create = NSI
+        .find("schtasks /create /tn SummriseRepair")
+        .expect("the setup registers the repair task");
+    assert!(
+        script < create,
+        "the script exists before the task that runs it"
+    );
+
+    // Every step between the old site and the section's start that can abort or kill the setup:
+    // the hand-off, the proving launcher's copy and `--install-version` call, the stop, and the
+    // flat-image copy that follows it.
+    for later in [
+        "Call RelaySupervisedSetup",
+        r#"File /oname=summrise-launch-${VERSION}.exe"#,
+        "Call StopRuntime",
+        r#"File /oname=summrise-launch.exe"#,
+    ] {
+        let position = NSI
+            .find(later)
+            .unwrap_or_else(|| panic!("the setup has {later}"));
+        assert!(
+            create < position,
+            "the repair task registration must precede `{later}`: a setup that ends there would skip it"
+        );
+    }
+
+    // The old, late site is gone: one write of the script, and it is the one checked above.
+    assert_eq!(
+        NSI.matches(r#"FileOpen $9 "$INSTDIR\repair.cmd" w"#)
+            .count(),
+        1,
+        "the repair script is written once, and not again after the copy"
+    );
+}
+
+/// The tray starts in the logged-in user's session, and a `desktop\` payload whose EXE carries only
+/// Administrators/SYSTEM executes for nobody: the service stays healthy and the icon simply never
+/// appears. The installer must re-apply the Users ACE on every replacement of that directory, and
+/// because NSIS cannot run on this host, the script text itself is what the test holds.
+#[test]
+fn the_installer_grants_users_execute_on_every_desktop_replacement() {
+    let ace = "icacls.exe \"$INSTDIR\\desktop\" /grant *S-1-5-32-545:(OI)(CI)(RX) /T";
+    let ace_at = NSI
+        .find(ace)
+        .expect("the installer grants Users RX on the desktop payload");
+
+    let block_at = NSI
+        .find("!ifdef DESKTOP_SOURCE")
+        .expect("the installer has a desktop block");
+    let extraction_at = NSI[block_at..]
+        .find("File /r \"${DESKTOP_SOURCE}\\*\"")
+        .map(|offset| block_at + offset)
+        .expect("the desktop block extracts the payload");
+    let block_end = NSI[block_at..]
+        .find("!endif")
+        .map(|offset| block_at + offset)
+        .expect("the desktop block ends");
+
+    assert!(
+        extraction_at < ace_at && ace_at < block_end,
+        "the ACE must be applied inside the desktop block, after the extraction: \
+         block {block_at}..{block_end}, extraction {extraction_at}, ACE {ace_at}"
+    );
+    assert!(
+        NSI.contains("taskkill /F /IM SummriseDesktop.exe"),
+        "the old tray must be closed before its image is replaced"
+    );
+}
+
+/// The seven tasks the 2.0.10 install found Ready with one past trigger, pointing into the retired
+/// `C:\SummriseInstall` tree. The installer never created them; it owns task registration now, so it
+/// owns their removal too.
+const DORMANT_SETUP_TASKS: [&str; 7] = [
+    "SummriseSetup048",
+    "SummriseSetup049",
+    "SummriseSetup050",
+    "SummriseSetup051",
+    "SummriseSetup052",
+    "SummriseSetup053",
+    "SummriseInstallOnce",
+];
+
+/// The text of a `Function` block, from its `Function` line to its matching `FunctionEnd`. The
+/// uninstaller's copy is named `un.<name>`: `Function un.RemoveDormantSetupTasks` does not contain
+/// `Function RemoveDormantSetupTasks`.
+fn function_text(name: &str) -> &'static str {
+    let start = NSI
+        .find(&format!("Function {name}"))
+        .unwrap_or_else(|| panic!("the installer has Function {name}"));
+    let end = NSI[start..]
+        .find("\nFunctionEnd")
+        .expect("the function ends");
+    &NSI[start..start + end]
+}
+
+#[test]
+fn the_seven_dormant_setup_tasks_are_removed_on_install_and_uninstall() {
+    let install = function_text("RemoveDormantSetupTasks");
+    let uninstall = function_text("un.RemoveDormantSetupTasks");
+
+    // The exact names, in both sweeps: a name that is added or dropped is a different defect.
+    for name in DORMANT_SETUP_TASKS {
+        assert!(install.contains(name), "the install cleanup names {name}");
+        assert!(
+            uninstall.contains(name),
+            "the uninstall cleanup names {name}"
+        );
+    }
+    assert!(
+        install.contains("${RELAY_TASK}"),
+        "a stale hand-off one-shot is swept by the same install cleanup"
+    );
+
+    // One call site, after the hand-off has already exited on a relayed run and before the first
+    // image replacement or stop.
+    assert_eq!(
+        NSI.matches("Call RemoveDormantSetupTasks").count(),
+        1,
+        "the install cleanup is called once"
+    );
+    let call = NSI
+        .find("Call RemoveDormantSetupTasks")
+        .expect("the section calls the cleanup");
+    let relay = NSI
+        .find("Call RelaySupervisedSetup")
+        .expect("the section calls the hand-off");
+    let stop = NSI
+        .find("Call StopRuntime")
+        .expect("the setup stops what is running only in the section");
+    assert!(
+        relay < call && call < stop,
+        "the cleanup runs after the relay and before the stop: relay {relay}, cleanup {call}, stop {stop}"
+    );
+    // The hand-off branch is a `Quit` on a relayed run: the sweep must sit after its `${EndIf}`, or
+    // the relayed process would delete task state before it leaves. A call next to the `Quit` is
+    // still "after the relay" and "before the stop", so the coarse bounds alone do not hold this.
+    let branch = NSI
+        .find(r#"${If} $R3 == "1""#)
+        .expect("the relay exit branch is in the section");
+    let branch_end = NSI[branch..]
+        .find("${EndIf}")
+        .map(|offset| branch + offset)
+        .expect("the relay exit branch ends");
+    assert!(
+        call > branch_end,
+        "the sweep runs after the relayed run's Quit branch: branch end {branch_end}, cleanup {call}"
+    );
+    // And before the reconnect block: that block aborts on a refused delete, and the sweep must
+    // precede it (and therefore `Call StopRuntime`) so no image is touched first.
+    let reconnect = NSI
+        .find("schtasks /query /tn SummriseShellOnReconnect")
+        .expect("the reconnect block queries its task");
+    assert!(
+        call < reconnect,
+        "the sweep runs before the reconnect block: cleanup {call}, reconnect {reconnect}"
+    );
+
+    // The uninstaller's call, inside `Section "Uninstall"`, with its own log handle around it.
+    assert_eq!(
+        NSI.matches("Call un.RemoveDormantSetupTasks").count(),
+        1,
+        "the uninstall cleanup is called once"
+    );
+    let section = NSI
+        .find("Section \"Uninstall\"")
+        .expect("the installer has an uninstall section");
+    let uninstall_call = NSI
+        .find("Call un.RemoveDormantSetupTasks")
+        .expect("the uninstall section calls the cleanup");
+    assert!(
+        uninstall_call > section,
+        "the uninstall cleanup is inside the uninstall section"
+    );
+    let uninstall_end = NSI[section..]
+        .find("\nSectionEnd")
+        .map(|offset| section + offset)
+        .expect("the uninstall section ends");
+    assert!(uninstall_call < uninstall_end);
+    let open = NSI
+        .find("FileOpen $9 \"$TEMP\\summrise-uninstall.log\" w")
+        .expect("the uninstaller opens its log");
+    assert!(
+        section < open && open < uninstall_call,
+        "the uninstall log is open before the cleanup writes: open {open}, cleanup {uninstall_call}"
+    );
+    let close = NSI[uninstall_call..]
+        .find("FileClose $9")
+        .map(|offset| uninstall_call + offset)
+        .expect("the uninstaller closes its log");
+    assert!(
+        close < uninstall_end,
+        "the log is closed before the uninstall section ends: close {close}, end {uninstall_end}"
+    );
+}
+
+#[test]
+fn the_cleanup_never_recreates_a_dormant_task_and_cannot_abort_the_install() {
+    let install = function_text("RemoveDormantSetupTasks");
+    let helper = function_text("RemoveOneDormantSetupTask");
+
+    // Cleanup is removal: no line of the script creates one of these tasks again.
+    for line in NSI.lines().filter(|line| line.contains("schtasks /create")) {
+        for name in DORMANT_SETUP_TASKS {
+            assert!(
+                !line.contains(name),
+                "the installer never creates {name}: {line}"
+            );
+        }
+    }
+
+    // Ask first, delete only what exists: an absent task is the normal case, not an error.
+    let query = helper
+        .find(r#"schtasks /query /tn "$R9""#)
+        .expect("the helper queries the exact name before deleting");
+    let delete = helper
+        .find(r#"schtasks /delete /tn "$R9" /f"#)
+        .expect("the helper deletes the exact name");
+    assert!(
+        query < delete,
+        "the helper queries before it deletes: query {query}, delete {delete}"
+    );
+    // The delete sits inside `${If} $0 == "0"`: a failed query must never reach the delete. The
+    // first such gate after the query is that one (the nested result check comes after the delete).
+    let query_gate = helper[query..]
+        .find(r#"${If} $0 == "0""#)
+        .map(|offset| query + offset)
+        .expect("the helper gates the delete on the query exit");
+    assert!(
+        query < query_gate && query_gate < delete,
+        "the delete is gated on the query's exit 0: query {query}, gate {query_gate}, delete {delete}"
+    );
+
+    // One refused or absent task is logged, never fatal: debris must not fail an install.
+    for (label, block) in [
+        ("the install wrapper", install),
+        ("the one-task helper", helper),
+    ] {
+        assert!(
+            !block.contains("Abort"),
+            "{label} cannot abort the install over a dormant task"
+        );
+        assert!(
+            !block.contains("SetErrorLevel"),
+            "{label} cannot fail the install over a dormant task"
+        );
+    }
+
+    // The retired tree is named by no line, including any deletion: only the task names point at it.
+    assert!(
+        !NSI.contains(r"C:\SummriseInstall"),
+        "the installer must not write or delete into the retired tree"
+    );
+
+    // Reused from the pointer tests: this cleanup deletes tasks, never a version pointer.
+    assert!(
+        !NSI.contains("Delete \"$INSTDIR\\current.txt\""),
+        "the installer never removes the pointer; the launcher owns it"
+    );
+}

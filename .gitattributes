@@ -1,0 +1,21 @@
+# THE REPOSITORY'S BYTES ARE ITS PROOFS.
+#
+# Git for Windows checks text files out with CRLF, and a checkout that rewrites the line endings
+# changes the bytes every proof in this repository is computed over.
+#
+# The console page is the case that matters twice over. Its freshness stamp is written over the
+# sha256 of the console-logic crate's own files, and `scripts/check-console-logic.mjs` recomputes
+# that stamp in any checkout that has no Rust toolchain: with CRLF the recomputed stamp is a
+# different number, so the release builder read the committed page as stale on Windows while it
+# was not. And the page the console embeds is a BUILD of these sources, compared byte for byte
+# with the committed build: a CRLF source changes the minified output (the mangled identifiers
+# shift with the character frequencies), so the fresh build and the committed build would differ
+# for a reason that is not a change to the product.
+#
+# These paths keep the bytes they were built from, in every checkout, on every platform.
+device/console-logic/** text eol=lf
+device/console/web/** text eol=lf
+
+# The wasm artifact itself is binary and is never rewritten; saying so keeps Git from guessing.
+# (This rule comes last: for one path, the last matching pattern wins.)
+device/console/web/src/wasm/console_logic_bg.wasm binary

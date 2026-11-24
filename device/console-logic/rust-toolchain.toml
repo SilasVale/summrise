@@ -1,0 +1,6 @@
+# The wasm target is installed here, not at the repository root: the root toolchain is the release
+# builders' single source of truth, and a wasm target does not affect the exe. The channel is the
+# same so one compiler version still builds both.
+[toolchain]
+channel = "1.98.1"
+targets = ["wasm32-unknown-unknown"]

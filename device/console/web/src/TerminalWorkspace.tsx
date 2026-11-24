@@ -1,0 +1,3074 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Terminal } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import { SearchAddon } from "@xterm/addon-search";
+import "@xterm/xterm/css/xterm.css";
+import { callTool, ToolError, type Grant } from "./terminal";
+import { createTerminalWriteBatcher, type TerminalWriteBatcher } from "./terminalWriteBatcher";
+import { openTerminalStream, type TerminalStream } from "./terminalStream";
+import { createOutputPump, type OutputPump } from "./terminalOutput";
+import { typedText, WRITE_BURST_MS } from "./terminalInput";
+import { renameTab, tabLabel, titleFromInput, type Tab } from "./terminalTabs";
+import { age } from "./age";
+import type { LiveLine, StartedCall } from "./liveActivity";
+import { ActivityRail } from "./ActivityRail";
+import {
+  holderLabel,
+  writeActorKey,
+  type SessionHolder,
+  type SessionListEntry
+} from "./sessionActivity";
+import {
+  earliestCursor,
+  endCursor,
+  RETAINED_BYTES,
+  readTranscript,
+  transcriptFile
+} from "./terminalTranscript";
+import {
+  clampFontSize,
+  fontStorage,
+  loadFontSize,
+  saveFontSize,
+  MAX_FONT_SIZE,
+  MIN_FONT_SIZE
+} from "./terminalFont";
+import { api, HttpError, type SavedConnection } from "./api";
+import { downloadFile } from "./download";
+import { message } from "./format";
+import { OfflineNotice } from "./OfflineNotice";
+import { Modal } from "./Modal";
+import { PageHeading } from "./PageHeading";
+import "./styles/workspaces.css";
+
+/**
+ * Several sessions at once, each in its own tab.
+ *
+ * The legacy panel's workspace had this and it is the thing an operator misses first: one shell is a
+ * debugging tool, three shells are working. A tab is a device session plus one xterm; the device keeps
+ * the session after the page loses it, so `Attach` picks up a session that is already running rather
+ * than opening another shell.
+ *
+ * Each tab polls only while it is the active one — a hidden tab's output is still there when it is
+ * selected again, because the device retains it and the tab reads from its own cursor.
+ */
+type Instance = {
+  term: Terminal;
+  fit: FitAddon;
+  /** The tab's own scrollback search: local to this xterm, and disposed with it. */
+  search: SearchAddon;
+  /** The device session this xterm draws, so a refit can tell the device its new grid. */
+  session: string;
+  /** The grid the device was last told about: a refit that changes nothing sends nothing. */
+  lastSize: string | null;
+  /** The right-click paste listener, kept so it leaves with the tab. */
+  onContextMenu: (event: Event) => void;
+};
+
+/**
+ * Why a tab stopped working, in the words that tell the three cases apart.
+ *
+ * `closed` is the session being gone: the device no longer has it, or its reader saw it end.
+ * `unreachable` is the device not answering; `refused` is the console or the device refusing this
+ * console session. `read` and `write` are a single call failing while the device still lists the
+ * session, and they say which half failed.
+ */
+type FaultKind = "closed" | "unreachable" | "refused" | "read" | "write";
+
+type Fault = {
+  kind: FaultKind;
+  /** The full sentence the tab shows; the marker is only its short label. */
+  sentence: string;
+  /**
+   * The sentence reports output the device no longer retains. That is a fact about the scrollback,
+   * not a fault fresh bytes repair, so arriving output must not erase it (Try again does).
+   */
+  loss?: boolean;
+};
+
+const FAULT_LABELS: Record<FaultKind, string> = {
+  closed: "closed",
+  unreachable: "offline",
+  refused: "refused",
+  read: "read failed",
+  write: "not sent"
+};
+
+/**
+ * How often an empty session list is re-read.
+ *
+ * The list is the device's answer, so it cannot be pushed: a shell that starts from another tab, a
+ * script, or an AI client is invisible to this page until it asks again. Ten seconds is fast enough
+ * to feel live and slow enough that an idle page does not ask the device once a second; the interval
+ * stops as soon as one session is listed.
+ */
+const EMPTY_LIST_POLL_MS = 10_000;
+
+/** No token names known: the rail falls back to the record's short ids. */
+const NO_TOKEN_NAMES: ReadonlyMap<string, string> = new Map();
+
+/**
+ * How many times one feed chases a cursor the device has refused as older than its ring.
+ *
+ * Each chase reopens the stream at the newest start the device named, strictly ahead of the byte it
+ * just refused. Two is enough for a tab that lost one race; a refusal after that means the ring is
+ * outrunning this reader, and a third chase would only be the same refusal with a larger number.
+ * The feed then stops chasing and reads the newest retained output from just below the session's end.
+ */
+const RETAINED_CURSOR_MOVES = 2;
+
+/**
+ * How much of the newest output a degraded tab reads.
+ *
+ * The start of the ring moves while a read is in flight — on a live serial flood the device named a
+ * newer start between two reads a second apart — so a read at that start can be refused forever.
+ * A cursor just below the session's end is deep inside the retained window and answers with a
+ * screenful of the newest output in one round trip; the console's MCP path could not carry the
+ * whole 1 MiB ring from a flooded serial session (measured "device did not answer"). The bytes
+ * before this tail are part of the drop the tab reports.
+ */
+const RETAINED_READ_TAIL = 4 * 1024;
+
+/**
+ * How much of the retained ring one catch-up page asks for.
+ *
+ * A recovery used to reopen the stream at the earliest cursor and let the subscribe frame carry the
+ * whole ring — up to 1 MiB twice (`data` + `data_base64`), the frame whose 30 s bound produced the
+ * measured 504. `terminal.read` now takes a byte `limit`, so the catch-up is drawn a page at a time:
+ * every answer is bounded, every page reaches the xterm as it lands, and the subscribe that follows
+ * asks for the little that arrived meanwhile.
+ */
+const RETAINED_PAGE_BYTES = 64 * 1024;
+
+/**
+ * How many pages one catch-up draws before it stops and names the gap it leaves.
+ *
+ * The device retains 1 MiB, which is sixteen pages; the extra read is what sees the end of a ring
+ * that is exactly full (a short or empty page). A catch-up that needs more than that is not
+ * converging, and the tab continues from the newest retained output instead.
+ */
+const RETAINED_PAGES = Math.ceil(RETAINED_BYTES / RETAINED_PAGE_BYTES) + 1;
+
+/**
+ * How long a recovery may run before the tab stops waiting for the catch-up.
+ *
+ * Reconnecting at the start of the ring asks the device for everything it still retains. Measured
+ * live on DESKTOP-84T3LIN's serial session-3 (0.3.273-ux70): 100 KiB of catch-up took 8 s and a full
+ * megabyte produced nothing in 45 s while the ring's start kept moving, so a tab that waits forever
+ * stays a fault with an empty pane. The paging catch-up is bounded by this too: a page that has not
+ * answered by then is abandoned, the newest retained output is read instead, and the tab names what
+ * it left behind. The initial connection is not guarded: a live but quiet session may rightly send
+ * nothing.
+ */
+const RETAINED_CATCHUP_MS = 12_000;
+
+/**
+ * Whether the empty session list may be polled right now.
+ *
+ * The poll is a call the console makes on its own behalf; it is marked `poll` and leaves the audit
+ * and the live stream alone, so it runs only when all four facts hold: the Terminal page is the one in front (the workspace
+ * stays mounted on every other page), the document itself is not hidden (a background tab is a poll
+ * with no reader), the machine is reachable, and the list is empty (a session's own tab probe is what
+ * notices one closing). Named as a value so the rule can be tested without a rendered page.
+ */
+export function shouldPollSessions(state: {
+  visible: boolean;
+  documentVisible: boolean;
+  offline: boolean;
+  sessions: number;
+}): boolean {
+  return state.visible && state.documentVisible && !state.offline && state.sessions === 0;
+}
+
+/** Whether the document is in front; a document that cannot answer is treated as visible. */
+function documentIsVisible(): boolean {
+  return typeof document === "undefined" || document.visibilityState !== "hidden";
+}
+
+/**
+ * Whether a refused `terminal.read` is a device from before one of its optional fields.
+ *
+ * The field is named outright by some devices and rejected as an unknown argument or against an
+ * older input schema by others; both mean the same thing, and both earn the one retry that drops
+ * the field for the rest of the grant.
+ */
+function refusesField(cause: unknown, field: "wait_ms" | "limit"): boolean {
+  return (
+    cause instanceof ToolError &&
+    (cause.message.includes(field) ||
+      /unknown field|unknown argument|additional propert|input schema/i.test(cause.message))
+  );
+}
+
+/**
+ * One `terminal.read` answer.
+ *
+ * `alive` and the two end facts are absent on an older device. That is not a dead tab: only an
+ * explicit `alive: false` marks one ended, because a device that never sends the field is telling
+ * the client nothing, not that the session is gone.
+ */
+type ReadAnswer = {
+  data?: string;
+  cursor?: number;
+  alive?: boolean;
+  exit_code?: number | null;
+  signal?: string | null;
+};
+
+/** The sentence a tab shows once its session ended, naming only what the device reported. */
+function endedSentence(read: Pick<ReadAnswer, "exit_code" | "signal">): string {
+  const tail = " The output above is what it printed.";
+  if (typeof read.exit_code === "number") {
+    return `The session ended with exit code ${read.exit_code}.${tail}`;
+  }
+  if (typeof read.signal === "string" && read.signal !== "") {
+    return `The session ended on signal ${read.signal}.${tail}`;
+  }
+  return `The session ended.${tail}`;
+}
+
+/** The three kinds `terminal.create` accepts, and the shape of the form each one needs. */
+type ConnectKind = "pty" | "ssh" | "serial";
+
+/**
+ * What the connect dialog holds while it is open.
+ *
+ * The password and the key path live here and nowhere else: they are put into one `terminal.create`
+ * call and dropped when the dialog closes. Nothing about this draft is persisted — not a preset, not
+ * `localStorage`, not the URL.
+ */
+type ConnectDraft = {
+  kind: ConnectKind;
+  host: string;
+  port: string;
+  user: string;
+  /** Exactly one credential is sent for SSH; this is which one the operator is filling in. */
+  auth: "password" | "key";
+  password: string;
+  key_path: string;
+  port_path: string;
+  baud: string;
+  parity: "none" | "odd" | "even";
+  data_bits: "5" | "6" | "7" | "8";
+  stop_bits: "1" | "2";
+};
+
+type Connect = {
+  draft: ConnectDraft;
+  /** The preset this dialog was opened from, when there was one; it names the tab. */
+  name: string | null;
+  error: string | null;
+  busy: boolean;
+};
+
+const NEW_CONNECT: ConnectDraft = {
+  kind: "pty",
+  host: "",
+  port: "22",
+  user: "",
+  auth: "password",
+  password: "",
+  key_path: "",
+  port_path: "",
+  baud: "115200",
+  parity: "none",
+  data_bits: "8",
+  stop_bits: "1"
+};
+
+/** A preset's own form: the connection's shape, never a credential. */
+type Preset = {
+  name: string;
+  kind: ConnectKind;
+  host: string;
+  port: string;
+  user: string;
+  port_path: string;
+  baud: string;
+};
+
+const NEW_PRESET: Preset = { name: "", kind: "pty", host: "", port: "22", user: "", port_path: "", baud: "115200" };
+
+/** A design token as the page computed it; the fallback only runs where the sheet is absent (jsdom). */
+function token(name: string, fallback: string): string {
+  if (typeof document === "undefined") return fallback;
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value === "" ? fallback : value;
+}
+
+/**
+ * The xterm theme IS the page's palette, not a second one.
+ *
+ * The canvas is the page's sheet (`--term-canvas`) and the ink is the page's ink; the ANSI colours
+ * are the canonical --term-* tokens (device/ui). There is one palette, so nothing here asks the OS
+ * for a scheme. The old theme painted a black canvas in both themes, which is the
+ * black-terminal-on-a-white-page defect the canonical palette's header records.
+ */
+function terminalTheme() {
+  const canvas = token("--term-canvas", "#fbf9f4");
+  const ink = token("--ink", "#1d1c1a");
+  return {
+    background: canvas,
+    foreground: ink,
+    cursor: token("--accent", "#b4451f"),
+    cursorAccent: canvas,
+    selectionBackground: token("--term-selection", "rgba(180,69,31,.18)"),
+    black: token("--term-black", "#1d1d1f"),
+    red: token("--term-red", "#b3261e"),
+    green: token("--term-green", "#1d7a3c"),
+    yellow: token("--term-yellow", "#a8620a"),
+    blue: token("--term-blue", "#1f5fbf"),
+    magenta: token("--term-magenta", "#8a3ffc"),
+    cyan: token("--term-cyan", "#0e7490"),
+    white: token("--term-white", "#44403c"),
+    brightBlack: token("--ink-muted", "#6f6a61"),
+    brightRed: token("--term-red", "#b3261e"),
+    brightGreen: token("--term-green", "#1d7a3c"),
+    brightYellow: token("--term-yellow", "#a8620a"),
+    brightBlue: token("--term-blue", "#1f5fbf"),
+    brightMagenta: token("--term-magenta", "#8a3ffc"),
+    brightCyan: token("--term-cyan", "#0e7490"),
+    brightWhite: ink
+  };
+}
+
+/**
+ * How a match reads on the terminal: the page's selection wash for every match, the accent for the
+ * one the search is on. The addon draws nothing without this object — a search would select a line
+ * and `clearDecorations()` would have nothing to clear — so the two requirements travel together.
+ */
+function searchDecorations() {
+  return {
+    matchBackground: token("--term-selection", "rgba(180,69,31,.18)"),
+    matchBorder: token("--accent", "#b4451f"),
+    matchOverviewRuler: token("--accent", "#b4451f"),
+    activeMatchBackground: token("--accent-soft", "#f6e5d8"),
+    activeMatchBorder: token("--accent", "#b4451f"),
+    activeMatchColorOverviewRuler: token("--accent", "#b4451f")
+  };
+}
+
+/** A session id as a file stem: ids are usually safe, but a name from the device is still its data. */
+function safeSession(session: string): string {
+  return session.replace(/[^A-Za-z0-9._-]+/g, "_") || "session";
+}
+
+/**
+ * The tail of a session id, short enough for a tab: "session-3" -> "3", "t1" -> "1".
+ *
+ * A tab's label is console-local ("pty · 12m"), so with two shells open the strip alone cannot say
+ * which device session a tab belongs to; the Sessions list speaks in ids. This is the bridge between
+ * them.
+ */
+function shortSession(session: string): string {
+  const digits = /(\d+)$/.exec(session);
+  if (digits) return digits[1];
+  return session.slice(-4);
+}
+
+/**
+ * The sentence a refused call deserves, or `null` when the failure was not a refusal.
+ *
+ * The console checks the operator's session before the frame leaves (HTTP 403 with a code), and the
+ * device checks the same session again (a JSON-RPC error, code -32001 or -32002). Both are named here
+ * so a page never has to match English to know which of the three failures it is. **THE OPERATOR
+ * SIGNS NO GRANT FOR A WORKSPACE PAGE**: the remedy is a fresh console session, never a form.
+ */
+function sessionRefusal(cause: unknown): string | null {
+  if (!(cause instanceof ToolError)) return null;
+  if (cause.status === 403) {
+    switch (cause.message) {
+      case "grant_expired":
+        return "The console session expired before the call reached the device. Reload and sign in again.";
+      case "invalid_grant_signature":
+        return "The console refused this session's signature. Reload and sign in again.";
+      case "grant_device_mismatch":
+        return "This session is for another device. Pick the device again.";
+      case "tool not permitted by grant":
+        return "This console session does not cover this tool.";
+      default:
+        return `The console refused this call: ${cause.message}. Reload and sign in again.`;
+    }
+  }
+  if (cause.code === -32001) {
+    return `The device refused this call: ${cause.message}.`;
+  }
+  if (cause.code === -32002) {
+    return `This session does not consent to destructive calls: ${cause.message}. Nothing ran.`;
+  }
+  return null;
+}
+
+/** A failure that is the link, not the permission and not the session. */
+function unreachableSentence(cause: unknown): string {
+  if (cause instanceof ToolError && cause.status === 401) {
+    return "The console's sign-in expired, so the call did not reach the device. Reload and sign in again.";
+  }
+  if (cause instanceof ToolError && cause.status === 404) {
+    return "The console no longer has this device: it was removed from the fleet.";
+  }
+  return `The device is unreachable: ${message(cause)}. The tab keeps its output and resumes when the device answers again.`;
+}
+
+/**
+ * The arguments one dialog draft implies.
+ *
+ * The device's `terminal.create` has `additionalProperties: false` and refuses a field another kind
+ * owns by name (`kind ssh takes host, port, user, auth …`), so each kind sends only its own fields:
+ * pty nothing, ssh the four connection fields plus one `auth`, serial the port path and its framing.
+ */
+function connectArguments(draft: ConnectDraft): { args: Record<string, unknown> } | { error: string } {
+  if (draft.kind === "ssh") {
+    const host = draft.host.trim();
+    const user = draft.user.trim();
+    const port = Number(draft.port.trim());
+    if (!host) return { error: "An SSH session needs a host." };
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      return { error: "The port must be a whole number from 1 to 65535 (22 is the SSH default)." };
+    }
+    if (!user) return { error: "An SSH session needs a user." };
+    if (draft.auth === "password") {
+      if (draft.password === "") return { error: "Type the password, or choose a key path instead." };
+      return {
+        args: { kind: "ssh", host, port, user, auth: { kind: "password", password: draft.password } }
+      };
+    }
+    const path = draft.key_path.trim();
+    if (!path) return { error: "Enter the absolute path to the private key on the device, or choose a password." };
+    if (!isAbsolutePath(path)) {
+      return {
+        error:
+          "The device needs an absolute key path, e.g. /home/operator/.ssh/id_ed25519 or C:\\Users\\operator\\.ssh\\id_ed25519."
+      };
+    }
+    return { args: { kind: "ssh", host, port, user, auth: { kind: "key", path } } };
+  }
+  if (draft.kind === "serial") {
+    const port = draft.port_path.trim();
+    if (!port) return { error: "A serial session needs the port path, e.g. COM3 or /dev/ttyUSB0." };
+    const baud = Number(draft.baud.trim());
+    if (!Number.isInteger(baud) || baud < 1 || baud > 4_000_000) {
+      return { error: "The baud rate must be a whole number from 1 to 4000000." };
+    }
+    return {
+      args: {
+        kind: "serial",
+        port,
+        baud,
+        parity: draft.parity,
+        data_bits: Number(draft.data_bits),
+        stop_bits: Number(draft.stop_bits)
+      }
+    };
+  }
+  return { args: { kind: "pty" } };
+}
+
+/** The device reads its keys from its own filesystem, so a relative path is a refusal, not a lookup. */
+function isAbsolutePath(text: string): boolean {
+  return text.startsWith("/") || /^[A-Za-z]:[\\/]/.test(text) || text.startsWith("\\\\");
+}
+
+/**
+ * The last line a person typed, from the writes the console's live activity recorded.
+ *
+ * A session's evidence is carried by every call about it (`terminal.read`, `resize`, `close`), so
+ * the newest line with this session is usually a read, not a write. The card wants what a person
+ * typed, which only `terminal.write` records as `evidence.input`; a matching line without one is
+ * not a keystroke and must not hide the last real one. A write that is only escape or control bytes
+ * is not a keystroke either — xterm's focus reports (`ESC[I`/`ESC[O`) arrive this way through
+ * `onData` — and the terminal still receives them; only the card's fact ignores them.
+ *
+ * The writes that form one line are joined by their times, but only across written proof of one
+ * actor: the console and each client token are separate voices, and a client's command must not be
+ * appended to the console's line just because the two arrived within the burst. An input-less write
+ * (Enter, an arrow, a focus report) ends the open line, so two commands typed a second apart stay
+ * two; a trailing focus report finalises the newest line rather than erasing it, so the card keeps
+ * the last text a person typed.
+ *
+ * The console's `excerpt` trims each write, so a whitespace-only write arrives as `""`; that is a
+ * space keystroke, not a missing one. A line can arrive twice (the `/events` snapshot reads the file
+ * after subscribing, so a write published in between is in both); the same instant and text is one
+ * write, not two keys. The newest line wins, and no line means null — the card never invents an
+ * input.
+ */
+function lastTypedLine(
+  lines: readonly LiveLine[],
+  deviceId: string,
+  session: string
+): { input: string; tsMs: number } | null {
+  const writes: LiveLine[] = [];
+  for (const line of lines) {
+    if (line.device_id !== deviceId) continue;
+    const evidence = line.evidence;
+    if (!evidence || evidence.session !== session) continue;
+    // An input-bearing line is a typed write whatever its tool field says; an input-less line is a
+    // boundary only when it is one (`terminal.read` and `resize` are neither).
+    if (typeof evidence.input !== "string" && line.tool !== "terminal.write") continue;
+    writes.push(line);
+  }
+  writes.sort((left, right) => left.ts_ms - right.ts_ms);
+  const seen = new Set<string>();
+  let open: { input: string; tsMs: number; actor: string | null } | null = null;
+  let newest: { input: string; tsMs: number } | null = null;
+  for (const line of writes) {
+    const input = line.evidence?.input;
+    if (typeof input !== "string") {
+      // An input-less write is the boundary between two commands, not a keystroke. The line typed
+      // before it is finished; a later fragment starts a new one rather than joining across Enter.
+      open = null;
+      continue;
+    }
+    const text = input === "" ? " " : typedText(input);
+    if (text === null) {
+      // The same boundary for a write whose text is only escape or control bytes.
+      open = null;
+      continue;
+    }
+    // An exact duplicate of one write, not two keystrokes that happened to share a millisecond.
+    const duplicate = `${line.ts_ms}\u0000${input}`;
+    if (seen.has(duplicate)) continue;
+    seen.add(duplicate);
+    const actor = writeActorKey(line);
+    if (
+      open !== null &&
+      actor !== null &&
+      open.actor === actor &&
+      line.ts_ms - open.tsMs <= WRITE_BURST_MS
+    ) {
+      open.input += text;
+      open.tsMs = line.ts_ms;
+    } else {
+      open = { input: text, tsMs: line.ts_ms, actor };
+    }
+    // The newest line, not merely the open one: a focus report after it closes the line but does
+    // not take away the fact that it was the last input.
+    newest = open;
+  }
+  return newest;
+}
+
+/**
+ * The session card: the machine, the attached session, its age and the last line it received.
+ *
+ * The card shares the supporting context area with session activity, beside the work area when
+ * there is room and below it on narrow layouts. It stays outside the xterm's scrollback, so the
+ * facts stay put while the terminal scrolls.
+ *
+ * **AFTER A RELOAD IT SAYS WHAT IT KNOWS, NOT MORE.** The console's audit file keeps the session
+ * and the outcome, never the arguments (evidence lives in the live event), and it does not name the
+ * session on a `terminal.write` line. A page that opens after the keystroke therefore cannot read
+ * its text: the old `No keystroke recorded for this session yet` was a claim about the session the
+ * page could not support. The empty state is scoped to this page's own record instead.
+ */
+/**
+ * **THE SESSION'S OWN SCREEN, BEFORE THE XTERM IS TOUCHED (the hundred-and-seventy-ninth list).** `terminal.screen {id, lines}`
+ * answers the tail of a session's output AS A PERSON WOULD SEE IT — escape sequences removed, and without moving the read cursor —
+ * so the card can show what the machine's terminal looks like without attaching to it. It was the last read-only tool with an
+ * obvious use and no door.
+ *
+ * **IT IS A SNAPSHOT, NOT A WINDOW**: the card reads once per session and again when asked. A live tail belongs to the terminal
+ * below, which already streams; a second stream in the card would be two answers to one question.
+ */
+function SessionScreen({ grant, session }: { grant: Grant; session: string }) {
+  const [lines, setLines] = useState<string[] | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [reading, setReading] = useState(false);
+  const generation = useRef(0);
+
+  const read = useCallback(async () => {
+    const mine = ++generation.current;
+    setReading(true);
+    setFailed(false);
+    try {
+      const body = await callTool(grant, "terminal.screen", { id: session, lines: 8 });
+      if (generation.current !== mine) return;
+      // The device answers `{lines: [...]}`; a build that answers a bare string is drawn as one line rather than as nothing.
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(body);
+      } catch {
+        parsed = body;
+      }
+      const rows =
+        parsed !== null && typeof parsed === "object" && Array.isArray((parsed as Record<string, unknown>).lines)
+          ? ((parsed as Record<string, unknown>).lines as unknown[]).filter((l): l is string => typeof l === "string")
+          : typeof parsed === "string"
+            ? parsed.split("\n").filter((line) => line.trim() !== "")
+            : null;
+      if (rows === null) {
+        setFailed(true);
+        setLines(null);
+      } else {
+        setLines(rows);
+      }
+    } catch {
+      if (generation.current !== mine) return;
+      setFailed(true);
+      setLines(null);
+    } finally {
+      if (generation.current === mine) setReading(false);
+    }
+  }, [grant, session]);
+
+  useEffect(() => {
+    void read();
+  }, [read]);
+
+  return (
+    <div className="session-card-screen">
+      <p className="session-card-label">
+        The session's screen
+        <button type="button" className="link" disabled={reading} onClick={() => void read()}>
+          {reading ? "Reading…" : "Read again"}
+        </button>
+      </p>
+      {failed && <p className="hint">The session's screen could not be read.</p>}
+      {!failed && lines !== null && lines.length === 0 && (
+        <p className="hint">The session has produced no output yet.</p>
+      )}
+      {!failed && lines !== null && lines.length > 0 && <pre className="session-screen">{lines.join("\n")}</pre>}
+      {!failed && lines === null && <p className="hint">Reading the session's screen…</p>}
+    </div>
+  );
+}
+
+/**
+ * The tooltip on a goal's claim badge: whose sentence it is, and what it is not.
+ *
+ * A goal is a claim by a door, never a fact the machine observed and never an instruction the page
+ * has been told to follow.
+ */
+function goalClaimTitle(
+  holder: SessionHolder | undefined,
+  names: ReadonlyMap<string, string>
+): string {
+  return `A goal is a claim by ${holderLabel(holder, names)}, not a fact the machine observed.`;
+}
+
+function SessionCard({
+  machine,
+  tab,
+  liveLines,
+  deviceId,
+  grant,
+  sessionEntry,
+  tokenNames
+}: {
+  machine: string;
+  tab: Tab;
+  liveLines: readonly LiveLine[];
+  deviceId: string;
+  grant?: Grant;
+  /**
+   * The device's row for this session, when the page has read one. `undefined` is not "no goal":
+   * it is the page not having an answer, and the card says so.
+   */
+  sessionEntry?: SessionListEntry;
+  tokenNames: ReadonlyMap<string, string>;
+}) {
+  const last = lastTypedLine(liveLines, deviceId, tab.session);
+  const goal = sessionEntry?.goal;
+  const goalKnown =
+    sessionEntry !== undefined &&
+    Object.prototype.hasOwnProperty.call(sessionEntry, "goal") &&
+    (goal === null || (goal !== undefined && typeof goal.text === "string" && goal.text !== ""));
+  return (
+    <section className="card session-card" aria-label="Session">
+      <header>
+        <strong>{machine}</strong>
+        <span className="chip">{tab.kind}</span>
+      </header>
+      <p className="session-card-meta">
+        <span className="mono">{tab.session}</span>
+        <span className="session-card-age">
+          {typeof tab.startedAtMs === "number"
+            ? `opened ${age(Date.now() - tab.startedAtMs)} ago`
+            : "opened at an unknown time"}
+        </span>
+      </p>
+      <p className="session-card-goal" aria-label="Session goal">
+        <span className="session-card-label">Goal</span>
+        {!goalKnown ? (
+          // An older device's list row has no `goal` key at all. The card cannot tell that from a
+          // goal it failed to read, so it names the fact it has: not recorded.
+          <span className="hint">not recorded</span>
+        ) : goal === null ? (
+          <span className="hint">No goal is set.</span>
+        ) : (
+          <>
+            {/* A goal is a claim, shown as its author's — never as the operator's instruction. */}
+            <span className="chip" title={goalClaimTitle(goal.by, tokenNames)}>
+              claim
+            </span>
+            <span className="session-card-goal-text">{goal!.text}</span>
+            <span className="session-card-goal-by">
+              set by {holderLabel(goal!.by, tokenNames)}
+            </span>
+          </>
+        )}
+      </p>
+      <p className="session-card-last">
+        <span className="session-card-label">Last input</span>
+        {last ? (
+          <>
+            <code className="session-card-input">{last.input}</code>
+            <time className="session-card-age" dateTime={new Date(last.tsMs).toISOString()}>
+              {age(Date.now() - last.tsMs)} ago
+            </time>
+          </>
+        ) : (
+          // The page's record starts when its feed does. A session that predates this page has a
+          // history the card cannot read, so the sentence names the record it can support instead
+          // of claiming the session never received a key.
+          <span className="hint">No keystroke recorded since this page opened.</span>
+        )}
+      </p>
+      {/* The screen tail sits under the card's facts: what the session looks like, read without attaching. */}
+      {grant !== undefined && <SessionScreen grant={grant} session={tab.session} />}
+    </section>
+  );
+}
+
+export function TerminalWorkspace({
+  grant,
+  visible = true,
+  deviceOnline,
+  lastSeenMs,
+  deviceName,
+  liveLines,
+  liveRunning = [],
+  liveState,
+  liveLagged = 0,
+  tokenNames = NO_TOKEN_NAMES,
+  onGrantRefused,
+  newSession,
+  onNewSessionHandled
+}: {
+  grant: Grant;
+  visible?: boolean;
+  /**
+   * The machine's reachability, from the fleet read the picker and the top bar already show.
+   *
+   * The TABS already say "offline" once a call fails. That is the wrong moment: a person who opens
+   * Terminal on a machine that is down used to read a blank page and a small red line about a
+   * request, and had to work out that the machine, not the page, was the problem. `undefined` is "no
+   * opinion" — a grant with no fleet record — and is painted as online; only `false` is a fact.
+   */
+  deviceOnline?: boolean;
+  /** When the console last heard from the machine; `null` when it never has. */
+  lastSeenMs?: number | null;
+  /** The machine's display name for the session card; the grant's device id is the fallback. */
+  deviceName?: string;
+  /**
+   * The console's live activity, newest first. Optional because the workspace also renders without a
+   * feed (a test, or a page before the stream opens); the card then says no keystroke is recorded
+   * since this page opened rather than showing one it does not have.
+   */
+  liveLines?: readonly LiveLine[];
+  /** Calls the proxy has announced and not cleared, from the page's one live feed. */
+  liveRunning?: readonly StartedCall[];
+  /**
+   * The feed's connection state. Absent means a page that passed no `liveLines` is still
+   * connecting; a page that passed a list is live, which is what a test that only cares about the
+   * last-keystroke card expects.
+   */
+  liveState?: "connecting" | "live" | "offline";
+  /** Lines the console's buffer dropped that no reread has covered yet. */
+  liveLagged?: number;
+  /**
+   * The operator's names for token ids, so the rail names a client by its token rather than a
+   * guess. Optional because the workspace also renders without a feed.
+   */
+  tokenNames?: ReadonlyMap<string, string>;
+  onGrantRefused?: () => void;
+  /**
+   * A one-shot request from the desktop shell's tray: the Connect dialog's kind, with a nonce so
+   * the same request arriving again is a new one. The workspace opens the dialog and nothing else;
+   * the operator's press is what calls `terminal.create`. `local` is the link's word for the
+   * dialog's `pty`, and the mapping happens at the dialog.
+   */
+  newSession?: { kind: "local" | "ssh" | "serial"; nonce: number };
+  /** Called once the request above has been consumed into the dialog. */
+  onNewSessionHandled?: () => void;
+}) {
+  const offline = deviceOnline === false;
+  // `undefined` is "this page did not subscribe" and reads as connecting; an empty list is a real
+  // live window that happens to have no rows. Keeping the distinction is what stops the rail from
+  // saying "no activity" while the stream has not answered yet.
+  const feedLines = liveLines ?? [];
+  const feedState = liveState ?? (liveLines === undefined ? "connecting" : "live");
+  const [tabs, setTabs] = useState<Tab[]>([]);
+  const [active, setActive] = useState<string | null>(null);
+  const [faults, setFaults] = useState<Record<string, Fault>>({});
+  const [status, setStatus] = useState("");
+  /**
+   * The jump's answer, in its own line so it can be a live region. The general `status` line also
+   * reports presets and exports and stays a plain paragraph; mixing the two would announce those.
+   */
+  const [jumpStatus, setJumpStatus] = useState("");
+  const [closing, setClosing] = useState<Tab | null>(null);
+  const [sessionsOpen, setSessionsOpen] = useState(false);
+  /** Sessions this page has detached from on purpose: auto-attach must not put them back. */
+  const detached = useRef(new Set<string>());
+  /** Every session id this page has listed, so only a genuinely new one takes the screen. */
+  const known = useRef(new Set<string>());
+  const [available, setAvailable] = useState<SessionListEntry[]>([]);
+  /**
+   * The rows the device listed, by session, kept after the tab attaches.
+   *
+   * `available` is the *unattached* list: attaching removes its entry so the picker does not offer
+   * a session twice. The session card still needs the row — its holder and goal — so the index
+   * keeps the last answer by id rather than leaving the card to say "not recorded" about a session
+   * the device just described.
+   */
+  const [sessionsById, setSessionsById] = useState<ReadonlyMap<string, SessionListEntry>>(
+    () => new Map()
+  );
+  // The device's session list is read on mount now, not behind an "Attach" click. These are the two
+  // states that read has: a request in flight, and the sentence when it failed.
+  const [listing, setListing] = useState(true);
+  /** Whether the document itself is in front: a hidden tab's poll cannot be seen, so it stops. */
+  const [documentShown, setDocumentShown] = useState(documentIsVisible);
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const toolsRef = useRef<HTMLDetailsElement>(null);
+  const [listError, setListError] = useState<string | null>(null);
+  const [presets, setPresets] = useState<SavedConnection[]>([]);
+  // A preference of the operator, not of a tab: every xterm and every tab opened later uses it.
+  const [fontSize, setFontSize] = useState(() => loadFontSize(fontStorage()));
+  const [connect, setConnect] = useState<Connect | null>(null);
+  /** A per-tab counter that replaces its feed: Try again's way to reopen a stream that was closed. */
+  const [feedRestarts, setFeedRestarts] = useState<Record<string, number>>({});
+  const [renaming, setRenaming] = useState<{ key: string; title: string } | null>(null);
+  const [presetDialog, setPresetDialog] = useState(false);
+  const [preset, setPreset] = useState<Preset>({ ...NEW_PRESET });
+  const [presetError, setPresetError] = useState<string | null>(null);
+  // Scrollback search is a view of the xterm's own buffer, so it is page state, not a device call.
+  const [findOpen, setFindOpen] = useState(false);
+  const [findTerm, setFindTerm] = useState("");
+  const [findMiss, setFindMiss] = useState(false);
+  const instances = useRef(new Map<string, Instance>());
+  const batches = useRef(new Map<string, TerminalWriteBatcher>());
+  /** Each tab's output queue: a read answers with the whole ring, and xterm takes it a frame at a time. */
+  const pumps = useRef(new Map<string, OutputPump>());
+  const hosts = useRef(new Map<string, HTMLDivElement>());
+  /** Each tab's read cursor: the absolute byte count the device has already sent this xterm. */
+  const cursors = useRef(new Map<string, number>());
+  /** The current fault per tab, readable synchronously inside a poll or a keystroke handler. */
+  const faultRef = useRef(new Map<string, Fault>());
+  /** When the last `terminal.list` probe ran, so a repeating refusal does not probe every 700 ms. */
+  const probing = useRef(new Map<string, number>());
+  const diagnosing = useRef(new Set<string>());
+  const grantRef = useRef(grant);
+  const grantRefusedRef = useRef(onGrantRefused);
+  const newSessionHandledRef = useRef(onNewSessionHandled);
+  const activeRef = useRef<string | null>(null);
+  /** Tabs with a read in flight. A slow device must not queue a second read at the same cursor. */
+  const reading = useRef(new Set<string>());
+  /** Tabs whose next polling read is the operator's Try again, so that read is recorded, not a poll. */
+  const retryAsks = useRef(new Set<string>());
+  // A device older than terminal.read's wait_ms refuses the field; fall back once and remember it.
+  const waitReads = useRef(true);
+  // A device older than terminal.read's limit refuses the field; the recovery falls back once and
+  // this grant never sends it again.
+  const limitReads = useRef(true);
+  const findInput = useRef<HTMLInputElement | null>(null);
+  /** The tab the search bar last belonged to, so a switch can clear what it drew there. */
+  const searchedTab = useRef<string | null>(null);
+
+  const setFault = useCallback((key: string, fault: Fault) => {
+    faultRef.current.set(key, fault);
+    setFaults((previous) => ({ ...previous, [key]: fault }));
+  }, []);
+
+  const clearFault = useCallback((key: string) => {
+    if (!faultRef.current.delete(key)) return;
+    setFaults((previous) => {
+      if (!(key in previous)) return previous;
+      const next = { ...previous };
+      delete next[key];
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    grantRef.current = grant;
+  }, [grant]);
+
+  // A newly signed grant is the remedy a grant fault names, so a renewal clears those faults. This is
+  // declared before the poll effect so the immediate poll after a renewal already sees them cleared.
+  useEffect(() => {
+    for (const [key, fault] of [...faultRef.current]) {
+      if (fault.kind === "refused") {
+        clearFault(key);
+        probing.current.delete(key);
+      }
+    }
+  }, [grant, clearFault]);
+
+  useEffect(() => {
+    grantRefusedRef.current = onGrantRefused;
+  }, [onGrantRefused]);
+
+  useEffect(() => {
+    newSessionHandledRef.current = onNewSessionHandled;
+  }, [onNewSessionHandled]);
+
+  useEffect(() => {
+    activeRef.current = active;
+  }, [active]);
+
+  /**
+   * The xterm that belongs to a tab, or undefined while that tab has no terminal (yet).
+   *
+   * A tab's addons live on its own instance, so every walk from a tab (or from the active tab's key)
+   * to `term`, `fit` or `search` goes through here; a tab that went away has no instance at all.
+   */
+  const instanceAt = useCallback(
+    (key: string | null | undefined): Instance | undefined =>
+      key ? instances.current.get(key) : undefined,
+    []
+  );
+
+  /**
+   * Tell the device the active terminal's grid, when it actually changed.
+   *
+   * The device's PTY wraps at the size it was last told, so a refit that nobody reports leaves the
+   * remote side drawing for the old grid — the legacy panel's "remote wrapping stuck" bug. The
+   * comparison keeps a resize drag from writing one audit line per frame for the same grid, and it
+   * lets a caller that has already fitted (the font change) report without fitting twice.
+   */
+  const pushActiveSize = useCallback(() => {
+    const key = activeRef.current;
+    if (!key) return;
+    const instance = instances.current.get(key);
+    if (!instance) return;
+    const grid = `${instance.term.rows}x${instance.term.cols}`;
+    if (grid === instance.lastSize) return;
+    instance.lastSize = grid;
+    void callTool(grantRef.current, "terminal.resize", {
+      id: instance.session,
+      rows: instance.term.rows,
+      cols: instance.term.cols
+    }).catch(() => {});
+  }, []);
+
+  /** Fit the active terminal into its host, then tell the device if the grid moved. */
+  const fitActive = useCallback(() => {
+    const key = activeRef.current;
+    if (!key) return;
+    const instance = instances.current.get(key);
+    if (!instance) return;
+    try {
+      instance.fit.fit();
+    } catch {
+      /* the host is not measurable while hidden; the next activation refits it */
+      return;
+    }
+    pushActiveSize();
+  }, [pushActiveSize]);
+
+  /**
+   * One read at this tab's cursor, and the cursor and end facts it returns.
+   *
+   * `poll` is true for the feed's own tick: the console is redrawing the screen it already shows,
+   * so the read is not the record. A person's Retry passes false and is recorded. `cursorAt` is for
+   * a recovery read that is not at the tab's cursor: the newest-tail read a degraded tab makes, or
+   * one page of the catch-up. `limit` asks for one page of the retained ring and is sent without
+   * `wait_ms`, because a page that reaches the end must answer at once instead of parking there.
+   */
+  const readOnce = useCallback(
+    async (
+      tab: Tab,
+      poll: boolean,
+      cursorAt?: number,
+      limit?: number
+    ): Promise<ReadAnswer> => {
+      const cursor = cursorAt ?? cursors.current.get(tab.key) ?? 0;
+      const args =
+        limit !== undefined
+          ? { id: tab.session, cursor, limit }
+          : waitReads.current
+            ? { id: tab.session, cursor, wait_ms: 15_000 }
+            : { id: tab.session, cursor };
+      try {
+        return JSON.parse(
+          await callTool(grantRef.current, "terminal.read", args, { poll })
+        ) as ReadAnswer;
+      } catch (cause) {
+        // A device from before this field rejects the whole call. Retry once without it, then keep
+        // the old 250 ms poll for the rest of this grant; the read itself is unchanged.
+        if (limit === undefined && waitReads.current && refusesField(cause, "wait_ms")) {
+          waitReads.current = false;
+          return JSON.parse(
+            await callTool(
+              grantRef.current,
+              "terminal.read",
+              { id: tab.session, cursor },
+              { poll }
+            )
+          ) as ReadAnswer;
+        }
+        throw cause;
+      }
+    },
+    []
+  );
+
+  /**
+   * Ask the device once what it still has, and turn the answer into one of the three sentences.
+   *
+   * The probe is `terminal.list`: a session missing from it is `closed` (with the device's own
+   * refusal as the reason when it gave one), a probe that fails is `unreachable`, and a refusal that
+   * names the grant is `grant` — whichever of the two calls carried it.
+   */
+  const diagnose = useCallback(
+    async (tab: Tab, source: "read" | "write", cause: unknown) => {
+      const note = source === "write" ? " Your keystrokes were not sent." : "";
+      const refused = sessionRefusal(cause);
+      if (refused) {
+        setFault(tab.key, { kind: "refused", sentence: refused + note });
+        grantRefusedRef.current?.();
+        return;
+      }
+      if (diagnosing.current.has(tab.key)) return;
+      diagnosing.current.add(tab.key);
+      probing.current.set(tab.key, Date.now());
+      try {
+        const answer = JSON.parse(
+          await callTool(grantRef.current, "terminal.list", {}, { poll: true })
+        );
+        const sessions: { id?: string }[] = Array.isArray(answer) ? answer : [];
+        if (!sessions.some((entry) => entry.id === tab.session)) {
+          // Only a sentence the device itself sent is a reason it gave; a proxy failure is not one.
+          const reason = cause instanceof ToolError && cause.fromDevice ? cause.message : null;
+          setFault(tab.key, {
+            kind: "closed",
+            sentence: reason
+              ? `The device closed this session: ${reason}.${note}`
+              : `The device closed this session: it no longer lists ${tab.session}. The device closes a session after 30 minutes with no reads, writes or resizes.${note}`
+          });
+          return;
+        }
+        // The device still has the session, so one call failed. Only a cursor it refused as older
+        // than the ring moves, to the earliest byte it still has; a transient failure leaves the
+        // cursor where it was, so output the terminal already shows is never replayed.
+        const earliest = source === "read" ? earliestCursor(message(cause)) : null;
+        if (earliest !== null) cursors.current.set(tab.key, earliest);
+        setFault(
+          tab.key,
+          source === "write"
+            ? { kind: "write", sentence: `Your keystrokes were not sent: ${message(cause)}.` }
+            : {
+                kind: "read",
+                sentence:
+                  earliest !== null
+                    ? `Reading this session failed: ${message(cause)}. The tab continues from the earliest output the device retains.`
+                    : `Reading this session failed: ${message(cause)}. The tab keeps its place and tries again.`
+              }
+        );
+      } catch (probeCause) {
+        const probeRefused = sessionRefusal(probeCause);
+        if (probeRefused) {
+          setFault(tab.key, { kind: "refused", sentence: probeRefused + note });
+          grantRefusedRef.current?.();
+        } else {
+          setFault(tab.key, { kind: "unreachable", sentence: unreachableSentence(probeCause) + note });
+        }
+      } finally {
+        diagnosing.current.delete(tab.key);
+      }
+    },
+    [setFault]
+  );
+
+  /**
+   * Record a failed read or write on its tab.
+   *
+   * The first failure of an episode sets the immediate sentence and probes once. Later failures keep
+   * that episode's kind (so an unreachable tab is not relabelled by every retry) and only refresh the
+   * sentence; the one exception is a device-spoken refusal, which may mean the session has since
+   * closed, so it earns a new probe at most every ten seconds.
+   */
+  const fail = useCallback(
+    (tab: Tab, source: "read" | "write", cause: unknown) => {
+      const current = faultRef.current.get(tab.key);
+      if (current && (current.kind === "closed" || current.kind === "refused")) return;
+      // A grant refusal answers the question by itself, whatever the tab's previous fault was: the
+      // permission is the reason, not the link the earlier sentence described.
+      const refused = sessionRefusal(cause);
+      if (refused) {
+        const note = source === "write" ? " Your keystrokes were not sent." : "";
+        setFault(tab.key, { kind: "refused", sentence: refused + note });
+        grantRefusedRef.current?.();
+        return;
+      }
+      const detail = message(cause);
+      const note = source === "write" ? " Your keystrokes were not sent." : "";
+      // A read refused because its cursor fell behind the ring can recover by itself: move to the
+      // earliest byte the device still has before the existing-fault branch below, which only
+      // updates the sentence. Without this, a tab already showing a read fault keeps retrying the
+      // refused cursor until the operator presses Try again. Only a strictly newer start is
+      // progress; moving backwards would replay bytes the terminal already drew.
+      if (source === "read") {
+        const earliest = earliestCursor(detail);
+        if (earliest !== null && earliest > (cursors.current.get(tab.key) ?? 0)) {
+          cursors.current.set(tab.key, earliest);
+        }
+      }
+      if (current) {
+        if (current.kind === "unreachable") {
+          setFault(tab.key, { kind: "unreachable", sentence: unreachableSentence(cause) + note });
+        } else if (source === "write") {
+          setFault(tab.key, { kind: "write", sentence: `Your keystrokes were not sent: ${detail}.` });
+        } else {
+          setFault(tab.key, { kind: "read", sentence: `Reading this session failed: ${detail}.` });
+        }
+        const spoke = cause instanceof ToolError && cause.fromDevice;
+        const sinceProbe = Date.now() - (probing.current.get(tab.key) ?? 0);
+        if (spoke && sinceProbe > 10_000) void diagnose(tab, source, cause);
+        return;
+      }
+      setFault(
+        tab.key,
+        source === "write"
+          ? { kind: "write", sentence: `Your keystrokes were not sent: ${detail}.` }
+          : { kind: "read", sentence: `Reading this session failed: ${detail}.` }
+      );
+      void diagnose(tab, source, cause);
+    },
+    [diagnose, setFault]
+  );
+
+  /**
+   * One keystroke, buffered into one MCP call.
+   *
+   * A failure is the tab's, not a console log's: the batch's error path produces the same sentence a
+   * per-keystroke write did. The buffer lives per tab because each tab is a different session.
+   */
+  const write = useCallback(
+    (tab: Tab, data: string) => {
+      const current = faultRef.current.get(tab.key);
+      if (current && (current.kind === "closed" || current.kind === "refused")) return;
+      let batch = batches.current.get(tab.key);
+      if (!batch) {
+        batch = createTerminalWriteBatcher(
+          async (chunk) => {
+            await callTool(grantRef.current, "terminal.write", { id: tab.session, data: chunk });
+            if (faultRef.current.get(tab.key)?.kind === "write") clearFault(tab.key);
+          },
+          (cause) => fail(tab, "write", cause)
+        );
+        batches.current.set(tab.key, batch);
+      }
+      batch.push(data);
+    },
+    [clearFault, fail]
+  );
+
+  /**
+   * The output queue one tab's xterm draws from.
+   *
+   * A read can carry the whole retained ring and a stream can carry a burst: both queue here, and
+   * the pump hands xterm one frame's worth at a time so a busy session cannot freeze the page in
+   * one write.
+   */
+  const pumpFor = useCallback((tab: Tab, instance: Instance) => {
+    let pump = pumps.current.get(tab.key);
+    if (!pump) {
+      pump = createOutputPump((text) => {
+        try {
+          instance.term.write(text);
+        } catch {
+          // Disposed while a queued frame was pending: the tab is gone, the bytes are not.
+        }
+      });
+      pumps.current.set(tab.key, pump);
+    }
+    return pump;
+  }, []);
+
+  const poll = useCallback(
+    async (tab: Tab, explicit: boolean, isCurrentFeed: () => boolean) => {
+      if (!isCurrentFeed()) return;
+      const instance = instanceAt(tab.key);
+      if (!instance) return;
+      if (reading.current.has(tab.key)) return;
+      const current = faultRef.current.get(tab.key);
+      if (current && (current.kind === "closed" || current.kind === "refused")) return;
+      reading.current.add(tab.key);
+      try {
+        // The feed's own tick is a poll; Try again is a person asking the same read, so it records.
+        const read = await readOnce(tab, !explicit);
+        // A reply already requested still advances this tab's output and cursor after hide.
+        // The stopped feed may accept those bytes, but it must never dispatch another read.
+        if (read.data) {
+          pumpFor(tab, instance).push(read.data);
+          // A long poll returns as soon as bytes arrive; take the next read now instead of waiting
+          // for the 250 ms interval, so continuous output keeps flowing. Single-flight still guards
+          // a slow answer, and a fallback device's immediate empty read keeps the interval's pace.
+          if (isCurrentFeed() && activeRef.current === tab.key) {
+            window.setTimeout(() => {
+              if (isCurrentFeed() && activeRef.current === tab.key) void poll(tab, false, isCurrentFeed);
+            }, 0);
+          }
+        }
+        if (typeof read.cursor === "number") cursors.current.set(tab.key, read.cursor);
+        // The end is a fact, not an error: the last bytes are already in the terminal and the tab
+        // keeps them. `closed` makes the next tick's existing guard send nothing, and the operator
+        // is the one who closes the tab.
+        if (read.alive === false) {
+          setFault(tab.key, { kind: "closed", sentence: endedSentence(read) });
+          return;
+        }
+        // A read that works clears a fault about the link or about reading. It does not clear "your
+        // keystrokes were not sent": that sentence stays until a write succeeds (or the tab is
+        // retried), because a working read says nothing about the keystroke that was dropped. Nor
+        // does it clear a sentence about bytes the device no longer retains: fresh output cannot
+        // bring those bytes back.
+        const fault = faultRef.current.get(tab.key);
+        if (fault && (fault.kind === "unreachable" || (fault.kind === "read" && !fault.loss))) {
+          clearFault(tab.key);
+        }
+      } catch (cause) {
+        fail(tab, "read", cause);
+      } finally {
+        reading.current.delete(tab.key);
+      }
+    },
+    [clearFault, fail, instanceAt, pumpFor, readOnce, setFault]
+  );
+
+  // One xterm per tab, created when its host element exists and disposed when the tab goes away.
+  useEffect(() => {
+    for (const tab of tabs) {
+      if (instances.current.has(tab.key)) continue;
+      const host = hosts.current.get(tab.key);
+      if (!host) continue;
+      const term = new Terminal({
+        convertEol: true,
+        cursorBlink: true,
+        // The legacy panel kept this much: a build log or a long AI session is read by scrolling
+        // back, and xterm's default of 1000 lines is a few minutes of a chatty shell.
+        scrollback: 20_000,
+        fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+        fontSize,
+        theme: terminalTheme(),
+        // The search addon highlights matches with `registerDecoration`, which xterm still gates
+        // behind this flag. Without it `findNext` throws "You must set the allowProposedApi option"
+        // on the first hit — the bar looks alive, nothing scrolls, and no sentence says why.
+        allowProposedApi: true,
+        // The overview ruler is opt-in: xterm only builds it when a width is given, so the colours
+        // `searchDecorations()` hands the addon had nowhere to be drawn. It sits over the scrollbar
+        // and marks every match, which is the map a long scrollback needs.
+        overviewRuler: { width: 14 }
+      });
+      const fit = new FitAddon();
+      term.loadAddon(fit);
+      const search = new SearchAddon();
+      term.loadAddon(search);
+      term.open(host);
+      term.onData((data) => {
+        void write(tab, data);
+      });
+      // Ctrl+F (⌘F on a Mac) opens this tab's scrollback search, the way every terminal does. Without
+      // it xterm hands the key to the shell, where a search that never opens reads as a broken page.
+      term.attachCustomKeyEventHandler((event) => {
+        if (
+          event.type === "keydown" &&
+          (event.ctrlKey || event.metaKey) &&
+          !event.shiftKey &&
+          !event.altKey &&
+          event.key.toLowerCase() === "f"
+        ) {
+          setFindOpen(true);
+          event.preventDefault();
+          return false;
+        }
+        return true;
+      });
+      // Selection copies on select, and the context menu pastes: the two gestures a web terminal is
+      // expected to have (the legacy panel's round-160), and the browser's own menu over a terminal
+      // is the one thing that cannot be dismissed with the keyboard.
+      term.onSelectionChange(() => {
+        const selection = term.getSelection();
+        if (selection) void navigator.clipboard?.writeText(selection).catch(() => {});
+      });
+      const onContextMenu = (event: Event) => {
+        event.preventDefault();
+        const clipboard = navigator.clipboard;
+        if (!clipboard) return;
+        void clipboard
+          .readText()
+          .then((text) => {
+            if (text) term.paste(text);
+          })
+          .catch(() => {});
+      };
+      host.addEventListener("contextmenu", onContextMenu);
+      instances.current.set(tab.key, {
+        term,
+        fit,
+        search,
+        session: tab.session,
+        lastSize: null,
+        onContextMenu
+      });
+      if (activeRef.current === null) {
+        activeRef.current = tab.key;
+        setActive(tab.key);
+      }
+    }
+    for (const [key, instance] of [...instances.current]) {
+      if (tabs.some((tab) => tab.key === key)) continue;
+      batches.current.get(key)?.cancel();
+      batches.current.delete(key);
+      pumps.current.get(key)?.cancel();
+      pumps.current.delete(key);
+      hosts.current.get(key)?.removeEventListener("contextmenu", instance.onContextMenu);
+      instance.term.dispose();
+      instances.current.delete(key);
+      cursors.current.delete(key);
+      reading.current.delete(key);
+      clearFault(key);
+      probing.current.delete(key);
+    }
+  }, [tabs, write, clearFault, fontSize]);
+
+  // A new size reaches every xterm that is already open, in place, and the one that is remembered.
+  //
+  // It is set on the terminal rather than by recreating it: a new xterm would lose the output the
+  // device already sent, and the session's cursor belongs to this instance. The refit is best-effort
+  // because a hidden tab's host has no measurable size until the tab is shown, which refits it again.
+  // `fitActive` is what tells the device: a font change reflows the local grid, and the PTY would
+  // keep wrapping at the old columns without it.
+  useEffect(() => {
+    for (const instance of instances.current.values()) {
+      instance.term.options.fontSize = fontSize;
+      try {
+        instance.fit.fit();
+      } catch {
+        /* the host may not be measurable yet */
+      }
+    }
+    // The loop above already fitted every open tab; this only reports the new grid to the device.
+    pushActiveSize();
+    saveFontSize(fontStorage(), fontSize);
+  }, [fontSize, pushActiveSize]);
+
+  // The grid follows the window and the pane, not only a tab switch. A terminal that keeps the old
+  // grid after a resize wraps its output at the wrong column; the refit is throttled to one per
+  // frame because a drag fires the event far faster than the device should hear about it.
+  useEffect(() => {
+    if (!active) return;
+    let frame = 0;
+    const refit = () => {
+      if (frame) cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        fitActive();
+      });
+    };
+    window.addEventListener("resize", refit);
+    const host = hosts.current.get(active);
+    const observer =
+      host && typeof ResizeObserver !== "undefined" ? new ResizeObserver(refit) : null;
+    observer?.observe(host!);
+    return () => {
+      window.removeEventListener("resize", refit);
+      if (frame) cancelAnimationFrame(frame);
+      observer?.disconnect();
+    };
+  }, [active, fitActive]);
+
+  // The field is the point of opening the bar, so the operator can type a term straight away.
+  useEffect(() => {
+    if (findOpen) findInput.current?.focus();
+  }, [findOpen]);
+
+  // The bar searches the session on screen. A tab switch leaves the decorations behind because they
+  // were drawn on that tab's xterm, not this one's, and drops the miss sentence because it was about
+  // the tab being left; the bar itself stays open and follows the active tab. With the bar closed
+  // nothing was drawn, so nothing is cleared.
+  useEffect(() => {
+    const left = searchedTab.current;
+    if (findOpen && left && left !== active) {
+      instanceAt(left)?.search.clearDecorations();
+      setFindMiss(false);
+    }
+    searchedTab.current = active;
+  }, [active, findOpen, instanceAt]);
+
+  // Closing the last session takes the bar with it: there is no scrollback left for it to search.
+  useEffect(() => {
+    if (active === null && findOpen) {
+      setFindOpen(false);
+      setFindMiss(false);
+    }
+  }, [active, findOpen]);
+
+  /**
+   * The active tab's output feed: the stream while it answers, the polling loop when it does not.
+   *
+   * **THE STREAM IS ONE CONNECTION, NOT ONE REQUEST PER CHUNK.** The console relays this session's
+   * `terminal.read` answers down a server-sent stream, so the device always has a read parked and
+   * the browser is not opening a request between two chunks. The polling loop stays as the fallback
+   * — a console older than the route, a browser without `EventSource` (jsdom), or a stream that
+   * keeps failing — because a terminal that cannot stream must still be a terminal.
+   *
+   * A page change does not unmount the workspace, so `visible` is what stops the feed: a hidden tab
+   * must not keep a device session alive past its idle close. On return the effect runs again,
+   * refits the terminal to a host that has a size again, and reads everything the device retained
+   * since the cursor — which is what makes a live tab reappear without an Attach.
+   */
+  const startFeed = useCallback(
+    (tab: Tab, instance: Instance | undefined) => {
+      let stopped = false;
+      let stream: TerminalStream | null = null;
+      let timer: number | null = null;
+      let retry: number | null = null;
+      let attempt = 0;
+      // A cursor-too-old refusal is a recoverable event, not a dead tab: the feed pages the bytes
+      // the device still retains and opens the stream at the cursor those pages reached. `lostFrom`
+      // is the cursor the recovery started at, so the bytes a cut leaves behind can be counted;
+      // `moves` bounds the older device's stream chase so a ring that keeps outrunning the reader
+      // degrades instead of reopening on one offset forever.
+      let moves = 0;
+      let lostFrom: number | null = null;
+      // A recovery connection is racing a ring that may be moving; if it stays silent for too long
+      // the tab reads the newest tail instead of waiting for a catch-up that may never land.
+      let recovering = false;
+      let catchUp: number | null = null;
+      // The guard on one page read: a page that does not answer by the catch-up's deadline is
+      // abandoned rather than allowed to hold the tab forever.
+      let pageGuard: number | null = null;
+
+      const clearCatchUp = () => {
+        if (catchUp !== null) window.clearTimeout(catchUp);
+        catchUp = null;
+      };
+
+      const startPolling = () => {
+        if (stopped || timer !== null) return;
+        const tick = () => {
+          if (stopped || activeRef.current !== tab.key) return;
+          // Try again is a person asking the same read; the feed's own tick is a poll.
+          void poll(tab, retryAsks.current.delete(tab.key), () => !stopped);
+        };
+        tick();
+        timer = window.setInterval(tick, 250);
+      };
+
+      /** Say how much output the device no longer has, and continue plainly from what it does. */
+      const nameTheLoss = (sentence: string, dropped: number) => {
+        setFault(tab.key, {
+          kind: "read",
+          loss: true,
+          sentence:
+            `Reading this session failed: ${sentence}. ` +
+            (dropped > 0
+              ? `${dropped} bytes were dropped: the device no longer retains them. `
+              : "") +
+            "The tab continues from the newest retained output."
+        });
+      };
+
+      /**
+       * Show a read sentence unless the tab already states bytes it can never get back.
+       *
+       * A loss sentence is a fact about the scrollback, not a fault a later recovery's progress
+       * repairs: it stays until Try again, exactly as fresh output does not erase it.
+       */
+      const showRead = (sentence: string) => {
+        if (faultRef.current.get(tab.key)?.loss) return;
+        setFault(tab.key, { kind: "read", sentence });
+      };
+
+      /**
+       * The older device's recovery: reopen the stream at the start the refusal named.
+       *
+       * A device that refuses `limit` has no paging read, so this is the path that shipped before
+       * it: the cursor moves to `at`, the stream reopens there, and a connection that stays silent
+       * for the catch-up's bound reads the newest tail instead. `moves` bounds the chase so a ring
+       * that keeps outrunning the reader degrades instead of reopening on one offset forever.
+       */
+      const reconnectAtEarliest = (sentence: string, at: number) => {
+        if (moves >= RETAINED_CURSOR_MOVES) {
+          void degradeToRetained(sentence, lostFrom ?? at, at);
+          return;
+        }
+        moves += 1;
+        showRead(
+          `Reading this session failed: ${sentence}. The tab continues from the earliest output the device retains.`
+        );
+        if (retry !== null) window.clearTimeout(retry);
+        recovering = true;
+        retry = window.setTimeout(connect, moves === 1 ? 400 : 1_500);
+      };
+
+      /**
+       * Draw the retained ring a page at a time, then open the stream at the reached cursor.
+       *
+       * Every page is a polling `terminal.read` with `limit`, so each answer is bounded and each
+       * page reaches the xterm as it lands. A short page is the ring's end, and the subscribe that
+       * follows asks only for what arrived meanwhile. The page cap or the catch-up's guard stops a
+       * catch-up that is not converging; the tab then reads the newest retained output and names
+       * the bytes between where paging stopped and that tail.
+       *
+       * A device that does not know `limit` refuses the first page. That field is then dropped for
+       * the rest of the grant and the older device's reconnect path takes over; the refusal is not
+       * retried as a whole-ring read.
+       */
+      const pageCatchUp = async (sentence: string, earliest: number) => {
+        showRead(
+          `Reading this session failed: ${sentence}. The tab continues from the earliest output the device retains.`
+        );
+        const deadline = Date.now() + RETAINED_CATCHUP_MS;
+        let cursor = earliest;
+        let pages = 0;
+        cursors.current.set(tab.key, cursor);
+
+        /** One page, or null when the catch-up's guard expires while the page is in flight. */
+        const readPage = (at: number): Promise<ReadAnswer | null> => {
+          const remaining = deadline - Date.now();
+          if (remaining <= 0) return Promise.resolve(null);
+          return new Promise((resolve, reject) => {
+            const guard = window.setTimeout(() => {
+              if (pageGuard === guard) pageGuard = null;
+              resolve(null);
+            }, remaining);
+            pageGuard = guard;
+            readOnce(tab, true, at, RETAINED_PAGE_BYTES).then(
+              (answer) => {
+                // A page abandoned by the guard may still answer later; it must not clear the
+                // guard that belongs to the page now in flight.
+                if (pageGuard === guard) {
+                  window.clearTimeout(guard);
+                  pageGuard = null;
+                }
+                resolve(answer);
+              },
+              (cause) => {
+                if (pageGuard === guard) {
+                  window.clearTimeout(guard);
+                  pageGuard = null;
+                }
+                reject(cause);
+              }
+            );
+          });
+        };
+
+        while (!stopped) {
+          if (pages >= RETAINED_PAGES) {
+            // The cap is a cut, not an end: the tab continues from the newest retained output and
+            // says how much of the ring was left between here and that tail.
+            await degradeToRetained(sentence, cursor, cursor);
+            return;
+          }
+          let read: ReadAnswer | null;
+          try {
+            read = await readPage(cursor);
+          } catch (cause) {
+            if (stopped) return;
+            const newer = earliestCursor(message(cause));
+            if (newer !== null) {
+              if (newer > cursor) {
+                // The ring moved while this page was in flight; continue at the start it named.
+                cursor = newer;
+                cursors.current.set(tab.key, cursor);
+                pages += 1;
+                continue;
+              }
+              await degradeToRetained(sentence, cursor, cursor);
+              return;
+            }
+            if (limitReads.current && refusesField(cause, "limit")) {
+              // An older device does not know the field. Drop it for this grant and take the
+              // recovery path that shipped before paging; do not send `limit` again.
+              limitReads.current = false;
+              reconnectAtEarliest(sentence, cursor);
+              return;
+            }
+            fail(tab, "read", cause);
+            startPolling();
+            return;
+          }
+          if (stopped) return;
+          if (read === null) {
+            // The guard expired while the page was in flight; that page is abandoned, not drawn.
+            await degradeToRetained(sentence, cursor, cursor);
+            return;
+          }
+          const data = read.data ?? "";
+          const before = cursor;
+          const at = typeof read.cursor === "number" ? read.cursor : before + data.length;
+          if (data && at > before && instance) {
+            pumpFor(tab, instance).push(data);
+            // A page is a working read: the too-old sentence has been answered by the device. A
+            // sentence about bytes the device no longer has is a fact fresh pages do not repair.
+            const fault = faultRef.current.get(tab.key);
+            if (fault && !fault.loss) clearFault(tab.key);
+          }
+          cursor = Math.max(before, at);
+          cursors.current.set(tab.key, cursor);
+          pages += 1;
+          if (data.length < RETAINED_PAGE_BYTES || at <= before) {
+            // A short page is the ring's end. The stream that follows is up to date, so its own
+            // subscribe read is small; a device that did not advance is treated the same way so
+            // the tab cannot page the same offset forever.
+            recovering = false;
+            connect();
+            return;
+          }
+        }
+      };
+
+      /**
+       * Stop a recovery that cannot finish, and read the newest output instead.
+       *
+       * `terminal.read` past the end is the one question whose answer names the current end, so the
+       * tail is read from `end - RETAINED_READ_TAIL`: the start of the ring may move again before
+       * that read lands, but a cursor a whole margin below the end is safe. Its bytes are drawn,
+       * the drop from `lostFrom` is stated once (the sentence stays until Try again), and the
+       * stream reopens from the read's cursor to carry what comes next. `reached` is where the
+       * recovery is now: the tail read never starts before it, so paging does not replay bytes.
+       */
+      const degradeToRetained = async (sentence: string, lossFrom: number, reached: number) => {
+        // The connection this opens is not a catch-up at the moving start, so it must not be
+        // timed out into another degrade: it resumes at the end of the newest tail.
+        recovering = false;
+        try {
+          let end: number | null = null;
+          try {
+            await readOnce(tab, true, Number.MAX_SAFE_INTEGER);
+          } catch (cause) {
+            end = endCursor(message(cause));
+          }
+          if (stopped) return;
+          if (end === null) {
+            throw new ToolError("the device did not name where the session ends", 200, null, true);
+          }
+          const tailFrom = Math.max(0, end - RETAINED_READ_TAIL);
+          const from = Math.max(0, Math.min(end, Math.max(reached, tailFrom)));
+          const read = await readOnce(tab, true, from);
+          // The tab may have closed while the tail read was in flight; its instance is gone with
+          // it, so there is nothing to draw and no cursor left to continue.
+          if (stopped) return;
+          const at = typeof read.cursor === "number" ? read.cursor : from;
+          cursors.current.set(tab.key, at);
+          if (read.data && instance) pumpFor(tab, instance).push(read.data);
+          nameTheLoss(sentence, Math.max(0, tailFrom - lossFrom));
+          connect();
+        } catch (cause) {
+          // The tail could not be read either: let the polling loop ask at whatever cursor the
+          // refusal names, at its own pace, instead of spinning on one offset.
+          fail(tab, "read", cause);
+          startPolling();
+        }
+      };
+
+      /**
+       * Recover a cursor the device refused as older than its ring, or say it is another fault.
+       *
+       * The refusal names where the retained output starts. The feed pages from there while the
+       * device knows `limit`; an older device reopens the stream there and lets the catch-up guard
+       * take over. Either way the tab continues from a cursor the device named, never the byte it
+       * refused.
+       */
+      const recoverTooOld = (sentence: string): boolean => {
+        const earliest = earliestCursor(sentence);
+        if (earliest === null) return false;
+        const held = cursors.current.get(tab.key) ?? 0;
+        if (earliest <= held) {
+          // The device named no newer start than the cursor it refused. Reopening there would ask
+          // for the byte it just refused, so stop chasing and show the newest output instead.
+          if (lostFrom === null) lostFrom = held;
+          void degradeToRetained(sentence, lostFrom, held);
+          return true;
+        }
+        if (lostFrom === null) lostFrom = held;
+        cursors.current.set(tab.key, earliest);
+        if (!limitReads.current) {
+          reconnectAtEarliest(sentence, earliest);
+          return true;
+        }
+        void pageCatchUp(sentence, earliest);
+        return true;
+      };
+
+      const connect = () => {
+        if (stopped || !instance) {
+          startPolling();
+          return;
+        }
+        const from = cursors.current.get(tab.key) ?? 0;
+        if (recovering) {
+          // The connection has been asked for; the catch-up's first frame must not take forever.
+          // Degrading is not a second guess at the cursor: it reads the newest tail and reports
+          // every byte between it and the cursor this tab was refused at.
+          clearCatchUp();
+          catchUp = window.setTimeout(() => {
+            catchUp = null;
+            if (stopped) return;
+            stream?.close();
+            stream = null;
+            void degradeToRetained(
+              `the stream from byte ${from} sent nothing within ${RETAINED_CATCHUP_MS / 1_000} seconds`,
+              lostFrom ?? from,
+              from
+            );
+          }, RETAINED_CATCHUP_MS);
+        }
+        stream = openTerminalStream(
+          grantRef.current.deviceId,
+          tab.session,
+          from,
+          {
+            output: (data, cursor) => {
+              attempt = 0;
+              moves = 0;
+              recovering = false;
+              lostFrom = null;
+              clearCatchUp();
+              cursors.current.set(tab.key, cursor);
+              if (!data) return;
+              pumpFor(tab, instance).push(data);
+              // A stream that carries bytes answers the question a read fault asked. A sentence
+              // about bytes the device no longer has is a fact, not a fault fresh output repairs.
+              const fault = faultRef.current.get(tab.key);
+              if (fault && (fault.kind === "unreachable" || (fault.kind === "read" && !fault.loss))) {
+                clearFault(tab.key);
+              }
+            },
+            end: (facts) => {
+              clearCatchUp();
+              setFault(tab.key, { kind: "closed", sentence: endedSentence(facts) });
+            },
+            fault: (sentence, status) => {
+              // `terminalStream` closed the source before this callback; a reconnect is a new one,
+              // not this object, so nothing may keep treating the closed stream as the feed.
+              stream = null;
+              clearCatchUp();
+              if (recoverTooOld(sentence)) return;
+              // The stream carries the device's own refusal; the tab renders it as a failed read.
+              fail(tab, "read", new ToolError(sentence, status ?? 502, null, true));
+            },
+            error: () => {
+              stream = null;
+              clearCatchUp();
+              if (stopped) return;
+              attempt += 1;
+              // A console from before this route answers 404, and an EventSource cannot see the
+              // status of a failed connection. Two attempts is where the polling loop — the path
+              // that shipped before the stream — is the better bet.
+              if (attempt >= 2) {
+                startPolling();
+                return;
+              }
+              retry = window.setTimeout(connect, attempt === 1 ? 400 : 1_500);
+            }
+          }
+        );
+        // No `EventSource` in this runtime: the polling loop is the whole feed.
+        if (!stream) startPolling();
+        else retryAsks.current.delete(tab.key);
+      };
+
+      connect();
+
+      return () => {
+        stopped = true;
+        clearCatchUp();
+        if (pageGuard !== null) window.clearTimeout(pageGuard);
+        if (timer !== null) window.clearInterval(timer);
+        if (retry !== null) window.clearTimeout(retry);
+        stream?.close();
+        stream = null;
+      };
+    },
+    [clearFault, fail, poll, pumpFor, readOnce, setFault]
+  );
+
+  // A Try again bumps this tab's counter, which tears the old feed down and opens a new one at the
+  // cursor the tab holds now — not the byte the device refused.
+  const feedRestart = active === null ? 0 : feedRestarts[active] ?? 0;
+  useEffect(() => {
+    if (!active || !visible) return;
+    const tab = tabs.find((entry) => entry.key === active);
+    if (!tab) return;
+    const instance = instanceAt(active);
+    if (instance) {
+      // The host has a size again; the device hears about a changed grid only.
+      fitActive();
+      instance.term.focus();
+    }
+    return startFeed(tab, instance);
+    // `grant.deviceId`, not the grant object: the Device page builds a fresh `{deviceId,
+    // envelope: null}` on every five-second fleet poll, and a feed re-opened on that identity
+    // churn would abandon its catch-up (and the guard watching it) before either finished. Every
+    // call inside the feed reads `grantRef.current`, which its own effect keeps current.
+  }, [active, tabs, grant.deviceId, visible, startFeed, fitActive, instanceAt, feedRestart]);
+
+  // The presets belong to the device, so they are re-read when the grant's device changes.
+  useEffect(() => {
+    let live = true;
+    void api
+      .connections(grant.deviceId)
+      .then((list) => {
+        if (live) setPresets(list);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [grant.deviceId]);
+
+  // The device switch that unmounts the workspace takes the xterms with it.
+  useEffect(
+    () => () => {
+      // A late refusal from this disposed workspace must not invalidate another machine's grant.
+      grantRefusedRef.current = undefined;
+      for (const batch of batches.current.values()) batch.cancel();
+      batches.current.clear();
+      for (const pump of pumps.current.values()) pump.cancel();
+      pumps.current.clear();
+      for (const instance of instances.current.values()) instance.term.dispose();
+      instances.current.clear();
+    },
+    []
+  );
+
+  /**
+   * Open one session and add its tab. Returns the device's sentence on failure, null on success.
+   *
+   * `title` is what the operator named the session (a preset's name); null means the tab says its
+   * kind and age. Nothing is generated here: two tabs may share a default label, which is why the
+   * session id sits beside it.
+   */
+  const openWith = async (args: Record<string, unknown>, title: string | null): Promise<string | null> => {
+    try {
+      const answer = JSON.parse(await callTool(grantRef.current, "terminal.create", args));
+      const session = answer.id as string;
+      const kind = String(args.kind);
+      const startedAtMs = Date.now();
+      setTabs((previous) =>
+        // The list poll and the create answer can meet on the same session: the page may already
+        // have attached it while the create was in flight. A duplicate key would draw two tabs for
+        // one shell, so the existing tab wins. The create answer still adds the one fact the list
+        // may have been too old to report — when this session started — and a preset's name.
+        previous.some((tab) => tab.key === session)
+          ? previous.map((tab) =>
+              tab.key === session
+                ? {
+                    ...tab,
+                    title: tab.title ?? title,
+                    startedAtMs: tab.startedAtMs ?? startedAtMs
+                  }
+                : tab
+            )
+          : [
+              ...previous,
+              {
+                key: session,
+                session,
+                kind,
+                title,
+                // `terminal.create` does not return its start time; the moment the device answered
+                // is when this session began from the page's point of view, and the card shows that
+                // age.
+                startedAtMs
+              }
+            ]
+      );
+      setActive(session);
+      setStatus("");
+      return null;
+    } catch (cause) {
+      const sentence = message(cause);
+      setStatus("Could not open: " + sentence);
+      return sentence;
+    }
+  };
+
+  const openDialog = (prefill: Partial<ConnectDraft>, name: string | null) => {
+    setConnect({ draft: { ...NEW_CONNECT, ...prefill }, name, error: null, busy: false });
+  };
+
+  const patchConnect = (patch: Partial<ConnectDraft>) => {
+    setConnect((previous) =>
+      previous ? { ...previous, draft: { ...previous.draft, ...patch }, error: null } : previous
+    );
+  };
+
+  // **A TRAY LINK IS THE DIALOG, NEVER A SESSION.** The shell cannot address this page's tabs, so
+  // it names a kind and the page opens the one form the operator already knows; `terminal.create`
+  // remains the operator's own press. `local` is the link's vocabulary, `pty` the dialog's — the
+  // translation belongs here, where the select's options are, and nowhere earlier.
+  useEffect(() => {
+    if (!newSession) return;
+    openDialog({ kind: newSession.kind === "local" ? "pty" : newSession.kind }, null);
+    newSessionHandledRef.current?.();
+  }, [newSession]);
+
+  const submitConnect = async () => {
+    if (!connect) return;
+    const built = connectArguments(connect.draft);
+    if ("error" in built) {
+      setConnect({ ...connect, error: built.error });
+      return;
+    }
+    setConnect({ ...connect, busy: true, error: null });
+    const failure = await openWith(built.args, connect.name);
+    if (failure === null) setConnect(null);
+    else setConnect({ ...connect, busy: false, error: failure });
+  };
+
+  /**
+   * A preset is a connection, not a credential.
+   *
+   * pty and serial presets have nothing secret left to ask for, so they open straight away. An SSH
+   * preset opens the connect dialog prefilled with host, port and user — the password or key path is
+   * the one thing the operator still has to supply, and there is now a field for it.
+   */
+  const openPreset = (saved: SavedConnection) => {
+    if (saved.kind === "ssh") {
+      openDialog(
+        { kind: "ssh", host: saved.host ?? "", port: String(saved.port ?? 22), user: saved.user ?? "" },
+        saved.name
+      );
+      return;
+    }
+    setStatus(`Opening "${saved.name}"…`);
+    if (saved.kind === "serial") {
+      void openWith({ kind: "serial", port: saved.port_path, baud: saved.baud ?? 115200 }, saved.name);
+      return;
+    }
+    void openWith({ kind: "pty" }, saved.name);
+  };
+
+  const savePreset = async () => {
+    if (!preset.name.trim()) {
+      setPresetError("Give the preset a name.");
+      return;
+    }
+    try {
+      // Only the chosen kind's fields leave the page: an ssh preset has no baud, a serial preset has
+      // no host. The console's own validation would refuse the mismatch, one step later.
+      const saved = await api.saveConnection(grant.deviceId, {
+        name: preset.name.trim(),
+        kind: preset.kind,
+        host: preset.kind === "ssh" ? preset.host.trim() || undefined : undefined,
+        port: preset.kind === "ssh" ? Number(preset.port) || undefined : undefined,
+        user: preset.kind === "ssh" ? preset.user.trim() || undefined : undefined,
+        port_path: preset.kind === "serial" ? preset.port_path.trim() || undefined : undefined,
+        baud: preset.kind === "serial" ? Number(preset.baud) || undefined : undefined
+      });
+      setPresets((previous) => [...previous, saved]);
+      setPresetError(null);
+      setPresetDialog(false);
+      setStatus(`Preset "${saved.name}" saved.`);
+    } catch (cause) {
+      setPresetError(message(cause));
+    }
+  };
+
+  const forgetPreset = async (saved: SavedConnection) => {
+    try {
+      await api.removeConnection(grant.deviceId, saved.id);
+      setPresets((previous) => previous.filter((entry) => entry.id !== saved.id));
+      setStatus(`Forgot "${saved.name}".`);
+    } catch (cause) {
+      // A preset already gone is the state the operator asked for; anything else leaves the row in
+      // place so a second Forget is possible and the page does not claim a remove that did not happen.
+      if (cause instanceof HttpError && cause.status === 404) {
+        setPresets((previous) => previous.filter((entry) => entry.id !== saved.id));
+        setStatus(`"${saved.name}" was already gone.`);
+      } else {
+        setStatus(`Could not forget "${saved.name}": ${message(cause)}`);
+      }
+    }
+  };
+
+  const closeTools = () => {
+    if (toolsRef.current) toolsRef.current.open = false;
+    setToolsOpen(false);
+  };
+
+  // A menu is a layer, not a section: a click anywhere else, or Escape, puts it away. Native
+  // <details> alone only closes from its summary, which is not how a menu behaves on the desktop.
+  useEffect(() => {
+    if (!toolsOpen) return;
+    const onPointer = (event: PointerEvent) => {
+      if (!toolsRef.current?.contains(event.target as Node)) closeTools();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeTools();
+    };
+    document.addEventListener("pointerdown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [toolsOpen]);
+
+  const listSessions = useCallback(async (announce = false, poll = true) => {
+    setListing(true);
+    setListError(null);
+    try {
+      const answer = JSON.parse(
+        await callTool(grantRef.current, "terminal.list", {}, { poll })
+      );
+      const sessions: SessionListEntry[] = Array.isArray(answer) ? answer : [];
+      // Newest first. The device lists its sessions oldest-first, and the page attaches to the head:
+      // without this an operator opening the Terminal met the shell they abandoned an hour ago,
+      // while the one an AI client had just started sat at the bottom of the list.
+      sessions.sort((a, b) => (b.started_at_ms ?? 0) - (a.started_at_ms ?? 0));
+      setAvailable(sessions);
+      setSessionsById(new Map(sessions.map((entry) => [entry.id, entry])));
+      if (announce) {
+        setStatus(
+          sessions.length === 0
+            ? "No open session on this device."
+            : `${sessions.length} session${sessions.length === 1 ? "" : "s"} on this device.`
+        );
+      }
+    } catch (cause) {
+      setListError("Could not read this device's sessions: " + message(cause));
+    } finally {
+      setListing(false);
+    }
+  }, []);
+
+  // THE SESSIONS ARE THE EMPTY STATE, so they are read without asking. "Attach to a session" was a
+  // button that fetched the list into a page that already showed nothing else — the operator had to
+  // press a control to learn what existed. The list refreshes on a device change, when the machine
+  // comes back, when the page comes in front, and on demand.
+  //
+  // A MACHINE THE FLEET SAYS IS DOWN IS NOT ASKED. The call cannot reach it, and its failure used to
+  // print "Could not read this device's sessions" under a banner that had just said the same thing
+  // in better words. The fleet polls, so `offline` becoming false is the read's cue.
+  //
+  // A PAGE OR A TAB NOBODY IS LOOKING AT IS NOT ASKED EITHER. The workspace stays mounted behind
+  // every other page so its tabs survive a rail click; this call would still be made as the
+  // console's own poll. Reading on the way in is what keeps the mounted page current.
+  useEffect(() => {
+    if (!visible || !documentIsVisible() || offline) {
+      setListing(false);
+      return;
+    }
+    void listSessions();
+  }, [grant.deviceId, visible, offline, listSessions]);
+
+  // A LIST THAT WAS EMPTY WHEN THE PAGE LOADED stays empty without this: a tab left open while a
+  // shell starts elsewhere has no device event to hear, and the page that says "no session is open"
+  // while one is running is the bug this whole surface exists to avoid. The interval stops as soon
+  // as something is listed; from then on the tab probe is what notices a session closing.
+  useEffect(() => {
+    if (
+      !shouldPollSessions({
+        visible,
+        documentVisible: documentShown,
+        offline,
+        sessions: available.length
+      })
+    ) {
+      return;
+    }
+    const timer = window.setInterval(() => void listSessions(), EMPTY_LIST_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [visible, documentShown, available.length, offline, listSessions]);
+
+  // COMING BACK TO THE TAB IS WHEN THE ANSWER MATTERS, so one read happens there, and the interval
+  // above is what resumes behind it. A page that is not the visible one is not this listener's
+  // business: its own wake read covers the moment it comes in front.
+  useEffect(() => {
+    const onVisibility = () => {
+      const shown = documentIsVisible();
+      setDocumentShown(shown);
+      if (shown && visible && !offline) {
+        void listSessions();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [visible, offline, listSessions]);
+
+  const attachTo = (session: string, kind: string, startedAtMs?: number) => {
+    detached.current.delete(session);
+    if (tabs.some((tab) => tab.session === session)) {
+      setActive(session);
+      return;
+    }
+    setTabs((previous) =>
+      previous.some((tab) => tab.session === session)
+        ? previous
+        : [...previous, { key: session, session, kind, title: null, startedAtMs }]
+    );
+    setActive(session);
+    setAvailable((previous) => previous.filter((entry) => entry.id !== session));
+  };
+
+  // **A SESSION THAT EXISTS SHOULD BE ON SCREEN, NOT BEHIND AN ATTACH CLICK.** The panel attaches the
+  // newest live session on load; the console's Terminal page is the default tab, so a person who
+  // opens it with a shell already running should see that shell, not a session count and a button.
+  //
+  // Only a session this page has never listed can trigger it. Without that rule a detach — or the
+  // close of the last tab — would be undone by the next list read, which still names the other
+  // shells on the machine; and a session an AI client starts later is exactly the kind of new thing
+  // that should take the screen by itself.
+  useEffect(() => {
+    const fresh = available.filter((entry) => !known.current.has(entry.id));
+    for (const entry of available) known.current.add(entry.id);
+    if (!visible || active !== null || tabs.length > 0) return;
+    const candidate = fresh.find((entry) => !detached.current.has(entry.id));
+    if (!candidate) return;
+    attachTo(candidate.id, candidate.kind, candidate.started_at_ms);
+  }, [visible, active, tabs.length, available, attachTo]);
+
+  const close = async (tab: Tab) => {
+    // Flush what was typed before the session goes away; a keystroke queued behind the close would
+    // otherwise be sent to an id the device already ended.
+    await batches.current.get(tab.key)?.flush();
+    try {
+      await callTool(grantRef.current, "terminal.close", { id: tab.session });
+    } catch (cause) {
+      // A session already gone is closed. Any other failure means the device may still be running
+      // it; keep the tab so the sentence, the id and a second Close all stay on screen.
+      if (!(cause instanceof ToolError && cause.status === 404)) {
+        setStatus(
+          `Could not close ${tabLabel(tab, Date.now())}: ${message(cause)}. The session may still be open.`
+        );
+        return;
+      }
+    }
+    batches.current.get(tab.key)?.cancel();
+    batches.current.delete(tab.key);
+    setTabs((previous) => previous.filter((entry) => entry.key !== tab.key));
+    cursors.current.delete(tab.key);
+    reading.current.delete(tab.key);
+    probing.current.delete(tab.key);
+    retryAsks.current.delete(tab.key);
+    clearFault(tab.key);
+    if (activeRef.current === tab.key) {
+      const next = tabs.find((entry) => entry.key !== tab.key) ?? null;
+      setActive(next?.key ?? null);
+    }
+  };
+
+  /**
+   * Take the tab away and leave the session running on the machine.
+   *
+   * A tab is a view of a device session, not the session: a person who closes one to make room, or
+   * because they are done looking for now, must not have ended a shell that is still doing work.
+   * Ending it is a separate, destructive choice in the same dialog. The detached id is remembered so
+   * the auto-attach below cannot undo the gesture on the next list read, and the session returns to
+   * the device's list where Sessions offers it again.
+   */
+  const detach = (tab: Tab) => {
+    detached.current.add(tab.session);
+    batches.current.get(tab.key)?.cancel();
+    batches.current.delete(tab.key);
+    setTabs((previous) => previous.filter((entry) => entry.key !== tab.key));
+    cursors.current.delete(tab.key);
+    reading.current.delete(tab.key);
+    probing.current.delete(tab.key);
+    retryAsks.current.delete(tab.key);
+    clearFault(tab.key);
+    if (activeRef.current === tab.key) {
+      const next = tabs.find((entry) => entry.key !== tab.key) ?? null;
+      setActive(next?.key ?? null);
+    }
+    void listSessions();
+  };
+
+  /**
+   * Start a faulted tab again: drop the sentence and replace the feed.
+   *
+   * A poll alone was not a recovery: the stream that carried the fault had already closed, so the
+   * tab drew one answer and then went silent. Restarting the feed opens a fresh connection at the
+   * cursor the tab holds now — the retained start the device named, never the byte it refused. The
+   * polling fallback's first read is marked as the person's, the way this button has always read.
+   */
+  const retry = (tab: Tab) => {
+    clearFault(tab.key);
+    probing.current.delete(tab.key);
+    retryAsks.current.add(tab.key);
+    setFeedRestarts((previous) => ({ ...previous, [tab.key]: (previous[tab.key] ?? 0) + 1 }));
+  };
+
+  /**
+   * Give the tab the operator is looking at a name of its own.
+   *
+   * This is a console label, not a device operation: no call leaves the page and the session id is
+   * unchanged. The field opens empty with the current label as its placeholder, because prefilling
+   * it with the generated "pty · 12m" and saving it verbatim froze an age that should keep moving.
+   * Saving an empty field therefore clears the custom title and the generated label returns.
+   */
+  const submitRename = () => {
+    if (!renaming) return;
+    const title = titleFromInput(renaming.title);
+    setTabs((previous) => renameTab(previous, renaming.key, title));
+    setActive(renaming.key);
+    setRenaming(null);
+  };
+
+  const activeTab = tabs.find((tab) => tab.key === active) ?? null;
+  const activeFault = activeTab ? faults[activeTab.key] : undefined;
+  // One clock read per render, so every tab in this strip is described against the same instant.
+  // No interval exists for the label: the page already re-renders for real state, and the age is
+  // recomputed then. The tabs' own output feed writes to xterm rather than to React state, so a
+  // long quiet session may keep its last rendered minute until something else changes the page —
+  // an ageing label is not worth a timer of its own.
+  const nowMs = Date.now();
+  const tabLabels = new Map(tabs.map((tab) => [tab.key, tabLabel(tab, nowMs)]));
+
+  /**
+   * Save what the device still retains of the active session.
+   *
+   * The export reads through its own calls from cursor 0, so it never touches `cursors.current`: the
+   * tab's poll keeps reading from where the terminal's output ended, not from the export's start.
+   */
+  const exportLog = async () => {
+    if (!activeTab) return;
+    try {
+      const transcript = await readTranscript(async (cursor) =>
+        JSON.parse(await callTool(grantRef.current, "terminal.read", { id: activeTab.session, cursor }))
+      );
+      downloadFile(
+        `${safeSession(activeTab.session)}.log`,
+        transcriptFile(transcript, { session: activeTab.session, at: new Date() }),
+        "text/plain"
+      );
+      const exported = Math.max(0, transcript.to - transcript.from);
+      setStatus(
+        transcript.dropped > 0
+          ? `Exported ${exported} bytes; ${transcript.dropped} bytes are no longer retained by the device.`
+          : `Exported ${exported} bytes.`
+      );
+    } catch (cause) {
+      setStatus("Could not export: " + message(cause));
+    }
+  };
+
+  /**
+   * The search addon belonging to the tab on screen, or undefined when no terminal is open.
+   *
+   * The addon walks the xterm's own retained output, so a search is answered from what the page
+   * already has: it never becomes a device call, and it dies with the terminal it belongs to.
+   */
+  const activeSearch = useCallback(
+    () => instanceAt(activeRef.current)?.search,
+    [instanceAt]
+  );
+
+  /** Search the active tab's scrollback; a miss is the bar's sentence, not a fault on the tab. */
+  const findStep = (direction: "next" | "previous") => {
+    const search = activeSearch();
+    if (!search || findTerm === "") return;
+    const options = { decorations: searchDecorations() };
+    const hit =
+      direction === "next" ? search.findNext(findTerm, options) : search.findPrevious(findTerm, options);
+    setFindMiss(!hit);
+  };
+
+  /**
+   * Show one finished write's text in the active tab's scrollback.
+   *
+   * The rail only offers this for a finished `terminal.write` that carried typed input, and only
+   * when the text is what this tab's xterm may already hold: `activeSearch` is that tab's own
+   * addon, never another session's. A miss is a sentence under the tab, not a fault: the console
+   * keeps the text only if the screen still has it, and the rail must not pretend a jump happened.
+   */
+  const jumpToOutput = (text: string) => {
+    const search = activeSearch();
+    if (!search) {
+      setJumpStatus("The terminal is not open, so there is no scrollback to search.");
+      return;
+    }
+    const hit = search.findNext(text, { decorations: searchDecorations() });
+    setJumpStatus(
+      hit
+        ? `Showing ${JSON.stringify(text)} in this terminal.`
+        : `This terminal's scrollback does not contain ${JSON.stringify(text)}.`
+    );
+  };
+
+  // THE BAR SEARCHES WHILE THE OPERATOR TYPES. It used to wait for Enter, so typing a term looked like
+  // a broken field until the second action; a 120 ms pause is enough for a person to see the matches
+  // spread out before stepping through them, and short enough to feel immediate on a 20 000-line
+  // buffer. Emptying the field takes the highlights away instead of leaving the last term's marks.
+  const lastFindTerm = useRef("");
+  useEffect(() => {
+    if (!findOpen) {
+      lastFindTerm.current = "";
+      return;
+    }
+    const search = activeSearch();
+    if (!search) return;
+    if (findTerm === "") {
+      // Only a term that was actually searched is cleared: opening the bar with an empty field has
+      // nothing to take away, and a redundant call would look like the page cleaning up after itself.
+      if (lastFindTerm.current !== "") {
+        search.clearDecorations();
+        setFindMiss(false);
+      }
+      lastFindTerm.current = "";
+      return;
+    }
+    lastFindTerm.current = findTerm;
+    const timer = window.setTimeout(() => {
+      const hit = search.findNext(findTerm, { decorations: searchDecorations() });
+      setFindMiss(!hit);
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [findOpen, findTerm, activeSearch]);
+
+  /** Put the bar away, taking the decorations it drew with it, and give the keys back to the session. */
+  const closeFind = () => {
+    const instance = instanceAt(activeRef.current);
+    instance?.search.clearDecorations();
+    setFindOpen(false);
+    setFindMiss(false);
+    instance?.term.focus();
+  };
+
+  const toggleFind = () => {
+    if (findOpen) {
+      closeFind();
+      return;
+    }
+    setFindMiss(false);
+    setFindOpen(true);
+  };
+
+  return (
+    <div className={"terminal-workspace" + (tabs.length === 0 ? " terminal-workspace-empty" : "")}>
+      <PageHeading level={2} title="Terminal" kicker="Remote workspace" description="Sessions, output and recorded activity on this machine." />
+      {/* THE MACHINE'S STATE IS THE FIRST FACT ON THE PAGE, not a sentence produced after a failed
+          call. An offline machine is why a page can be legitimately empty, and saying so here is the
+          difference between "the console is broken" and "the machine will be back". */}
+      {offline && (
+        <OfflineNotice
+          lastSeenMs={lastSeenMs}
+          detail="A shell cannot start until it reconnects; the console keeps trying on its own."
+        />
+      )}
+      {status && <p className={status.startsWith("Could not") ? "error" : "hint"}>{status}</p>}
+
+      {/* The jump's success or miss is the one answer here a screen reader must hear: it arrives
+          after a click and has no other visible focus change. It is its own status region so the
+          preset/export sentence above keeps its plain-text semantics. */}
+      {jumpStatus !== "" && (
+        <p className="hint" role="status">
+          {jumpStatus}
+        </p>
+      )}
+
+      <div className="terminal-layout">
+      {tabs.length === 0 && (
+        <div className="terminal-start">
+          <section className="terminal-sessions" aria-labelledby="terminal-sessions-heading">
+            <div className="terminal-section-head">
+              <h3 id="terminal-sessions-heading">Sessions on this machine</h3>
+              {/* **THE EMPTY PAGE HAS ONE EMPTY STATE AND ONE ACTION.** The duplicate card above
+                  said "No session is open" 108 px before this list said it again; the action now
+                  sits with the sentence that names it. */}
+              <div className="actions">
+                <button
+                  type="button"
+                  className="primary"
+                  disabled={offline}
+                  title={offline ? "The machine is offline; a session can start when it reconnects" : undefined}
+                  onClick={() => openDialog({}, null)}
+                >
+                  New session
+                </button>
+                <button
+                  type="button"
+                  className="mini"
+                  disabled={listing || offline}
+                  title={offline ? "The machine is offline; the list refreshes when it reconnects" : undefined}
+                  onClick={() => void listSessions(true, false)}
+                >
+                  {listing ? "Reading…" : "Refresh"}
+                </button>
+              </div>
+            </div>
+            {listError ? (
+              <p className="error">{listError}</p>
+            ) : available.length > 0 ? (
+              <ul className="picker">
+                {available.map((entry) => (
+                  <li key={entry.id}>
+                    <span className="mono">{entry.kind}</span>
+                    <span className="mono muted">{entry.id}</span>
+                    <button type="button" className="mini" onClick={() => attachTo(entry.id, entry.kind, entry.started_at_ms)}>
+                      Attach
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : listing ? (
+              <p className="hint">Reading this device's sessions…</p>
+            ) : offline ? (
+              // The sentence above the work already says the machine is down; this one must not
+              // promise an action the page has just disabled.
+              <p className="hint">
+                No session is open on this device. A shell can start when the machine reconnects.
+              </p>
+            ) : (
+              <p className="hint">
+                No session is open on this device. <strong>New session</strong> opens a shell; it
+                appears here once it is running.
+              </p>
+            )}
+          </section>
+
+          <details className="terminal-presets">
+            <summary>Saved connections{presets.length > 0 ? ` (${presets.length})` : ""}</summary>
+            <div className="terminal-section-head">
+              <span className="hint">Remembered hosts, ports and serial lines.</span>
+              <button type="button" className="mini" onClick={() => setPresetDialog(true)}>
+                Save a preset
+              </button>
+            </div>
+            {presets.length === 0 ? (
+              <p className="hint">No saved connections yet.</p>
+            ) : (
+              <ul className="picker">
+                {presets.map((saved) => (
+                  <li key={saved.id}>
+                    <span className="mono">{saved.kind}</span>
+                    <strong>{saved.name}</strong>
+                    <span className="mono muted">
+                      {saved.kind === "serial"
+                        ? `${saved.port_path ?? "?"} ${saved.baud ?? ""}`
+                        : saved.kind === "ssh"
+                          ? `${saved.user ?? "?"}@${saved.host ?? "?"}:${saved.port ?? 22}`
+                          : "local shell"}
+                    </span>
+                    <button type="button" className="mini" onClick={() => openPreset(saved)}>
+                      Open
+                    </button>
+                    <button type="button" className="mini" onClick={() => void forgetPreset(saved)}>Forget</button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </details>
+        </div>
+      )}
+
+      {tabs.length > 0 && (
+        <aside className="terminal-session-nav" aria-label="Session navigation">
+          <div className="terminal-session-heading">
+            <h3>Sessions</h3>
+            <span className="hint">{tabs.length} attached</span>
+          </div>
+          {tabs.length > 0 && (
+            <div className="tabbar" role="tablist" aria-label="Terminal sessions">
+              {tabs.map((tab) => (
+                <span
+                  key={tab.key}
+                  className={"tab" + (tab.key === active ? " tab-active" : "")}
+                >
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={tab.key === active}
+                    className="tab-main"
+                    onClick={() => setActive(tab.key)}
+                  >
+                    {tabLabels.get(tab.key)}
+                    {faults[tab.key]?.kind === "closed" && " · ended"}{" "}
+                    <span className="tab-session" title={tab.session}>
+                      #{shortSession(tab.session)}
+                    </span>
+                    {faults[tab.key] && faults[tab.key].kind !== "closed" && (
+                      <span
+                        className={"tab-state state-" + faults[tab.key].kind}
+                        title={faults[tab.key].sentence}
+                      >
+                        {FAULT_LABELS[faults[tab.key].kind]}
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    className="tab-close"
+                    aria-label={`Close ${tabLabels.get(tab.key)}`}
+                    onClick={() => setClosing(tab)}
+                  />
+                </span>
+              ))}
+            </div>
+          )}
+          <div className="terminal-session-details">
+            {activeTab && (
+              <SessionCard
+                machine={deviceName ?? grant.deviceId}
+                tab={activeTab}
+                liveLines={feedLines}
+                deviceId={grant.deviceId}
+                grant={grant}
+                sessionEntry={sessionsById.get(activeTab.session)}
+                tokenNames={tokenNames}
+              />
+            )}
+          </div>
+        </aside>
+      )}
+      <div className="terminal-main-pane">
+        {tabs.length > 0 && (
+          <div className="terminal-bar">
+            <div className="terminal-session-heading">
+              <strong>{activeTab ? tabLabels.get(activeTab.key) : "Terminal output"}</strong>
+              <span className="mono">{activeTab ? `#${shortSession(activeTab.session)}` : ""}</span>
+            </div>
+          <div className="terminal-actions" role="group" aria-label="Session actions">
+            {/* THE TOOLBAR BELONGS TO A SESSION. The bar itself only exists when one is attached,
+                and with none the session list owns the action that creates it; seven controls over
+                an empty box were chrome pretending to be work. */}
+            {tabs.length > 0 && (
+              <>
+                <button type="button" disabled={!activeTab} aria-expanded={findOpen} onClick={toggleFind}>Find</button>
+                {/* Seven labelled buttons became Find plus one menu. The actions are still one
+                    keystroke away, but the terminal keeps the width; a session is not a form. */}
+                <details
+                  className="session-menu"
+                  ref={toolsRef}
+                  onToggle={(event) => setToolsOpen(event.currentTarget.open)}
+                >
+                  <summary className="session-tools" aria-label="Session tools" title="Session tools">
+                    <span className="hint">Session tools</span>
+                  </summary>
+                  <div className="session-menu-pop">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        closeTools();
+                        setPresetDialog(true);
+                      }}
+                    >
+                      Save a preset
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!activeTab}
+                      onClick={() => {
+                        closeTools();
+                        if (activeTab) {
+                          setRenaming({ key: activeTab.key, title: "" });
+                        }
+                      }}
+                    >
+                      Rename tab
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!activeTab}
+                      onClick={() => {
+                        closeTools();
+                        void exportLog();
+                      }}
+                    >
+                      Export log
+                    </button>
+                    {/* THE OTHER SESSIONS ARE NOT LOST, THEY ARE ELSEWHERE ON THE MACHINE. A tab is a
+                        view of one; this is how a second one gets a view without ending the first. */}
+                    <button
+                      type="button"
+                      disabled={offline}
+                      onClick={() => {
+                        closeTools();
+                        setSessionsOpen(true);
+                      }}
+                    >
+                      Sessions{available.length > 0 ? ` (${available.length})` : ""}
+                    </button>
+                    <div className="session-menu-row">
+                      <span className="hint">Text size</span>
+                      <button
+                        type="button"
+                        title={`Smaller terminal text (now ${fontSize})`}
+                        disabled={fontSize <= MIN_FONT_SIZE}
+                        onClick={() => setFontSize(clampFontSize(fontSize - 1))}
+                      >
+                        A−
+                      </button>
+                      <button
+                        type="button"
+                        title={`Larger terminal text (now ${fontSize})`}
+                        disabled={fontSize >= MAX_FONT_SIZE}
+                        onClick={() => setFontSize(clampFontSize(fontSize + 1))}
+                      >
+                        A+
+                      </button>
+                    </div>
+                  </div>
+                </details>
+              </>
+            )}
+            {/* A control that cannot work is off, with the reason on it. The button used to open the
+                dialog and fail at the device, which read as a fault in the console. */}
+            <button
+              type="button"
+              className="primary"
+              disabled={offline}
+              title={offline ? "The machine is offline; a session can start when it reconnects" : undefined}
+              onClick={() => openDialog({}, null)}
+            >
+              New session
+            </button>
+
+          </div>
+          </div>
+        )}
+
+      {/* Escape is the bar's key, not the field's: a key pressed on Next or Close still puts the bar
+          away, because the event bubbles to the container that owns it. */}
+      {findOpen && activeTab && (
+        <div
+          className="find-bar"
+          role="search"
+          onKeyDown={(event) => {
+            if (event.key !== "Escape") return;
+            event.preventDefault();
+            closeFind();
+          }}
+        >
+          <input
+            ref={findInput}
+            type="text"
+            aria-label="Find in this session"
+            placeholder="Find in this session"
+            spellCheck={false}
+            value={findTerm}
+            onChange={(event) => {
+              setFindTerm(event.target.value);
+              setFindMiss(false);
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter") return;
+              event.preventDefault();
+              findStep(event.shiftKey ? "previous" : "next");
+            }}
+          />
+          <button type="button" disabled={findTerm === ""} onClick={() => findStep("next")}>Next</button>
+          <button type="button" disabled={findTerm === ""} onClick={() => findStep("previous")}>Previous</button>
+          <button type="button" onClick={closeFind}>Close</button>
+          {findMiss && <span className="hint" role="status">No match.</span>}
+        </div>
+      )}
+
+      {activeTab && activeFault && (
+        <div className={"terminal-fault fault-" + activeFault.kind} role="alert">
+          <p>{activeFault.sentence}</p>
+          <div className="terminal-fault-actions">
+            <span className="hint">
+              {activeFault.kind === "closed" || activeFault.kind === "refused"
+                ? "No keystrokes are sent from this tab while it is in this state."
+                : `Tab ${tabLabel(activeTab, Date.now())}`}
+            </span>
+            {activeFault.kind !== "closed" && activeFault.kind !== "refused" && (
+              <button type="button" className="mini" onClick={() => retry(activeTab)}>
+                Try again
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {tabs.length > 0 && (
+        <div className="terminal-stage">
+          <div className="terminal-screens" role="group" aria-label="Terminal output">
+            {tabs.map((tab) => (
+              <div
+                key={tab.key}
+                className="term-host"
+                hidden={tab.key !== active}
+                ref={(element) => {
+                  if (element) hosts.current.set(tab.key, element);
+                  else hosts.current.delete(tab.key);
+                }}
+              />
+            ))}
+          </div>
+          <div className="terminal-context">
+            {/* Recorded activity stays beside the terminal; session identity belongs to its navigator. */}
+            {activeTab && (
+              <ActivityRail
+                session={activeTab.session}
+                deviceId={grant.deviceId}
+                lines={feedLines}
+                running={liveRunning}
+                state={feedState}
+                lagged={liveLagged}
+                tokenNames={tokenNames}
+                onJump={jumpToOutput}
+              />
+            )}
+          </div>
+        </div>
+      )}
+
+      </div>
+      </div>
+
+      {visible && connect && (
+        <Modal
+          title={connect.name ? `Open ${connect.name}` : "New terminal session"}
+          onClose={() => setConnect(null)}
+        >
+          <label htmlFor="connect-kind">Kind</label>
+          <select
+            id="connect-kind"
+            value={connect.draft.kind}
+            onChange={(event) => patchConnect({ kind: event.target.value as ConnectKind })}
+          >
+            <option value="pty">pty — a shell on the device</option>
+            <option value="ssh">ssh — a remote host</option>
+            <option value="serial">serial — a port on the device</option>
+          </select>
+
+          {connect.draft.kind === "ssh" && (
+            <>
+              <label htmlFor="connect-host">Host</label>
+              <input
+                id="connect-host"
+                value={connect.draft.host}
+                onChange={(event) => patchConnect({ host: event.target.value })}
+                placeholder="db.internal"
+              />
+              <label htmlFor="connect-port">Port</label>
+              <input
+                id="connect-port"
+                inputMode="numeric"
+                value={connect.draft.port}
+                onChange={(event) => patchConnect({ port: event.target.value })}
+                placeholder="22"
+              />
+              <label htmlFor="connect-user">User</label>
+              <input
+                id="connect-user"
+                value={connect.draft.user}
+                onChange={(event) => patchConnect({ user: event.target.value })}
+                placeholder="operator"
+              />
+              <fieldset className="auth-choice">
+                <legend>Credential for this open</legend>
+                <label className="check">
+                  <input
+                    type="radio"
+                    name="connect-auth"
+                    checked={connect.draft.auth === "password"}
+                    onChange={() => patchConnect({ auth: "password" })}
+                  />
+                  Password
+                </label>
+                <label className="check">
+                  <input
+                    type="radio"
+                    name="connect-auth"
+                    checked={connect.draft.auth === "key"}
+                    onChange={() => patchConnect({ auth: "key" })}
+                  />
+                  Key path
+                </label>
+              </fieldset>
+              {connect.draft.auth === "password" ? (
+                <>
+                  <label htmlFor="connect-password">Password</label>
+                  <input
+                    id="connect-password"
+                    type="password"
+                    autoComplete="new-password"
+                    spellCheck={false}
+                    value={connect.draft.password}
+                    onChange={(event) => patchConnect({ password: event.target.value })}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && !connect.busy) void submitConnect();
+                    }}
+                  />
+                  <p className="hint">
+                    Sent with this open only. It is not written to the preset, to browser storage or to
+                    the URL.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <label htmlFor="connect-key">Key path</label>
+                  <input
+                    id="connect-key"
+                    spellCheck={false}
+                    value={connect.draft.key_path}
+                    onChange={(event) => patchConnect({ key_path: event.target.value })}
+                    placeholder="/home/operator/.ssh/id_ed25519"
+                  />
+                  <p className="hint">
+                    An absolute path on the device. The key is read there and is never sent to this page
+                    or saved in a preset.
+                  </p>
+                </>
+              )}
+            </>
+          )}
+
+          {connect.draft.kind === "serial" && (
+            <>
+              <label htmlFor="connect-port-path">Port path</label>
+              <input
+                id="connect-port-path"
+                value={connect.draft.port_path}
+                onChange={(event) => patchConnect({ port_path: event.target.value })}
+                placeholder="COM3 or /dev/ttyUSB0"
+              />
+              <div className="serial-framing">
+                <div>
+                  <label htmlFor="connect-baud">Baud</label>
+                  <input
+                    id="connect-baud"
+                    inputMode="numeric"
+                    value={connect.draft.baud}
+                    onChange={(event) => patchConnect({ baud: event.target.value })}
+                    placeholder="115200"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="connect-parity">Parity</label>
+                  <select
+                    id="connect-parity"
+                    value={connect.draft.parity}
+                    onChange={(event) => patchConnect({ parity: event.target.value as ConnectDraft["parity"] })}
+                  >
+                    <option value="none">none</option>
+                    <option value="odd">odd</option>
+                    <option value="even">even</option>
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="connect-data-bits">Data bits</label>
+                  <select
+                    id="connect-data-bits"
+                    value={connect.draft.data_bits}
+                    onChange={(event) => patchConnect({ data_bits: event.target.value as ConnectDraft["data_bits"] })}
+                  >
+                    <option value="5">5</option>
+                    <option value="6">6</option>
+                    <option value="7">7</option>
+                    <option value="8">8</option>
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="connect-stop-bits">Stop bits</label>
+                  <select
+                    id="connect-stop-bits"
+                    value={connect.draft.stop_bits}
+                    onChange={(event) => patchConnect({ stop_bits: event.target.value as ConnectDraft["stop_bits"] })}
+                  >
+                    <option value="1">1</option>
+                    <option value="2">2</option>
+                  </select>
+                </div>
+              </div>
+              <p className="hint">
+                115200 8N1 unless changed. The device opens exactly this framing; a rate or mode the
+                port rejects is an error, never a fallback.
+              </p>
+            </>
+          )}
+
+          {connect.draft.kind === "pty" && (
+            <p className="hint">A shell runs on the device as its own user. Nothing else is needed.</p>
+          )}
+
+          {connect.error && <p className="error">{connect.error}</p>}
+          <div className="modal-actions">
+            <button type="button" onClick={() => setConnect(null)}>Cancel</button>
+            <button type="button" className="primary" disabled={connect.busy} onClick={() => void submitConnect()}>
+              {connect.busy ? "Opening…" : "Open"}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {visible && renaming && (
+        <Modal title="Rename tab" onClose={() => setRenaming(null)}>
+          <label htmlFor="rename-title">Tab name</label>
+          <input
+            id="rename-title"
+            value={renaming.title}
+            placeholder={tabLabels.get(renaming.key) ?? ""}
+            onChange={(event) => setRenaming({ ...renaming, title: event.target.value })}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") submitRename();
+            }}
+          />
+          <p className="hint">
+            The name stays in this console. Leave it empty to keep the generated label; the device
+            session keeps its own id.
+          </p>
+          <div className="modal-actions">
+            <button type="button" onClick={() => setRenaming(null)}>Cancel</button>
+            <button type="button" className="primary" onClick={() => submitRename()}>Save</button>
+          </div>
+        </Modal>
+      )}
+
+      {visible && presetDialog && (
+        <Modal title="Save a terminal preset" onClose={() => setPresetDialog(false)}>
+          <p className="hint">A preset names a connection. It never stores a password or a key.</p>
+          <label htmlFor="preset-name">Name</label>
+          <input
+            id="preset-name"
+            value={preset.name}
+            onChange={(event) => setPreset({ ...preset, name: event.target.value })}
+            placeholder="the db host"
+          />
+          <label htmlFor="preset-kind">Kind</label>
+          <select
+            id="preset-kind"
+            value={preset.kind}
+            onChange={(event) => setPreset({ ...preset, kind: event.target.value as ConnectKind })}
+          >
+            <option value="pty">pty — a shell on the device</option>
+            <option value="ssh">ssh — a remote host</option>
+            <option value="serial">serial — a port on the device</option>
+          </select>
+          {preset.kind === "ssh" && (
+            <>
+              <label htmlFor="preset-host">Host</label>
+              <input
+                id="preset-host"
+                value={preset.host}
+                onChange={(event) => setPreset({ ...preset, host: event.target.value })}
+                placeholder="db.internal"
+              />
+              <label htmlFor="preset-port">Port</label>
+              <input
+                id="preset-port"
+                inputMode="numeric"
+                value={preset.port}
+                onChange={(event) => setPreset({ ...preset, port: event.target.value })}
+                placeholder="22"
+              />
+              <label htmlFor="preset-user">User</label>
+              <input
+                id="preset-user"
+                value={preset.user}
+                onChange={(event) => setPreset({ ...preset, user: event.target.value })}
+                placeholder="operator"
+              />
+              <p className="hint">
+                Open asks for the password or key path when the session starts, so there is no
+                credential field here — and nothing to leak if this file is read.
+              </p>
+            </>
+          )}
+          {preset.kind === "serial" && (
+            <>
+              <label htmlFor="preset-path">Port path</label>
+              <input
+                id="preset-path"
+                value={preset.port_path}
+                onChange={(event) => setPreset({ ...preset, port_path: event.target.value })}
+                placeholder="COM3 or /dev/ttyUSB0"
+              />
+              <label htmlFor="preset-baud">Baud</label>
+              <input
+                id="preset-baud"
+                inputMode="numeric"
+                value={preset.baud}
+                onChange={(event) => setPreset({ ...preset, baud: event.target.value })}
+                placeholder="115200"
+              />
+            </>
+          )}
+          {presetError && <p className="error">{presetError}</p>}
+          <div className="modal-actions">
+            <button type="button" onClick={() => setPresetDialog(false)}>Cancel</button>
+            <button type="button" className="primary" onClick={() => void savePreset()}>Save</button>
+          </div>
+        </Modal>
+      )}
+
+      {visible && closing && (
+        <Modal title={`Close ${tabLabel(closing, Date.now())}?`} onClose={() => setClosing(null)}>
+          <p className="hint">
+            A tab is a view of the session, not the session. <strong>Detach</strong> closes this tab
+            and leaves the shell running on the machine — Sessions offers it again.{" "}
+            <strong>End session</strong> stops the shell.
+          </p>
+          <div className="modal-actions">
+            <button type="button" onClick={() => setClosing(null)}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="danger"
+              onClick={() => {
+                const tab = closing;
+                setClosing(null);
+                void close(tab);
+              }}
+            >
+              End session
+            </button>
+            <button
+              type="button"
+              className="primary"
+              onClick={() => {
+                const tab = closing;
+                setClosing(null);
+                detach(tab);
+              }}
+            >
+              Detach
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {visible && sessionsOpen && (
+        <Modal title="Sessions on this machine" onClose={() => setSessionsOpen(false)}>
+          <p className="hint">
+            The device keeps a session after this page detaches from it. Attaching shows it in a
+            tab; the shell is not restarted.
+          </p>
+          {available.length === 0 ? (
+            <p className="hint">No other session is running on this machine.</p>
+          ) : (
+            <ul className="picker">
+              {available.map((entry) => (
+                <li key={entry.id}>
+                  <span className="mono">{entry.kind}</span>
+                  <span className="mono muted">{entry.id}</span>
+                  {typeof entry.started_at_ms === "number" && (
+                    <span className="hint">opened {age(Date.now() - entry.started_at_ms)} ago</span>
+                  )}
+                  <button
+                    type="button"
+                    className="mini"
+                    onClick={() => {
+                      setSessionsOpen(false);
+                      attachTo(entry.id, entry.kind, entry.started_at_ms);
+                    }}
+                  >
+                    Attach
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="modal-actions">
+            <button type="button" onClick={() => setSessionsOpen(false)}>
+              Close
+            </button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}

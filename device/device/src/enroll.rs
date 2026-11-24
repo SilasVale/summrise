@@ -115,6 +115,8 @@ impl fmt::Display for ConsoleRefusal {
 /// Why the enrolment mode could not complete.
 #[derive(Debug)]
 pub(crate) enum EnrollError {
+    /// `console-bootstrap.json` exists but is not the document this build understands.
+    Bootstrap(String),
     /// The command line is missing an argument or names a URL that is not absolute http(s).
     Usage,
     /// The console URL is not an absolute https URL, a loopback `http` URL, or has userinfo/query.
@@ -192,7 +194,7 @@ impl EnrollError {
     /// The process exit code the mode's contract assigns this refusal.
     pub(crate) fn exit_code(&self) -> u8 {
         match self {
-            EnrollError::Usage | EnrollError::BadUrl(_) => 2,
+            EnrollError::Usage | EnrollError::BadUrl(_) | EnrollError::Bootstrap(_) => 2,
             EnrollError::DataDir { .. }
             | EnrollError::Identity(_)
             | EnrollError::Console { .. }
@@ -211,6 +213,12 @@ impl EnrollError {
 impl fmt::Display for EnrollError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            EnrollError::Bootstrap(detail) => {
+                write!(
+                    f,
+                    "console-bootstrap.json is not readable as a bootstrap: {detail}"
+                )
+            }
             EnrollError::Usage => f.write_str(
                 "--enroll needs <console-url> <code> [--data <data>] [--install <install>] \
                  [--force] [--allow-plaintext]",
@@ -417,7 +425,13 @@ pub(crate) async fn enroll(invocation: &EnrollInvocation) -> Result<Enrollment, 
     .map_err(|error| EnrollError::BadResponse {
         detail: format!("cannot encode the registration response: {error}"),
     })?;
-    let link_bytes = merge_console_link(link, &invocation.console_url, &token_path, &console_path)?;
+    let link_bytes = merge_console_link(
+        link,
+        &invocation.console_url,
+        invocation.allow_plaintext,
+        &token_path,
+        &console_path,
+    )?;
     write_private(&token_path, &token_bytes)?;
     write_private(&console_path, &link_bytes)?;
 
@@ -540,6 +554,7 @@ fn read_console_link(path: &Path) -> Result<Map<String, Value>, EnrollError> {
 fn merge_console_link(
     mut link: Map<String, Value>,
     console_url: &str,
+    allow_plaintext: bool,
     token_path: &Path,
     path: &Path,
 ) -> Result<Vec<u8>, EnrollError> {
@@ -547,6 +562,11 @@ fn merge_console_link(
         "url".to_owned(),
         Value::String(console_url.trim().to_owned()),
     );
+    // The runtime refuses a plaintext channel to another machine unless the file says so; the flag
+    // the operator gave enrollment is the one that carries over, not a second decision.
+    if allow_plaintext {
+        link.insert("allow_plaintext".to_owned(), Value::Bool(true));
+    }
     link.insert(
         "token_file".to_owned(),
         Value::String(token_path.to_string_lossy().into_owned()),
@@ -678,6 +698,54 @@ pub(crate) fn parse_enroll_args(args: &[OsString]) -> Result<EnrollInvocation, E
 }
 
 /// The mode the entry point calls: parse the arguments and enrol.
+/// The file a deployment leaves when it cannot pass a code on a command line.
+pub(crate) const BOOTSTRAP_FILE: &str = "console-bootstrap.json";
+
+/// What such a file says.
+#[derive(serde::Deserialize)]
+struct Bootstrap {
+    /// The console's base URL.
+    url: String,
+    /// The one-time code the operator minted for this machine.
+    code: String,
+    /// The operator's statement that the console lives on a trusted plaintext tunnel.
+    #[serde(default)]
+    allow_plaintext: bool,
+    /// Replace an existing registration instead of refusing.
+    #[serde(default)]
+    force: bool,
+}
+
+/// Enrol from `<data>/console-bootstrap.json`, once, when the deployment left one.
+///
+/// A command line is a poor place for a URL: NSIS's own option parser cuts `http://…` at the second
+/// slash, and every deployment tool quotes differently. A file has none of those problems, works the
+/// same for a hand install and a fleet tool, and deletes itself on success so a restart cannot enrol
+/// twice. A failed attempt keeps the file and says why — the code may simply have expired.
+pub(crate) async fn enroll_from_bootstrap(
+    data: &Path,
+    _install: &Path,
+) -> Option<Result<Enrollment, EnrollError>> {
+    let path = data.join(BOOTSTRAP_FILE);
+    let bytes = std::fs::read(&path).ok()?;
+    let parsed: Bootstrap = match serde_json::from_slice(&bytes) {
+        Ok(parsed) => parsed,
+        Err(error) => return Some(Err(EnrollError::Bootstrap(error.to_string()))),
+    };
+    let invocation = EnrollInvocation {
+        console_url: parsed.url,
+        code: parsed.code,
+        data: data.to_path_buf(),
+        force: parsed.force,
+        allow_plaintext: parsed.allow_plaintext,
+    };
+    let outcome = enroll(&invocation).await;
+    if outcome.is_ok() {
+        let _ = std::fs::remove_file(&path);
+    }
+    Some(outcome)
+}
+
 pub(crate) async fn enroll_from_args(args: &[OsString]) -> Result<Enrollment, EnrollError> {
     let invocation = parse_enroll_args(args)?;
     enroll(&invocation).await
@@ -1287,6 +1355,53 @@ mod tests {
         assert_eq!(
             link["mesh_stun"], "203.0.113.10:3478",
             "the mesh STUN reflector survives the console merge"
+        );
+    }
+
+    /// The runtime refuses a plaintext channel to another machine unless the file says so, and the
+    /// flag the operator gave enrollment is what must carry over — a second decision in the file
+    /// would be one the operator cannot see.
+    #[tokio::test]
+    async fn an_enrollment_over_plaintext_records_the_allowance() {
+        let console = FakeConsole::start(None).await;
+        let dir = TempDir::new("enroll-plaintext");
+        let data = dir.join("data");
+
+        let invocation = EnrollInvocation {
+            console_url: console.base_url.clone(),
+            code: "e".repeat(64),
+            data: data.clone(),
+            force: false,
+            allow_plaintext: true,
+        };
+        enroll(&invocation).await.expect("the registration enrols");
+        let link: Value = serde_json::from_slice(
+            &fs::read(data.join("console.json")).expect("the link is on disk"),
+        )
+        .expect("the link is JSON");
+        assert_eq!(link["allow_plaintext"], json!(true), "{link}");
+
+        // Without the flag the field is absent: a file written by an https enrollment must not
+        // grant a plaintext channel it never needed.
+        let second = TempDir::new("enroll-plaintext-off");
+        let data = second.join("data");
+        let invocation = EnrollInvocation {
+            console_url: console.base_url.clone(),
+            code: "d".repeat(64),
+            data: data.clone(),
+            force: false,
+            allow_plaintext: false,
+        };
+        enroll(&invocation)
+            .await
+            .expect("the second registration enrols");
+        let link: Value = serde_json::from_slice(
+            &fs::read(data.join("console.json")).expect("the link is on disk"),
+        )
+        .expect("the link is JSON");
+        assert!(
+            link.get("allow_plaintext").is_none(),
+            "no flag, no allowance in the file: {link}"
         );
     }
 

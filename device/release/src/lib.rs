@@ -14,6 +14,7 @@ pub mod document;
 pub mod revocations;
 pub mod sign;
 pub mod url;
+pub mod verify;
 
 pub use ::url::Url;
 pub use document::{
@@ -30,3 +31,7 @@ pub use sign::{
     sign_file, sign_sidecar, ArtifactSidecar, SignError, SignRequest,
 };
 pub use url::{parse_release_url, parse_release_url_allowing_plaintext, UrlError};
+pub use verify::{
+    verify_artifact_file, verify_document_file, ArtifactVerificationError,
+    DocumentVerificationError,
+};

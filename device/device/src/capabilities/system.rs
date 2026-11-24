@@ -1,0 +1,633 @@
+//! The system capability: what this machine is running, and whether it can reach a host.
+//!
+//! These are the two questions an operator asks a device that misbehaves — "what is eating this
+//! machine" and "can it actually reach the thing it says it cannot" — and both are answered from the
+//! device's own kernel rather than by asking another machine.
+//!
+//! **Processes are the platform's, so there are two implementations and one contract.** The list is
+//! a snapshot: pid, executable name, resident memory in KiB. A process the platform will not let us
+//! open reports `0` memory rather than being omitted, because a list that hides a protected process
+//! answers a different question than "what is running".
+//!
+//! **Killing is a decision with a blast radius**, so the caller names exactly one target — a pid or
+//! an exact name — and the result says which pids were signalled and which could not be. The
+//! device's own process is refused by name: a tool that can end the caller should not be a way to
+//! end the device by accident.
+//!
+//! **The network test is TCP, not ICMP.** A raw socket needs elevation the device does not have and
+//! should not ask for; a TCP connect is the question that matters to a device ("can I reach this
+//! port") and it is the same probe `monitor` makes, which means a failure is comparable across the
+//! two rather than being two different kinds of "down". A name that does not resolve is an error; a
+//! connection that is refused is data — the addresses resolved and the reason it failed.
+
+use std::io;
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
+use std::time::{Duration, Instant};
+
+/// The most processes one listing returns. A desktop with more is unusual; a list is for a person.
+pub const MAX_PROCESSES: usize = 4096;
+
+/// The declaration's cap: the schema and this implementation read the same number.
+pub use summrise_core::capabilities::system::MAX_TIMEOUT_MS;
+
+/// One process, as the device can see it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Process {
+    /// The process id.
+    pub pid: u32,
+    /// The executable's file name; on Unix the kernel's comm, which is at most 15 bytes.
+    pub name: String,
+    /// Resident memory in KiB, or `0` when the platform refused to report it.
+    pub memory_kb: u64,
+}
+
+/// What a kill did, target by target.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KillReport {
+    /// The pids that were signalled successfully.
+    pub killed: Vec<u32>,
+    /// The pids that were not, with the platform's reason.
+    pub failed: Vec<(u32, String)>,
+}
+
+/// The facts a TCP test established.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NetReport {
+    /// Every address the name resolved to, in the resolver's order.
+    pub addresses: Vec<String>,
+    /// The address the connection reached, or `None` when none answered.
+    pub connected: Option<String>,
+    /// How long the successful connection took, in milliseconds.
+    pub latency_ms: Option<u64>,
+    /// Why the last attempt failed, when nothing connected.
+    pub error: Option<String>,
+}
+
+/// Why a system call was refused or failed.
+#[derive(Debug)]
+pub enum SystemError {
+    /// Neither a pid nor a name was given.
+    NoTarget,
+    /// Both a pid and a name were given; one target, one answer.
+    TwoTargets,
+    /// No running process has that exact name.
+    NoMatch(String),
+    /// A process the operating system needs; ending it is refused by the capability, not by chance.
+    Protected { pid: Option<u32>, name: String },
+    /// The name resolved to no address at all.
+    Unresolved(String),
+    /// The host is empty or not a name/IP.
+    BadHost(String),
+    /// The platform refused the call.
+    Io(io::Error),
+}
+
+impl std::fmt::Display for SystemError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SystemError::NoTarget => f.write_str("name a pid or a process name"),
+            SystemError::TwoTargets => f.write_str("name a pid or a process name, not both"),
+            SystemError::NoMatch(name) => write!(f, "no running process is named {name}"),
+            SystemError::Protected { pid, name } => match pid {
+                Some(pid) => write!(
+                    f,
+                    "PID {pid} ({name}) is a protected operating-system process; refusing to end it"
+                ),
+                None => write!(
+                    f,
+                    "{name} is a protected operating-system process; refusing to end it"
+                ),
+            },
+            SystemError::Unresolved(host) => write!(f, "{host} did not resolve to an address"),
+            SystemError::BadHost(host) => write!(f, "{host:?} is not a host name or address"),
+            SystemError::Io(error) => write!(f, "{error}"),
+        }
+    }
+}
+
+impl From<io::Error> for SystemError {
+    fn from(error: io::Error) -> SystemError {
+        SystemError::Io(error)
+    }
+}
+
+/// Running processes, filtered by a case-insensitive substring of the executable name.
+pub fn processes(filter: Option<&str>) -> Result<Vec<Process>, SystemError> {
+    let needle = filter
+        .map(str::trim)
+        .filter(|needle| !needle.is_empty())
+        .map(str::to_lowercase);
+    let mut found = platform::processes()?;
+    if let Some(needle) = needle {
+        found.retain(|process| process.name.to_lowercase().contains(&needle));
+    }
+    found.sort_by_key(|process| process.pid);
+    found.truncate(MAX_PROCESSES);
+    Ok(found)
+}
+
+/// The processes an operating system cannot lose: the kernel's idle/system entries and the
+/// Windows session/logon services. The device refuses these by name or pid rather than relying on
+/// the OS to say "access denied" after the call has already been audited as an attempt.
+fn is_protected_name(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "system"
+            | "system idle process"
+            | "registry"
+            | "memory compression"
+            | "secure system"
+            | "smss.exe"
+            | "csrss.exe"
+            | "wininit.exe"
+            | "services.exe"
+            | "lsass.exe"
+            | "winlogon.exe"
+            | "systemd"
+            | "init"
+            | "launchd"
+            | "kthreadd"
+    )
+}
+
+fn is_protected_pid(pid: u32) -> bool {
+    // 0 is the idle process, 1 is init/systemd on Unix, 4 is Windows' System process. None of them
+    // has a meaningful "kill" even where the kernel would answer.
+    pid == 0 || pid == 1 || pid == 4
+}
+
+/// End processes by pid or by exact name (case-insensitive).
+pub fn kill(pid: Option<u32>, name: Option<&str>) -> Result<KillReport, SystemError> {
+    let name = name.map(str::trim).filter(|name| !name.is_empty());
+    // One target, one answer: decide the shape before the protected check, so a caller that named
+    // both gets the usage refusal rather than a misleading protection sentence.
+    match (pid, name) {
+        (Some(_), Some(_)) => return Err(SystemError::TwoTargets),
+        (None, None) => return Err(SystemError::NoTarget),
+        _ => {}
+    }
+    if let Some(pid) = pid {
+        if is_protected_pid(pid) {
+            return Err(SystemError::Protected {
+                pid: Some(pid),
+                name: "operating-system process".to_owned(),
+            });
+        }
+    }
+    if let Some(name) = name {
+        if is_protected_name(name) {
+            return Err(SystemError::Protected {
+                pid: None,
+                name: name.to_owned(),
+            });
+        }
+    }
+    let targets = match (pid, name) {
+        (Some(pid), None) => vec![pid],
+        (None, Some(name)) => {
+            let matches: Vec<u32> = platform::processes()?
+                .into_iter()
+                .filter(|process| process.name.eq_ignore_ascii_case(name))
+                .map(|process| process.pid)
+                .collect();
+            if matches.is_empty() {
+                return Err(SystemError::NoMatch(name.to_owned()));
+            }
+            matches
+        }
+        _ => unreachable!("the shape was checked above"),
+    };
+
+    // A pid that names a protected process is refused even when the caller did not know its name;
+    // the list is a read, not a kill, and it is already in memory for the name path.
+    if let Some(pid) = pid {
+        if let Ok(found) = platform::processes() {
+            if let Some(process) = found.into_iter().find(|process| process.pid == pid) {
+                if is_protected_name(&process.name) {
+                    return Err(SystemError::Protected {
+                        pid: Some(pid),
+                        name: process.name,
+                    });
+                }
+            }
+        }
+    }
+
+    let mut report = KillReport {
+        killed: Vec::new(),
+        failed: Vec::new(),
+    };
+    for pid in targets {
+        match platform::kill(pid) {
+            Ok(()) => report.killed.push(pid),
+            Err(reason) => report.failed.push((pid, reason)),
+        }
+    }
+    Ok(report)
+}
+
+/// Resolve `host` and connect to `port`, waiting at most `timeout` in total.
+pub fn net_test(host: &str, port: u16, timeout: Duration) -> Result<NetReport, SystemError> {
+    let host = host.trim();
+    if host.is_empty() {
+        return Err(SystemError::BadHost(host.to_owned()));
+    }
+    let started = Instant::now();
+    let addresses: Vec<SocketAddr> = (host, port)
+        .to_socket_addrs()
+        .map_err(|_| SystemError::Unresolved(host.to_owned()))?
+        .collect();
+    if addresses.is_empty() {
+        return Err(SystemError::Unresolved(host.to_owned()));
+    }
+
+    let mut last_error = None;
+    for address in &addresses {
+        let remaining = timeout.saturating_sub(started.elapsed());
+        if remaining.is_zero() {
+            break;
+        }
+        match TcpStream::connect_timeout(address, remaining) {
+            Ok(_stream) => {
+                return Ok(NetReport {
+                    addresses: addresses.iter().map(SocketAddr::to_string).collect(),
+                    connected: Some(address.to_string()),
+                    latency_ms: Some(started.elapsed().as_millis() as u64),
+                    error: None,
+                })
+            }
+            Err(error) => last_error = Some(error.to_string()),
+        }
+    }
+
+    Ok(NetReport {
+        addresses: addresses.iter().map(SocketAddr::to_string).collect(),
+        connected: None,
+        latency_ms: None,
+        error: last_error.or_else(|| Some("the timeout expired before an attempt".to_owned())),
+    })
+}
+
+/// The platform half: one implementation per target, both safe (`nix` on Unix, `summrise-winsys`
+/// on Windows), so this module stays inside the crate's `#![forbid(unsafe_code)]`.
+#[cfg(unix)]
+mod platform {
+    use super::{Process, SystemError};
+
+    /// `/proc/<pid>/stat`, the field order the kernel documents: the comm sits in parentheses and
+    /// the resident set size is field 24 (1-based) — index 21 after the closing parenthesis.
+    pub(super) fn processes() -> Result<Vec<Process>, SystemError> {
+        let mut found = Vec::new();
+        for entry in std::fs::read_dir("/proc").map_err(SystemError::Io)? {
+            let entry = entry.map_err(SystemError::Io)?;
+            let Some(pid) = entry
+                .file_name()
+                .to_str()
+                .and_then(|name| name.parse::<u32>().ok())
+            else {
+                continue;
+            };
+            if let Some(process) = one(pid) {
+                found.push(process);
+            }
+        }
+        Ok(found)
+    }
+
+    fn one(pid: u32) -> Option<Process> {
+        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        let open = stat.find('(')?;
+        let close = stat.rfind(')')?;
+        let name = stat[open + 1..close].to_owned();
+        let fields: Vec<&str> = stat[close + 2..].split_whitespace().collect();
+        let resident_pages: u64 = fields.get(21)?.parse().ok()?;
+        Some(Process {
+            pid,
+            name,
+            // Linux's page is 4 KiB; the field is in pages, and KiB is what an operator reads.
+            memory_kb: resident_pages * 4,
+        })
+    }
+
+    pub(super) fn kill(pid: u32) -> Result<(), String> {
+        use nix::sys::signal::{kill, Signal};
+        use nix::unistd::Pid;
+
+        if pid == std::process::id() {
+            return Err("the device's own process".to_owned());
+        }
+        kill(Pid::from_raw(pid as i32), Signal::SIGKILL).map_err(|error| error.to_string())
+    }
+}
+
+#[cfg(windows)]
+mod platform {
+    use super::{Process, SystemError};
+
+    pub(super) fn processes() -> Result<Vec<Process>, SystemError> {
+        let found = summrise_winsys::processes().map_err(SystemError::Io)?;
+        Ok(found
+            .into_iter()
+            .map(|process| Process {
+                pid: process.pid,
+                name: process.name,
+                memory_kb: process.memory_kb,
+            })
+            .collect())
+    }
+
+    pub(super) fn kill(pid: u32) -> Result<(), String> {
+        if pid == std::process::id() {
+            return Err("the device's own process".to_owned());
+        }
+        summrise_winsys::terminate(pid).map_err(|error| error.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::TcpListener;
+    use std::process::{Command, Stdio};
+
+    use super::*;
+
+    #[test]
+    fn the_list_names_this_test_process() {
+        let found = processes(None).expect("the platform can list its own processes");
+        let me = std::process::id();
+        assert!(
+            found.iter().any(|process| process.pid == me),
+            "the test's own pid is in the list"
+        );
+    }
+
+    #[test]
+    fn a_filter_that_matches_nothing_lists_nothing() {
+        let found = processes(Some("summrise-no-such-executable")).expect("a list");
+        assert!(found.is_empty());
+    }
+
+    #[test]
+    fn tests_support_a_kill_by_pid_and_by_name() {
+        let (mut child, _, first_dir) = long_child("a");
+        let pid = child.id();
+        let report = kill(Some(pid), None).expect("the child can be ended");
+        assert_eq!(report.killed, vec![pid], "{report:?}");
+
+        let (mut second, name, second_dir) = long_child("b");
+        let report = kill(None, Some(&name)).expect("the name resolves to the child");
+        assert_eq!(
+            report.killed,
+            vec![second.id()],
+            "the unique name killed exactly the fixture: {report:?}"
+        );
+        for child in [&mut child, &mut second] {
+            wait_until_gone(child);
+        }
+        std::fs::remove_dir_all(first_dir).ok();
+        std::fs::remove_dir_all(second_dir).ok();
+    }
+
+    #[test]
+    fn a_kill_with_no_target_is_refused() {
+        assert!(matches!(kill(None, None), Err(SystemError::NoTarget)));
+        assert!(matches!(
+            kill(Some(1), Some("x")),
+            Err(SystemError::TwoTargets)
+        ));
+        assert!(matches!(
+            kill(None, Some("summrise-no-such-executable")),
+            Err(SystemError::NoMatch(_))
+        ));
+    }
+
+    #[test]
+    fn protected_processes_are_refused_before_any_signal() {
+        for pid in [0, 1, 4] {
+            assert!(
+                matches!(kill(Some(pid), None), Err(SystemError::Protected { .. })),
+                "pid {pid} must be protected"
+            );
+        }
+        for name in ["System", "csrss.exe", "lsass.exe", "systemd"] {
+            assert!(
+                matches!(kill(None, Some(name)), Err(SystemError::Protected { .. })),
+                "{name} must be protected"
+            );
+        }
+    }
+
+    #[test]
+    fn a_connection_to_a_listening_port_is_reported_with_its_latency() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
+        let port = listener.local_addr().expect("the port").port();
+        let accept = std::thread::spawn(move || {
+            let _ = listener.accept();
+        });
+
+        let report = net_test("127.0.0.1", port, Duration::from_secs(5)).expect("a test runs");
+        assert!(report.connected.is_some(), "{report:?}");
+        assert!(report.latency_ms.is_some());
+        assert_eq!(report.addresses.len(), 1);
+        accept.join().expect("the acceptor finishes");
+    }
+
+    #[test]
+    fn a_refused_port_is_data_not_an_error() {
+        let port = {
+            let listener = TcpListener::bind("127.0.0.1:0").expect("a listener");
+            listener.local_addr().expect("the port").port()
+        };
+
+        let report = net_test("127.0.0.1", port, Duration::from_secs(2)).expect("a test runs");
+        assert!(report.connected.is_none(), "{report:?}");
+        assert!(report.error.is_some(), "a failure names its reason");
+    }
+
+    #[test]
+    fn a_name_that_does_not_resolve_is_an_error() {
+        assert!(matches!(
+            net_test("summrise.invalid", 80, Duration::from_secs(1)),
+            Err(SystemError::Unresolved(_))
+        ));
+        assert!(matches!(
+            net_test("", 80, Duration::from_secs(1)),
+            Err(SystemError::BadHost(_))
+        ));
+    }
+
+    /// A long-lived process whose executable name is unique to this test, so a kill by name can only
+    /// reach the fixture. A shared name is not safe here: the runs timeout tests and the terminal
+    /// tests also have `sleep` processes, and a by-name kill of `sleep` once killed those mid-run —
+    /// the CI flake where a five-second sleep died with no exit code and `timed_out: false`.
+    fn long_child(tag: &str) -> (std::process::Child, String, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("summrise-kill-{}-{tag}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("the fixture dir");
+        #[cfg(unix)]
+        let (binary, name) = {
+            let source = ["/bin/sleep", "/usr/bin/sleep"]
+                .into_iter()
+                .find(|path| std::path::Path::new(path).exists())
+                .expect("sleep is installed");
+            // `/proc/<pid>/stat`'s comm field is at most 15 bytes; "smk" + pid + tag stays inside it.
+            let name = format!("smk{}{tag}", std::process::id());
+            let binary = dir.join(&name);
+            std::fs::copy(source, &binary).expect("sleep is copied under a unique name");
+            (binary, name)
+        };
+        #[cfg(windows)]
+        let (binary, name) = {
+            let root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_owned());
+            let source = std::path::Path::new(&root)
+                .join("System32")
+                .join("ping.exe");
+            let name = format!("smk{}{tag}.exe", std::process::id());
+            let binary = dir.join(&name);
+            std::fs::copy(&source, &binary).expect("ping is copied under a unique name");
+            (binary, name)
+        };
+        #[cfg(unix)]
+        let child = Command::new(&binary)
+            .arg("30")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("the fixture starts");
+        #[cfg(windows)]
+        let child = Command::new(&binary)
+            .args(["-n", "30", "127.0.0.1"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("the fixture starts");
+        (child, name, dir)
+    }
+
+    /// Wait for a child that was signalled to leave the table, so the test does not leak it.
+    fn wait_until_gone(child: &mut std::process::Child) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline {
+            if child.try_wait().ok().flatten().is_some() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        let _ = child.kill();
+        panic!("a killed child did not exit");
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The declaration's implementation: the device side of `summrise_core::capabilities::system`.
+// ---------------------------------------------------------------------------------------------
+
+use serde::Deserialize;
+use serde_json::{json, Map, Value};
+
+use crate::mcp::{parse, ToolError};
+use summrise_core::capabilities::system::{CAPABILITY, DEFAULT_NET_TIMEOUT_MS};
+
+/// Whether `tool` is one this capability declares.
+pub fn owns(tool: &str) -> bool {
+    CAPABILITY
+        .tools
+        .iter()
+        .any(|declared| declared.name == tool)
+}
+
+/// Every tool this capability declares, for the registry-alignment test.
+#[cfg(test)]
+pub fn names() -> impl Iterator<Item = &'static str> {
+    CAPABILITY.tools.iter().map(|tool| tool.name)
+}
+
+/// Run one of this capability's tools. The work is the machine's; there is no state to pass.
+pub async fn call(tool: &str, arguments: Map<String, Value>) -> Result<String, ToolError> {
+    match tool {
+        "system.process_list" => {
+            let arguments: ProcessListArgs = parse(arguments, tool)?;
+            let found =
+                processes(arguments.name.as_deref()).map_err(|error| refused(tool, error))?;
+            let found: Vec<Value> = found
+                .iter()
+                .map(|process| {
+                    json!({
+                        "pid": process.pid,
+                        "name": process.name,
+                        "memory_kb": process.memory_kb,
+                    })
+                })
+                .collect();
+            Ok(Value::Array(found).to_string())
+        }
+        "system.process_kill" => {
+            let arguments: ProcessKillArgs = parse(arguments, tool)?;
+            let report = kill(arguments.pid, arguments.name.as_deref())
+                .map_err(|error| refused(tool, error))?;
+            let failed: Vec<Value> = report
+                .failed
+                .iter()
+                .map(|(pid, reason)| json!({ "pid": pid, "reason": reason }))
+                .collect();
+            Ok(json!({ "killed": report.killed, "failed": failed }).to_string())
+        }
+        "system.net_test" => {
+            let arguments: NetTestArgs = parse(arguments, tool)?;
+            let timeout = Duration::from_millis(
+                arguments
+                    .timeout_ms
+                    .unwrap_or(DEFAULT_NET_TIMEOUT_MS)
+                    .clamp(1, MAX_TIMEOUT_MS),
+            );
+            // **THE RESOLVER IS A BLOCKING CALL AND THIS IS A REACTOR THREAD.** A name the DNS
+            // server never answers would park a Tokio worker before the connect timeout even
+            // starts. The work moves to the blocking pool, where parking costs nothing.
+            let (host, port) = (arguments.host.clone(), arguments.port);
+            let report = tokio::task::spawn_blocking(move || net_test(&host, port, timeout))
+                .await
+                .map_err(|_| refused(tool, SystemError::Unresolved(arguments.host.clone())))?
+                .map_err(|error| refused(tool, error))?;
+            Ok(json!({
+                "addresses": report.addresses,
+                "connected": report.connected,
+                "latency_ms": report.latency_ms,
+                "error": report.error,
+            })
+            .to_string())
+        }
+        other => Err(ToolError::Internal(format!(
+            "{other}: the system capability does not declare this tool"
+        ))),
+    }
+}
+
+fn refused(tool: &str, error: impl std::fmt::Display) -> ToolError {
+    ToolError::Refused(format!("{tool}: {error}"))
+}
+
+/// The arguments `system.process_list` takes.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProcessListArgs {
+    name: Option<String>,
+}
+
+/// The arguments `system.process_kill` takes: one target, a pid or a name.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProcessKillArgs {
+    pid: Option<u32>,
+    name: Option<String>,
+}
+
+/// The arguments `system.net_test` takes.
+#[allow(dead_code)] // constructed by serde, never by code
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NetTestArgs {
+    host: String,
+    port: u16,
+    timeout_ms: Option<u64>,
+}

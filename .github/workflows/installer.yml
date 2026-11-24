@@ -32,6 +32,7 @@ concurrency:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   windows-installer:
@@ -40,9 +41,46 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      # The Electron payload is built here, not fetched: `-DDESKTOP_SOURCE` below makes the setup
+      # carry this tree, so the installed `desktop\` is the one this run compiled.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: device/desktop-electron/package-lock.json
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.98.1
+
+      # One validated version owns the compiled Console, seed sidecar and NSIS filename.
+      # Set it before compiling, rather than labelling an already-built 0.1.0 Console afterwards.
+      - name: select the release version before compiling
+        shell: bash
+        env:
+          RAW_VERSION: ${{ github.event.inputs.version || github.ref_name }}
+          CHANNEL: ${{ github.event.inputs.channel || 'canary' }}
+        run: |
+          set -euo pipefail
+          version="${RAW_VERSION#v}"
+          if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::release version must be X.Y.Z (optionally prefixed with v)"
+            exit 1
+          fi
+          case "$CHANNEL" in
+            stable|canary) ;;
+            *) echo "::error::channel must be stable or canary"; exit 1 ;;
+          esac
+          printf 'VERSION=%s\nSUMMRISE_BUILD_VERSION=%s\nCHANNEL=%s\n' \
+            "$version" "$version" "$CHANNEL" >> "$GITHUB_ENV"
+
+      # The runtime embeds the committed HTML. A separate ci run is not a prerequisite of this job,
+      # so check this checkout's locked web build before even compiling the release signer.
+      - name: verify the committed console page before compiling
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --prefix device/console/web
+          ./scripts/build-web.sh --check
 
       # The signer is the only binary needed before the keys exist; it is cheap to build on its own.
       - name: derive the build keys from the seeds
@@ -76,36 +114,117 @@ jobs:
         shell: bash
         env:
           SUMMRISE_CONSOLE_GRANT_KEY: ${{ vars.SUMMRISE_CONSOLE_GRANT_KEY }}
+          # See publish-canary.bash: a dynamic MSVC CRT imports VCRUNTIME140.dll, which a clean
+          # Windows lacks; the launcher then cannot start and the service is never registered.
+          RUSTFLAGS: -C target-feature=+crt-static
         run: |
           set -euo pipefail
+          # **EVERY BINARY THE NSIS SCRIPT COPIES, OR MAKENSIS FAILS BY NAME.** `summrise-shell.exe`
+          # is installer-owned (the updater never swaps it), but it is still built here: the setup
+          # copies it at device/installer/summrise.nsi:662 and the tray is what a person sees. This
+          # list and that File line must stay in step; a new shipped binary belongs in both.
           cargo build --release --manifest-path device/Cargo.toml \
-            -p summrise-launch -p summrise-device -p summrise-console
+            -p summrise-launch -p summrise-device -p summrise-console -p summrise-shell
+          # A NAMED FAILURE BEATS MAKENSIS'S "File: ... not found" LATER. A stale
+          # `target/release/summrise-shell.exe` from an earlier build would otherwise be packaged
+          # silently on a developer's machine while a clean runner fails; this checks freshly built
+          # files, so both see the same verdict.
+          for exe in summrise-launch summrise-device summrise-console summrise-shell; do
+            test -f "device/target/release/$exe.exe" || {
+              echo "::error::$exe.exe was not built but summrise.nsi ships it"
+              exit 1
+            }
+          done
+
+      # **THE BINARIES INSIDE THE SETUP ARE SIGNED TOO, AND BEFORE MAKENSIS COPIES THEM.**
+      # `publish-canary.bash` signs all four exes for the canary update path; the installer build used
+      # to sign only the setup, so a signed install shipped four unsigned executables. Signing is
+      # still opt-in: without the certificate secret this prints and continues.
+      - name: sign the four exes, when a certificate is configured
+        shell: bash
+        env:
+          PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX }}
+          PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PFX_BASE64:-}" ]; then
+            echo "no signing certificate configured; the four exes are unsigned"
+            exit 0
+          fi
+          pfx="$RUNNER_TEMP/signing.pfx"
+          printf '%s' "$PFX_BASE64" | base64 -d > "$pfx"
+          for exe in summrise-launch summrise-device summrise-console summrise-shell; do
+            signtool sign /f "$pfx" /p "$PFX_PASSWORD" /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 \
+              "device/target/release/$exe.exe"
+          done
+          rm -f "$pfx"
 
       # The sidecar is the launcher key's statement that this exact binary is the first generation.
       - name: sign the first-generation sidecar
         shell: bash
-        env:
-          RAW_VERSION: ${{ github.event.inputs.version || github.ref_name }}
-          CHANNEL: ${{ github.event.inputs.channel || 'canary' }}
         run: |
           set -euo pipefail
-          version="${RAW_VERSION#v}"
-          case "$version" in
-            [0-9]*.[0-9]*.[0-9]*) ;;
-            *) echo "::error::version '$version' is not X.Y.Z"; exit 1 ;;
-          esac
           device/target/release/summrise-release.exe sidecar \
             --key-file "$RUNNER_TEMP/launcher.seed" \
             --artifact device/target/release/summrise-device.exe \
-            --version "$version" --channel "$CHANNEL" \
+            --version "$VERSION" --channel "$CHANNEL" \
             --out device/target/release/summrise-device.sidecar.json
-          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      # **THE PAYLOAD THE INSTALLER PACKAGES IS BUILT HERE.** NSIS only copies `desktop\` when
+      # DESKTOP_SOURCE is defined; without this step the setup ships the Rust shell and the Electron
+      # transcript change is never installed by the installer CI proves.
+      - name: build the Electron payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd device/desktop-electron
+          npm ci
+          # THE TYPE CHECK AND UNIT TESTS ARE THE PAYLOAD'S OWN GATE, BEFORE PACKAGING. The fallback
+          # trigger and its tray row are TypeScript and committed JS; a build that skips its tests
+          # would package a host the tests reject.
+          npx tsc --noEmit
+          node --test test/*.mjs
+          npm run dist -- --win dir
+          test -f dist/win-unpacked/SummriseDesktop.exe
+          test -f dist/win-unpacked/resources/app.asar
+          # THE ASAR MUST CARRY THE FALLBACK LAUNCHER, not only the generated main.js: the tray
+          # imports `./fallback-shell`, so a missing module turns the row into a runtime error.
+          asar_list="$(mktemp)"
+          npx asar list dist/win-unpacked/resources/app.asar > "$asar_list"
+          if ! grep -qE '^[/\\]src[/\\]fallback-shell\.js[[:space:]]*$' "$asar_list"; then
+            echo "::error::the built asar does not carry src/fallback-shell.js"
+            rm -f "$asar_list"
+            exit 1
+          fi
+          rm -f "$asar_list"
+          echo "payload asar carries src/fallback-shell.js"
 
       - name: install NSIS
         shell: powershell
         run: |
-          choco install nsis --yes --no-progress
-          & 'C:\Program Files (x86)\NSIS\makensis.exe' -VERSION
+          # THE COMMUNITY FEED'S QUERY ENDPOINT GOES DOWN, AND A RELEASE CANNOT WAIT FOR A
+          # THIRD PARTY. On 2026-11-24 Chocolatey's OData query for a package answered 503
+          # for the better part of half an hour - the feed's own service document answered
+          # 200 and the package CDN answered 200 the whole time - and the install died on
+          # "Unable to find package 'nsis'". The install is retried, and if the query is
+          # still down the package is fetched from the feed's own package endpoint, with
+          # its sha256 pinned, and installed from that file: the same package, the same
+          # version, the same feed, only not through the endpoint that is broken.
+          $makensis = 'C:\Program Files (x86)\NSIS\makensis.exe'
+          for ($attempt = 1; $attempt -le 3 -and -not (Test-Path $makensis); $attempt++) {
+            choco install nsis --yes --no-progress
+            if (Test-Path $makensis) { break }
+            Start-Sleep -Seconds 30
+          }
+          if (-not (Test-Path $makensis)) {
+            $package = "$env:RUNNER_TEMP\nsis.3.13.0.nupkg"
+            Invoke-WebRequest -Uri 'https://community.chocolatey.org/api/v2/package/nsis/3.13.0' -OutFile $package
+            $expected = '10d47195455d7f42d4ef89396a70eae0edf66be46af5d0f83e2c2b4c5a99c770'
+            $actual = (Get-FileHash -Algorithm SHA256 -Path $package).Hash.ToLowerInvariant()
+            if ($actual -ne $expected) { throw "the nsis package hash is $actual, not $expected" }
+            choco install $package --yes --no-progress
+          }
+          & $makensis -VERSION
 
       - name: build the installer
         shell: bash
@@ -115,10 +234,14 @@ jobs:
           set -euo pipefail
           makensis="/c/Program Files (x86)/NSIS/makensis.exe"
           test -x "$makensis"
+          desktop_dir="$(cygpath -u "$GITHUB_WORKSPACE")/device/desktop-electron/dist/win-unpacked"
+          test -f "$desktop_dir/SummriseDesktop.exe"
+          desktop_source="$(cygpath -w "$desktop_dir")"
           cd device/installer
-          "$makensis" -DVERSION="$VERSION" -DPORT="$PORT" -DCHANNEL=canary \
-            -DSOURCE="$(cygpath -w ../target/release)" summrise.nsi
-          ls -l "SummriseSetup-$VERSION.exe"
+          "$makensis" -DVERSION="$VERSION" -DPORT="$PORT" -DCHANNEL="$CHANNEL" \
+            -DSOURCE="$(cygpath -w ../target/release)" \
+            -DDESKTOP_SOURCE="$desktop_source" summrise.nsi
+          ls -l "SummriseSetup-$VERSION-$CHANNEL.exe"
 
       # Signing is opt-in and shell-guarded: a repository without a certificate still gets an
       # installer (unsigned, and SmartScreen will say so), and adding the two secrets turns it on
@@ -137,19 +260,22 @@ jobs:
           pfx="$RUNNER_TEMP/signing.pfx"
           printf '%s' "$PFX_BASE64" | base64 -d > "$pfx"
           signtool sign /f "$pfx" /p "$PFX_PASSWORD" /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 \
-            "device/installer/SummriseSetup-$VERSION.exe"
+            "device/installer/SummriseSetup-$VERSION-$CHANNEL.exe"
           rm -f "$pfx"
 
-      # **THE INSTALLER MUST INSTALL ITSELF.** Every build runs the setup silently on the runner,
-      # then reads the device's own health endpoint and uninstalls. A setup that registers a service
-      # but serves nothing is the failure this catches — and it is a failure no unit test can see.
+      # **THE INSTALLER MUST INSTALL ITSELF AND ITS PAYLOAD.** Every build runs the setup silently on
+      # the runner, reads the device's own health endpoint, and proves the Electron tree it just built
+      # is the tree on disk — installed executable, app.asar hash, and the Run value that starts it.
+      # A setup that registers a service but serves nothing, or installs the Rust shell where the
+      # transcript lives, is the failure this catches — and no unit test can see it.
       - name: install it on the runner
         shell: powershell
         env:
           PORT: ${{ github.event.inputs.port || '18080' }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $setup = "device/installer/SummriseSetup-$env:VERSION.exe"
+          $setup = "device/installer/SummriseSetup-$env:VERSION-$env:CHANNEL.exe"
+          if (-not (Test-Path -LiteralPath $setup -PathType Leaf)) { throw "the setup is missing: $setup" }
           $process = Start-Process -FilePath $setup -ArgumentList '/S', '/D=C:\SummriseCI' -Wait -PassThru
           Write-Host "installer exit: $($process.ExitCode)"
           if ($process.ExitCode -ne 0) { throw "the installer failed: $($process.ExitCode)" }
@@ -159,6 +285,153 @@ jobs:
           $health = Invoke-RestMethod "http://127.0.0.1:$env:PORT/api/health" -TimeoutSec 10
           Write-Host "health: $($health | ConvertTo-Json -Compress)"
           if ($health.status -ne 'ok') { throw "health is not ok: $($health | ConvertTo-Json -Compress)" }
+
+          # ONE OWNER: the installer deletes the old full-tray shell's event task. It is the task
+          # that starts a second tray on every RDP reconnect; a setup that leaves it behind has not
+          # installed this round's ownership model.
+          $reconnectTask = Get-ScheduledTask -TaskName 'SummriseShellOnReconnect' -ErrorAction SilentlyContinue
+          if ($null -ne $reconnectTask) { throw "SummriseShellOnReconnect survived the install: $($reconnectTask.State)" }
+          Write-Host "SummriseShellOnReconnect is gone"
+
+          # THE INSTALLED FALLBACK IS THE BINARY THIS RUN BUILT. The installer-owned Rust shell is
+          # the window-only fallback the Electron host spawns; a setup that shipped an older or
+          # unrelated shell would be a silent second product.
+          $installedShell = 'C:\SummriseCI\summrise-shell.exe'
+          if (-not (Test-Path -LiteralPath $installedShell -PathType Leaf)) { throw "the installer did not install the fallback shell: $installedShell" }
+          $builtShell = 'device/target/release/summrise-shell.exe'
+          if (-not (Test-Path -LiteralPath $builtShell -PathType Leaf)) { throw "the built fallback shell is missing: $builtShell" }
+          $installedShellHash = (Get-FileHash -LiteralPath $installedShell -Algorithm SHA256).Hash
+          $builtShellHash = (Get-FileHash -LiteralPath $builtShell -Algorithm SHA256).Hash
+          Write-Host "installed shell sha256: $installedShellHash"
+          Write-Host "built shell sha256:     $builtShellHash"
+          if ($installedShellHash -ne $builtShellHash) { throw "the installed summrise-shell.exe is not the one this run built" }
+
+          # WEBVIEW2 IS THE FALLBACK'S RENDERER. The Electron default ships its own Chromium and does
+          # not need it; the window-only fallback does. The installer logs the machine property; a
+          # per-user or newer runtime may not write that key, so msedgewebview2.exe is the second
+          # accepted answer.
+          $webview2Key = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          $webview2Pv = $null
+          $webview2 = Get-ItemProperty -Path $webview2Key -Name pv -ErrorAction SilentlyContinue
+          if ($null -ne $webview2) { $webview2Pv = $webview2.pv }
+          if (-not [string]::IsNullOrEmpty($webview2Pv)) {
+            Write-Host "WebView2 runtime: $webview2Pv"
+          } else {
+            $webview2Exes = @(
+              Get-Item -Path 'C:\Program Files (x86)\Microsoft\EdgeWebView\Application\*\msedgewebview2.exe' -ErrorAction SilentlyContinue
+              Get-Item -Path 'C:\Program Files\Microsoft\EdgeWebView\Application\*\msedgewebview2.exe' -ErrorAction SilentlyContinue
+              if (-not [string]::IsNullOrEmpty($env:LOCALAPPDATA)) {
+                Get-Item -Path "$env:LOCALAPPDATA\Microsoft\EdgeWebView\Application\*\msedgewebview2.exe" -ErrorAction SilentlyContinue
+              }
+            )
+            if ($webview2Exes.Count -eq 0) { throw "the WebView2 runtime is not registered and msedgewebview2.exe was not found" }
+            Write-Host "WebView2 runtime: msedgewebview2.exe at $($webview2Exes[0].FullName)"
+          }
+
+          # The installed Electron payload is the thing the installer exists to deliver.
+          $desktop = 'C:\SummriseCI\desktop\SummriseDesktop.exe'
+          if (-not (Test-Path -LiteralPath $desktop -PathType Leaf)) { throw "the Electron desktop was not installed: $desktop" }
+          $installedAsar = 'C:\SummriseCI\desktop\resources\app.asar'
+          if (-not (Test-Path -LiteralPath $installedAsar -PathType Leaf)) { throw "the installed payload has no resources\app.asar: $installedAsar" }
+          $builtAsar = 'device/desktop-electron/dist/win-unpacked/resources/app.asar'
+          if (-not (Test-Path -LiteralPath $builtAsar -PathType Leaf)) { throw "the built payload is missing: $builtAsar" }
+          $installedHash = (Get-FileHash -LiteralPath $installedAsar -Algorithm SHA256).Hash
+          $builtHash = (Get-FileHash -LiteralPath $builtAsar -Algorithm SHA256).Hash
+          Write-Host "installed asar sha256: $installedHash"
+          Write-Host "built asar sha256:     $builtHash"
+          if ($installedHash -ne $builtHash) { throw "the installed app.asar is not the one this run built" }
+          $run = (Get-ItemProperty -Path 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run' -Name SummriseShell).SummriseShell
+          Write-Host "Run value: $run"
+          if ($run -ne '"C:\SummriseCI\desktop\SummriseDesktop.exe"') {
+            throw "the Run value does not start the installed desktop payload: $run"
+          }
+          # Resolve the actual common links; merely finding a .lnk cannot prove its launch contract.
+          $desktopLink = Join-Path ([Environment]::GetFolderPath('CommonDesktopDirectory')) 'Summrise.lnk'
+          $programsLink = Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'Summrise.lnk'
+          $shortcutShell = New-Object -ComObject WScript.Shell
+          function Assert-SummriseShortcuts {
+            foreach ($path in @($desktopLink, $programsLink)) {
+              if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "the installed shortcut is missing: $path" }
+              $link = $shortcutShell.CreateShortcut($path)
+              Write-Host "shortcut: $path target=$($link.TargetPath) args=$($link.Arguments) cwd=$($link.WorkingDirectory) icon=$($link.IconLocation) show=$($link.WindowStyle)"
+              if ($link.TargetPath -ine $desktop) { throw "shortcut target differs: $path -> $($link.TargetPath)" }
+              if ($link.Arguments -cne '--show') { throw "shortcut arguments differ: $path -> $($link.Arguments)" }
+              if ($link.WorkingDirectory -ine (Split-Path -Parent $desktop)) { throw "shortcut working directory differs: $path -> $($link.WorkingDirectory)" }
+              if ($link.IconLocation -notmatch '^(.*),\s*([+-]?\d+)\s*$') { throw "shortcut icon has no resource index: $path -> $($link.IconLocation)" }
+              $iconPath = $Matches[1].Trim().Trim('"').Trim()
+              $iconIndex = [int]$Matches[2]
+              if ($iconPath -ine $desktop -or $iconIndex -ne 0) { throw "shortcut icon differs: $path -> $($link.IconLocation)" }
+              if ($link.WindowStyle -ne 1) { throw "shortcut show state differs: $path -> $($link.WindowStyle)" }
+            }
+          }
+          Assert-SummriseShortcuts
+
+          # The same installer/root must repair both a deleted link and stale launch properties.
+          Remove-Item -LiteralPath $desktopLink -Force
+          $staleLink = $shortcutShell.CreateShortcut($programsLink)
+          $staleLink.Arguments = '--obsolete-shortcut'
+          $staleLink.Save()
+          $repair = Start-Process -FilePath $setup -ArgumentList '/S', '/D=C:\SummriseCI' -Wait -PassThru
+          Write-Host "same-root reinstall exit: $($repair.ExitCode)"
+          if ($repair.ExitCode -ne 0) { throw "the same-root reinstall failed: $($repair.ExitCode)" }
+          Assert-SummriseShortcuts
+
+          Push-Location 'device/desktop-electron'
+          try {
+            $entries = & npx asar list 'dist/win-unpacked/resources/app.asar'
+            if ($LASTEXITCODE -ne 0) { throw "npx asar list failed: $LASTEXITCODE" }
+          } finally {
+            Pop-Location
+          }
+          if (-not ($entries -match '^[/\\]src[/\\]device-page\.js$')) { throw "the built asar does not carry src/device-page.js" }
+          if ($entries -match '[/\\]panel[/\\]activity\.html$') { throw "the built asar still carries panel/activity.html" }
+          Write-Host "payload asar lists src/device-page.js and not panel/activity.html"
+
+          # **THE SHELL SMOKE IS HONEST ABOUT THE WINDOW STATION.** A GitHub-hosted Windows job is
+          # session 0, which has no interactive desktop: `--check-window` must refuse with exit 2 and
+          # its named line, and `--panel` must refuse the same way. An interactive runner (a
+          # self-hosted agent in a user session) must build the window and WebView2 view and exit 0;
+          # there `--panel` is not run because it would open a second window. Neither branch is a
+          # render proof, and this step never claims one.
+          function Invoke-ShellProbe {
+            param([string]$Argument, [string]$LogPath)
+            if (Test-Path -LiteralPath $LogPath) { Remove-Item -LiteralPath $LogPath -Force }
+            $process = Start-Process -FilePath $installedShell -ArgumentList $Argument -PassThru
+            if (-not $process.WaitForExit(30000)) {
+              Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+              throw "summrise-shell.exe $Argument did not exit within 30 s"
+            }
+            $text = ''
+            if (Test-Path -LiteralPath $LogPath) { $text = Get-Content -LiteralPath $LogPath -Raw }
+            Write-Host "summrise-shell.exe $Argument exit: $($process.ExitCode)"
+            Write-Host $text
+            [pscustomobject]@{ ExitCode = $process.ExitCode; Text = $text }
+          }
+
+          if ([string]::IsNullOrEmpty($env:LOCALAPPDATA)) { throw "LOCALAPPDATA is not set; the shell has nowhere to write its log" }
+          $shellLog = Join-Path $env:LOCALAPPDATA 'Summrise\shell.log'
+          $sessionId = [System.Diagnostics.Process]::GetCurrentProcess().SessionId
+          Write-Host "runner session id: $sessionId"
+          $check = Invoke-ShellProbe -Argument '--check-window' -LogPath $shellLog
+          if ($sessionId -eq 0) {
+            if ($check.ExitCode -ne 2) { throw "--check-window in session 0 returned $($check.ExitCode), expected 2" }
+            if ($check.Text -notmatch [regex]::Escape('session 0, which has no interactive desktop')) {
+              throw "--check-window in session 0 did not log 'session 0, which has no interactive desktop'"
+            }
+            Write-Host "session 0: --check-window refused with exit 2 and the named line"
+            $panel = Invoke-ShellProbe -Argument '--panel' -LogPath $shellLog
+            if ($panel.ExitCode -ne 2) { throw "--panel in session 0 returned $($panel.ExitCode), expected 2" }
+            if ($panel.Text -notmatch [regex]::Escape('fallback: this is session 0')) {
+              throw "--panel in session 0 did not log 'fallback: this is session 0'"
+            }
+            Write-Host "session 0: --panel refused with exit 2 and the named line"
+          } else {
+            if ($check.ExitCode -ne 0) { throw "--check-window in session ${sessionId} returned $($check.ExitCode), expected 0" }
+            if ($check.Text -notmatch [regex]::Escape('window and view built')) {
+              throw "--check-window in session ${sessionId} did not log 'window and view built'"
+            }
+            Write-Host "session ${sessionId}: --check-window built the window and view (exit 0); --panel is not run on an interactive runner because it would open a window there"
+          }
 
       - name: uninstall it on the runner
         shell: powershell
@@ -171,16 +444,70 @@ jobs:
           $service = Get-Service -Name SummriseLaunch -ErrorAction SilentlyContinue
           if ($null -ne $service) { throw "the service survived the uninstall: $($service.Status)" }
           Write-Host "service is gone"
+          $run = Get-ItemProperty -Path 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run' -Name SummriseShell -ErrorAction SilentlyContinue
+          if ($null -ne $run) { throw "the Run value survived the uninstall: $($run.SummriseShell)" }
+          Write-Host "Run value is gone"
+          foreach ($folder in @('CommonDesktopDirectory', 'CommonPrograms')) {
+            $link = Join-Path ([Environment]::GetFolderPath($folder)) 'Summrise.lnk'
+            if (Test-Path -LiteralPath $link) { throw "the common shortcut survived uninstall: $link" }
+            Write-Host "shortcut is gone: $link"
+          }
+          # The fallback binary and the retired event task go with the install.
+          $installedShell = 'C:\SummriseCI\summrise-shell.exe'
+          if (Test-Path -LiteralPath $installedShell) { throw "the fallback shell survived the uninstall: $installedShell" }
+          Write-Host "fallback shell is gone"
+          $reconnectTask = Get-ScheduledTask -TaskName 'SummriseShellOnReconnect' -ErrorAction SilentlyContinue
+          if ($null -ne $reconnectTask) { throw "SummriseShellOnReconnect survived the uninstall" }
+          Write-Host "SummriseShellOnReconnect is gone"
 
+      # A run artifact is a convenience, not the record: the tag release above attaches the same
+      # installer to the release, which is where an operator downloads it months later. Keeping the
+      # artifact for the default 90 days filled 90% of the account's Actions storage (2026-10-26);
+      # one day is enough to fetch a build from its run, and expired artifacts are deleted for us.
       - uses: actions/upload-artifact@v4
         with:
-          name: SummriseSetup-${{ env.VERSION }}
-          path: device/installer/SummriseSetup-*.exe
+          name: SummriseSetup-${{ env.VERSION }}-${{ env.CHANNEL }}
+          path: device/installer/SummriseSetup-${{ env.VERSION }}-${{ env.CHANNEL }}.exe
           if-no-files-found: error
+          retention-days: 1
 
-      # A TAG RELEASE CARRIES THE INSTALLER. The artifact above is for the run; the release is what
-      # an operator downloads months later.
-      - name: attach the installer to the tag release
+      # THE RELEASE PHASE IS TWO PHASES, AND THE SECOND ONE IS NOT CI'S. This job builds and truly
+      # verifies every final byte, uploads them to an EMPTY draft, re-downloads the whole draft and
+      # checks it byte for byte, and then STOPS with the draft still a draft. Nothing here publishes
+      # a release, flips a channel pointer, or calls the legacy publisher.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: stage and verify every final release byte
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle="$RUNNER_TEMP/release-bundle"
+          # THE PERMANENT SAME-HOST BASE IS WHERE A DEVICE DOWNLOADS FROM. GitHub is only the proof
+          # base; the update document's artifactUrl points at the same host, and the native
+          # cross-host redirect rule is unchanged by this workflow.
+          mirror="https://console.saisi.online/installers/releases/v$VERSION/$CHANNEL"
+          python -c 'import pathlib,sys; print("actual setup bytes:", pathlib.Path(sys.argv[1]).stat().st_size)' \
+            "device/installer/SummriseSetup-$VERSION-$CHANNEL.exe"
+          python scripts/stage-release-bundle.py stage \
+            --launch device/target/release/summrise-launch.exe \
+            --device device/target/release/summrise-device.exe \
+            --console device/target/release/summrise-console.exe \
+            --shell device/target/release/summrise-shell.exe \
+            --setup "device/installer/SummriseSetup-$VERSION-$CHANNEL.exe" \
+            --signer device/target/release/summrise-release.exe \
+            --launcher-seed "$RUNNER_TEMP/launcher.seed" --release-seed "$RUNNER_TEMP/release.seed" \
+            --launcher-pubkey "$SUMMRISE_LAUNCHER_PUBKEY" --release-pubkey "$SUMMRISE_RELEASE_PUBKEY" \
+            --version "$VERSION" --channel "$CHANNEL" --source-sha "$GITHUB_SHA" \
+            --mirror "$mirror" --out "$bundle" \
+            --release-source-root device/release
+          test -s "$bundle/READY"
+          printf 'RELEASE_BUNDLE_DIR=%s\n' "$(cygpath -w "$bundle")" >> "$GITHUB_ENV"
+
+      # Root creates this tag only after final review and exact-main CI. No extra approval flow.
+      # All preceding Native steps must succeed; this step executes only on that authorized tag.
+      - name: verify the complete draft authority and stop for Root same-host delivery
         if: startsWith(github.ref, 'refs/tags/')
         shell: bash
         env:
@@ -188,7 +515,96 @@ jobs:
         run: |
           set -euo pipefail
           tag="$GITHUB_REF_NAME"
-          if ! gh release view "$tag" >/dev/null 2>&1; then
-            gh release create "$tag" --title "$tag" --notes "Summrise runtime $tag"
+          bundle="$(cygpath -u "$RELEASE_BUNDLE_DIR")"
+          mirror="https://console.saisi.online/installers/releases/v$VERSION/$CHANNEL"
+          proof_base="https://github.com/$GITHUB_REPOSITORY/releases/download/$tag"
+          guard="$RUNNER_TEMP/release-authority-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          # WINDOWS HAS NO POSIX MODE FOR A DIRECTORY. Git Bash's `mkdir -m` chmods the new
+          # directory and NTFS refuses that ("cannot change permissions ... Permission
+          # denied"), which is why this step - the first one in the workflow to run on the
+          # runner - failed there and nowhere else. The directories are created plainly, and
+          # `mkdir` still refuses to reuse one that is already there.
+          mkdir "$guard"
+          verify_bundle() {
+            python scripts/stage-release-bundle.py verify \
+              --signer device/target/release/summrise-release.exe \
+              --launcher-pubkey "$SUMMRISE_LAUNCHER_PUBKEY" --release-pubkey "$SUMMRISE_RELEASE_PUBKEY" \
+              --version "$VERSION" --channel "$CHANNEL" --source-sha "$GITHUB_SHA" \
+              --mirror "$mirror" --out "$1" \
+              --release-source-root device/release
+          }
+          authority_check() {
+            phase="$1"
+            candidate="$2"
+            receipt="$guard/$phase"
+            mkdir "$receipt"
+            gh api "repos/$GITHUB_REPOSITORY/commits/main" > "$receipt/main.json"
+            gh api "repos/$GITHUB_REPOSITORY/commits/$tag" > "$receipt/tag.json"
+            gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
+              -f head_sha="$GITHUB_SHA" -f branch=main -f event=push -f per_page=1 \
+              --jq '.workflow_runs[0]' > "$receipt/ci.json"
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > "$receipt/installer.json"
+            extra=()
+            if [ "$#" -eq 4 ]; then
+              gh release view "$tag" --json isDraft,tagName,assets > "$4"
+              extra=(--release-before "$3" --release-after "$4" --bundle "$candidate")
+            fi
+            python scripts/stage-release-bundle.py authority \
+              --main "$receipt/main.json" --tag-receipt "$receipt/tag.json" \
+              --ci "$receipt/ci.json" --installer "$receipt/installer.json" \
+              --inventory "$candidate/inventory.json" --source-sha "$GITHUB_SHA" \
+              --checkout-sha "$(git rev-parse HEAD)" --tag "$tag" --version "$VERSION" \
+              --channel "$CHANNEL" --installer-run-id "$GITHUB_RUN_ID" "${extra[@]}"
+          }
+          verify_bundle "$bundle"
+          authority_check before-upload "$bundle"
+          # THE DRAFT IS EMPTY BEFORE THE UPLOAD. A draft that already carries assets is somebody
+          # else's partial release; this job never overwrites it.
+          if is_draft="$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null)"; then
+            test "$is_draft" = true || { echo "::error::refusing an already public release"; exit 1; }
+            count="$(gh release view "$tag" --json assets --jq '.assets | length')"
+            test "$count" = 0 || { echo "::error::draft has assets; refusing collision/partial overwrite"; exit 1; }
+          else
+            gh release create "$tag" --draft --verify-tag --target "$GITHUB_SHA" --title "$tag" \
+              --notes "Complete signed bundle for reviewed source $GITHUB_SHA; not published."
           fi
-          gh release upload "$tag" device/installer/SummriseSetup-*.exe --clobber
+          gh release upload "$tag" "$bundle/"*
+          gh release view "$tag" --json isDraft,tagName,assets > "$guard/after-upload.json"
+          # THE DRAFT IS READ BACK FROM GITHUB AND CHECKED BYTE FOR BYTE. What the draft holds is
+          # what a later download would fetch, so the copy that leaves here is the copy that counts.
+          fresh="$RUNNER_TEMP/release-draft-download-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          test ! -e "$fresh"
+          mkdir "$fresh"
+          gh release download "$tag" --dir "$fresh"
+          verify_bundle "$fresh"
+          # LF BYTES ON WINDOWS. The old print() left a CR on every name, and Git Bash read -r kept
+          # it, so the download URL carried a stray CR; the list is written as explicit UTF-8/LF.
+          python -c 'import pathlib,sys; sys.stdout.buffer.write(("\n".join(sorted(p.name for p in pathlib.Path(sys.argv[1]).iterdir())) + "\n").encode("utf-8"))' \
+            "$fresh" > "$guard/draft-names.txt"
+          names="$(tr -d '\r' < "$guard/draft-names.txt" | grep -c .)"
+          test "$names" = 16 || { echo "::error::the draft holds $names files, not the 16 of a complete bundle"; exit 1; }
+          while IFS= read -r name; do
+            [ -n "$name" ] || continue
+            cmp "$bundle/$name" "$fresh/$name" || { echo "::error::$name differs between the built bundle and the draft"; exit 1; }
+          done < "$guard/draft-names.txt"
+          cmp "$bundle/inventory.json" "$fresh/inventory.json"
+          cmp "$bundle/SHA256SUMS" "$fresh/SHA256SUMS"
+          authority_check before-root-handoff "$fresh" "$guard/after-upload.json" "$guard/before-root-handoff.json"
+          # THE DRAFT STAYS A DRAFT. There is no publish, no --latest, no pointer write here.
+          test "$(gh release view "$tag" --json isDraft --jq .isDraft)" = true
+          printf 'artifactBase=%s\nproofBase=%s\nsourceSha=%s\n' "$mirror" "$proof_base" "$GITHUB_SHA" > "$guard/root-handoff.txt"
+          echo "complete signed draft verified for $GITHUB_SHA; Root publishes only after same-host mirror/native proof"
+          # WHAT HAPPENS NEXT IS NOT CI'S WORK. Root, with normal GitHub authentication, runs
+          # finalize_release.py: it mirrors these verified bytes to the permanent same-host base,
+          # proves the native download from that host, and only then publishes the release and moves
+          # the channel pointer. CI never publishes and never advances a pointer.
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: SummriseRelease-${{ env.VERSION }}-${{ env.CHANNEL }}
+          path: |
+            ${{ env.RELEASE_BUNDLE_DIR }}
+            ${{ runner.temp }}/release-authority-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 1

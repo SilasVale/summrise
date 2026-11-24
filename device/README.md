@@ -11,9 +11,9 @@ Six workspace members, six owners:
 |---|---|---|
 | `core` | every decision that is a value (state schema, `authorize`, session transitions, grants, the registry) | nothing — no I/O |
 | `release` | the signed release document and its channels; **the one update decision** (`select`); the offline `summrise-release sign` tool | nothing at runtime |
-| `launch` | the app binary and its baseline; the SCM service; the swap; the repair log | `<install>/summrise-device.exe`, `<install>/baseline/{current,previous,pending}/*`, `<install>/swap.result.json`, `<install>/repair.log`, `<data>/token`, `<data>/console.json` (console **and** mesh facts), `<data>/launcher.pid`, `<data>/app.pid` |
-| `device` | the running app: sessions, HTTP/MCP, console and mesh channels, update staging | `<data>/state.json`, `<data>/device.lock`, `<data>/device.pid`, `<data>/identity.key`, `<data>/console-token.json`, `<data>/console.json` (the console half; mesh fields are preserved), `<install>/summrise-device.new.exe`, `<install>/summrise-device.new.json`, `<install>/swap.request.json`, `<data>/events.jsonl`, `<data>/memory.jsonl`, `<data>/runs.jsonl`, `<data>/known_hosts.json`, `<data>/monitors.json`, `<data>/workspace/` |
-| `console` | the operator's control plane: the embedded operator page, auth, device registry, grant signing, the device channel, the `/mcp` proxy, the audit index | `<data>/devices.json`, `<data>/codes.json`, `<data>/audit.jsonl`, `<data>/denials.jsonl` |
+| `launch` | the app binary and its baseline; the SCM service; the swap; the repair log | `<install>/summrise-device.exe`, `<install>/baseline/{current,previous,pending}/*`, `<install>/versions/<version>/*`, `<install>/current.txt`, `<install>/previous.txt`, `<install>/swap.result.json`, `<install>/repair.log`, `<data>/token`, `<data>/console.json` (console **and** mesh facts), `<data>/launcher.pid`, `<data>/app.pid` |
+| `device` | the running app: sessions, HTTP/MCP, console and mesh channels, update staging | `<data>/state.json`, `<data>/device.lock`, `<data>/device.pid`, `<data>/identity.key`, `<data>/console-token.json`, `<data>/console.json` (the console half; mesh fields are preserved), `<install>/summrise-device.new.exe`, `<install>/summrise-device.new.json`, `<install>/versions/<version>/*` (the versioned stage), `<install>/swap.request.json`, `<data>/events.jsonl`, `<data>/memory.jsonl`, `<data>/runs.jsonl`, `<data>/known_hosts.json`, `<data>/monitors.json`, `<data>/workspace/` |
+| `console` | the operator's control plane: the embedded operator page, auth, device registry, grant signing, the device channel, the `/mcp` proxy and `/mcp/all` aggregate, the audit index | `<data>/devices.json`, `<data>/codes.json`, `<data>/audit.jsonl`, `<data>/denials.jsonl` |
 | `mesh` | the broker/relay library and its two binaries | nothing under the device's install or data directory |
 
 **The two one-writer rules are the design.** Only the serving `device` app writes the state document
@@ -208,12 +208,29 @@ The page asks for the operator token, exchanges it at `POST /auth`, and keeps th
 JavaScript variable. Nothing is written to browser storage; a comment in the page says the token
 stays in memory, and the integration test asserts the page contains no token and no storage call.
 
+The page's **AI client** card creates one-device tokens. A token can also name several devices
+(`POST /tokens` with `device_ids`), and `POST /mcp/all` is the one standard MCP endpoint those
+tokens use: every tool takes a required `device` argument and every call still becomes an ordinary
+per-device sixty-second grant. The fleet page's **Fleet tokens** link mints, lists and revokes
+these tokens (the API is `POST /tokens` with `device_ids`); the per-device card creates one-device
+tokens only.
+
 It lists `GET /devices` with `last_seen_ms` rendered as an age, builds a grant form from a hardcoded
 list of the registry's 28 tool names (`POST /grants`), calls `state.get` through `POST /mcp` with
 that grant and pretty-prints the answer, and shows the newest 20 lines of `GET /audit?limit=20`. The
 page's tool list is compared with `summrise_core::registry` by a test, and every path in its route
 table is probed against the router, so a renamed tool or a missing route fails CI rather than a
 browser.
+
+### Looking at it without a release
+
+`screenshot.mjs` photographs the page against fixtures; `scripts/console-live-check.sh` runs it
+against a live device. The script builds a console and one device with a grant key it generates,
+enrols them over loopback, and drives the real page in Chromium: it signs in, opens the machine's
+Terminal, starts a shell, types a command and asserts its output is on screen; then it stops the
+device and asserts the page says the machine is down, disables the actions that cannot work, and
+makes no `/mcp` request to it. Screenshots land in `$CONSOLE_LIVE_OUT` (default: a work directory it
+prints and removes unless `--keep`).
 
 ## Reading a device's state
 
@@ -228,18 +245,27 @@ lands in its audit index like every other tool.
 
 ## Updates
 
-The stager writes files; the app writes the document; the launcher swaps. `--stage` and
-`--check-update` verify the release, write the canonical staged pair and `<install>/swap.request.json`
-— and **never write `state.json`**, so they can run while the service serves (and even against a
+The stager writes files; the app writes the document; the launcher installs. `--stage` and
+`--check-update` verify the release and write it to the layout the install uses — the flat staged pair
+and `<install>/swap.request.json` without `<install>/current.txt`, or
+`<install>/versions/<version>/` (the exe plus its signed `summrise-device.json`) with it, where the
+stager then runs the launcher's `--apply` so the new version is serving when the command returns. Both
+modes **never write `state.json`**, so they can run while the service serves (and even against a
 read-only document). `--check-update` **reads** it for the installed version and the rollback memory;
 it refuses (exit 2) when there is no state document to read rather than treating the memory as empty
 (a document that exists but cannot be parsed is a failed attempt, exit 1). `--stage` reads it only when `--data` is given: a digest in `rolled_back` is refused (exit 4)
 unless `--force-reinstall <sha256>` names exactly that digest, and the override is appended to
 `<data>/events.jsonl` before staging. Without `--data`, `--stage` cannot see the memory and stages —
-the guard is opt-in by naming the state document, and the mode's help says so. The serving app reads the request at start and every second
+the guard is opt-in by naming the state document, and the mode's help says so.
+
+On a pre-versioned install the serving app reads the request at start and every second
 (`SWAP_POLL_INTERVAL`; the supervisor consumes the request on its own two-second poll) and records
 `update.phase = "staged"` / `update.to`. A request naming a version the document already records is
-not recorded again, so a lingering request cannot flip a finished update back to `staged`.
+not recorded again, so a lingering request cannot flip a finished update back to `staged`. On a
+versioned install the scheduled check stages into `versions/<version>/`, runs the launcher's
+`--install-version`, and exits under its supervisor so the new pointer is started; a directory that
+already holds different bytes is never overwritten, and a failed health probe leaves `current.txt`
+where it was and keeps the staged directory for inspection.
 
 The same poll folds `<install>/swap.result.json` into `update.outcome` / `update.lastResultAtMs` and
 `lastVerdict` (`updated to X`, `rolled back from X`, `repaired from baseline`, or `refused: …`).
@@ -293,7 +319,7 @@ the launcher key cannot be applied as an update. That split is the point of the 
   and the relay floor remains the fallback. The STUN exchange is one request with a two-second
   deadline at join time, never a per-connection cost.
 - The console has no state route: `/`, `/health`, `/auth`, `/enroll`, `/devices`,
-  `/devices/:id/channel`, `/grants`, `/mcp` and `/audit` are its whole surface. The page at `/`
+  `/devices/:id/channel`, `/grants`, `/mcp`, `/mcp/all` and `/audit` are its whole surface. The page at `/`
   reads a device through the `state.get` tool over `/mcp` (see “Reading a device's state”); adding a
   console state route would be a second data path and a second thing to authorize.
 - The console does not generate the device's identity: `--enroll` uses `<data>/identity.key`, which

@@ -1,0 +1,257 @@
+/* A3 activity work planes. Palette, typography, controls and focus use the shared theme. */
+.activity-timeline,
+.audit-view {
+  display: grid;
+  gap: var(--sp-5);
+  min-width: 0;
+}
+.activity-timeline > .activity-filterbar,
+.audit-view > .activity-filterbar { min-width: 0; margin: 0; padding: var(--sp-4); }
+.activity-timeline .activity-filterbar { display: grid; gap: var(--sp-3); }
+.activity-timeline .timeline-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--sp-4);
+  align-items: end;
+  margin: 0;
+}
+.activity-timeline .timeline-search {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  width: 100%;
+  margin: 0;
+}
+.activity-timeline .timeline-search input { width: 100%; }
+.activity-timeline .activity-filterbar > .filter-count { max-width: var(--measure); margin: 0; }
+.activity-timeline > .activity-layout,
+.audit-view > .activity-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(20rem, .8fr);
+  align-items: start;
+  gap: var(--sp-5);
+  min-width: 0;
+}
+.activity-layout > .activity-record { min-width: 0; padding: 0; }
+.activity-record-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-4);
+  padding: var(--sp-5);
+}
+.activity-record-head > .hint { margin: 0; }
+.activity-record > .timeline,
+.activity-record > .timeline-footer,
+.activity-record > .timeline-empty,
+.activity-record > .audit-empty,
+.activity-record > .audit-cap,
+.activity-record > .audit-loading,
+.activity-record > .timeline-skeleton {
+  margin: 0;
+  padding: 0 var(--sp-5) var(--sp-5);
+}
+.activity-record .timeline-line { gap: var(--sp-2); padding-block: var(--sp-3); }
+.activity-record .timeline-words { gap: var(--sp-1); }
+.activity-record .timeline-sentence,
+.activity-record .timeline-facts > span { overflow-wrap: anywhere; }
+.activity-record .timeline-footer { max-width: none; gap: var(--sp-2); }
+.activity-layout > .activity-inspector {
+  position: sticky;
+  top: var(--sp-5);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  max-height: calc(100dvh - 112px);
+  padding: 0;
+  overflow: hidden;
+}
+.activity-inspector.is-empty { min-height: 18rem; }
+.activity-inspector-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-3);
+  padding: var(--sp-4) var(--sp-5);
+}
+.activity-inspector-context { flex-basis: 100%; min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.activity-inspector-body { min-height: 0; min-width: 0; overflow: auto; overscroll-behavior: contain; }
+.activity-inspector.is-empty .activity-inspector-body { padding: 0 var(--sp-5) var(--sp-5); }
+.activity-timeline .activity-inspector .evidence {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  margin: 0;
+  border-width: 0;
+  border-radius: 0;
+}
+.activity-inspector .evidence-result,
+.activity-inspector .evidence-main,
+.activity-inspector .evidence-side {
+  display: grid;
+  gap: var(--sp-3);
+  align-content: start;
+  min-width: 0;
+  padding: var(--sp-4) var(--sp-5);
+  border-left-width: 0;
+}
+.activity-inspector .evidence-block,
+.activity-inspector .evidence-section { display: grid; gap: var(--sp-2); min-width: 0; }
+.activity-inspector .evidence-facts { margin: 0; }
+.activity-inspector .evidence-facts > div {
+  display: grid;
+  grid-template-columns: 6rem minmax(0, 1fr);
+  gap: var(--sp-2);
+}
+.activity-inspector .evidence-facts dd { min-width: 0; text-align: left; overflow-wrap: anywhere; }
+.activity-inspector .evidence-output,
+.activity-inspector .evidence-command { max-height: none; white-space: pre-wrap; overflow-wrap: anywhere; }
+.activity-inspector .evidence-go { margin: 0; justify-self: start; }
+.audit-view .audit-window-context { display: grid; gap: var(--sp-2); padding: 0 var(--sp-5) var(--sp-4); max-width: var(--measure); }
+.audit-view .audit-window-context:empty { display: none; }
+.audit-view .audit-window-context > p { margin: 0; }
+.audit-view .table-scroll { min-width: 0; max-width: 100%; }
+.audit-view .audit-table { min-width: 0; width: 100%; }
+.audit-view .audit-table td { overflow-wrap: anywhere; }
+.audit-view .audit-when .audit-disclosure { margin-right: var(--sp-1); }
+.audit-view .activity-inspector .audit-record {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--sp-5);
+  max-width: none;
+  margin: 0;
+  padding: var(--sp-4) var(--sp-5);
+}
+.audit-view .audit-record-section { display: grid; gap: var(--sp-2); min-width: 0; }
+.audit-view .audit-record-facts { display: grid; grid-template-columns: 5rem minmax(0, 1fr); gap: var(--sp-2) var(--sp-3); min-width: 0; margin: 0; }
+.activity-inspector-scrim { position: fixed; inset: 0; z-index: 60; touch-action: none; }
+
+.activity-rail .activity-rail-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--sp-1-5) var(--sp-2);
+}
+
+.activity-rail .activity-rail-totals {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.activity-rail .activity-rail-count {
+  margin-left: 0;
+}
+
+.activity-rail .activity-card {
+  gap: var(--sp-1-5);
+  padding: var(--sp-2-5);
+}
+
+.activity-rail .activity-card-title {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.activity-rail .activity-group {
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+}
+
+.activity-rail .activity-group-head {
+  display: grid;
+  gap: var(--sp-1-5);
+}
+
+.activity-rail .activity-group-heading,
+.activity-rail .activity-group-attribution {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-1-5) var(--sp-2);
+  min-width: 0;
+}
+
+.activity-rail .activity-group-heading > .activity-group-purpose {
+  flex: 1 1 10rem;
+}
+
+.activity-rail .activity-group-author,
+.activity-rail .activity-actor {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.activity-rail .activity-group-receipt {
+  gap: var(--sp-2);
+}
+
+.activity-rail .activity-group-receipt p {
+  display: grid;
+  grid-template-columns: 4.5rem minmax(0, 1fr);
+  gap: var(--sp-2);
+  overflow-wrap: anywhere;
+}
+
+.activity-rail .activity-group-record {
+  display: grid;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.activity-rail .activity-rail-retention {
+  min-width: 0;
+}
+
+.activity-rail .activity-rail-retention > summary {
+  padding-block: var(--sp-1);
+}
+
+.activity-rail .activity-rail-retention[open] {
+  display: grid;
+  gap: var(--sp-2);
+}
+
+
+@media (max-width: 1023px) {
+  .activity-timeline > .activity-layout,
+  .audit-view > .activity-layout { grid-template-columns: minmax(0, 1fr); }
+  .activity-inspector.is-sheet {
+    position: fixed;
+    inset: var(--sp-3);
+    z-index: 61;
+    width: auto;
+    max-height: none;
+    margin: 0;
+  }
+}
+@media (max-width: 639px) {
+  .activity-timeline .timeline-filters { grid-template-columns: minmax(0, 1fr); }
+  .activity-record-head { padding: var(--sp-4); }
+  .activity-record > .timeline,
+  .activity-record > .timeline-footer,
+  .activity-record > .timeline-empty,
+  .activity-record > .audit-empty,
+  .activity-record > .audit-cap,
+  .activity-record > .audit-loading,
+  .activity-record > .timeline-skeleton { padding-inline: var(--sp-3); }
+  .activity-record .timeline-line { grid-template-columns: 4rem 12px minmax(0, 1fr) 12px; gap: var(--sp-1-5); padding-inline: 0; }
+  .activity-record .timeline-more-facts { white-space: normal; }
+  .audit-view .audit-table tr.audit-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "when status" "device token" "what what";
+    align-items: baseline;
+    gap: var(--sp-1-5) var(--sp-2);
+  }
+  .audit-view .audit-row td:nth-child(2) { white-space: normal; }
+  .audit-view .audit-row td:nth-child(3) { max-width: 9rem; justify-self: end; }
+  .activity-inspector-head,
+  .activity-inspector .evidence-result,
+  .activity-inspector .evidence-main,
+  .activity-inspector .evidence-side,
+  .audit-view .activity-inspector .audit-record { padding-inline: var(--sp-4); }
+}

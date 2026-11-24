@@ -1,0 +1,10 @@
+{
+  "id": "com.example.hello",
+  "namespace": "hello",
+  "name": "Hello",
+  "version": "0.1.0",
+  "description": "Two friendly tools, and the reference for writing a plugin.",
+  "command": ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "plugin.ps1"],
+  "cwd": ".",
+  "env": { "HELLO_GREETING": "hi" }
+}

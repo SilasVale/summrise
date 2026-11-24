@@ -1,0 +1,24 @@
+[package]
+name = "summrise-plugin-host"
+description = "The supervised plugin subsystem: one MCP child per plugin, one lifecycle and one log."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# The scripted launcher the host's tests and the app's MCP tests both drive. It is a feature rather
+# than `#[cfg(test)]` because a dependency's `cfg(test)` is not the app's: the device's test build
+# enables this from its `[dev-dependencies]`, and a shipped build does not compile it at all.
+[features]
+test-support = []
+
+[dependencies]
+# The manifest is core's decision; the host only resolves and starts what core accepted.
+summrise-core = { path = "../core" }
+# The supervised subsystem is where plugin lifecycle events are published.
+summrise-bus = { path = "../bus" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# `process` is the real child, `io-util` the stdio transports (and the tests' duplex peer), `sync`
+# the waiter map and supervisor wake channel, `time` the deadlines and backoff, and `rt`/`macros`
+# the tasks and `#[tokio::test]`. Nothing here needs a multi-threaded runtime of its own.
+tokio = { version = "1", features = ["rt", "macros", "io-util", "process", "sync", "time"] }

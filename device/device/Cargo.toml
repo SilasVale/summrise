@@ -6,6 +6,19 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
+summrise-bus = { path = "../bus" }
+# The supervised plugin subsystem, as its own crate so the host is a compile-time unit. The app
+# re-exports it as its `plugins` module; the feature-bearing dev-dependency below adds the scripted
+# launcher for this crate's tests without compiling it into a shipped binary.
+summrise-plugin-host = { path = "../plugin-host" }
+summrise-protocol = { path = "../protocol" }
+summrise-ui = { path = "../ui" }
+# The panel's Timeline cuts at this machine's local midnight, the same cut the console's Activity
+# timeline draws. `clock` is only the local-timezone lookup; the panel keeps no calendar of its own.
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+# The helper's per-boot token is OS randomness, like the console's session tokens. `rand_core` with
+# the `getrandom` feature is the same choice the console made, for the same reason.
+rand_core = { version = "0.6", features = ["getrandom"] }
 axum = "0.7"
 ed25519-dalek = "2"
 # The one new dependency of the downloader. A hand-rolled HTTPS client would be a TLS verifier
@@ -40,6 +53,9 @@ rmcp = { version = "2", default-features = false, features = [
 # UTF-8, and the audited path is JSON-RPC frames, so the bytes travel encoded rather than as a second
 # protocol. The text mode stays the default; an operator who asks for base64 is asking for bytes.
 base64 = "0.22"
+# The panel is rendered from the same Rust that owns its facts instead of being a second HTML file
+# to keep in step. `maud` escapes every interpolated value by construction.
+maud = "0.26"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
@@ -71,6 +87,14 @@ tokio = { version = "1", features = [
     "time",
     # The audit log is appended with `tokio::fs`, so a call never blocks the reactor on a write.
     "fs",
+    # The plugin host spawns and supervises child MCP servers with `tokio::process`; its supervisor
+    # and the session's waiter map use `tokio::sync` (already in the tree through the HTTP stack, and
+    # stated here because this crate now names it directly).
+    "process",
+    "sync",
+    # Ctrl+C is the one stop the device can make orderly itself; `serve` waits for it so the run loop
+    # can stop the plugin children before the process exits.
+    "signal",
 ] }
 
 # Unix only. portable-pty starts the child with `setsid()`, so the shell is a session and process
@@ -81,6 +105,9 @@ tokio = { version = "1", features = [
 # has, and the safe wrapper keeps the test free of `unsafe` like the rest of the crate.
 [target.'cfg(windows)'.dependencies]
 summrise-winsec = { path = "../winsec" }
+# The two Win32 calls the app cannot make from `#![forbid(unsafe_code)]`: process listing and
+# termination. See `winsys/src/lib.rs` for why they are their own crate.
+summrise-winsys = { path = "../winsys" }
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.25", default-features = false, features = ["signal", "term", "poll"] }
@@ -89,6 +116,10 @@ nix = { version = "0.25", default-features = false, features = ["signal", "term"
 # axum builds its services with. `summrise-launch` is a dev-dependency because the sidecar the stager
 # writes is the sidecar the launcher re-verifies; the test parses it with the launcher's own type.
 [dev-dependencies]
+# The plugin host's scripted launcher is shared by the host's tests and this crate's MCP tests. A
+# dependency's `cfg(test)` is not the app's, so the helper is behind a feature this table enables;
+# `cargo build` does not compile it.
+summrise-plugin-host = { path = "../plugin-host", features = ["test-support"] }
 # The integration test's whole point is interop with rmcp's own client, so the client half is
 # test-only: `client` is the handler/service role, and
 # `transport-streamable-http-client-reqwest` is the transport this server speaks. That transport's

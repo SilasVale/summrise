@@ -1,0 +1,306 @@
+import { fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { ScreenPage } from "./ScreenPage";
+import { ToolError, type Grant } from "./terminal";
+
+const mocks = vi.hoisted(() => ({ callTool: vi.fn() }));
+
+vi.mock("./terminal", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./terminal")>();
+  return { ...actual, callTool: mocks.callTool };
+});
+
+vi.mock("./BrowserPane", () => ({ BrowserPane: () => <h3>Browser pane</h3> }));
+
+const grant: Grant = { deviceId: "device-1", envelope: { token: "envelope" } };
+
+/** The view is controlled by the surface, so the tests own the state the console's App owns. */
+function ScreenHarness({ initial = "desktop" as "desktop" | "browser" }) {
+  const [view, setView] = useState<"desktop" | "browser">(initial);
+  return <ScreenPage grant={grant} view={view} onViewChange={setView} />;
+}
+
+describe("ScreenPage", () => {
+  afterEach(() => {
+    mocks.callTool.mockReset();
+  });
+
+  it("will not capture a screen from a machine the fleet says is down", () => {
+    render(
+      <ScreenPage grant={grant} view="desktop" onViewChange={() => undefined} deviceOnline={false} />
+    );
+    // **THE SHELL OWNS THE OFFLINE REASON (audit-44 F5).** The Device shell already states the
+    // machine, its last-seen and the consequence; the tab says only what is missing, so the same
+    // fact is not stated twice within one screen.
+    expect(screen.queryByText(/machine is offline/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/^No capture yet/)).toBeInTheDocument();
+    const capture = screen.getByRole("button", { name: "Capture screen" });
+    expect(capture).toBeDisabled();
+    expect(capture.getAttribute("title")).toMatch(/reconnects/);
+  });
+
+  it("says no picture has been taken and names the control that takes one", () => {
+    render(<ScreenPage grant={grant} view="desktop" onViewChange={() => undefined} />);
+    // One line: the press, and that nothing happens without it (the thirtieth list, item 1). The
+    // timer clause was the same idea a second time.
+    expect(
+      screen.getByText("No capture yet — Capture screen takes one when you ask.")
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Capture screen" })).toBeInTheDocument();
+  });
+
+  it("says the refusal once, and puts the black-frame note where a picture would be", () => {
+    // **MEASURED AT 1440 (the thirtieth list, item 1):** with the helper unregistered the page
+    // carried 591 characters for one disabled button and told the same refusal three times — the
+    // lead's `A capture of the signed-in user's desktop; locked and disconnected sessions refuse.`,
+    // the reason's `Capture is off: …`, and a paragraph above the button ending `… not a black
+    // frame.` A reader who has not pressed anything yet does not need the third.
+    const { container } = render(
+      <ScreenPage
+        grant={grant}
+        view="desktop"
+        onViewChange={() => undefined}
+        helperRunning={false}
+      />
+    );
+
+    const surface = container.querySelector(".screen-view-note") as HTMLElement;
+    expect(surface.textContent).toBe("A capture of this machine's signed-in desktop.");
+    const reasons = container.querySelectorAll(".screen-capture-reason");
+    expect(reasons).toHaveLength(1);
+    expect(reasons[0].textContent).toMatch(/^Capture is off:/);
+    // The caption belongs to a picture, so it is absent until one exists.
+    expect(container.querySelector(".screen-shot-caption")).toBeNull();
+  });
+
+  it("says the helper has not registered before the operator clicks", () => {
+    render(
+      <ScreenPage
+        grant={grant}
+        view="desktop"
+        onViewChange={() => undefined}
+        helperRunning={false}
+      />
+    );
+
+    // The fleet already knows; the page must not present the click as if it could succeed. A
+    // disabled button whose description names the missing helper is the honest shape, not an
+    // enabled press followed by the device's refusal.
+    expect(screen.getByText(/has not registered, so a capture will be refused/)).toBeInTheDocument();
+    const capture = screen.getByRole("button", { name: "Capture screen" });
+    expect(capture).toBeDisabled();
+    expect(capture).toHaveAccessibleDescription(/has not registered/);
+    expect(capture.getAttribute("title")).toMatch(/has not registered/);
+  });
+
+  it("leads with the disabled button's reason, before the locked-session note", () => {
+    // audit-44 F4: the measured page opened with the legend, a dead button and a paragraph about
+    // locked sessions; the actual reason (`the helper has not registered`) was paragraph 2. The
+    // reason is now drawn beside the button, so the first answer is the button's own state.
+    const { container } = render(
+      <ScreenPage
+        grant={grant}
+        view="desktop"
+        onViewChange={() => undefined}
+        helperRunning={false}
+      />
+    );
+
+    const reason = screen.getByText(/has not registered, so a capture will be refused/);
+    expect(reason).toHaveClass("hint");
+    expect(reason.closest(".screen-view-head")).not.toBeNull();
+    // **THE REFUSAL IS SAID ONCE (the thirtieth list, item 1).** The measured page said it three
+    // times in three vocabularies — the lead's `…sessions refuse.`, this reason, and a paragraph
+    // above the button about a black frame. The lead names the surface and this names the reason;
+    // the picture's caption carries the black-frame note, and only where there is a picture.
+    expect(screen.queryByText(/locked or disconnected session is the device's refusal/i)).toBeNull();
+    expect(screen.queryByText(/locked and disconnected sessions refuse/i)).toBeNull();
+    // It is the disabled button's description, so the reason travels with the control.
+    expect(
+      container.querySelector(".screen-capture")?.getAttribute("aria-describedby")
+    ).toBe("screen-helper-missing");
+  });
+
+  it("stays quiet when the device did not say or the helper is registered", () => {
+    const { rerender } = render(
+      <ScreenPage grant={grant} view="desktop" onViewChange={() => undefined} />
+    );
+    expect(screen.queryByText(/has not registered/)).not.toBeInTheDocument();
+
+    rerender(
+      <ScreenPage grant={grant} view="desktop" onViewChange={() => undefined} helperRunning />
+    );
+    expect(screen.queryByText(/has not registered/)).not.toBeInTheDocument();
+  });
+
+  it("disables the capture and names the helper's disconnected session before the press", () => {
+    render(
+      <ScreenPage
+        grant={grant}
+        view="desktop"
+        onViewChange={() => undefined}
+        helperRunning
+        helperSession={2}
+        sessions={[
+          { id: 0, state: "disconnected" },
+          { id: 2, user: "Administrator", state: "disconnected" },
+          { id: 5, state: "connected" }
+        ]}
+      />
+    );
+
+    // The Machine tab's two rows, said on the Screen page where the refusal would happen.
+    expect(
+      screen.getByText(/per-user helper is in session 2, which is disconnected/)
+    ).toBeInTheDocument();
+    expect(screen.getByText(/sign in at the machine or reconnect its remote session/i)).toBeInTheDocument();
+    const capture = screen.getByRole("button", { name: "Capture screen" });
+    expect(capture).toBeDisabled();
+    expect(capture.getAttribute("title")).toMatch(/session 2/);
+    expect(capture.getAttribute("title")).toMatch(/disconnected/);
+  });
+
+  it("leaves a capture the helper's connected session can serve unchanged", () => {
+    render(
+      <ScreenPage
+        grant={grant}
+        view="desktop"
+        onViewChange={() => undefined}
+        helperRunning
+        helperSession={2}
+        sessions={[
+          { id: 2, user: "operator", state: "active" },
+          // Another session's state is not the helper's; it must not disable this button.
+          { id: 5, state: "disconnected" }
+        ]}
+      />
+    );
+
+    expect(screen.queryByText(/per-user helper in session/)).not.toBeInTheDocument();
+    expect(screen.getByText(/No capture yet/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Capture screen" })).toBeEnabled();
+  });
+
+  it("does not invent a refusal from a session state it does not know", () => {
+    render(
+      <ScreenPage
+        grant={grant}
+        view="desktop"
+        onViewChange={() => undefined}
+        helperRunning
+        helperSession={2}
+        sessions={[{ id: 2, state: "state-12" }]}
+      />
+    );
+
+    // The device's fact is `state-12`; the page may not read that as disconnected.
+    expect(screen.queryByText(/per-user helper in session/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Capture screen" })).toBeEnabled();
+  });
+
+  it("names the next step when the device refuses the desktop", async () => {
+    mocks.callTool.mockRejectedValue(
+      new ToolError(
+        "screen.capture: the capture thread could not attach to the input desktop: 拒绝访问。 (os error 5)",
+        200,
+        null,
+        true
+      )
+    );
+    render(
+      <ScreenPage
+        grant={grant}
+        view="desktop"
+        onViewChange={() => undefined}
+        helperRunning
+        helperSession={2}
+        sessions={[{ id: 2, state: "active" }]}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Capture screen" }));
+
+    expect(await screen.findByText(/input desktop/)).toHaveClass("error");
+    expect(screen.getByText(/helper in session 2 could not see a displayed desktop/)).toBeInTheDocument();
+    expect(screen.getByText(/Unlock the machine or connect that session/)).toBeInTheDocument();
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
+
+  it("captures the device's screen on demand and offers the picture for download", async () => {
+    mocks.callTool.mockResolvedValue(
+      JSON.stringify({ format: "png", data: "iVBORw0KGgo=", width: 1280, height: 720 })
+    );
+    render(<ScreenHarness />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Capture screen" }));
+
+    const image = await screen.findByRole("img", { name: "the device's screen" });
+    expect(image).toHaveAttribute("src", "data:image/png;base64,iVBORw0KGgo=");
+    expect(screen.getByText("1280×720")).toBeInTheDocument();
+
+    const link = screen.getByRole("link", { name: "Download" });
+    expect(link).toHaveAttribute("href", "data:image/png;base64,iVBORw0KGgo=");
+    expect(link.getAttribute("download")).toMatch(/^summrise-screen-\d{4}-\d{2}-\d{2}-\d{6}\.png$/);
+    expect(mocks.callTool).toHaveBeenCalledWith(grant, "screen.capture", {});
+  });
+
+  it("shows the device's refusal, leaves no image, and lets the button be used again", async () => {
+    mocks.callTool.mockRejectedValue(
+      new ToolError("no per-user helper is running on this device", 200, null, true)
+    );
+    render(<ScreenHarness />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Capture screen" }));
+
+    const refusal = await screen.findByText("no per-user helper is running on this device");
+    expect(refusal).toHaveClass("error");
+    expect(screen.getByText(/running in the signed-in user's desktop session/)).toBeInTheDocument();
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Capture screen" })).toBeEnabled();
+  });
+
+  it("clears the previous frame when a second capture fails", async () => {
+    mocks.callTool.mockResolvedValueOnce(
+      JSON.stringify({ format: "png", data: "iVBORw0KGgo=", width: 1280, height: 720 })
+    );
+    mocks.callTool.mockRejectedValueOnce(new ToolError("the session is locked", 200, null, true));
+    render(<ScreenHarness />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Capture screen" }));
+    expect(await screen.findByRole("img", { name: "the device's screen" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Capture screen" }));
+    expect(await screen.findByText("the session is locked")).toBeInTheDocument();
+    // An older picture under a refusal would read as the screen the device just failed to take.
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
+
+  it("switches to the browser view without leaving Screen", () => {
+    render(<ScreenHarness />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Browser" }));
+    expect(screen.getByRole("heading", { name: "Browser pane" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Capture screen" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Machine screen" }));
+    expect(screen.getByRole("button", { name: "Capture screen" })).toBeInTheDocument();
+  });
+
+  it("opens directly on the browser view when the fragment names it", () => {
+    render(<ScreenHarness initial="browser" />);
+    expect(screen.getByRole("heading", { name: "Browser pane" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Capture screen" })).not.toBeInTheDocument();
+  });
+
+  it("keeps a lost transport response's outcome unknown", async () => {
+    mocks.callTool.mockRejectedValue(new ToolError("Failed to fetch", 0));
+    render(<ScreenHarness />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Capture screen" }));
+
+    const failure = await screen.findByText(/the call's outcome is unknown; the device may still be working/);
+    expect(failure).toHaveClass("error");
+    expect(failure).toHaveTextContent("Failed to fetch");
+  });
+});

@@ -50,6 +50,37 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // `--login-link <public-url> --data <dir>` mints a two-minute code for the page's login box.
+    // It is a separate invocation on purpose: the code is a file the running console reads, and the
+    // command that prints the link is the operator's, run where they already are.
+    let mut probe = std::env::args_os().skip(1);
+    if let Some(first) = probe.next() {
+        if first == "--login-link" {
+            let url = probe.next().ok_or("--login-link needs <public-url>")?;
+            let mut data = None;
+            while let Some(flag) = probe.next() {
+                if flag == "--data" {
+                    data = probe.next();
+                }
+            }
+            let data = data.ok_or("--login-link needs --data <dir>")?;
+            let data = std::path::PathBuf::from(data);
+            let code = summrise_console::new_login_code(120_000);
+            let path = summrise_console::write_login_code(&data, &code)?;
+            eprintln!(
+                "summrise-console: wrote {} (valid two minutes)",
+                path.display()
+            );
+            let separator = if url.to_string_lossy().contains('?') {
+                '&'
+            } else {
+                '?'
+            };
+            println!("{}{separator}code={}", url.to_string_lossy(), code.code);
+            return Ok(());
+        }
+    }
+
     let config = Config::from_args()?;
     let console = Console::load(&config)?;
 
@@ -64,7 +95,16 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         listener.local_addr()?
     );
 
-    axum::serve(listener, console.router()).await?;
+    // The peer address is what `--trusted-proxy` compares against, and only the transport knows it.
+    // Serve with connect info so a proxy's `X-Forwarded-User` can be judged against who actually
+    // connected, rather than against a header the caller chose.
+    axum::serve(
+        listener,
+        console
+            .router()
+            .into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }
 

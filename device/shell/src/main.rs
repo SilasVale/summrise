@@ -1,0 +1,154 @@
+//! The Summrise tray and window.
+//!
+//! A Windows user's eye-level view of one device: a dot that says whether the app is serving, and one
+//! click to the operator's console (or, when the console is unreachable, the device's own panel).
+//!
+//! **This binary is installer-owned.** The canary update swaps `summrise-device.exe` and nothing else, so
+//! a change here reaches a machine through `SummriseSetup`, not through a release document; docs/RELEASE.md
+//! carries the procedure and the reason. Its startup lines go to `%LOCALAPPDATA%\Summrise\shell.log`,
+//! because a tray that does not appear is otherwise a process with no message.
+//!
+//! The device itself is two runtimes with no UI: `summrise-launch` supervises `summrise-device`, and
+//! every action is granted and audited by the console. This binary is deliberately outside that
+//! boundary — it holds no credential and can do nothing but read a loopback health document and open
+//! a URL. That is what lets it exist without becoming a second update path or a second authorization
+//! surface.
+
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
+#[cfg(not(windows))]
+fn main() {
+    eprintln!("summrise-shell: the tray and the window are Windows-only");
+    std::process::exit(1);
+}
+
+#[cfg(windows)]
+mod app;
+// The 9444 browser-session door: a hand-written loopback request, portable so its exact bytes and
+// its refusal parse are tested where no Electron host or tray exists.
+#[cfg_attr(not(windows), allow(dead_code))]
+mod browser;
+// Which page a window opens: the console when one is configured and answers, the device's own
+// panel otherwise. Portable so the decision's tests run in CI's Linux job, where the tray cannot.
+#[cfg_attr(not(windows), allow(dead_code))]
+mod console;
+// Portable on purpose: the probe's and the helper channel's tests run in CI's Linux job, where the
+// tray itself cannot.
+#[cfg_attr(not(windows), allow(dead_code))]
+mod health;
+#[cfg_attr(not(windows), allow(dead_code))]
+mod helper;
+// The desktop chrome's rows: portable, so the ids/labels/chords are tested where no tray can be.
+#[cfg_attr(not(windows), allow(dead_code))]
+mod menu;
+// The device's port is a deployment choice, so the tray and the helper resolve it instead of naming it.
+#[cfg_attr(not(windows), allow(dead_code))]
+mod port;
+
+/// A GUI-subsystem process has no console, so a failure that would otherwise be an `eprintln!` goes
+/// to a file beside the browser profile: the tray is either there or it is not, and this says which.
+pub fn note(line: &str) {
+    let Some(base) = std::env::var_os("LOCALAPPDATA") else {
+        return;
+    };
+    let directory = std::path::PathBuf::from(base).join("Summrise");
+    let _ = std::fs::create_dir_all(&directory);
+    append_note(&directory.join("shell.log"), line);
+}
+
+/// The shell can run for months, and its log is the support artifact. Keep one previous file at
+/// [`MAX_LOG_BYTES`] so a chatty tray cannot fill a disk; the old file is removed for the rename
+/// because Windows refuses to replace it in one call.
+const MAX_LOG_BYTES: u64 = 1024 * 1024;
+
+fn append_note(path: &std::path::Path, line: &str) {
+    if std::fs::metadata(path)
+        .map(|metadata| metadata.len() > MAX_LOG_BYTES)
+        .unwrap_or(false)
+    {
+        let previous = path.with_extension("log.1");
+        let _ = std::fs::remove_file(&previous);
+        let _ = std::fs::rename(path, &previous);
+    }
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        use std::io::Write;
+        let _ = writeln!(file, "{line}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_log_is_rotated_before_it_can_fill_the_profile() {
+        let directory =
+            std::env::temp_dir().join(format!("summrise-shell-log-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).expect("the temp directory is writable");
+        let path = directory.join("shell.log");
+        std::fs::write(&path, vec![b'x'; (MAX_LOG_BYTES + 1) as usize])
+            .expect("the oversized log is writable");
+        append_note(&path, "starting");
+        assert!(path.is_file(), "a fresh log is written");
+        assert!(
+            std::fs::metadata(&path).expect("metadata").len() < MAX_LOG_BYTES,
+            "the fresh log starts small"
+        );
+        let previous = path.with_extension("log.1");
+        assert!(previous.is_file(), "the old log is kept once");
+        assert!(
+            std::fs::metadata(&previous).expect("metadata").len() > MAX_LOG_BYTES,
+            "the old log is the oversized one"
+        );
+        let _ = std::fs::remove_dir_all(&directory);
+    }
+}
+
+#[cfg(windows)]
+fn main() {
+    // A DIAGNOSTIC, A FALLBACK AND A BROWSER-SESSION REQUEST: ALL ONE-SHOT, DECIDED BEFORE THE
+    // MUTEX. The tray menu is a click on a machine this project is often not sitting at, so "Open
+    // console does nothing" was reported twice without a way to separate the menu wiring from the
+    // window: `--check-window` builds the same window and WebView2 view the menu builds, waits for
+    // the page to load, and answers on the log and the exit code. `--panel` is the supported
+    // fallback: one visible window on the device's own panel, with no tray. `--browser-session`
+    // asks the existing 9444 door for one session, with no tray, no mutex and no fallback window.
+    match app::mode_from_args(std::env::args()) {
+        app::Mode::CheckWindow => {
+            let code = app::check_window();
+            std::process::exit(code);
+        }
+        app::Mode::Fallback => {
+            let code = app::show_panel();
+            std::process::exit(code);
+        }
+        app::Mode::BrowserSession => {
+            // THE DOOR, ONCE, AND THE EXIT CODE IS THE ANSWER. No tray and no mutex: this is the
+            // same call the Browser row makes, provable from a scheduled task.
+            let code = app::browser_session();
+            std::process::exit(code);
+        }
+        app::Mode::Tray => {}
+    }
+    if app::already_running() {
+        // A second launch asks for the icon back rather than becoming a second tray: signal the
+        // running instance to re-add it, and only then exit.
+        if app::signal_wake() {
+            note("another instance owns the tray; asked it to re-add the icon");
+        } else {
+            note("another instance owns the tray and did not answer the wake signal");
+        }
+        return;
+    }
+    note("starting");
+    if let Err(error) = app::run() {
+        note(&format!("exited: {error}"));
+        eprintln!("summrise-shell: {error}");
+        std::process::exit(1);
+    }
+}

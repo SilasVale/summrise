@@ -23,8 +23,41 @@ pub const GRANT_KEY_FLAG: &str = "--grant-key-file";
 pub const DATA_FLAG: &str = "--data";
 /// The flag naming the address to listen on.
 pub const BIND_FLAG: &str = "--bind";
+/// The flag naming the label this console reports on `/health`.
+pub const VERSION_FLAG: &str = "--version";
+
+/// The version this console was BUILT as.
+///
+/// `--version` used to be the only source, and it was written by hand into a launcher script — which
+/// drifted: the page said 0.3.17 for a day after 0.3.18 shipped. The build knows the answer, so the
+/// release passes it in and the flag stays only as an override for a hand-run build.
+pub fn default_version() -> String {
+    include_str!(concat!(env!("OUT_DIR"), "/version.txt"))
+        .trim()
+        .to_owned()
+}
+/// The flag naming the team's pinned certificate set, which turns on Access trust.
+pub const ACCESS_JWKS_FLAG: &str = "--access-jwks";
+/// The flag naming the Access application's audience tag.
+pub const ACCESS_AUD_FLAG: &str = "--access-aud";
+/// The flag naming the Access team's issuer.
+pub const ACCESS_ISSUER_FLAG: &str = "--access-issuer";
 /// The flag naming the listening port.
 pub const PORT_FLAG: &str = "--port";
+
+/// The flag naming the mesh broker this console asks about a device.
+///
+/// Optional: without it the console has no mesh view and every readiness question answers "not
+/// configured". The broker is contacted for a readiness answer, never for operator traffic.
+pub const MESH_BROKER_FLAG: &str = "--mesh-broker";
+
+/// The flag naming the reverse proxy whose `X-Forwarded-User` this console believes.
+///
+/// Optional, and off by default. When set, a request whose peer address is exactly this proxy is the
+/// operator the header names — the fact that lets a tailnet-only deployment open straight into the
+/// page instead of asking for a 64-character secret. Every other peer is still asked for the token:
+/// the header is a claim, and only the configured address may make it.
+pub const TRUSTED_PROXY_FLAG: &str = "--trusted-proxy";
 
 /// The port the console serves on when `--port` is not given.
 pub const DEFAULT_PORT: u16 = 18_082;
@@ -46,6 +79,34 @@ pub struct Config {
     pub bind: IpAddr,
     /// The TCP port to listen on.
     pub port: u16,
+    /// When set, a Cloudflare Access JWT is accepted as the operator: the page skips the token box.
+    pub access: Option<AccessConfig>,
+    /// The reverse proxy allowed to name the operator, as its exact peer address.
+    ///
+    /// `None` means no header is believed, and the operator token stays the only way in.
+    pub trusted_proxy: Option<IpAddr>,
+    /// The mesh broker this console asks about a device, as a canonical `http://host:port`.
+    ///
+    /// `None` means the console has no mesh view at all; the readiness route reports that rather than
+    /// pretending the mesh is down.
+    pub mesh_broker: Option<String>,
+    /// The build label this console reports on `/health`.
+    ///
+    /// A console is deployed by replacing a binary, so "which build is running?" used to be
+    /// unanswerable without a file's timestamp. The deploy passes the label; a bare start reports the
+    /// crate version, which is honest about being a development build.
+    pub version: String,
+}
+
+/// The three facts that make an Access JWT trustworthy.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccessConfig {
+    /// The team's certificate set (JWKS), pinned in a file.
+    pub jwks: PathBuf,
+    /// The Access application's audience tag.
+    pub audience: String,
+    /// The team's issuer URL.
+    pub issuer: String,
 }
 
 /// Why a command line could not produce a [`Config`].
@@ -104,6 +165,12 @@ impl Config {
         let mut data = None;
         let mut bind = None;
         let mut port = None;
+        let mut version = None;
+        let mut access_jwks = None;
+        let mut access_aud = None;
+        let mut access_iss = None;
+        let mut mesh_broker = None;
+        let mut trusted_proxy = None;
 
         let mut arguments = args.into_iter();
         while let Some(argument) = arguments.next() {
@@ -125,6 +192,29 @@ impl Config {
                         expected: "an IP address (127.0.0.1, 0.0.0.0, ::1, ...)",
                     })?);
                 }
+                Flag::Version => version = Some(value.to_string_lossy().into_owned()),
+                Flag::AccessJwks => access_jwks = Some(PathBuf::from(value)),
+                Flag::AccessAud => access_aud = Some(value.to_string_lossy().into_owned()),
+                Flag::AccessIssuer => access_iss = Some(value.to_string_lossy().into_owned()),
+                Flag::MeshBroker => mesh_broker = Some(value.to_string_lossy().into_owned()),
+                Flag::TrustedProxy => {
+                    let text = value.to_string_lossy();
+                    let address = text.parse::<IpAddr>().map_err(|_| ConfigError::Invalid {
+                        option: TRUSTED_PROXY_FLAG,
+                        value: text.clone().into_owned(),
+                        expected: "the proxy's IP address (for example 100.85.163.159)",
+                    })?;
+                    // A wildcard would mean "believe any peer that can connect", which is the token
+                    // bypass this flag exists to avoid. Name the proxy, not the network it lives on.
+                    if address.is_unspecified() {
+                        return Err(ConfigError::Invalid {
+                            option: TRUSTED_PROXY_FLAG,
+                            value: text.into_owned(),
+                            expected: "one proxy address, not a wildcard",
+                        });
+                    }
+                    trusted_proxy = Some(address);
+                }
                 Flag::Port => {
                     let text = value.to_string_lossy();
                     port = Some(text.parse::<u16>().map_err(|_| ConfigError::Invalid {
@@ -143,26 +233,66 @@ impl Config {
             data: data.ok_or(ConfigError::Missing(DATA_FLAG))?,
             bind: bind.unwrap_or(DEFAULT_BIND),
             port: port.unwrap_or(DEFAULT_PORT),
+            version: version.unwrap_or_else(default_version),
+            trusted_proxy,
+            mesh_broker: match mesh_broker {
+                Some(value) => match summrise_mesh::validate_broker_url(&value) {
+                    // Store the URL the lookup will use: validated once, at startup, so a request never
+                    // interprets the operator's spelling again.
+                    Ok(authority) => Some(format!("http://{authority}")),
+                    Err(_) => {
+                        return Err(ConfigError::Invalid {
+                            option: MESH_BROKER_FLAG,
+                            value,
+                            expected: "an http origin such as http://127.0.0.1:8080",
+                        });
+                    }
+                },
+                None => None,
+            },
+            access: match (access_jwks, access_aud, access_iss) {
+                (None, None, None) => None,
+                (Some(jwks), Some(audience), Some(issuer)) => Some(AccessConfig {
+                    jwks,
+                    audience,
+                    issuer,
+                }),
+                _ => {
+                    return Err(ConfigError::Missing(ACCESS_JWKS_FLAG));
+                }
+            },
         })
     }
 }
 
 enum Flag {
+    AccessJwks,
+    AccessAud,
+    AccessIssuer,
+    Version,
     OperatorToken,
     GrantKey,
     Data,
     Bind,
     Port,
+    MeshBroker,
+    TrustedProxy,
 }
 
 impl Flag {
     fn parse(argument: &str) -> Option<Flag> {
         match argument {
+            ACCESS_JWKS_FLAG => Some(Flag::AccessJwks),
+            ACCESS_AUD_FLAG => Some(Flag::AccessAud),
+            ACCESS_ISSUER_FLAG => Some(Flag::AccessIssuer),
+            VERSION_FLAG => Some(Flag::Version),
             OPERATOR_TOKEN_FLAG => Some(Flag::OperatorToken),
             GRANT_KEY_FLAG => Some(Flag::GrantKey),
             DATA_FLAG => Some(Flag::Data),
             BIND_FLAG => Some(Flag::Bind),
             PORT_FLAG => Some(Flag::Port),
+            MESH_BROKER_FLAG => Some(Flag::MeshBroker),
+            TRUSTED_PROXY_FLAG => Some(Flag::TrustedProxy),
             _ => None,
         }
     }
@@ -174,6 +304,12 @@ impl Flag {
             Flag::Data => DATA_FLAG,
             Flag::Bind => BIND_FLAG,
             Flag::Port => PORT_FLAG,
+            Flag::Version => VERSION_FLAG,
+            Flag::AccessJwks => ACCESS_JWKS_FLAG,
+            Flag::AccessAud => ACCESS_AUD_FLAG,
+            Flag::AccessIssuer => ACCESS_ISSUER_FLAG,
+            Flag::MeshBroker => MESH_BROKER_FLAG,
+            Flag::TrustedProxy => TRUSTED_PROXY_FLAG,
         }
     }
 }
@@ -185,6 +321,8 @@ impl Flag {
 /// service exists to prevent.
 #[derive(Debug)]
 pub enum StartupError {
+    /// The Access certificates named by `--access-jwks` could not be used.
+    Access(String),
     /// A secret file could not be read.
     Unreadable {
         /// The flag that named the file.
@@ -238,6 +376,7 @@ pub enum StartupError {
 impl fmt::Display for StartupError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            StartupError::Access(detail) => write!(f, "{ACCESS_JWKS_FLAG}: {detail}"),
             StartupError::Unreadable { flag, path, source } => {
                 write!(f, "{flag}: cannot read {}: {source}", path.display())
             }
@@ -356,6 +495,39 @@ mod tests {
     }
 
     #[test]
+    fn the_mesh_broker_is_optional_and_validated_at_startup() {
+        let base = [
+            OPERATOR_TOKEN_FLAG,
+            "op.token",
+            GRANT_KEY_FLAG,
+            "grant.key",
+            DATA_FLAG,
+            "data",
+        ];
+        let mut with_mesh = base.to_vec();
+        with_mesh.extend([MESH_BROKER_FLAG, "http://127.0.0.1:8080/"]);
+        let config = Config::parse(args(&with_mesh)).expect("an http origin is accepted");
+        assert_eq!(
+            config.mesh_broker.as_deref(),
+            Some("http://127.0.0.1:8080"),
+            "the URL is validated and canonicalised once, at startup"
+        );
+
+        let mut bad = base.to_vec();
+        bad.extend([MESH_BROKER_FLAG, "https://broker.example"]);
+        assert!(
+            matches!(
+                Config::parse(args(&bad)),
+                Err(ConfigError::Invalid {
+                    option: MESH_BROKER_FLAG,
+                    ..
+                })
+            ),
+            "a broker the lookup cannot speak must fail at startup"
+        );
+    }
+
+    #[test]
     fn the_port_defaults_and_every_other_flag_is_required() {
         let config = Config::parse(args(&[
             OPERATOR_TOKEN_FLAG,
@@ -445,5 +617,51 @@ mod tests {
         .expect_err("a port must parse");
 
         assert!(matches!(error, ConfigError::Invalid { option, .. } if option == PORT_FLAG));
+    }
+
+    #[test]
+    fn the_trusted_proxy_is_optional_and_must_name_one_address() {
+        let base = [
+            OPERATOR_TOKEN_FLAG,
+            "op.token",
+            GRANT_KEY_FLAG,
+            "grant.key",
+            DATA_FLAG,
+            "data",
+        ];
+
+        let plain = Config::parse(args(&base)).expect("the three required flags are enough");
+        assert_eq!(
+            plain.trusted_proxy, None,
+            "without the flag no header is believed"
+        );
+
+        let mut trusted = base.to_vec();
+        trusted.extend([TRUSTED_PROXY_FLAG, "100.85.163.159"]);
+        let config = Config::parse(args(&trusted)).expect("one proxy address is accepted");
+        assert_eq!(
+            config.trusted_proxy,
+            Some(IpAddr::V4(Ipv4Addr::new(100, 85, 163, 159))),
+            "the address is what the peer comparison will use"
+        );
+
+        for wildcard in ["0.0.0.0", "::"] {
+            let mut bad = base.to_vec();
+            bad.extend([TRUSTED_PROXY_FLAG, wildcard]);
+            assert!(
+                matches!(
+                    Config::parse(args(&bad)),
+                    Err(ConfigError::Invalid { option, .. }) if option == TRUSTED_PROXY_FLAG
+                ),
+                "a wildcard would mean believing every peer that can connect"
+            );
+        }
+
+        let mut bad = base.to_vec();
+        bad.extend([TRUSTED_PROXY_FLAG, "not-an-address"]);
+        assert!(matches!(
+            Config::parse(args(&bad)),
+            Err(ConfigError::Invalid { option, .. }) if option == TRUSTED_PROXY_FLAG
+        ));
     }
 }

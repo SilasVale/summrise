@@ -11,10 +11,12 @@
 //! a secret, so it is not protected like one — but it names a URL that the device will fetch, which
 //! is why it is validated with the same rule the one-shot check uses.
 //!
-//! **The decision stays in one place.** This module owns *when*; `updater` owns *whether*. Nothing
-//! here verifies a signature or decides a version — it calls the same function the operator's
-//! `--check-update` calls, with the same key, the same install root and the same rollback memory
-//! from `state.json`. A second decision path would be a second set of rules to keep in step.
+//! **The decision does not live here.** This module owns the interval and the manual request file;
+//! [`crate::update_check`] owns *when* (the start, the console wake and this schedule, behind one
+//! guard); `updater` owns *whether*. Nothing here verifies a signature or decides a version — the
+//! checker calls the same function the operator's `--check-update` calls, with the same key, the
+//! same install root and the same rollback memory from `state.json`. A second decision path would be
+//! a second set of rules to keep in step.
 //!
 //! **A fleet does not stampede.** The first check waits a jittered delay derived from the device id,
 //! so a hundred machines that reboot together do not ask the mirror for the same document in the
@@ -24,17 +26,25 @@
 use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use summrise_release::{parse_release_url_allowing_plaintext, Channel};
 use tokio::task::JoinHandle;
 
-use crate::store::Store;
-use crate::updater::{self, UpdateConfig, UpdateError};
+use summrise_core::UpdateCheckTrigger;
+
+use crate::update_check::UpdateChecker;
 
 /// The name of the source file under the data directory.
 pub const FILE: &str = "update.json";
+
+/// A request for an immediate check, written by the local panel and consumed by the scheduler.
+pub const REQUEST_FILE: &str = "update.now";
+
+/// How often the scheduler looks for [`REQUEST_FILE`] while it waits for the interval.
+const REQUEST_POLL: Duration = Duration::from_secs(5);
 
 /// The shortest interval a source may ask for.
 ///
@@ -181,95 +191,70 @@ impl fmt::Display for SourceError {
 
 impl std::error::Error for SourceError {}
 
+/// Consume a manual check request. Returns whether a request was present.
+///
+/// The file is removed before the caller checks, so a failed check is one attempt rather than a
+/// request that survives and repeats on every poll.
+pub(crate) fn take_request(data: &Path) -> bool {
+    let path = data.join(REQUEST_FILE);
+    if !path.is_file() {
+        return false;
+    }
+    match std::fs::remove_file(&path) {
+        Ok(()) => true,
+        Err(error) => {
+            eprintln!("summrise-device: cannot consume the update request: {error}");
+            false
+        }
+    }
+}
+
 /// Run the schedule for `source` until the process ends.
 ///
 /// The returned handle is dropped by the caller; the task lives as long as the runtime. A failed
-/// check is one log line and the next interval — an unreachable mirror must not stop the device
-/// from serving, and an update refused by policy must not be retried inside one interval.
-pub fn spawn(
-    store: Store,
-    install: PathBuf,
-    data: PathBuf,
-    source: UpdateSource,
-    cfg: UpdateConfig,
-) -> JoinHandle<()> {
+/// check is one log line and the checker's own backoff — an unreachable mirror must not stop the
+/// device from serving, and an update refused by policy must not be retried inside one interval.
+///
+/// The schedule does not own the decision to check: it calls the same
+/// [`UpdateChecker::trigger`] the service start and the console wake call, so a scheduled check
+/// that lands inside the ten-minute spacing window is skipped rather than run twice.
+pub fn spawn(data: PathBuf, source: UpdateSource, checker: Arc<UpdateChecker>) -> JoinHandle<()> {
     tokio::spawn(async move {
         let seed = device_seed(&data);
-        tokio::time::sleep(first_delay(source.interval(), seed)).await;
+        let mut poll = tokio::time::interval(REQUEST_POLL);
+        // The first check is delayed so a fleet does not stampede the mirror. A manual request must
+        // not wait out that delay; this is the same request file the interval wait watches.
+        let first = tokio::time::sleep(first_delay(source.interval(), seed));
+        tokio::pin!(first);
         loop {
-            match check_once(&store, &install, &source, &cfg).await {
-                Ok(()) => {}
-                Err(error) => eprintln!("summrise-device: scheduled update check: {error}"),
+            tokio::select! {
+                _ = &mut first => break,
+                _ = poll.tick() => {
+                    if take_request(&data) {
+                        break;
+                    }
+                }
             }
-            tokio::time::sleep(source.interval()).await;
+        }
+        loop {
+            checker.trigger(UpdateCheckTrigger::Schedule).await;
+            // Wait out the interval, but look at the request file every few seconds. The local panel
+            // cannot reach this task directly; a file under the same data directory is the one
+            // channel that needs no second copy of the scheduler state.
+            let wait = tokio::time::sleep(source.interval());
+            tokio::pin!(wait);
+            loop {
+                tokio::select! {
+                    _ = &mut wait => break,
+                    _ = poll.tick() => {
+                        if take_request(&data) {
+                            break;
+                        }
+                    }
+                }
+            }
         }
     })
-}
-
-/// One scheduled check: the same call the operator's one-shot makes, with the state's memory.
-pub(crate) async fn check_once(
-    store: &Store,
-    install: &Path,
-    source: &UpdateSource,
-    cfg: &UpdateConfig,
-) -> Result<(), UpdateError> {
-    // The state carries both facts the decision needs — the version this device runs and the
-    // artifacts it rolled back. A state that cannot be read skips this round and says so: staging
-    // without the rollback memory is the bypass the review called I3, and guessing the version is
-    // a decision made on a fact this device does not have.
-    let state = match store.load() {
-        Ok(state) => state,
-        Err(error) => {
-            eprintln!(
-                "summrise-device: scheduled update check skipped: cannot read the state: {error}"
-            );
-            return Ok(());
-        }
-    };
-    let pubkey = crate::update::release_pubkey().map_err(UpdateError::Key)?;
-    let policy = updater::ReinstallPolicy {
-        rolled_back: &state.rolled_back,
-        force_reinstall: None,
-    };
-    let outcome = updater::check_update_with(
-        &source.url,
-        None,
-        source.channel,
-        &state.install.version,
-        install,
-        cfg,
-        policy,
-        &pubkey,
-    )
-    .await?;
-    // **A STAGED RELEASE IS NOT AN UPDATE UNTIL THE SUPERVISOR IS ASKED.** The stager writes the
-    // candidate pair; the supervisor swaps when `swap.request.json` names it. The one-shot CLI has
-    // always written that request and waited for the answer; this scheduler did not, so a device
-    // that checked on a schedule downloaded and verified every release and then sat on it — which
-    // is exactly what the canary showed (2026-10-22: document fetched, verified, nothing applied).
-    // The request is written here, and the app's own watcher folds the supervisor's answer into
-    // `state.json` after the restart the swap causes.
-    if let updater::CheckOutcome::Staged(staged) = outcome {
-        request_swap_after_staging(install, &staged);
-    }
-    Ok(())
-}
-
-/// Ask the supervisor to swap in a release the stager has just written.
-///
-/// Extracted so the step that was missing can be tested without a release server: the stager and
-/// the supervisor each have their own tests, and this is the sentence that connects them.
-pub(crate) fn request_swap_after_staging(install: &Path, staged: &crate::update::StagedRelease) {
-    match crate::update::request_swap(install, staged) {
-        Ok(_) => eprintln!(
-            "summrise-device: staged {} and asked the supervisor for the swap",
-            staged.version
-        ),
-        Err(error) => eprintln!(
-            "summrise-device: staged {} but cannot ask for the swap: {error}",
-            staged.version
-        ),
-    }
 }
 
 /// A stable per-device number for the first delay: the identity file's bytes, or the data path.
@@ -287,6 +272,19 @@ fn device_seed(data: &Path) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_manual_request_is_consumed_once() {
+        let dir =
+            std::env::temp_dir().join(format!("summrise-update-request-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("the temp directory is writable");
+        let path = dir.join(REQUEST_FILE);
+        std::fs::write(&path, b"1").expect("the request is writable");
+        assert!(take_request(&dir));
+        assert!(!path.exists());
+        assert!(!take_request(&dir));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     fn valid() -> UpdateSource {
         UpdateSource {
@@ -353,23 +351,6 @@ mod tests {
         assert_eq!(first_delay(interval, 7), first_delay(interval, 7));
         assert!(first_delay(interval, 599) < interval);
         assert!(first_delay(interval, 0) < interval);
-    }
-
-    #[test]
-    fn a_staged_release_asks_the_supervisor_for_the_swap() {
-        let dir = tempdir();
-        let staged = crate::update::StagedRelease {
-            version: "2.0.1".to_owned(),
-            sha256: "ab".repeat(32),
-        };
-        request_swap_after_staging(&dir, &staged);
-        let request = std::fs::read(dir.join("swap.request.json"))
-            .expect("the supervisor is asked; a staged release alone is not an update");
-        let parsed: serde_json::Value =
-            serde_json::from_slice(&request).expect("the request is JSON");
-        assert_eq!(parsed["version"], "2.0.1");
-        assert_eq!(parsed["sha256"], "ab".repeat(32));
-        assert!(parsed["requested_at_ms"].as_u64().is_some_and(|ms| ms > 0));
     }
 
     /// A directory under the system temp root that removes itself, named for this test process.

@@ -473,3 +473,394 @@ fn a_bad_revoke_command_line_is_a_usage_error() {
         assert!(!out.exists(), "a usage error writes nothing");
     }
 }
+
+fn document_fixture() -> (TempDir, PathBuf, PathBuf) {
+    let dir = TempDir::new("verify document");
+    let key = dir.path().join("disposable release seed");
+    write_key(&key, 0o600);
+    let artifact = write_artifact(&dir);
+    let document = dir.path().join("release document.json");
+    let output = run(sign_command(&key, &artifact, &document).env_clear());
+    assert_document_exit(&output, 0);
+    (dir, key, document)
+}
+
+fn document_command(document: &Path, public: &str, version: &str, channel: &str) -> Command {
+    let mut command = cli();
+    command
+        .env_clear()
+        .args(["verify-document", "--document"])
+        .arg(document)
+        .args([
+            "--public-key",
+            public,
+            "--version",
+            version,
+            "--channel",
+            channel,
+        ]);
+    command
+}
+
+fn assert_document_exit(output: &Output, expected: i32) {
+    assert_eq!(
+        output.status.code(),
+        Some(expected),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("panicked"));
+    if expected != 0 {
+        assert!(
+            output.stdout.is_empty(),
+            "a refusal cannot claim verification"
+        );
+    }
+}
+
+fn document_entries(dir: &TempDir) -> Vec<PathBuf> {
+    let mut entries: Vec<_> = fs::read_dir(dir.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    entries.sort();
+    entries
+}
+
+#[test]
+fn verify_document_accepts_fresh_dual_signatures_without_writes_or_payload_access() {
+    let (dir, _key, document) = document_fixture();
+    // This command authenticates a document offline; payload-byte verification is separate.
+    fs::remove_file(dir.path().join("summrise-device.exe")).unwrap();
+    let before = fs::read(&document).unwrap();
+    let entries = document_entries(&dir);
+    let output = run(&mut document_command(
+        &document,
+        &public_hex_from_the_seed(),
+        "2.0.3",
+        "stable",
+    ));
+    assert_document_exit(&output, 0);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("verified document 2.0.3 (stable)"),
+        "{stdout}"
+    );
+    assert!(stdout.contains(ARTIFACT_SHA256), "{stdout}");
+    assert_eq!(fs::read(&document).unwrap(), before);
+    assert_eq!(document_entries(&dir), entries);
+}
+
+#[test]
+fn verify_document_rejects_invalid_inner_signatures_with_genuine_outer_sidecars() {
+    for field in ["signature", "artifactSignature"] {
+        let (dir, key, document) = document_fixture();
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&fs::read(&document).unwrap()).unwrap();
+        value[field] = "00".repeat(64).into();
+        fs::write(&document, serde_json::to_vec(&value).unwrap()).unwrap();
+        let outer = dir.path().join("document outer.sidecar.json");
+        let output = run(cli()
+            .env_clear()
+            .arg("sidecar")
+            .arg("--key-file")
+            .arg(&key)
+            .arg("--artifact")
+            .arg(&document)
+            .args(["--version", "2.0.3", "--channel", "stable"])
+            .arg("--out")
+            .arg(&outer));
+        assert_document_exit(&output, 0);
+        let output = run(cli()
+            .env_clear()
+            .arg("verify-artifact")
+            .arg("--artifact")
+            .arg(&document)
+            .arg("--sidecar")
+            .arg(&outer)
+            .args([
+                "--public-key",
+                &public_hex_from_the_seed(),
+                "--version",
+                "2.0.3",
+                "--channel",
+                "stable",
+            ]));
+        assert_document_exit(&output, 0);
+        let before = fs::read(&document).unwrap();
+        let entries = document_entries(&dir);
+        let output = run(&mut document_command(
+            &document,
+            &public_hex_from_the_seed(),
+            "2.0.3",
+            "stable",
+        ));
+        assert_document_exit(&output, 1);
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("signature"),
+            "{field}"
+        );
+        assert_eq!(fs::read(&document).unwrap(), before);
+        assert_eq!(document_entries(&dir), entries);
+    }
+}
+
+#[test]
+fn verify_document_authenticates_policy_before_using_edited_facts() {
+    for (field, changed) in [
+        (
+            "artifactUrl",
+            serde_json::json!("https://other.test/changed.exe"),
+        ),
+        ("minVersion", serde_json::json!("1.0.0")),
+        ("sha256", serde_json::json!("00".repeat(32))),
+        ("version", serde_json::json!("2.0.4")),
+        ("channel", serde_json::json!("canary")),
+        ("issuedAtMs", serde_json::json!(1)),
+    ] {
+        let (_dir, _key, document) = document_fixture();
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&fs::read(&document).unwrap()).unwrap();
+        value[field] = changed;
+        fs::write(&document, serde_json::to_vec(&value).unwrap()).unwrap();
+        let output = run(&mut document_command(
+            &document,
+            &public_hex_from_the_seed(),
+            "2.0.3",
+            "stable",
+        ));
+        assert_document_exit(&output, 1);
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("signature"),
+            "{field}"
+        );
+    }
+}
+
+#[test]
+fn verify_document_rejects_wrong_trusted_key_and_genuine_fact_mismatches() {
+    let (_dir, _key, document) = document_fixture();
+    let wrong_key = hex_encode(SigningKey::from_bytes(&[8; 32]).verifying_key().as_bytes());
+    for (key, version, channel, diagnostic) in [
+        (wrong_key, "2.0.3", "stable", "signature"),
+        (public_hex_from_the_seed(), "2.0.4", "stable", "version"),
+        (public_hex_from_the_seed(), "2.0.3", "canary", "channel"),
+    ] {
+        let output = run(&mut document_command(&document, &key, version, channel));
+        assert_document_exit(&output, 1);
+        assert!(String::from_utf8_lossy(&output.stderr).contains(diagnostic));
+    }
+}
+
+#[test]
+fn verify_document_uses_native_freshness_for_genuinely_signed_old_and_future_documents() {
+    let (_dir, _key, path) = document_fixture();
+    for (issued_at_ms, diagnostic) in [
+        (
+            summrise_release::now_ms().saturating_sub(summrise_release::MAX_ISSUED_AGE_MS + 60_000),
+            "stale",
+        ),
+        (
+            summrise_release::now_ms() + summrise_release::MAX_ISSUED_FUTURE_MS + 60_000,
+            "minutes ahead",
+        ),
+    ] {
+        let document = summrise_release::sign_document(
+            &signing_key(),
+            ARTIFACT,
+            &summrise_release::SignRequest {
+                version: "2.0.3",
+                channel: Channel::Stable,
+                artifact_url: "https://example.test/summrise-device.exe",
+                min_version: "2.0.0",
+                issued_at_ms,
+                allow_plaintext: false,
+            },
+        )
+        .unwrap();
+        fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
+        let output = run(&mut document_command(
+            &path,
+            &public_hex_from_the_seed(),
+            "2.0.3",
+            "stable",
+        ));
+        assert_document_exit(&output, 1);
+        assert!(String::from_utf8_lossy(&output.stderr).contains(diagnostic));
+    }
+}
+
+#[test]
+fn verify_document_rejects_missing_duplicate_unknown_and_trailing_json() {
+    let (_dir, _key, path) = document_fixture();
+    let valid = fs::read_to_string(&path).unwrap();
+    let duplicate = valid.replacen('{', "{\"version\":\"2.0.3\",", 1);
+    let unknown = valid.replacen('{', "{\"mirrorKey\":\"untrusted\",", 1);
+    for bytes in [
+        b"{}".to_vec(),
+        b"not JSON".to_vec(),
+        duplicate.into_bytes(),
+        unknown.into_bytes(),
+        format!("{valid} {{}}").into_bytes(),
+        vec![0xff, 0xfe],
+    ] {
+        fs::write(&path, bytes).unwrap();
+        assert_document_exit(
+            &run(&mut document_command(
+                &path,
+                &public_hex_from_the_seed(),
+                "2.0.3",
+                "stable",
+            )),
+            1,
+        );
+    }
+}
+
+#[test]
+fn verify_document_enforces_one_mib_nonempty_regular_input_without_changing_the_limit() {
+    let (_dir, _key, path) = document_fixture();
+    let mut padded = fs::read(&path).unwrap();
+    padded.resize(1024 * 1024, b' ');
+    fs::write(&path, &padded).unwrap();
+    assert_document_exit(
+        &run(&mut document_command(
+            &path,
+            &public_hex_from_the_seed(),
+            "2.0.3",
+            "stable",
+        )),
+        0,
+    );
+    padded.push(b' ');
+    fs::write(&path, padded).unwrap();
+    assert_document_exit(
+        &run(&mut document_command(
+            &path,
+            &public_hex_from_the_seed(),
+            "2.0.3",
+            "stable",
+        )),
+        1,
+    );
+    fs::write(&path, []).unwrap();
+    assert_document_exit(
+        &run(&mut document_command(
+            &path,
+            &public_hex_from_the_seed(),
+            "2.0.3",
+            "stable",
+        )),
+        1,
+    );
+    fs::remove_file(&path).unwrap();
+    assert_document_exit(
+        &run(&mut document_command(
+            &path,
+            &public_hex_from_the_seed(),
+            "2.0.3",
+            "stable",
+        )),
+        1,
+    );
+    fs::create_dir(&path).unwrap();
+    assert_document_exit(
+        &run(&mut document_command(
+            &path,
+            &public_hex_from_the_seed(),
+            "2.0.3",
+            "stable",
+        )),
+        1,
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn verify_document_refuses_symlink_input_and_accepts_non_unicode_regular_paths() {
+    use std::os::unix::ffi::OsStringExt;
+    let (dir, _key, document) = document_fixture();
+    let link = dir.path().join("document-link");
+    std::os::unix::fs::symlink(&document, &link).unwrap();
+    assert_document_exit(
+        &run(&mut document_command(
+            &link,
+            &public_hex_from_the_seed(),
+            "2.0.3",
+            "stable",
+        )),
+        1,
+    );
+    let renamed = dir.path().join(OsString::from_vec(vec![b'd', 0xff]));
+    fs::rename(&document, &renamed).unwrap();
+    assert_document_exit(
+        &run(&mut document_command(
+            &renamed,
+            &public_hex_from_the_seed(),
+            "2.0.3",
+            "stable",
+        )),
+        0,
+    );
+}
+
+#[test]
+fn verify_document_usage_errors_do_not_read_or_write_documents() {
+    let (dir, _key, document) = document_fixture();
+    let base = vec![
+        "--document".to_owned(),
+        document.to_str().unwrap().to_owned(),
+        "--public-key".to_owned(),
+        public_hex_from_the_seed(),
+        "--version".to_owned(),
+        "2.0.3".to_owned(),
+        "--channel".to_owned(),
+        "stable".to_owned(),
+    ];
+    let before = fs::read(&document).unwrap();
+    let entries = document_entries(&dir);
+    for index in (0..base.len()).step_by(2) {
+        let mut missing = base.clone();
+        missing.drain(index..index + 2);
+        assert_document_exit(
+            &run(cli().env_clear().arg("verify-document").args(missing)),
+            2,
+        );
+        let mut duplicate = base.clone();
+        duplicate.extend_from_slice(&base[index..index + 2]);
+        assert_document_exit(
+            &run(cli().env_clear().arg("verify-document").args(duplicate)),
+            2,
+        );
+    }
+    for (index, value) in [(3, "abcd"), (3, "gg"), (5, "v2.0.3"), (7, "nightly")] {
+        let mut invalid = base.clone();
+        invalid[index] = value.into();
+        assert_document_exit(
+            &run(cli().env_clear().arg("verify-document").args(invalid)),
+            2,
+        );
+    }
+    for extra in [
+        vec!["--unknown"],
+        vec!["--key-file", "seed path"],
+        vec!["--document"],
+        vec!["positional"],
+    ] {
+        assert_document_exit(
+            &run(cli()
+                .env_clear()
+                .arg("verify-document")
+                .args(&base)
+                .args(extra)),
+            2,
+        );
+    }
+    let help = run(cli().env_clear().args(["verify-document", "--help"]));
+    assert_document_exit(&help, 0);
+    assert!(String::from_utf8_lossy(&help.stdout).contains("--document"));
+    assert!(String::from_utf8_lossy(&help.stdout).contains("--public-key"));
+    assert_eq!(fs::read(&document).unwrap(), before);
+    assert_eq!(document_entries(&dir), entries);
+}

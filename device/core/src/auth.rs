@@ -70,7 +70,8 @@ pub struct Grant {
     /// The tool names the grant covers.
     ///
     /// `*` matches any run of characters; every other byte is literal. `terminal.*` therefore
-    /// covers `terminal.create` but not `terminalx.pty`. An empty list covers nothing.
+    /// covers `terminal.create` but not `terminalx.pty`. The list grants capabilities; an empty
+    /// list grants none, and the three `txn.*` control-plane verbs are always admitted.
     pub tool_patterns: Vec<String>,
     /// Unix milliseconds after which the grant is dead.
     pub expires_at_ms: i64,
@@ -78,12 +79,21 @@ pub struct Grant {
     pub auto_for_destructive: bool,
 }
 
+/// Whether a credential's tool list permits `tool` — the one rule every allowlist checkpoint reads.
+///
+/// The three control-plane verbs are never withheld: the gate groups work, and a credential minted
+/// before `txn.*` existed cannot be asked to name it. Everything else is the list's to grant.
+pub fn permits(patterns: &[String], tool: &str) -> bool {
+    crate::registry::control_plane(tool)
+        || patterns
+            .iter()
+            .any(|pattern| pattern_matches(pattern, tool))
+}
+
 impl Grant {
     /// Whether this grant covers `tool`.
     pub fn covers(&self, tool: &ToolCall) -> bool {
-        self.tool_patterns
-            .iter()
-            .any(|pattern| pattern_matches(pattern, &tool.name))
+        permits(&self.tool_patterns, &tool.name)
     }
 
     /// Whether `now_ms` is at or past the grant's expiry.
@@ -217,7 +227,9 @@ pub enum Decision {
 /// 2. A remote transport ([`Transport::Relay`], [`Transport::Console`]) requires a grant that covers
 ///    the tool and has not expired; without one the call is denied. The grant authorizes on every
 ///    transport — it is the owner's permission — and the transport only decides what an absent grant
-///    means: `NoGrant` for a remote call, the default deny for a loopback one.
+///    means: `NoGrant` for a remote call, the default deny for a loopback one. The three
+///    control-plane verbs are admitted before the grant's coverage is asked, after anonymity and
+///    expiry: the gate groups work, so a credential that predates `txn.*` still begins and ends one.
 /// 3. A destructive tool → [`Decision::Ask`], unless the grant says `auto_for_destructive` or the
 ///    approval is already [`ApprovalState::Granted`]. A live grant that matches the tool but neither
 ///    covers destruction is exactly the case a human is asked about.
@@ -283,7 +295,7 @@ pub fn authorize(ctx: &Ctx<'_>, tool: &ToolCall) -> Decision {
 /// A linear backtracking matcher: it allocates nothing and cannot blow up on a pathological pattern
 /// the way a recursive one can. `*` matches any run of bytes, including the empty one, so
 /// `terminal.*` covers both `terminal.create` and `terminal.`.
-fn pattern_matches(pattern: &str, name: &str) -> bool {
+pub fn pattern_matches(pattern: &str, name: &str) -> bool {
     let pattern = pattern.as_bytes();
     let name = name.as_bytes();
     let mut p = 0;
@@ -642,6 +654,7 @@ mod tests {
             tools: vec!["files.read".to_owned()],
             expires_at_ms: u64::MAX,
             allow_destructive: false,
+            nonce: String::new(),
         };
 
         let policy = Grant::from(&signed);
@@ -666,6 +679,130 @@ mod tests {
         assert!(
             Grant::from(&consenting).auto_for_destructive,
             "the signature's consent is the policy's standing answer"
+        );
+    }
+
+    #[test]
+    fn the_control_plane_is_never_withheld_by_a_tool_list() {
+        let none = Grant {
+            tool_patterns: Vec::new(),
+            expires_at_ms: 2_000,
+            auto_for_destructive: false,
+        };
+        for name in ["txn.begin", "txn.commit", "txn.abort"] {
+            assert_eq!(
+                authorize(
+                    &ctx(
+                        key(),
+                        Some(&none),
+                        Transport::Console,
+                        ApprovalState::NotRequired,
+                        1_000
+                    ),
+                    &tool(name, false)
+                ),
+                Decision::Allow,
+                "{name}"
+            );
+        }
+        assert_eq!(
+            authorize(
+                &ctx(
+                    key(),
+                    Some(&none),
+                    Transport::Console,
+                    ApprovalState::NotRequired,
+                    1_000
+                ),
+                &tool("terminal.create", true)
+            ),
+            deny(DenyReason::ToolNotCovered {
+                tool: "terminal.create".to_owned()
+            })
+        );
+    }
+
+    #[test]
+    fn a_narrowed_token_begins_but_reaches_nothing_it_was_not_granted() {
+        let narrow = Grant {
+            tool_patterns: vec!["files.read".to_owned()],
+            expires_at_ms: 2_000,
+            auto_for_destructive: false,
+        };
+        let context = ctx(
+            key(),
+            Some(&narrow),
+            Transport::Console,
+            ApprovalState::NotRequired,
+            1_000,
+        );
+        for name in ["txn.begin", "txn.commit", "txn.abort", "files.read"] {
+            assert_eq!(
+                authorize(&context, &tool(name, false)),
+                Decision::Allow,
+                "{name}"
+            );
+        }
+        for name in [
+            "files.write",
+            "state.get",
+            "terminal.list",
+            "terminal.create",
+            "runs.exec",
+        ] {
+            assert_eq!(
+                authorize(&context, &tool(name, true)),
+                deny(DenyReason::ToolNotCovered {
+                    tool: name.to_owned()
+                }),
+                "{name} is not the control plane"
+            );
+        }
+    }
+
+    #[test]
+    fn an_expired_token_cannot_begin_a_transaction() {
+        let dead = Grant {
+            tool_patterns: Vec::new(),
+            expires_at_ms: 1_000,
+            auto_for_destructive: true,
+        };
+        for name in ["txn.begin", "txn.commit"] {
+            assert_eq!(
+                authorize(
+                    &ctx(
+                        key(),
+                        Some(&dead),
+                        Transport::Relay,
+                        ApprovalState::Granted { at_ms: 900 },
+                        1_000
+                    ),
+                    &tool(name, false)
+                ),
+                deny(DenyReason::GrantExpired {
+                    expires_at_ms: 1_000,
+                    now_ms: 1_000
+                }),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_anonymous_caller_cannot_begin_a_transaction() {
+        let live = live(true);
+        assert_eq!(
+            authorize(
+                &ctx(
+                    Subject::Anonymous,
+                    Some(&live),
+                    Transport::Console,
+                    ApprovalState::NotRequired,
+                    1_000
+                ),
+                &tool("txn.begin", false)
+            ),
+            deny(DenyReason::Anonymous)
         );
     }
 }

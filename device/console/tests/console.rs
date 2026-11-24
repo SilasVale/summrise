@@ -2,27 +2,35 @@
 //! temporary file lives under this test binary's own directory. The device channel is a real
 //! WebSocket, so those tests bind an ephemeral loopback listener and drive it with a fake device.
 
-use std::collections::BTreeSet;
 use std::fs;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use axum::body::Body;
+use axum::extract::ConnectInfo;
 use axum::http::{header, Request, StatusCode};
 use axum::Router;
 use ed25519_dalek::{Signer, SigningKey};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
-use summrise_console::{Config, Console};
+use sha2::{Digest, Sha256};
+use summrise_console::{AccessConfig, Config, Console, LoginCode, ACCESS_HEADER};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::{self, Message as WsMessage};
 use tower::ServiceExt;
 
 const OPERATOR_TOKEN: [u8; 32] = [0x11; 32];
 const GRANT_SEED: [u8; 32] = [0x22; 32];
+
+/// The throwaway Access team the unit tests under `src/access.rs` already use: this file signs its
+/// own assertions with the same fixture key, so a page test meets the verifier the deployment runs.
+const ACCESS_AUDIENCE: &str = "test-audience-tag";
+const ACCESS_ISSUER: &str = "https://test-team.cloudflareaccess.com";
+const ACCESS_KEY_PEM: &str = include_str!("fixtures/access-test-key.pem");
+const ACCESS_JWKS: &str = include_str!("fixtures/access-test-jwks.json");
 const START_MS: u64 = 1_000_000;
 const DAY_MS: u64 = 24 * 60 * 60 * 1000;
 const MINUTE_MS: u64 = 60 * 1000;
@@ -99,6 +107,10 @@ impl Fixture {
             data,
             bind: std::net::Ipv4Addr::LOCALHOST.into(),
             port: 0,
+            version: env!("CARGO_PKG_VERSION").to_owned(),
+            access: None,
+            trusted_proxy: None,
+            mesh_broker: None,
         };
         let clock = Arc::new(AtomicU64::new(START_MS));
         let reader = clock.clone();
@@ -122,6 +134,49 @@ impl Fixture {
             clock,
             config,
         }
+    }
+
+    /// A console with a mesh broker configured: the readiness route's live case.
+    fn with_mesh_broker(label: &str, broker: &str) -> Self {
+        let mut fixture = Self::new(label);
+        let mut config = fixture.config.clone();
+        config.mesh_broker = Some(broker.to_owned());
+        let reader = fixture.clock.clone();
+        fixture.console = Console::load_with_clock(&config, move || reader.load(Ordering::Relaxed))
+            .expect("the console reloads with the broker");
+        fixture.config = config;
+        fixture
+    }
+
+    /// A console with Cloudflare Access configured the way the deployment has it: three facts and a
+    /// pinned JWKS on disk. The key that signs the tests' assertions is the one the JWKS names.
+    fn with_access(label: &str) -> Self {
+        let mut fixture = Self::new(label);
+        let jwks = fixture._dir.join("access-jwks.json");
+        fs::write(&jwks, ACCESS_JWKS).expect("the pinned JWKS is written");
+        let mut config = fixture.config.clone();
+        config.access = Some(AccessConfig {
+            jwks,
+            audience: ACCESS_AUDIENCE.to_owned(),
+            issuer: ACCESS_ISSUER.to_owned(),
+        });
+        let reader = fixture.clock.clone();
+        fixture.console = Console::load_with_clock(&config, move || reader.load(Ordering::Relaxed))
+            .expect("the console reloads with Access");
+        fixture.config = config;
+        fixture
+    }
+
+    /// A console that believes one reverse proxy's `X-Forwarded-User`: the tailnet deployment.
+    fn with_trusted_proxy(label: &str, proxy: Ipv4Addr) -> Self {
+        let mut fixture = Self::new(label);
+        let mut config = fixture.config.clone();
+        config.trusted_proxy = Some(proxy.into());
+        let reader = fixture.clock.clone();
+        fixture.console = Console::load_with_clock(&config, move || reader.load(Ordering::Relaxed))
+            .expect("the console reloads with the trusted proxy");
+        fixture.config = config;
+        fixture
     }
 
     fn app(&self) -> Router {
@@ -227,10 +282,106 @@ impl Fixture {
         assert_eq!(status, StatusCode::OK, "grant: {body}");
         body
     }
+
+    /// `POST /tokens`: the operator's permanent-token mint, with every field named.
+    async fn create_token(
+        &self,
+        session: &str,
+        device_id: &str,
+        name: &str,
+        tools: &[&str],
+        allow_destructive: bool,
+    ) -> (StatusCode, Value) {
+        self.create_token_with_expiry(session, device_id, name, tools, allow_destructive, None)
+            .await
+    }
+
+    /// `POST /tokens` with an explicit lifetime, or with the field absent entirely when `None`:
+    /// permanence is the body's silence, not a sentinel.
+    async fn create_token_with_expiry(
+        &self,
+        session: &str,
+        device_id: &str,
+        name: &str,
+        tools: &[&str],
+        allow_destructive: bool,
+        expires_in_s: Option<u64>,
+    ) -> (StatusCode, Value) {
+        let mut body = json!({
+            "name": name,
+            "device_id": device_id,
+            "tools": tools,
+            "allow_destructive": allow_destructive,
+        });
+        if let Some(seconds) = expires_in_s {
+            body["expires_in_s"] = json!(seconds);
+        }
+        send(self.app(), post_json_bearer("/tokens", session, body)).await
+    }
+
+    /// `POST /tokens` for one aggregate token: an explicit device list, no single device.
+    async fn create_aggregate_token(
+        &self,
+        session: &str,
+        name: &str,
+        device_ids: &[String],
+        tools: &[&str],
+    ) -> (StatusCode, Value) {
+        send(
+            self.app(),
+            post_json_bearer(
+                "/tokens",
+                session,
+                json!({
+                    "name": name,
+                    "device_ids": device_ids,
+                    "tools": tools,
+                    "allow_destructive": false,
+                }),
+            ),
+        )
+        .await
+    }
+
+    /// `POST /tokens/:id/rotate`: replace one token's secret, keeping its scope.
+    async fn rotate_token(&self, session: &str, id: &str) -> (StatusCode, Value) {
+        send(
+            self.app(),
+            post_json_bearer(&format!("/tokens/{id}/rotate"), session, json!({})),
+        )
+        .await
+    }
+}
+
+/// The connection's peer address, exactly as axum's connect-info service inserts it before routing.
+fn from_peer(request: Request<Body>, peer: Ipv4Addr) -> Request<Body> {
+    let mut request = request;
+    request
+        .extensions_mut()
+        .insert(ConnectInfo(SocketAddr::from((peer, 40_000))));
+    request
+}
+
+/// The header a configured reverse proxy sets after it authenticated the operator.
+fn forwarded_user(request: Request<Body>, login: &str) -> Request<Body> {
+    let (mut parts, body) = request.into_parts();
+    parts.headers.insert(
+        "x-forwarded-user",
+        login.parse().expect("the login is a header value"),
+    );
+    Request::from_parts(parts, body)
 }
 
 fn get(uri: &str, session: Option<&str>) -> Request<Body> {
     let mut request = Request::builder().method("GET").uri(uri);
+    if let Some(session) = session {
+        request = request.header(header::AUTHORIZATION, format!("Bearer {session}"));
+    }
+    request.body(Body::empty()).expect("the request builds")
+}
+
+fn delete(uri: &str, session: Option<&str>) -> Request<Body> {
+    let mut request = Request::builder().method("DELETE").uri(uri);
     if let Some(session) = session {
         request = request.header(header::AUTHORIZATION, format!("Bearer {session}"));
     }
@@ -244,6 +395,15 @@ fn post_json(uri: &str, body: Value) -> Request<Body> {
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(body.to_string()))
         .expect("the request builds")
+}
+
+/// `POST` with an empty body, as the page's best-effort logout sends it.
+fn post(uri: &str, session: Option<&str>) -> Request<Body> {
+    let mut request = Request::builder().method("POST").uri(uri);
+    if let Some(session) = session {
+        request = request.header(header::AUTHORIZATION, format!("Bearer {session}"));
+    }
+    request.body(Body::empty()).expect("the request builds")
 }
 
 fn post_json_bearer(uri: &str, session: &str, body: Value) -> Request<Body> {
@@ -294,6 +454,15 @@ async fn send_with_headers(
     (status, headers, value)
 }
 
+/// How large a response this suite will read.
+///
+/// **A PRODUCT THAT GREW PAST ITS OWN TEST.** The bound was 1 MiB, chosen when the embedded page was
+/// well under it; the page passed 1,047,739 bytes at the join item and the three tests that read the
+/// HTML began failing on `LengthLimitError` — a green product and a red suite, with nothing wrong
+/// but the reader. The ceiling is the page's own order of magnitude, not a byte budget the product
+/// enforces: a response larger than this is a page nobody could ship, not a page that got a feature.
+const BODY_LIMIT: usize = 8 << 20;
+
 /// [`send_with_headers`] for a response that is not JSON: the operator page is HTML.
 async fn send_text(
     app: Router,
@@ -302,7 +471,7 @@ async fn send_text(
     let response = app.oneshot(request).await.expect("the router answers");
     let status = response.status();
     let headers = response.headers().clone();
-    let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+    let bytes = axum::body::to_bytes(response.into_body(), BODY_LIMIT)
         .await
         .expect("the body is readable");
     (
@@ -323,6 +492,10 @@ fn fixture_config(dir: &TempDir, token: Option<&Path>, grant_key: Option<&Path>)
         data: dir.join("data"),
         bind: std::net::Ipv4Addr::LOCALHOST.into(),
         port: 0,
+        version: env!("CARGO_PKG_VERSION").to_owned(),
+        access: None,
+        trusted_proxy: None,
+        mesh_broker: None,
     }
 }
 
@@ -366,18 +539,30 @@ fn registration_body_signed_by(signer: &SigningKey, id: &str, code: &str, ts_ms:
 async fn a_wrong_operator_token_is_401() {
     let fixture = Fixture::new("wrong-token");
 
-    let (status, body) = send(
+    let (status, headers, body) = send_with_headers(
         fixture.app(),
         post_json("/auth", json!({ "token": "00".repeat(32) })),
     )
     .await;
 
     assert_eq!(status, StatusCode::UNAUTHORIZED);
-    assert_eq!(body, json!({ "error": "unauthorized" }));
+    assert!(
+        !headers.contains_key(header::WWW_AUTHENTICATE),
+        "the sign-in form is not a bearer door; a challenge would name a scheme it does not take"
+    );
+    assert_eq!(body["error"], json!("unauthorized"));
+    let message = body["message"]
+        .as_str()
+        .expect("a refused sign-in says what to type");
+    assert!(message.contains("that token was not accepted"), "{message}");
+    assert!(
+        message.contains("64 hex characters") && message.contains("--operator-token-file"),
+        "the sentence names the value and where it lives: {message}"
+    );
 }
 
 #[tokio::test]
-async fn the_operator_token_yields_a_session_that_expires_in_24_hours() {
+async fn the_operator_token_yields_a_session_that_expires_in_a_month() {
     let fixture = Fixture::new("right-token");
 
     let (status, body) = send(
@@ -390,7 +575,7 @@ async fn the_operator_token_yields_a_session_that_expires_in_24_hours() {
     let session = body["token"].as_str().expect("a session token");
     assert_eq!(session.len(), 64, "a session token is 32 bytes of hex");
     assert_ne!(session, hex(&OPERATOR_TOKEN), "a session is not the secret");
-    assert_eq!(body["expires_at_ms"], json!(START_MS + DAY_MS));
+    assert_eq!(body["expires_at_ms"], json!(START_MS + 30 * DAY_MS));
 }
 
 #[tokio::test]
@@ -398,11 +583,11 @@ async fn an_expired_session_is_401() {
     let fixture = Fixture::new("expired-session");
     let session = fixture.authenticate().await;
 
-    let (status, _) = send(fixture.app(), get("/devices", Some(&session))).await;
+    let (status, _) = send(fixture.app(), get("/fleet", Some(&session))).await;
     assert_eq!(status, StatusCode::OK, "the session starts out valid");
 
-    fixture.advance_ms(DAY_MS);
-    let (status, body) = send(fixture.app(), get("/devices", Some(&session))).await;
+    fixture.advance_ms(30 * DAY_MS);
+    let (status, body) = send(fixture.app(), get("/fleet", Some(&session))).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
     assert_eq!(body, json!({ "error": "unauthorized" }));
 }
@@ -411,18 +596,68 @@ async fn an_expired_session_is_401() {
 async fn operator_routes_refuse_a_missing_or_malformed_session() {
     let fixture = Fixture::new("no-session");
 
-    let (status, _) = send(fixture.app(), get("/devices", None)).await;
+    let (status, _) = send(fixture.app(), get("/fleet", None)).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 
-    let (status, _) = send(fixture.app(), get("/devices", Some("not-a-token"))).await;
+    let (status, _) = send(fixture.app(), get("/fleet", Some("not-a-token"))).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 
-    let (status, _) = send(fixture.app(), get("/devices", Some(&"ab".repeat(32)))).await;
+    let (status, _) = send(fixture.app(), get("/fleet", Some(&"ab".repeat(32)))).await;
     assert_eq!(
         status,
         StatusCode::UNAUTHORIZED,
         "a well-formed token that was never issued is not a session"
     );
+}
+
+#[tokio::test]
+async fn logout_ends_only_the_session_that_presented_its_token() {
+    let fixture = Fixture::new("logout-one-session");
+    let first = fixture.authenticate().await;
+    let second = fixture.authenticate().await;
+    assert_ne!(first, second, "two sign-ins are two sessions");
+
+    let (status, body) = send(fixture.app(), post("/logout", Some(&first))).await;
+    assert_eq!(status, StatusCode::OK);
+    // The console cookie is ours; without Access there is no edge session to end, and the answer
+    // says so instead of inventing a URL.
+    assert!(body["access_logout"].is_null(), "{body}");
+
+    let (status, body) = send(fixture.app(), get("/fleet", Some(&first))).await;
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "the logged-out token is gone"
+    );
+    assert_eq!(body, json!({ "error": "unauthorized" }));
+
+    // A second logout is 401 because the extractor refuses the token: it was removed from the
+    // in-memory list, not merely marked. A flag would answer 204 again here.
+    let (status, _) = send(fixture.app(), post("/logout", Some(&first))).await;
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "the session left the list"
+    );
+
+    let (status, _) = send(fixture.app(), get("/fleet", Some(&second))).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "the other operator session still works"
+    );
+}
+
+#[tokio::test]
+async fn logout_without_a_session_is_401() {
+    let fixture = Fixture::new("logout-no-session");
+
+    let (status, body) = send(fixture.app(), post("/logout", None)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(body, json!({ "error": "unauthorized" }));
+
+    let (status, _) = send(fixture.app(), post("/logout", Some("not-a-token"))).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]
@@ -447,8 +682,6 @@ fn mode_of(path: &Path) -> u32 {
 
 #[tokio::test]
 async fn enrollment_codes_are_stored_hashed_and_never_in_cleartext() {
-    use sha2::Digest;
-
     let fixture = Fixture::new("codes-hashed");
     let session = fixture.authenticate().await;
     let (code, expires_at_ms) = fixture.enroll(&session).await;
@@ -914,7 +1147,7 @@ async fn a_device_registers_under_its_own_public_key() {
         "registration returns the device token once"
     );
 
-    let (status, list) = send(fixture.app(), get("/devices", Some(&session))).await;
+    let (status, list) = send(fixture.app(), get("/fleet", Some(&session))).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(list.as_array().expect("a list").len(), 1);
     assert_eq!(list[0]["id"], json!(public_key));
@@ -946,11 +1179,471 @@ async fn re_registering_updates_last_seen_and_keeps_registered_at() {
     assert_eq!(body["registered_at_ms"], json!(START_MS));
     assert_eq!(body["last_seen_ms"], json!(START_MS + 5_000));
 
-    let (_, list) = send(fixture.app(), get("/devices", Some(&session))).await;
+    let (_, list) = send(fixture.app(), get("/fleet", Some(&session))).await;
     assert_eq!(
         list.as_array().expect("a list").len(),
         1,
         "no duplicate entry"
+    );
+}
+
+/// **THE FLEET COMPARES THE WORK, NOT ONLY THE PRESENCE.** Each row carries the AI's calls in the
+/// local calendar day, by the same rule the hub's day line and Activity's header use:
+/// `caller: "client"`, or no caller with a token; never the console's own read, a failed poll, a
+/// channel boundary, or an unattributed line. The counts come from the day read `/audit/day`
+/// serves, so a route the page polls cannot pay two rules for one day.
+#[tokio::test]
+async fn the_fleet_states_each_machines_day_from_the_days_read() {
+    let fixture = Fixture::new("fleet-day");
+    let session = fixture.authenticate().await;
+    let alpha = register_fixture_device(&fixture, &signing_key(0xa1)).await;
+    let beta = register_fixture_device(&fixture, &signing_key(0xb2)).await;
+    let gamma = register_fixture_device(&fixture, &signing_key(0xc3)).await;
+    let delta = register_fixture_device(&fixture, &signing_key(0xd4)).await;
+    let token = "ab".repeat(32);
+
+    // The file's first line is exactly local midnight: the day is whole, not a `since` read.
+    let midnight = json!({
+        "ts_ms": local_midnight(START_MS), "kind": "mcp", "device_id": gamma,
+        "status": 200, "tool": "terminal.list", "caller": "console",
+    });
+
+    // One line of each kind the rule has to tell apart. Alpha gets the mixed window; beta's two
+    // calls are a plain client's; gamma has only the console's read; delta has no line at all.
+    let lines = vec![
+        midnight,
+        json!({
+            "ts_ms": 900, "kind": "mcp", "device_id": alpha, "status": 200,
+            "tool": "files.read", "caller": "client",
+        }),
+        json!({
+            "ts_ms": 800, "kind": "mcp", "device_id": alpha, "status": 424,
+            "tool": "runs.exec", "caller": "client",
+        }),
+        // No caller + a token is a client call from before the field, and this one failed inside
+        // an HTTP 200 (the device's own JSON-RPC error).
+        json!({
+            "ts_ms": 700, "kind": "mcp", "device_id": alpha, "status": 200,
+            "tool": "files.write", "token_id": token, "detail": "jsonrpc error -32002",
+        }),
+        // The console's own read, unattributed line, failed poll and boundary are not work.
+        json!({
+            "ts_ms": 600, "kind": "mcp", "device_id": alpha, "status": 500,
+            "tool": "terminal.list", "caller": "console",
+        }),
+        json!({
+            "ts_ms": 550, "kind": "mcp", "device_id": alpha, "status": 200,
+            "tool": "files.list",
+        }),
+        json!({
+            "ts_ms": 500, "kind": "poll", "device_id": alpha, "status": 502,
+            "detail": "device offline",
+        }),
+        json!({
+            "ts_ms": 450, "kind": "device", "device_id": alpha, "status": 200,
+            "tool": "device.left", "caller": "console",
+        }),
+        json!({
+            "ts_ms": 400, "kind": "mcp", "device_id": beta, "status": 200,
+            "tool": "files.read", "caller": "client",
+        }),
+        json!({
+            "ts_ms": 350, "kind": "mcp", "device_id": beta, "status": 200,
+            "tool": "files.read", "caller": "client",
+        }),
+    ];
+    seed_audit_file(&fixture, "audit.jsonl", &lines);
+
+    let (status, fleet) = send(fixture.app(), get("/fleet", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "the fleet read: {fleet}");
+    let rows = fleet.as_array().expect("a list");
+    assert_eq!(rows.len(), 4, "one row per registered machine: {fleet}");
+    let row = |id: &str| {
+        rows.iter()
+            .find(|row| row["id"] == json!(id))
+            .unwrap_or_else(|| panic!("{id} is a row: {fleet}"))
+    };
+
+    assert_eq!(
+        row(&alpha)["today"],
+        json!({ "client_calls": 3, "failed": 2 }),
+        "two `client` calls and the proven token call, two of them failed: {fleet}"
+    );
+    assert_eq!(
+        row(&beta)["today"],
+        json!({ "client_calls": 2, "failed": 0 }),
+        "the failed half is a count, not a sentence, at the route: {fleet}"
+    );
+    assert_eq!(
+        row(&gamma)["today"],
+        json!({ "client_calls": 0, "failed": 0 }),
+        "a machine the window holds only console reads for has a day of zero calls: {fleet}"
+    );
+    assert!(
+        row(&delta).get("today").is_none(),
+        "a machine with no line in the window serves no day rather than a zero: {fleet}"
+    );
+    for id in [&alpha, &beta, &gamma] {
+        assert!(
+            row(id)["today"]["client_calls"].is_u64() && row(id)["today"]["failed"].is_u64(),
+            "a present day always carries both numbers: {fleet}"
+        );
+    }
+
+    // The hub's day is the same read under the same rule: `/audit/day` is what the page's header
+    // counts, and the fleet's `today` is one row of it.
+    let (status, day) = send(
+        fixture.app(),
+        get(&format!("/audit/day?device={alpha}"), Some(&session)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        day["client_calls"],
+        row(&alpha)["today"]["client_calls"],
+        "the row's calls and the day route are one read: {day}"
+    );
+    assert_eq!(day["failed"], row(&alpha)["today"]["failed"]);
+}
+
+/// The local midnight this test's fixture clock cuts at, computed the way the console computes it:
+/// the page and the console share the operator's timezone, so a test that runs in UTC and one that
+/// runs in +08 both put the fixtures on the same side of the cut.
+fn local_midnight(now_ms: u64) -> u64 {
+    use chrono::{Local, TimeZone};
+    let now = Local
+        .timestamp_millis_opt(now_ms as i64)
+        .single()
+        .expect("the fixture clock is a local instant");
+    let midnight = now
+        .date_naive()
+        .and_hms_opt(0, 0, 0)
+        .expect("a date has a midnight");
+    Local
+        .from_local_datetime(&midnight)
+        .earliest()
+        .expect("the local day has a first instant")
+        .timestamp_millis()
+        .max(0) as u64
+}
+
+/// **TODAY IS THE DAY, NOT THE WINDOW IN HAND.** The measured defect: at 21:23 DESKTOP-14RJCR8's
+/// fleet row said `554 calls · 53 failed`, and half an hour later `529 calls · 53 failed`; the
+/// newest 2,000-line window slid forward and took the day's earlier calls with it. The day read
+/// starts at local midnight, so the window may hold only three of the day's ten calls while the row
+/// still says ten.
+#[tokio::test]
+async fn the_fleet_serves_the_whole_day_not_the_newest_window() {
+    let fixture = Fixture::new("fleet-day-not-window");
+    let session = fixture.authenticate().await;
+    let alpha = register_fixture_device(&fixture, &signing_key(0xa1)).await;
+    let beta = register_fixture_device(&fixture, &signing_key(0xb2)).await;
+    let now = fixture.now_ms();
+
+    // Alpha's ten calls are the day's first; beta's 1,997 newer calls push seven of them out of the
+    // fleet's 2,000-line window. The window holds three; the day holds ten.
+    // The file's first line is exactly local midnight: the day is whole, so no `since` is served.
+    let mut lines: Vec<Value> = vec![json!({
+        "ts_ms": local_midnight(now),
+        "kind": "device",
+        "device_id": beta.as_str(),
+        "status": 200,
+        "tool": "device.joined",
+        "caller": "console",
+    })];
+    lines.extend((0..10).map(|index| {
+        json!({
+        "ts_ms": now - 40_000 + index * 1_000,
+            "kind": "mcp",
+            "device_id": alpha.as_str(),
+            "status": 200,
+            "tool": "files.read",
+            "caller": "client",
+        })
+    }));
+    for index in 0..1_997 {
+        lines.push(json!({
+            "ts_ms": now - 20_000 + index * 10,
+            "kind": "mcp",
+            "device_id": beta.as_str(),
+            "status": 200,
+            "tool": "files.read",
+            "caller": "client",
+        }));
+    }
+    seed_audit_file(&fixture, "audit.jsonl", &lines);
+
+    let (status, fleet) = send(fixture.app(), get("/fleet", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "the fleet read: {fleet}");
+    let row = fleet
+        .as_array()
+        .expect("a list")
+        .iter()
+        .find(|row| row["id"] == json!(alpha))
+        .expect("alpha's row");
+    assert_eq!(
+        row["today"],
+        json!({ "client_calls": 10, "failed": 0 }),
+        "the day is ten; the window held three: {fleet}"
+    );
+
+    let (status, day) = send(
+        fixture.app(),
+        get(&format!("/audit/day?device={alpha}"), Some(&session)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "the day read: {day}");
+    assert_eq!(
+        day,
+        json!({
+            "day_start_ms": local_midnight(fixture.now_ms()),
+            "client_calls": 10,
+            "failed": 0,
+            "console": 0,
+            "console_failed": 0,
+            "poll": 0,
+            "poll_failed": 0,
+            "unattributed": 0,
+            "unattributed_failed": 0,
+            // The scan read the whole day: a boundary and the two machines' calls.
+            "lines_read": 2_008,
+        }),
+        "the day route and the fleet's today are one read: {day}"
+    );
+}
+
+/// A file that starts after midnight is a partial day, and says where its coverage starts: the
+/// rotation's oldest line, not a whole day the read cannot prove.
+#[tokio::test]
+async fn a_file_that_starts_after_midnight_says_since() {
+    let fixture = Fixture::new("fleet-day-since");
+    let session = fixture.authenticate().await;
+    let alpha = register_fixture_device(&fixture, &signing_key(0xa1)).await;
+    let now = fixture.now_ms();
+    // Ten minutes after local midnight, the shape a rotation leaves behind.
+    let since = local_midnight(now) + 10 * MINUTE_MS;
+    let lines = vec![
+        json!({
+            "ts_ms": since,
+            "kind": "mcp",
+            "device_id": alpha.as_str(),
+            "status": 200,
+            "tool": "files.read",
+            "caller": "client",
+        }),
+        json!({
+            "ts_ms": since + MINUTE_MS,
+            "kind": "mcp",
+            "device_id": alpha.as_str(),
+            "status": 500,
+            "tool": "files.read",
+            "caller": "client",
+        }),
+    ];
+    seed_audit_file(&fixture, "audit.jsonl", &lines);
+
+    let (status, fleet) = send(fixture.app(), get("/fleet", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "the fleet read: {fleet}");
+    let row = fleet
+        .as_array()
+        .expect("a list")
+        .iter()
+        .find(|row| row["id"] == json!(alpha))
+        .expect("alpha's row");
+    assert_eq!(
+        row["today"],
+        json!({ "client_calls": 2, "failed": 1, "since_ms": since }),
+        "the row states the time its coverage starts: {fleet}"
+    );
+
+    let (status, day) = send(
+        fixture.app(),
+        get(&format!("/audit/day?device={alpha}"), Some(&session)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "the day read: {day}");
+    assert_eq!(day["since_ms"], json!(since));
+    assert_eq!(day["client_calls"], json!(2));
+    assert_eq!(day["failed"], json!(1));
+}
+
+/// A machine whose only line is yesterday's has no day today, even though the newest window still
+/// holds the yesterday line. A zero would be a fact about a window, not about today.
+#[tokio::test]
+async fn a_machine_with_no_line_today_serves_no_day() {
+    let fixture = Fixture::new("fleet-day-yesterday");
+    let session = fixture.authenticate().await;
+    let alpha = register_fixture_device(&fixture, &signing_key(0xa1)).await;
+    let beta = register_fixture_device(&fixture, &signing_key(0xb2)).await;
+    fixture.advance_ms(DAY_MS);
+    let now = fixture.now_ms();
+    let lines = vec![
+        // Alpha worked yesterday, inside the newest window.
+        json!({
+            "ts_ms": now - DAY_MS + MINUTE_MS,
+            "kind": "mcp",
+            "device_id": alpha.as_str(),
+            "status": 200,
+            "tool": "files.read",
+            "caller": "client",
+        }),
+        // Beta worked today.
+        json!({
+            "ts_ms": now - MINUTE_MS,
+            "kind": "mcp",
+            "device_id": beta.as_str(),
+            "status": 200,
+            "tool": "files.read",
+            "caller": "client",
+        }),
+    ];
+    seed_audit_file(&fixture, "audit.jsonl", &lines);
+
+    let (status, fleet) = send(fixture.app(), get("/fleet", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "the fleet read: {fleet}");
+    let rows = fleet.as_array().expect("a list");
+    let row = |id: &str| {
+        rows.iter()
+            .find(|row| row["id"] == json!(id))
+            .unwrap_or_else(|| panic!("{id} is a row: {fleet}"))
+    };
+    assert!(
+        row(&alpha).get("today").is_none(),
+        "yesterday is not today: a day may not be borrowed from the window: {fleet}"
+    );
+    assert_eq!(
+        row(&beta)["today"],
+        json!({ "client_calls": 1, "failed": 0 })
+    );
+}
+
+/// **THE DAY'S ANSWER IS CHECKABLE FROM THE WINDOW IT SITS ABOVE (the forty-fourth list, item 2).**
+///
+/// The item that opened this work claimed the day "read 302 lines to answer a day the window shows
+/// holding 1,000+" and that the read was partial while saying it was whole. The measurement that
+/// disproved it is arithmetic anyone can repeat: take the window, keep the lines at or after the
+/// answer's own `day_start_ms`, count them by the server's own client rule, and compare with
+/// `lines_read` and `client_calls`. 689 of the 1,000 were BEFORE the cut; the 311 at or after it are
+/// the day, and 312 = 311 + the one line that proved the cut.
+///
+/// This test seeds that shape and refuses a day whose scan is not the rows at or after its cut.
+#[tokio::test]
+async fn the_day_scan_covers_exactly_the_rows_at_or_after_its_cut() {
+    let fixture = Fixture::new("day-scan-coverage");
+    // **A CLOCK WITH A DAY IN IT, SET BEFORE THE SESSION IS MINTED.** The fixture starts at
+    // 1,000,000 ms (1970), whose local midnight is the epoch — a clock with no day to read. Advancing
+    // after `authenticate` would expire the cookie the session was minted with (measured: a 401).
+    fixture.advance_ms(1_700_000_000_000);
+    let session = fixture.authenticate().await;
+    let alpha = register_fixture_device(&fixture, &signing_key(0xa1)).await;
+    let now = fixture.now_ms();
+    let midnight = local_midnight(now);
+    // A fixture whose local midnight is the epoch has no day to test; say so rather than assert
+    // against a clock that cannot have one.
+    assert!(midnight > 0, "the fixture's clock has no local day: {now}");
+    let mut lines = Vec::new();
+    // Three rows from the day before: they are NOT the day, and the scan must not count them.
+    // `saturating_sub` because a fixture whose clock is minutes after epoch has no day before it,
+    // and a test that panics on arithmetic proves nothing about the read.
+    for offset in [86_400_000u64, 90_000_000, 120_000_000] {
+        let Some(before) = midnight.checked_sub(offset) else {
+            continue;
+        };
+        lines.push(json!({
+            "ts_ms": before,
+            "kind": "mcp",
+            "device_id": alpha,
+            "status": 200,
+            "tool": "files.read",
+            "caller": "client"
+        }));
+    }
+    // Five rows inside the day: two client calls, two console reads, one boundary.
+    lines.push(json!({ "ts_ms": midnight + 1_000, "kind": "device", "device_id": alpha, "status": 200, "tool": "device.joined", "caller": "console" }));
+    lines.push(json!({ "ts_ms": midnight + 60_000, "kind": "mcp", "device_id": alpha, "status": 200, "tool": "files.read", "caller": "client" }));
+    lines.push(json!({ "ts_ms": midnight + 120_000, "kind": "mcp", "device_id": alpha, "status": 200, "tool": "runs.exec", "caller": "client" }));
+    lines.push(json!({ "ts_ms": midnight + 180_000, "kind": "mcp", "device_id": alpha, "status": 200, "tool": "state.get", "caller": "console" }));
+    lines.push(json!({ "ts_ms": midnight + 240_000, "kind": "mcp", "device_id": alpha, "status": 200, "tool": "plugins.list", "caller": "console" }));
+    seed_audit_file(&fixture, "audit.jsonl", &lines);
+
+    let (status, day) = send(fixture.app(), get("/audit/day", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "the day read: {day}");
+
+    // THE ANSWER'S OWN CUT decides which rows are the day; anything else is a second convention.
+    let cut = day["day_start_ms"]
+        .as_u64()
+        .expect("the answer names its cut");
+    let inside: Vec<_> = lines
+        .iter()
+        .filter(|line| line["ts_ms"].as_u64().unwrap_or(0) >= cut)
+        .collect();
+    assert_eq!(
+        day["client_calls"],
+        json!(2),
+        "two client calls inside the day: {day}"
+    );
+    // **THE BOUNDARY IS A FACT ABOUT THE MACHINE, NOT WORK.** `is_channel_boundary` drops
+    // `device.joined` / `device.left` from every bucket, so the join line is in none of the day's
+    // numbers while still being one of the lines the scan read — the two reads are the console's 2.
+    assert_eq!(
+        day["console"],
+        json!(2),
+        "the two reads are the console's lines; the boundary is in no bucket: {day}"
+    );
+    // **THE SCAN TOUCHED THE WHOLE DAY, NOT A SLICE OF IT.** `lines_read` is every line examined,
+    // which is the day's rows plus the one older line that proved where the day starts.
+    assert_eq!(
+        day["lines_read"],
+        json!(inside.len() + 1),
+        "the scan examined the day's {} rows and one proving line, not a slice: {day}",
+        inside.len()
+    );
+    // And a whole day says so: `since_ms` is absent, because the scan did reach midnight.
+    assert!(
+        day.get("since_ms").is_none() || day["since_ms"].is_null(),
+        "a whole day must not name a coverage start: {day}"
+    );
+}
+
+#[tokio::test]
+async fn the_day_route_counts_the_pages_four_buckets_from_midnight() {
+    let fixture = Fixture::new("day-buckets");
+    let session = fixture.authenticate().await;
+    let alpha = register_fixture_device(&fixture, &signing_key(0xa1)).await;
+    let now = fixture.now_ms();
+    let token = "ab".repeat(32);
+    let lines = vec![
+        // The file's first line is exactly local midnight: the day is whole.
+        json!({ "ts_ms": local_midnight(now), "kind": "device", "device_id": alpha, "status": 200, "tool": "device.joined", "caller": "console" }),
+        json!({ "ts_ms": now - 60_000, "kind": "mcp", "device_id": alpha, "status": 200, "tool": "files.read", "caller": "client" }),
+        json!({ "ts_ms": now - 50_000, "kind": "mcp", "device_id": alpha, "status": 424, "tool": "runs.exec", "caller": "client" }),
+        // A token with no caller is a client call; its JSON-RPC error is a failure inside a 200.
+        json!({ "ts_ms": now - 40_000, "kind": "mcp", "device_id": alpha, "status": 200, "tool": "files.write", "token_id": token, "detail": "jsonrpc error -32002" }),
+        json!({ "ts_ms": now - 30_000, "kind": "mcp", "device_id": alpha, "status": 500, "tool": "terminal.list", "caller": "console" }),
+        json!({ "ts_ms": now - 20_000, "kind": "poll", "device_id": alpha, "status": 502, "detail": "device offline" }),
+        json!({ "ts_ms": now - 15_000, "kind": "mcp", "device_id": alpha, "status": 200, "tool": "files.list" }),
+        json!({ "ts_ms": now - 10_000, "kind": "device", "device_id": alpha, "status": 200, "tool": "device.left", "caller": "console" }),
+    ];
+    seed_audit_file(&fixture, "audit.jsonl", &lines);
+
+    let (status, day) = send(fixture.app(), get("/audit/day", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "the day read: {day}");
+    assert_eq!(
+        day,
+        json!({
+            "day_start_ms": local_midnight(now),
+            "client_calls": 3,
+            "failed": 2,
+            "console": 1,
+            "console_failed": 1,
+            "poll": 1,
+            "poll_failed": 1,
+            "unattributed": 1,
+            "unattributed_failed": 0,
+            // The midnight boundary is read too: it is what proves the day is whole.
+            "lines_read": 8,
+        }),
+        "one line per bucket, and the boundary in none of them: {day}"
     );
 }
 
@@ -1038,7 +1731,7 @@ async fn the_registry_is_persisted_atomically_and_survives_a_restart() {
 
     let restarted = fixture.restart();
     let session = authenticate_on(&restarted).await;
-    let (status, list) = send(restarted.router(), get("/devices", Some(&session))).await;
+    let (status, list) = send(restarted.router(), get("/fleet", Some(&session))).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(list.as_array().expect("a list").len(), 1);
 }
@@ -1089,16 +1782,22 @@ async fn a_valid_grant_verifies_with_the_console_grant_key() {
         "the console returns the fact it signed"
     );
 
+    let nonce = body["grant"]["nonce"]
+        .as_str()
+        .expect("the grant carries the nonce it signed")
+        .to_owned();
+    assert_eq!(nonce.len(), 32, "sixteen bytes of hex: {nonce}");
     let canonical = summrise_console::canonical_message(&summrise_console::Grant {
         device_id: device_id.clone(),
         tools: tools.clone(),
         expires_at_ms: START_MS + 3_600_000,
         allow_destructive: true,
+        nonce: nonce.clone(),
     });
     assert_eq!(
         canonical,
         format!(
-            "grant\n{device_id}\n{}\n{}\ntrue",
+            "grant\n{device_id}\n{}\n{}\ntrue\n{nonce}",
             tools.join(","),
             START_MS + 3_600_000
         ),
@@ -1127,6 +1826,10 @@ async fn a_grant_that_does_not_ask_for_destruction_gets_false() {
         tools: vec!["files.read".to_owned()],
         expires_at_ms: START_MS + 60_000,
         allow_destructive: false,
+        nonce: grant["grant"]["nonce"]
+            .as_str()
+            .expect("the grant carries a nonce")
+            .to_owned(),
     });
     let signature = decode_signature(grant["signature"].as_str().expect("a hex signature"));
     SigningKey::from_bytes(&GRANT_SEED)
@@ -1144,6 +1847,7 @@ fn the_canonical_message_is_exactly_the_agreed_string() {
             tools,
             expires_at_ms: 1_700_000_000_000,
             allow_destructive: false,
+            nonce: String::new(),
         }),
         "grant\nabc123\nfiles.read,terminal.create\n1700000000000\nfalse"
     );
@@ -1275,6 +1979,42 @@ async fn grant_signing_requires_an_operator_session() {
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
 
+/// **EVERY ANSWER CARRIES THE BROWSER MITIGATIONS.** Measured on the live console before this
+/// test: `x-frame-options`, `cache-control` and `content-type` — nothing about sniffing, referrers
+/// or what the page may embed. The middleware that sets them is one layer, so one test reads them.
+#[tokio::test]
+async fn every_answer_carries_the_browser_mitigations() {
+    let fixture = Fixture::new("security-headers");
+
+    let (status, headers, _) = send_with_headers(fixture.app(), get("/health", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        headers.get("x-frame-options").and_then(|v| v.to_str().ok()),
+        Some("DENY")
+    );
+    assert_eq!(
+        headers
+            .get("x-content-type-options")
+            .and_then(|v| v.to_str().ok()),
+        Some("nosniff")
+    );
+    assert_eq!(
+        headers.get("referrer-policy").and_then(|v| v.to_str().ok()),
+        Some("no-referrer")
+    );
+    assert_eq!(
+        headers
+            .get("content-security-policy")
+            .and_then(|v| v.to_str().ok()),
+        Some("frame-ancestors 'none'; object-src 'none'; base-uri 'self'")
+    );
+    assert_eq!(
+        headers.get("cache-control").and_then(|v| v.to_str().ok()),
+        Some("no-store"),
+        "a cached page is yesterday's page"
+    );
+}
+
 #[tokio::test]
 async fn health_reports_status_device_count_and_uptime_without_auth() {
     let fixture = Fixture::new("health");
@@ -1283,6 +2023,12 @@ async fn health_reports_status_device_count_and_uptime_without_auth() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["status"], json!("ok"));
     assert_eq!(body["devices"], json!(0));
+    assert_eq!(body["online"], json!(0), "nothing is connected yet: {body}");
+    assert_eq!(
+        body["version"],
+        json!(env!("CARGO_PKG_VERSION")),
+        "the endpoint an operator checks answers which build is running"
+    );
     assert!(
         body["uptime_s"].as_u64().is_some(),
         "uptime is a whole number of seconds: {body}"
@@ -1292,6 +2038,715 @@ async fn health_reports_status_device_count_and_uptime_without_auth() {
     let (status, body) = send(fixture.app(), get("/health", None)).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["devices"], json!(1));
+    // Registered is not connected: the count that answers "is anything up" stays 0 until a channel
+    // opens, which is the distinction a known-device count cannot make.
+    assert_eq!(body["online"], json!(0), "{body}");
+}
+
+/// **ONLINE IS THE QUESTION.** `devices` counts the registry and stays the same whether anything is
+/// connected; `online` counts the channels that are open at this instant. This opens one.
+#[tokio::test]
+async fn health_counts_a_connected_device_as_online() {
+    let fixture = Fixture::new("health-online");
+    let server = TestServer::start(&fixture.console).await;
+    let (_device_id, _token, _device) = present_device(&fixture, &server, &signing_key(0x7b)).await;
+
+    let (status, body) = send(fixture.app(), get("/health", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["devices"], json!(1), "{body}");
+    assert_eq!(
+        body["online"],
+        json!(1),
+        "the channel the test opened is counted: {body}"
+    );
+}
+
+/// **THE FIELD MOVES BOTH WAYS.** The incident of 2026-10-29 was a channel that went away; the test
+/// above proves an open channel counts. This one proves a channel that drops stops counting — the
+/// state an operator (or a supervisor) needs to see, and the one the old `devices` count could not
+/// express.
+#[tokio::test]
+async fn health_stops_counting_a_device_whose_channel_closed() {
+    let fixture = Fixture::new("health-offline");
+    let server = TestServer::start(&fixture.console).await;
+    let (_device_id, _token, device) = present_device(&fixture, &server, &signing_key(0x7a)).await;
+
+    let (_, body) = send(fixture.app(), get("/health", None)).await;
+    assert_eq!(body["online"], json!(1), "the channel is open: {body}");
+
+    drop(device);
+
+    // The close is asynchronous: the channel task notices the socket ended.
+    let mut last = body;
+    for _ in 0..40 {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let (_, body) = send(fixture.app(), get("/health", None)).await;
+        if body["online"] == json!(0) {
+            assert_eq!(
+                body["devices"],
+                json!(1),
+                "the device is still known: {body}"
+            );
+            return;
+        }
+        last = body;
+    }
+    panic!("the dropped channel still counts as online: {last}");
+}
+
+/// **A SOCKET IS NOT PRESENCE.** The live finding (2026-11-05): DESKTOP-14RJCR8 was offline on the
+/// tailnet for 7+ minutes (`tailscale status` said "offline, last seen 7m ago") while `/fleet`
+/// served `"online": true`, because the console asked whether a channel existed instead of whether
+/// the device had said anything on it. A half-open socket to a sleeping machine kept claiming it was
+/// there. This is the same shape with the clock under our hand: a channel that opened and sent no
+/// frame is offline, and the console omits a moment it never observed.
+#[tokio::test]
+async fn a_channel_that_has_sent_no_frame_is_not_online() {
+    let fixture = Fixture::new("presence-no-frame");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, token) = fixture.register(&signing_key(0x61)).await;
+    let session = fixture.authenticate().await;
+    let mut device = open_channel(&server, &device_id, &token)
+        .await
+        .expect("the device channel");
+
+    // The upgrade callback registers the channel asynchronously. Wait for its join boundary rather
+    // than guessing with a sleep: once the line is on disk, the socket exists and only a frame is
+    // missing.
+    wait_until_joined(&fixture, 1).await;
+    let listed = fleet_row(fixture.app(), &session, &device_id).await;
+    assert_eq!(
+        listed["online"],
+        json!(false),
+        "an open socket with no frame is not presence: {listed}"
+    );
+    assert!(
+        listed.get("last_frame_ms").is_none(),
+        "the console has never seen a frame, so it has no moment to serve: {listed}"
+    );
+
+    device
+        .send(WsMessage::Text(
+            json!({ "host": { "machine": "workshop" } }).to_string(),
+        ))
+        .await
+        .expect("the host frame is sent");
+
+    let listed = wait_until_online(fixture.app(), &session, &device_id).await;
+    assert_eq!(
+        listed["last_frame_ms"],
+        json!(START_MS),
+        "the frame is the moment the console saw: {listed}"
+    );
+}
+
+/// **SILENCE IS OFFLINE, AND THE MOMENT IS NOT ROUNDED AWAY.** A device that reported and then
+/// stopped (the sleeping machine behind a half-open TCP connection) keeps its place in the channel
+/// map. The row says offline after the presence window, keeps the exact moment it was last heard,
+/// and does not explain silence as a reconnect: `last_attempt` describes a real reconnect and this
+/// channel never had one.
+#[tokio::test]
+async fn a_silent_channel_is_offline_and_keeps_the_moment_it_was_last_heard() {
+    let fixture = Fixture::new("presence-silent");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        present_device(&fixture, &server, &signing_key(0x62)).await;
+    let session = fixture.authenticate().await;
+
+    let heard = fleet_row(fixture.app(), &session, &device_id).await;
+    assert_eq!(heard["online"], json!(true), "{heard}");
+    let heard_at = heard["last_frame_ms"]
+        .as_u64()
+        .unwrap_or_else(|| panic!("a frame was seen, so the moment is served: {heard}"));
+
+    // Seven minutes is the measured live silence; this test uses 200 s because it is past the
+    // window and on the injected clock, so the numbers are deterministic.
+    fixture.advance_ms(200_000);
+    let listed = fleet_row(fixture.app(), &session, &device_id).await;
+    assert_eq!(
+        listed["online"],
+        json!(false),
+        "a channel silent past the window is offline: {listed}"
+    );
+    assert_eq!(
+        listed["last_frame_ms"],
+        json!(heard_at),
+        "the moment is unchanged, not moved to now: {listed}"
+    );
+    assert!(
+        listed.get("last_attempt").is_none(),
+        "silence is not a reconnect, so the attempt line has nothing to say: {listed}"
+    );
+    assert!(
+        listed.get("last_outage").is_none(),
+        "a silent channel has not closed, so there is no outage: {listed}"
+    );
+
+    let (_, health) = send(fixture.app(), get("/health", None)).await;
+    assert_eq!(health["online"], json!(0), "{health}");
+
+    // A frame on the SAME socket brings it back without a reconnect.
+    device
+        .send(WsMessage::Text(
+            json!({ "host": { "machine": "workshop" } }).to_string(),
+        ))
+        .await
+        .expect("the host frame is sent");
+    let listed = wait_until_online(fixture.app(), &session, &device_id).await;
+    assert_eq!(
+        listed["last_frame_ms"],
+        json!(START_MS + 200_000),
+        "the new frame moves the moment forward: {listed}"
+    );
+}
+
+/// **A REOPENED CHANNEL HAS AN EMPTY PRESENCE CLOCK.** The old socket's frames are not evidence for
+/// the new one: a device can open a channel and go silent before its first report. The console still
+/// remembers when it last heard the device, because that moment happened and is not a claim about
+/// the new socket; `online` alone is decided by frames on the channel that is live now.
+#[tokio::test]
+async fn a_reopened_channel_is_offline_until_it_sends_a_frame() {
+    let fixture = Fixture::new("presence-reopened");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, token, device) = present_device(&fixture, &server, &signing_key(0x63)).await;
+    let session = fixture.authenticate().await;
+    let heard = fleet_row(fixture.app(), &session, &device_id).await;
+    let heard_at = heard["last_frame_ms"]
+        .as_u64()
+        .unwrap_or_else(|| panic!("a frame was seen, so the moment is served: {heard}"));
+
+    drop(device);
+    wait_until_offline(fixture.app(), &session, &device_id).await;
+
+    let mut again = open_channel(&server, &device_id, &token)
+        .await
+        .expect("the device reconnects");
+    wait_until_joined(&fixture, 2).await;
+
+    let listed = fleet_row(fixture.app(), &session, &device_id).await;
+    assert_eq!(
+        listed["online"],
+        json!(false),
+        "the replacement socket has proved nothing yet: {listed}"
+    );
+    assert_eq!(
+        listed["last_frame_ms"],
+        json!(heard_at),
+        "the last frame the console saw is a fact about the past, not about the new socket: {listed}"
+    );
+
+    fixture.advance_ms(1_000);
+    again
+        .send(WsMessage::Text(
+            json!({ "host": { "machine": "workshop" } }).to_string(),
+        ))
+        .await
+        .expect("the host frame is sent");
+    let listed = wait_until_online(fixture.app(), &session, &device_id).await;
+    assert_eq!(
+        listed["last_frame_ms"],
+        json!(START_MS + 1_000),
+        "a frame on the new channel is what makes it online: {listed}"
+    );
+}
+
+/// **THE FRAME'S UPDATE SECTION IS THE DEVICE'S OWN ACCOUNT.** The fleet row already says whether a
+/// machine is online; this is what the machine says about its last start and the updater's last
+/// answer. The console carries the section unchanged, per device, and the newest frame is the one
+/// served — a machine that came back on the new build must not keep the refusal from before.
+#[tokio::test]
+async fn a_host_frame_carries_the_devices_own_update_story_to_the_fleet() {
+    let fixture = Fixture::new("fleet-update-story");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x71)).await;
+    let session = fixture.authenticate().await;
+
+    let refused = json!({
+        "current": "0.3.275",
+        "verdict": { "outcome": "ok", "detail": "started 0.3.275" },
+        "last_update": { "to": "0.3.276", "outcome": "refused", "at_ms": START_MS },
+    });
+    device
+        .send(WsMessage::Text(
+            json!({ "host": { "machine": "workshop" }, "update": refused }).to_string(),
+        ))
+        .await
+        .expect("the host frame with its update section is sent");
+
+    let listed = wait_until_update(fixture.app(), &session, &device_id).await;
+    assert_eq!(
+        listed["update"], refused,
+        "the device's own section is carried unchanged: {listed}"
+    );
+
+    let applied = json!({
+        "current": "0.3.276",
+        "verdict": { "outcome": "ok", "detail": "started 0.3.276" },
+        "last_update": { "to": "0.3.276", "outcome": "applied", "at_ms": START_MS + 60_000 },
+    });
+    device
+        .send(WsMessage::Text(
+            json!({ "host": { "machine": "workshop" }, "update": applied }).to_string(),
+        ))
+        .await
+        .expect("the newer host frame is sent");
+
+    let listed = wait_until_update_value(fixture.app(), &session, &device_id, &applied).await;
+    assert_eq!(
+        listed["update"], applied,
+        "the newest frame's story is the one served: {listed}"
+    );
+}
+
+/// A device that has sent no update section (an older build) leaves the row without one. The output
+/// must not invent `current: null` or a verdict, and the page draws nothing new for it.
+#[tokio::test]
+async fn a_frame_without_an_update_section_leaves_the_fleet_row_without_one() {
+    let fixture = Fixture::new("fleet-update-absent");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, _device) = present_device(&fixture, &server, &signing_key(0x72)).await;
+    let session = fixture.authenticate().await;
+
+    let listed = fleet_row(fixture.app(), &session, &device_id).await;
+    assert!(
+        listed.get("update").is_none(),
+        "a device that sent nothing gets no section: {listed}"
+    );
+}
+
+/// Wait until a frame carrying an update section has been recorded for this device.
+async fn wait_until_update(app: Router, session: &str, device_id: &str) -> Value {
+    for _ in 0..100 {
+        let listed = fleet_row(app.clone(), session, device_id).await;
+        if listed.get("update").is_some() {
+            return listed;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("the device's update section never reached the fleet");
+}
+
+/// Wait until the row serves exactly this update section (the newest frame wins).
+async fn wait_until_update_value(
+    app: Router,
+    session: &str,
+    device_id: &str,
+    expected: &Value,
+) -> Value {
+    for _ in 0..100 {
+        let listed = fleet_row(app.clone(), session, device_id).await;
+        if listed["update"] == *expected {
+            return listed;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("the fleet never served the newer update section");
+}
+
+/// One device's row from `/fleet`, or a failure that shows the whole answer.
+async fn fleet_row(app: Router, session: &str, device_id: &str) -> Value {
+    let (status, fleet) = send(app, get("/fleet", Some(session))).await;
+    assert_eq!(status, StatusCode::OK, "the fleet read: {fleet}");
+    fleet
+        .as_array()
+        .expect("the fleet is a list")
+        .iter()
+        .find(|entry| entry["id"] == json!(device_id))
+        .cloned()
+        .unwrap_or_else(|| panic!("the device {device_id} is listed: {fleet}"))
+}
+
+/// Wait until the console has processed the dropped socket and the row says offline.
+async fn wait_until_offline(app: Router, session: &str, device_id: &str) -> Value {
+    for _ in 0..100 {
+        let listed = fleet_row(app.clone(), session, device_id).await;
+        if listed["online"] == json!(false) {
+            return listed;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("the dropped channel still counts as online");
+}
+
+/// Wait until a frame has been recorded and the row says online.
+async fn wait_until_online(app: Router, session: &str, device_id: &str) -> Value {
+    for _ in 0..100 {
+        let listed = fleet_row(app.clone(), session, device_id).await;
+        if listed["online"] == json!(true) {
+            return listed;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("the channel never carried a frame");
+}
+
+/// Wait until `joins` `device.joined` boundary lines are on disk.
+///
+/// The upgrade callback registers a socket in a spawned task, so a test that needs "the socket
+/// exists but no frame has arrived" must wait for an observable boundary rather than a sleep. The
+/// line is written by `open`, before the socket is served.
+async fn wait_until_joined(fixture: &Fixture, joins: usize) {
+    for _ in 0..100 {
+        let seen = audit_lines(fixture)
+            .iter()
+            .filter(|line| line["tool"] == json!("device.joined"))
+            .count();
+        if seen >= joins {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("the channel never wrote its device.joined line");
+}
+
+/// Wait until the reconnect's `device.joined` line is on disk and the row reads it back.
+async fn wait_until_outage(app: Router, session: &str, device_id: &str) -> Value {
+    for _ in 0..100 {
+        let listed = fleet_row(app.clone(), session, device_id).await;
+        if listed.get("last_outage").is_some() {
+            return listed;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("the reconnect never left an outage");
+}
+
+/// **THE OUTAGE THAT IS OVER IS STILL A FACT.** A fleet row says `online` again the moment a device
+/// comes back; the pair of moments the console observed is what lets a menu line say "back 2h ago
+/// after 41m" without opening the machine. The names are the duration and the return, because those
+/// are the two a reader compares.
+///
+/// The two moments are audit lines now (`device.left`, `device.joined`), and the duration is their
+/// difference on the console's clock. The test moves that clock between the close and the reopen so
+/// the numbers are deterministic rather than a measured wall-clock race.
+#[tokio::test]
+async fn a_reconnect_records_how_long_the_device_was_away() {
+    let fixture = Fixture::new("outage-record");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, token, device) = present_device(&fixture, &server, &signing_key(0x78)).await;
+    let session = fixture.authenticate().await;
+
+    let listed = fleet_row(fixture.app(), &session, &device_id).await;
+    assert!(
+        listed.get("last_outage").is_none(),
+        "a device that has never gone away omits the key, rather than inventing a zero: {listed}"
+    );
+
+    let gone_at = fixture.now_ms();
+    drop(device);
+    // The outage starts when the console notices the close, not when the socket was dropped: wait
+    // for the offline row, then measure the gap it stayed away.
+    wait_until_offline(fixture.app(), &session, &device_id).await;
+    fixture.advance_ms(80);
+    let back_at = fixture.now_ms();
+
+    let _again = open_channel(&server, &device_id, &token)
+        .await
+        .expect("the device reconnects");
+
+    let listed = wait_until_outage(fixture.app(), &session, &device_id).await;
+    let outage = listed
+        .get("last_outage")
+        .unwrap_or_else(|| panic!("the reconnect leaves an outage: {listed}"));
+    assert_eq!(outage["away_ms"], json!(80), "{listed}");
+    assert_eq!(outage["back_at_ms"], json!(back_at), "{listed}");
+    assert_eq!(
+        outage["back_at_ms"].as_u64().unwrap_or(0) - outage["away_ms"].as_u64().unwrap_or(0),
+        gone_at,
+        "the absence began when the console saw the close: {listed}"
+    );
+
+    // The two moments are audit lines, marked as the console's own facts rather than a tool call.
+    // The initial connect, the close and the reopen are the three: the outage is the last two.
+    let boundaries: Vec<Value> = audit_lines(&fixture)
+        .into_iter()
+        .filter(|line| line["kind"] == json!("device"))
+        .collect();
+    assert_eq!(boundaries.len(), 3, "{boundaries:?}");
+    for line in &boundaries {
+        assert_eq!(line["device_id"], json!(device_id));
+        assert_eq!(line["caller"], json!("console"));
+        assert_eq!(line["status"], json!(200));
+        assert!(
+            line.get("token_id").is_none(),
+            "a channel boundary is not a client call: {line}"
+        );
+    }
+    assert_eq!(boundaries[0]["tool"], json!("device.joined"));
+    assert_eq!(boundaries[0]["ts_ms"], json!(START_MS));
+    assert_eq!(boundaries[1]["tool"], json!("device.left"));
+    assert_eq!(boundaries[1]["ts_ms"], json!(gone_at));
+    assert_eq!(boundaries[2]["tool"], json!("device.joined"));
+    assert_eq!(boundaries[2]["ts_ms"], json!(back_at));
+}
+
+/// **THE ABSENCE OUTLIVES THE CONSOLE THAT WATCHED IT.** The record is the audit, not a map in the
+/// process: a console restarted mid-outage still reads the close the dead process wrote and the
+/// open the new one wrote, and the pair is the interval between them.
+#[tokio::test]
+async fn an_absence_outlives_a_console_restart() {
+    let fixture = Fixture::new("outage-audit-restart");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, token, device) = present_device(&fixture, &server, &signing_key(0x79)).await;
+    let session = fixture.authenticate().await;
+
+    drop(device);
+    wait_until_offline(fixture.app(), &session, &device_id).await;
+    fixture.advance_ms(41 * MINUTE_MS);
+    let _again = open_channel(&server, &device_id, &token)
+        .await
+        .expect("the device reconnects");
+
+    let listed = wait_until_outage(fixture.app(), &session, &device_id).await;
+    let outage = listed["last_outage"].clone();
+    assert_eq!(outage["away_ms"], json!(41 * MINUTE_MS), "{listed}");
+
+    let on_disk = fs::read_to_string(fixture.config.data.join("devices.json"))
+        .expect("the device registry is readable");
+    assert!(
+        !on_disk.contains("last_outage") && !on_disk.contains("away_ms"),
+        "the outage is not written to the device registry: {on_disk}"
+    );
+    let audit = serde_json::to_string(&audit_lines(&fixture)).expect("the audit serializes");
+    assert!(
+        audit.contains("\"tool\":\"device.left\"") && audit.contains("\"tool\":\"device.joined\""),
+        "the two boundaries are audit lines: {audit}"
+    );
+
+    // A new process: the channel map is empty, the audit is not.
+    let restarted = fixture.restart();
+    let session = authenticate_on(&restarted).await;
+    let listed = fleet_row(restarted.router(), &session, &device_id).await;
+    assert_eq!(
+        listed.get("last_outage"),
+        Some(&outage),
+        "the pair is read back from the audit, not from the dead process: {listed}"
+    );
+}
+
+/// **THE AUDIT ALONE PROVES AN ABSENCE.** Seeded lines, no channel ever opened in this console: a
+/// `device.left` with no return yet is not an absence; adding the `device.joined` makes it one.
+#[tokio::test]
+async fn a_channel_pair_in_the_audit_is_the_last_outage() {
+    let fixture = Fixture::new("outage-audit-pair");
+    let device_id = register_fixture_device(&fixture, &signing_key(0x7a)).await;
+    let session = fixture.authenticate().await;
+    let left_at = START_MS + 1_000;
+    let joined_at = START_MS + 171 * MINUTE_MS;
+    let left = json!({
+        "ts_ms": left_at,
+        "kind": "device",
+        "device_id": device_id,
+        "status": 200,
+        "tool": "device.left",
+        "caller": "console",
+    });
+
+    seed_audit_file(&fixture, "audit.jsonl", std::slice::from_ref(&left));
+    let listed = fleet_row(fixture.app(), &session, &device_id).await;
+    assert!(
+        listed.get("last_outage").is_none(),
+        "a drop with no return is still away, so it is not a completed absence: {listed}"
+    );
+
+    let joined = json!({
+        "ts_ms": joined_at,
+        "kind": "device",
+        "device_id": device_id,
+        "status": 200,
+        "tool": "device.joined",
+        "caller": "console",
+    });
+    seed_audit_file(&fixture, "audit.jsonl", &[left, joined]);
+    let listed = fleet_row(fixture.app(), &session, &device_id).await;
+    assert_eq!(
+        listed.get("last_outage"),
+        Some(&json!({
+            "away_ms": joined_at - left_at,
+            "back_at_ms": joined_at,
+        })),
+        "the pair is the absence: {listed}"
+    );
+}
+
+/// **THE SILENCE'S START IS THE CLOSE THE OLD PROCESS WROTE.** The measured DESKTOP-14RJCR8 case:
+/// the console restarted, so it has no `last_frame_ms`; the registry's `last_seen_ms` is the previous
+/// channel's open (08:06:04) while the audit holds the close that started the silence (08:18:06).
+/// `/fleet` serves that newest still-open `device.left` as `last_left_ms`, so an offline row can be
+/// aged from the newest evidence the console actually has.
+#[tokio::test]
+async fn a_device_still_away_serves_the_close_that_started_its_silence() {
+    let fixture = Fixture::new("fleet-last-left");
+    let device_id = register_fixture_device(&fixture, &signing_key(0x7b)).await;
+    let session = fixture.authenticate().await;
+    let left_at = START_MS + 1_000;
+    let left = |ts_ms: u64| {
+        json!({
+            "ts_ms": ts_ms,
+            "kind": "device",
+            "device_id": device_id,
+            "status": 200,
+            "tool": "device.left",
+            "caller": "console",
+        })
+    };
+
+    // No boundary at all: the device has never dropped in this window, so nothing is invented.
+    let listed = fleet_row(fixture.app(), &session, &device_id).await;
+    assert!(
+        listed.get("last_left_ms").is_none(),
+        "a device that has not dropped has no silence start: {listed}"
+    );
+
+    seed_audit_file(
+        &fixture,
+        "audit.jsonl",
+        std::slice::from_ref(&left(left_at)),
+    );
+    let listed = fleet_row(fixture.app(), &session, &device_id).await;
+    assert_eq!(
+        listed["last_left_ms"],
+        json!(left_at),
+        "the open close is the silence's start: {listed}"
+    );
+    assert!(
+        listed.get("last_outage").is_none(),
+        "a close with no return is still away, not a completed absence: {listed}"
+    );
+
+    // A close followed by a join is a completed absence: the silence is over, so the close is not
+    // served as the current one — `last_outage` carries it instead.
+    let joined_at = left_at + 41 * MINUTE_MS;
+    let joined = json!({
+        "ts_ms": joined_at,
+        "kind": "device",
+        "device_id": device_id,
+        "status": 200,
+        "tool": "device.joined",
+        "caller": "console",
+    });
+    seed_audit_file(&fixture, "audit.jsonl", &[left(left_at), joined.clone()]);
+    let listed = fleet_row(fixture.app(), &session, &device_id).await;
+    assert!(
+        listed.get("last_left_ms").is_none(),
+        "a close the join answered is not the current silence: {listed}"
+    );
+    assert_eq!(
+        listed["last_outage"]["back_at_ms"],
+        json!(joined_at),
+        "{listed}"
+    );
+
+    // A second close after the return: the newest open close is the one that started this silence.
+    let later_left = joined_at + 2 * MINUTE_MS;
+    seed_audit_file(
+        &fixture,
+        "audit.jsonl",
+        &[left(left_at), joined, left(later_left)],
+    );
+    let listed = fleet_row(fixture.app(), &session, &device_id).await;
+    assert_eq!(
+        listed["last_left_ms"],
+        json!(later_left),
+        "the newest open close starts the current silence: {listed}"
+    );
+}
+
+/// **THE CONSOLE'S ATTEMPTS SURVIVE ITS OWN RESTART IN THE AUDIT.** The measured 84T: its panel
+/// carried 14 failed console attempts, but `last_attempt` lives only in the console process, so a
+/// console restarted since the device last connected has forgotten it. The audit file has not: the
+/// newest window's `device.joined` / `device.left` rows are the tally `/fleet` serves, with the
+/// lines it read and the span they cover, so an operator can tell a healthy link from one that keeps
+/// being accepted and dropped. A machine with no boundary in the window gets no count — never a zero.
+#[tokio::test]
+async fn the_fleet_counts_each_devices_channel_joins_and_leaves_in_its_window() {
+    let fixture = Fixture::new("fleet-channel-activity");
+    let device_id = register_fixture_device(&fixture, &signing_key(0x7e)).await;
+    let quiet_id = register_fixture_device(&fixture, &signing_key(0x7f)).await;
+    let session = fixture.authenticate().await;
+    let other = "ef".repeat(32);
+    let boundary = |device: &str, tool: &str, ts_ms: u64| {
+        json!({
+            "ts_ms": ts_ms,
+            "kind": "device",
+            "device_id": device,
+            "status": 200,
+            "tool": tool,
+            "caller": "console",
+        })
+    };
+
+    // 24 joins and 2 leaves for the machine, interleaved with another machine's joins and a call,
+    // oldest first as the writer appends them.
+    let mut lines = Vec::new();
+    for index in 0..24u64 {
+        lines.push(boundary(&device_id, "device.joined", START_MS + index * 3));
+        if index < 2 {
+            lines.push(boundary(
+                &device_id,
+                "device.left",
+                START_MS + index * 3 + 1,
+            ));
+        }
+        lines.push(boundary(&other, "device.joined", START_MS + index * 3 + 2));
+    }
+    seed_audit_file(&fixture, "audit.jsonl", &lines);
+
+    let listed = fleet_row(fixture.app(), &session, &device_id).await;
+    // The window is the 50 lines this read returned (not the 2,000-line cap), and its newest and
+    // oldest lines are 71 ms apart: the sentence dates the window the counts came from.
+    assert_eq!(
+        listed["channel_activity"],
+        json!({ "joined": 24, "left": 2, "window": 50, "span_ms": 71 }),
+        "the window's joins and leaves are the console's own record: {listed}"
+    );
+    // A machine with no boundary in the window has no count to serve — never a zero. The other
+    // machine's boundaries are its own (the unit test pins the per-device split).
+    let quiet = fleet_row(fixture.app(), &session, &quiet_id).await;
+    assert!(
+        quiet.get("channel_activity").is_none(),
+        "a machine with no boundary in the window has no count to serve: {quiet}"
+    );
+}
+
+/// **AN UNDATED WINDOW KEEPS ITS COUNT AND STATES NO DURATION.** The audit's writer stamps every
+/// line, but a line written before the field (or a synthetic one) cannot prove the window's ends.
+/// `/fleet` omits `span_ms` rather than serving a duration the trace does not hold, and the page
+/// then says the lines and no duration (task 76's second ruling).
+#[tokio::test]
+async fn a_channel_window_without_moments_on_its_ends_serves_no_span() {
+    let fixture = Fixture::new("fleet-channel-undated");
+    let device_id = register_fixture_device(&fixture, &signing_key(0x80)).await;
+    let session = fixture.authenticate().await;
+    let boundary = |tool: &str, ts_ms: Option<u64>| {
+        let mut line = json!({
+            "kind": "device",
+            "device_id": device_id.as_str(),
+            "status": 200,
+            "tool": tool,
+            "caller": "console",
+        });
+        if let Some(ts_ms) = ts_ms {
+            line["ts_ms"] = json!(ts_ms);
+        }
+        line
+    };
+    // The oldest line carries no moment: the join and the left are counted, but the window's two
+    // ends cannot be subtracted.
+    let lines = vec![
+        boundary("device.joined", None),
+        boundary("device.left", Some(START_MS + 2)),
+        boundary("device.joined", Some(START_MS + 3)),
+    ];
+    seed_audit_file(&fixture, "audit.jsonl", &lines);
+
+    let listed = fleet_row(fixture.app(), &session, &device_id).await;
+    assert_eq!(
+        listed["channel_activity"],
+        json!({ "joined": 1, "left": 1, "window": 3 }),
+        "the lines are counted; no span is served for an undated end: {listed}"
+    );
 }
 
 #[tokio::test]
@@ -1411,19 +2866,193 @@ fn http_status(error: &tungstenite::Error) -> Option<u16> {
 }
 
 async fn next_message(socket: &mut DeviceSocket) -> WsMessage {
-    tokio::time::timeout(Duration::from_secs(5), socket.next())
-        .await
-        .expect("a frame arrives")
-        .expect("the socket stays open")
-        .expect("a websocket message")
+    loop {
+        let message = tokio::time::timeout(Duration::from_secs(5), socket.next())
+            .await
+            .expect("a frame arrives")
+            .expect("the socket stays open")
+            .expect("a websocket message");
+        // The console subscribes to the device's journal as soon as the channel opens (S1). That
+        // frame is not a call, an answer or the close a test is waiting for; skip it here so every
+        // test that reads the next meaningful frame does not have to know it exists.
+        if let WsMessage::Text(text) = &message {
+            if let Ok(frame) = serde_json::from_str::<Value>(text.as_str()) {
+                if frame.get("events").is_some() || frame.get("unsubscribe").is_some() {
+                    continue;
+                }
+            }
+        }
+        return message;
+    }
 }
 
+/// The next frame a device side received, exactly as it crossed the socket.
+///
+/// This is the reader a test uses when it must see the console's own transaction work: the
+/// `txn.begin` probe, a commit, or a frame the console must NOT have tagged. [`next_json`] layers a
+/// 2.0.12 device's automatic answer over it, so a test about something other than transactions does
+/// not have to know that every Required call begins one.
+async fn next_json_raw(socket: &mut DeviceSocket) -> Value {
+    loop {
+        let text = next_message(socket)
+            .await
+            .into_text()
+            .expect("a text frame");
+        let frame: Value = serde_json::from_str(text.as_str()).expect("the frame is JSON");
+        // The channel subscribes to the device's journal as soon as it opens (S1); that frame is not
+        // a call, and a test that reads the next call must not mistake it for one.
+        if frame.get("events").is_some() || frame.get("unsubscribe").is_some() {
+            continue;
+        }
+        return frame;
+    }
+}
+
+/// The next call-shaped frame, after answering any `txn.begin` the console sent to open one.
+///
+/// **A 2.0.12 DEVICE ANSWERS THE CONSOLE'S OWN TRANSACTION PROBE.** The console begins one
+/// device-scope transaction lazily and one session-bound transaction when a person uses a session,
+/// so the first Required call on a channel is preceded by a `txn.begin`. A test about a tool's
+/// behavior should not have to script that; a test about the transaction itself reads
+/// [`next_json_raw`] instead.
 async fn next_json(socket: &mut DeviceSocket) -> Value {
-    let text = next_message(socket)
-        .await
-        .into_text()
-        .expect("a text frame");
-    serde_json::from_str(text.as_str()).expect("the frame is JSON")
+    loop {
+        let frame = next_json_raw(socket).await;
+        if frame_tool(&frame) == Some("txn.begin") {
+            static NEXT: AtomicU64 = AtomicU64::new(1);
+            let n = NEXT.fetch_add(1, Ordering::Relaxed);
+            answer(
+                socket,
+                &frame,
+                tools_call_answer(
+                    frame["id"].clone(),
+                    &json!({ "txn": format!("txn-auto-{n}"), "started_at_ms": START_MS })
+                        .to_string(),
+                    false,
+                ),
+            )
+            .await;
+            continue;
+        }
+        return frame;
+    }
+}
+
+/// The tool a `tools/call` frame names, or `None` for any other request.
+fn frame_tool(frame: &Value) -> Option<&str> {
+    if frame.get("mcp")?.get("method")?.as_str()? != "tools/call" {
+        return None;
+    }
+    frame.get("mcp")?.get("params")?.get("name")?.as_str()
+}
+
+/// The arguments object of a `tools/call` frame.
+fn frame_arguments(frame: &Value) -> &Value {
+    frame
+        .get("mcp")
+        .and_then(|mcp| mcp.get("params"))
+        .and_then(|params| params.get("arguments"))
+        .unwrap_or(&Value::Null)
+}
+
+/// The transaction a call frame carries, when it carries one.
+fn frame_txn(frame: &Value) -> Option<&str> {
+    frame_arguments(frame).get("txn")?.as_str()
+}
+
+/// The next frame must be the console beginning a transaction; returns it and its purpose.
+async fn expect_begin(socket: &mut DeviceSocket) -> (Value, String) {
+    let frame = next_json_raw(socket).await;
+    assert_eq!(
+        frame_tool(&frame),
+        Some("txn.begin"),
+        "the console opens its transaction first: {frame}"
+    );
+    let purpose = frame_arguments(&frame)["purpose"]
+        .as_str()
+        .expect("a begin names its purpose")
+        .to_owned();
+    (frame, purpose)
+}
+
+/// Answer a `txn.begin` with the id the device minted.
+async fn answer_begin(socket: &mut DeviceSocket, frame: &Value, txn: &str) {
+    answer(
+        socket,
+        frame,
+        tools_call_answer(
+            frame["id"].clone(),
+            &json!({ "txn": txn, "started_at_ms": START_MS, "goal_at_start": Value::Null })
+                .to_string(),
+            false,
+        ),
+    )
+    .await;
+}
+
+/// A forwarded call's arguments without the transaction the console attached.
+///
+/// The console tags every Required call it makes on a person's behalf; a test about the tool's own
+/// arguments should assert those and leave the tag to the transaction tests.
+fn untagged_arguments(frame: &Value) -> Value {
+    let mut arguments = frame_arguments(frame).clone();
+    if let Some(object) = arguments.as_object_mut() {
+        object.remove("txn");
+    }
+    arguments
+}
+
+/// Answer a `txn.begin` with the device's already-open refusal, naming the record it kept.
+///
+/// A restart leaves the console's holder on the device; the refusal carries the open id and the
+/// purpose it declared in `structuredContent`, which is what lets a restarted console recover.
+async fn answer_already_open(socket: &mut DeviceSocket, frame: &Value, txn: &str, purpose: &str) {
+    let mut answer_body = tools_call_answer(
+        frame["id"].clone(),
+        "txn.begin: txn_already_open: a transaction is already open for that scope; commit or \
+         abort it first",
+        true,
+    );
+    answer_body["result"]["structuredContent"] = json!({ "txn": txn, "purpose": purpose });
+    answer(socket, frame, answer_body).await;
+}
+
+/// The next frame must be a `tools/call` naming `tool`.
+async fn expect_call(socket: &mut DeviceSocket, tool: &str) -> Value {
+    let frame = next_json_raw(socket).await;
+    assert_eq!(
+        frame_tool(&frame),
+        Some(tool),
+        "the device expected {tool}: {frame}"
+    );
+    frame
+}
+
+/// Answer a `tools/call` with a successful text result.
+async fn answer_tool(socket: &mut DeviceSocket, frame: &Value, body: Value) {
+    answer(
+        socket,
+        frame,
+        tools_call_answer(frame["id"].clone(), &body.to_string(), false),
+    )
+    .await;
+}
+
+/// The device's answer with MCP's structured output beside its text: the page reads
+/// `result.structuredContent` for the id a begin minted and the receipt a commit returned.
+fn with_structured(mut answer: Value, structured: Value) -> Value {
+    answer["result"]["structuredContent"] = structured;
+    answer
+}
+
+/// Answer a `tools/call` with MCP's tool-level failure (`isError: true`), as a device refuses.
+async fn answer_refused(socket: &mut DeviceSocket, frame: &Value, sentence: &str) {
+    answer(
+        socket,
+        frame,
+        tools_call_answer(frame["id"].clone(), sentence, true),
+    )
+    .await;
 }
 
 async fn answer(socket: &mut DeviceSocket, frame: &Value, result: Value) {
@@ -1432,6 +3061,23 @@ async fn answer(socket: &mut DeviceSocket, frame: &Value, result: Value) {
         .send(WsMessage::Text(reply.to_string()))
         .await
         .expect("the device answers");
+}
+
+/// The `tools/call` answer a real device sends: its whole JSON-RPC response.
+///
+/// `summrise-device` answers `tools/call` with `{"jsonrpc","id","result":{content,isError}}`, and its
+/// console channel carries that response whole under the channel's `result`. The console forwards it
+/// unchanged to `/mcp`, where the page reads `body.result.isError`; a test that hands the console a
+/// bare `{content,isError}` is testing a shape no device emits.
+fn tools_call_answer(id: Value, text: &str, is_error: bool) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": {
+            "content": [{ "type": "text", "text": text }],
+            "isError": is_error,
+        },
+    })
 }
 
 #[tokio::test]
@@ -1492,6 +3138,51 @@ async fn a_second_channel_replaces_the_first() {
         }
         other => panic!("the replaced channel must be closed with a reason, got {other:?}"),
     }
+}
+
+/// A frame the device received may already have executed, even when the operator revokes it
+/// before its answer. Drive the actual WebSocket producer and the normal HTTP failure mapper.
+#[tokio::test]
+async fn revoking_an_accepted_run_preserves_an_unknown_http_outcome() {
+    let fixture = Fixture::new("revoke-accepted-run");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x92)).await;
+    let session = fixture.authenticate().await;
+    let proxy = send_with_headers(
+        fixture.app(),
+        post_json_bearer(
+            "/mcp",
+            &session,
+            json!({
+                "device_id": device_id,
+                "request": { "jsonrpc": "2.0", "id": 73, "method": "tools/call",
+                    "params": { "name": "runs.exec", "arguments": { "command": "stub-only" } } },
+            }),
+        ),
+    );
+    let revoke_after_receipt = async {
+        // Reading the complete run frame proves more than an outbound queue insertion.
+        // This fake device does not execute it and deliberately sends no answer.
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame_tool(&frame), Some("runs.exec"), "{frame}");
+        assert_eq!(frame_arguments(&frame)["command"], json!("stub-only"));
+        let (status, body) = send(
+            fixture.app(),
+            delete(&format!("/fleet/{device_id}"), Some(&session)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    };
+    let ((status, headers, body), ()) = tokio::join!(proxy, revoke_after_receipt);
+    assert!(
+        body.get("delivery").is_none(),
+        "the device received this run; revocation cannot certify not_sent: {status} {body}"
+    );
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{body}");
+    assert_eq!(body["error"], json!("device disconnected"));
+    assert!(!headers.contains_key(header::RETRY_AFTER));
+    assert!(body.get("retry_after_ms").is_none());
 }
 
 #[tokio::test]
@@ -1601,6 +3292,110 @@ async fn a_read_only_grant_refuses_a_destructive_tool_call() {
     );
 }
 
+/// **A TOKEN THAT DID NOT CONSENT CANNOT ADD A FORWARD RULE, AND THE REFUSAL IS THE DEVICE'S.**
+///
+/// **THE CONSOLE DOES NOT REFUSE A DESTRUCTIVE CALL LOCALLY FOR A TOKEN.** `a_destructive_call_
+/// without_token_consent_is_refused_immediately` shows the mechanism: the frame IS forwarded, the
+/// DEVICE answers `-32002` from `authorize`, and the console rewrites the sentence so the operator
+/// reads how to consent (`mint one with destructive consent`). A GRANT is refused before the frame
+/// leaves; a token is not, because the token's consent travels with the call and the device is the
+/// one that holds the flag.
+///
+/// So this asserts the shape `forward.add` actually has: the frame reaches the device, the device
+/// refuses it by name, the operator gets the sentence, and `forward.list` — the same token, no
+/// destructive flag — passes. The point is that `forward.add` is in the destructive set, which is a
+/// row in the registry that can be forgotten; if it were absent, this test's device answer would be
+/// never asked for and the call would succeed.
+#[tokio::test]
+async fn a_token_without_consent_cannot_add_a_forward_rule_but_can_list_them() {
+    let fixture = Fixture::new("forward-destructive-consent");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xd4)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(
+            &session,
+            &device_id,
+            "no-consent",
+            &["forward.add", "forward.list"],
+            false,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let plaintext = created["token"].as_str().expect("the token").to_owned();
+
+    // 1. THE DESTRUCTIVE CALL REACHES THE DEVICE, WHICH REFUSES IT BY NAME.
+    let call = json!({
+        "jsonrpc": "2.0",
+        "id": 71,
+        "method": "tools/call",
+        "params": {
+            "name": "forward.add",
+            "arguments": {
+                "name": "denied",
+                "listen": "127.0.0.1:18700",
+                "target": "127.0.0.1:18701",
+                "via": "u@127.0.0.1:22",
+                "auth": { "kind": "password", "password": "never-recorded" }
+            }
+        },
+    });
+    let app = fixture.app();
+    let request = post_token(&device_id, &plaintext, call.clone());
+    let client = tokio::spawn(async move { send(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"], call,
+        "the frame is the one that was sent: {frame}"
+    );
+    answer_error(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 71, "error": { "code": -32002, "message": "'forward.add' is destructive and needs approval" } }),
+    )
+    .await;
+
+    let (status, body) = client.await.expect("the client finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["error"]["code"], json!(-32002), "{body}");
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("does not allow destructive calls")),
+        "the operator reads how to consent: {body}"
+    );
+    // AND THE PASSWORD IS NOT IN THE RECORD, only the tool.
+    assert!(
+        !audit_text(&fixture).contains("never-recorded"),
+        "the audit records the tool, never its arguments"
+    );
+
+    // 2. THE NON-DESTRUCTIVE CALL PASSES THE SAME TOKEN, so the refusal above is a consent check
+    //    rather than a block on everything that names `forward`.
+    let listing = json!({
+        "jsonrpc": "2.0",
+        "id": 72,
+        "method": "tools/call",
+        "params": { "name": "forward.list", "arguments": {} },
+    });
+    let app = fixture.app();
+    let request = post_token(&device_id, &plaintext, listing.clone());
+    let client = tokio::spawn(async move { send(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(frame["mcp"], listing, "{frame}");
+    answer(
+        &mut device,
+        &frame,
+        json!({ "content": [{ "type": "text", "text": "[]" }] }),
+    )
+    .await;
+    let (status, body) = client.await.expect("the client finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(body["error"].is_null(), "the read is permitted: {body}");
+}
+
 #[tokio::test]
 async fn the_forwarded_grant_reverifies_over_the_canonical_bytes() {
     let fixture = Fixture::new("mcp-forwarded-grant");
@@ -1639,9 +3434,13 @@ async fn the_forwarded_grant_reverifies_over_the_canonical_bytes() {
             .expect("the granted facts are an object");
         assert_eq!(
             facts.len(),
-            4,
-            "exactly the four canonical fields: {facts:?}"
+            5,
+            "exactly the five canonical fields: {facts:?}"
         );
+        let delivered_nonce = facts["nonce"]
+            .as_str()
+            .expect("a nonce in the forwarded grant")
+            .to_owned();
         let delivered_device = facts["device_id"]
             .as_str()
             .expect("a device id in the forwarded grant");
@@ -1663,7 +3462,7 @@ async fn the_forwarded_grant_reverifies_over_the_canonical_bytes() {
         assert!(delivered_consent, "the operator's consent is forwarded");
 
         let canonical = format!(
-            "grant\n{delivered_device}\n{}\n{delivered_expiry}\n{delivered_consent}",
+            "grant\n{delivered_device}\n{}\n{delivered_expiry}\n{delivered_consent}\n{delivered_nonce}",
             delivered_tools.join(",")
         );
         let signature = decode_signature(
@@ -1840,7 +3639,12 @@ async fn an_mcp_call_to_an_unregistered_device_is_404() {
     .await;
 
     assert_eq!(status, StatusCode::NOT_FOUND);
-    assert_eq!(body, json!({ "error": "unknown_device" }));
+    assert_eq!(body["error"], json!("unknown_device"));
+    let message = body["message"]
+        .as_str()
+        .expect("a missing machine says to check the id");
+    assert!(message.contains("no machine"), "{message}");
+    assert!(message.contains("Machines page"), "{message}");
 }
 
 #[tokio::test]
@@ -1848,7 +3652,6 @@ async fn a_request_with_no_channel_waits_then_is_503_device_reconnecting() {
     let fixture = Fixture::new("mcp-reconnecting");
     let (device_id, _token) = fixture.register(&signing_key(0x93)).await;
     let session = fixture.authenticate().await;
-    let grant = fixture.create_grant(&session, &device_id, 60).await;
 
     let started = std::time::Instant::now();
     let (status, headers, body) = send_with_headers(
@@ -1858,7 +3661,6 @@ async fn a_request_with_no_channel_waits_then_is_503_device_reconnecting() {
             &session,
             json!({
                 "device_id": device_id,
-                "grant": grant,
                 "request": { "jsonrpc": "2.0", "id": 1, "method": "tools/list" },
             }),
         ),
@@ -1876,7 +3678,12 @@ async fn a_request_with_no_channel_waits_then_is_503_device_reconnecting() {
     );
     assert_eq!(
         body,
-        json!({ "error": "device reconnecting", "retry_after_ms": 1000 }),
+        json!({
+            "error": "device reconnecting",
+            "message": "this machine is reconnecting; try again in a moment",
+            "retry_after_ms": 1000,
+            "delivery": "not_sent",
+        }),
         "a missing channel is retryable, never a silent drop"
     );
     assert!(
@@ -1910,7 +3717,7 @@ async fn an_expired_grant_is_refused() {
             &session,
             json!({
                 "device_id": device_id,
-                "grant": grant,
+            "grant": grant,
                 "request": { "jsonrpc": "2.0", "id": 1, "method": "tools/list" },
             }),
         ),
@@ -1936,7 +3743,7 @@ async fn a_grant_that_names_another_device_is_refused() {
             &session,
             json!({
                 "device_id": device_id,
-                "grant": grant,
+            "grant": grant,
                 "request": { "jsonrpc": "2.0", "id": 1, "method": "tools/list" },
             }),
         ),
@@ -1962,7 +3769,7 @@ async fn a_tampered_grant_is_refused() {
             &session,
             json!({
                 "device_id": device_id,
-                "grant": grant,
+            "grant": grant,
                 "request": { "jsonrpc": "2.0", "id": 1, "method": "tools/list" },
             }),
         ),
@@ -1987,7 +3794,6 @@ async fn two_hundred_requests_against_a_wedged_device_stay_bounded_and_busy() {
     let (device_id, _token, _device) =
         connected_device(&fixture, &server, &signing_key(0xc4)).await;
     let session = fixture.authenticate().await;
-    let grant = fixture.create_grant(&session, &device_id, 60).await;
 
     let mut calls = Vec::new();
     for _ in 0..200 {
@@ -1997,7 +3803,6 @@ async fn two_hundred_requests_against_a_wedged_device_stay_bounded_and_busy() {
             &session,
             json!({
                 "device_id": device_id,
-                "grant": grant,
                 "request": { "jsonrpc": "2.0", "id": 1, "method": "tools/list" },
             }),
         );
@@ -2014,7 +3819,7 @@ async fn two_hundred_requests_against_a_wedged_device_stay_bounded_and_busy() {
             StatusCode::SERVICE_UNAVAILABLE => {
                 assert_eq!(
                     body,
-                    json!({ "error": "device busy", "retry_after_ms": 250 }),
+                    json!({ "error": "device busy", "retry_after_ms": 250, "delivery": "not_sent" }),
                     "an over-cap request is refused, not queued"
                 );
                 assert_eq!(
@@ -2067,7 +3872,6 @@ async fn a_device_that_never_answers_is_a_504() {
         .await
         .expect("the device channel");
     let session = fixture.authenticate().await;
-    let grant = fixture.create_grant(&session, &device_id, 60).await;
 
     let mut outcome = None;
     for _ in 0..40 {
@@ -2078,8 +3882,7 @@ async fn a_device_that_never_answers_is_a_504() {
                 &session,
                 json!({
                     "device_id": device_id,
-                    "grant": grant,
-                    "request": { "jsonrpc": "2.0", "id": 1, "method": "tools/list" },
+                        "request": { "jsonrpc": "2.0", "id": 1, "method": "tools/list" },
                 }),
             ),
         )
@@ -2115,21 +3918,20 @@ fn denial_lines(fixture: &Fixture) -> Vec<Value> {
     jsonl_lines(fixture, "denials")
 }
 
-/// Every line of one of the console's rotating JSONL files, oldest first.
+/// Every line of one of the console's records (`audit.db`, `denials.db`), oldest first.
 fn jsonl_lines(fixture: &Fixture, stem: &str) -> Vec<Value> {
-    let mut lines = Vec::new();
-    for name in [format!("{stem}.1.jsonl"), format!("{stem}.jsonl")] {
-        let path = fixture.config.data.join(name);
-        let text = match fs::read_to_string(&path) {
-            Ok(text) => text,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(error) => panic!("{} is readable: {error}", path.display()),
-        };
-        for line in text.lines() {
-            lines.push(serde_json::from_str(line).expect("a JSONL line is JSON"));
-        }
+    let path = fixture.config.data.join(format!("{stem}.db"));
+    if !path.exists() {
+        return Vec::new();
     }
-    lines
+    let record =
+        summrise_record::Record::open_file(&path, u64::MAX).expect("the console record opens");
+    record
+        .read_from(0)
+        .expect("the record is readable")
+        .iter()
+        .map(|row| serde_json::from_str(&row.json).expect("a row is JSON"))
+        .collect()
 }
 
 #[tokio::test]
@@ -2173,10 +3975,749 @@ async fn the_audit_lists_the_newest_lines_first() {
             json!("grant"),
             json!("register"),
             json!("enroll"),
-            json!("enroll")
+            json!("auth"),
+            json!("enroll"),
+            json!("auth")
         ],
-        "one line per operator action, newest first"
+        "one line per operator action, newest first, sign-ins included"
     );
+}
+
+// ---- the denial index -------------------------------------------------------------------------
+
+/// Write `lines` into the console's record without going through the writer. The name is the old
+/// JSONL name (`audit.jsonl` or `audit.1.jsonl`); both name the one record now.
+fn seed_audit_file(fixture: &Fixture, name: &str, lines: &[Value]) {
+    let stem = name.trim_end_matches(".jsonl").trim_end_matches(".1");
+    let path = fixture.config.data.join(format!("{stem}.db"));
+    let record =
+        summrise_record::Record::open_file(&path, u64::MAX).expect("the console record opens");
+    // A seed replaces what the running console has written so far, exactly as writing the old file
+    // did; a second seed call for the same stem appends, as the two generations did.
+    if record.meta("test_seed").expect("meta reads").is_none() {
+        record.clear().expect("the seed clears the record");
+        record
+            .set_meta("test_seed", "1")
+            .expect("the seed marker writes");
+    }
+    let entries: Vec<(i64, String)> = lines
+        .iter()
+        .map(|line| (line["ts_ms"].as_u64().unwrap_or(0) as i64, line.to_string()))
+        .collect();
+    record
+        .append_many(&entries)
+        .expect("the lines are recorded");
+}
+
+/// The audit window can be one machine's: a device filter is applied during the read, so another
+/// machine's newer traffic cannot push this machine's lines out of the returned window.
+#[tokio::test]
+async fn the_audit_window_can_be_one_machines() {
+    let fixture = Fixture::new("audit-one-machine");
+    let session = fixture.authenticate().await;
+    let alpha = "a1".repeat(32);
+    let beta = "b2".repeat(32);
+
+    // Alpha's six lines are the older generation; beta has written eight newer ones. A fleet read
+    // capped at three stops inside beta's traffic, so a filter applied *after* the cap would return
+    // nothing for alpha — exactly the bug the device read has to avoid.
+    let alpha_lines: Vec<Value> = (0..6)
+        .map(|index| {
+            json!({
+                "ts_ms": START_MS + index,
+                "kind": "mcp",
+                "device_id": alpha.as_str(),
+                "status": 200,
+                "tool": "terminal.list",
+            })
+        })
+        .collect();
+    let beta_lines: Vec<Value> = (0..8)
+        .map(|index| {
+            json!({
+                "ts_ms": START_MS + 100 + index,
+                "kind": "mcp",
+                "device_id": beta.as_str(),
+                "status": 200,
+                "tool": "files.read",
+            })
+        })
+        .collect();
+    seed_audit_file(&fixture, "audit.1.jsonl", &alpha_lines);
+    seed_audit_file(&fixture, "audit.jsonl", &beta_lines);
+
+    // Without `device` the answer is the fleet's newest three, unchanged: beta's.
+    let (status, body) = send(fixture.app(), get("/audit?limit=3", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK);
+    let fleet = body.as_array().expect("a list of audit lines");
+    assert_eq!(fleet.len(), 3);
+    assert!(
+        fleet.iter().all(|line| line["device_id"] == json!(beta)),
+        "{fleet:?}"
+    );
+
+    // With `device`, alpha gets three of its own lines even though eight newer beta lines exist, and
+    // they come newest first from the rotated generation.
+    let (status, body) = send(
+        fixture.app(),
+        get(&format!("/audit?device={alpha}&limit=3"), Some(&session)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let mine = body.as_array().expect("a list of audit lines");
+    assert_eq!(mine.len(), 3, "{mine:?}");
+    assert!(
+        mine.iter().all(|line| line["device_id"] == json!(alpha)),
+        "{mine:?}"
+    );
+    let times: Vec<u64> = mine
+        .iter()
+        .filter_map(|line| line["ts_ms"].as_u64())
+        .collect();
+    assert_eq!(times, vec![START_MS + 5, START_MS + 4, START_MS + 3]);
+
+    // More than alpha has: the scan crosses the rotation and stops at what exists.
+    let (_, body) = send(
+        fixture.app(),
+        get(&format!("/audit?device={alpha}&limit=100"), Some(&session)),
+    )
+    .await;
+    assert_eq!(
+        body.as_array().expect("a list").len(),
+        6,
+        "the rotation is read when the current file has fewer matches"
+    );
+}
+
+/// One audit line as a range test seeds it: the moment, the machine and the tool that tell it apart.
+fn seeded_call(ts_ms: u64, device: &str, tool: &str) -> Value {
+    json!({
+        "ts_ms": ts_ms,
+        "kind": "mcp",
+        "device_id": device,
+        "status": 200,
+        "tool": tool,
+        "caller": "client",
+    })
+}
+
+/// The `ts_ms` of every line a range answer holds, newest first.
+fn range_times(body: &Value) -> Vec<u64> {
+    body["lines"]
+        .as_array()
+        .expect("a range answer holds its lines")
+        .iter()
+        .filter_map(|line| line["ts_ms"].as_u64())
+        .collect()
+}
+
+/// **A RANGE IS A SET, NOT A FILTER.** The route returns the lines whose `ts_ms` is in `[from, to)`:
+/// a line exactly at `from` belongs, a line exactly at `to` does not, and a line one millisecond
+/// outside either end is not drawn. The device filter is applied to the same answer.
+#[tokio::test]
+async fn the_audit_range_answers_only_the_lines_inside_it() {
+    let fixture = Fixture::new("audit-range");
+    let session = fixture.authenticate().await;
+    let alpha = "a1".repeat(32);
+    let beta = "b2".repeat(32);
+    let at = |offset: u64| START_MS + offset;
+    let lines = vec![
+        seeded_call(at(999), &alpha, "before-range"),
+        seeded_call(at(1_000), &alpha, "at-from"),
+        seeded_call(at(1_999), &beta, "inside-range"),
+        seeded_call(at(2_000), &alpha, "at-to"),
+    ];
+    seed_audit_file(&fixture, "audit.jsonl", &lines);
+
+    let (status, body) = send(
+        fixture.app(),
+        get(
+            &format!("/audit?from={}&to={}", at(1_000), at(2_000)),
+            Some(&session),
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        range_times(&body),
+        vec![at(1_999), at(1_000)],
+        "from is included, to is excluded, and the answer is newest first: {body}"
+    );
+    assert!(
+        body.get("since_ms").is_none(),
+        "the file starts before `from`, so the range is whole: {body}"
+    );
+    assert!(
+        !body
+            .get("bounded")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        "a four-line file cannot hit the scan bound: {body}"
+    );
+    assert_eq!(
+        body["lines_read"],
+        json!(4),
+        "the scan reads through the line at `to` and stops on the one that proves `from`: {body}"
+    );
+
+    // The same range for one machine: the filter is the route's `device` rule, not the caller's.
+    let (status, body) = send(
+        fixture.app(),
+        get(
+            &format!("/audit?from={}&to={}&device={alpha}", at(1_000), at(2_000)),
+            Some(&session),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        range_times(&body),
+        vec![at(1_000)],
+        "another machine's in-range line is not this machine's answer: {body}"
+    );
+}
+
+/// **A RANGE OLDER THAN THE FILE SAYS WHERE COVERAGE STARTS.** A rotation keeps one older
+/// generation, but a range read is current-file-only (the day read's rule): the answer names the
+/// file's oldest moment as `since_ms` instead of stitching two generations into a whole.
+#[tokio::test]
+async fn a_range_that_starts_before_the_file_says_since_its_oldest_line() {
+    let fixture = Fixture::new("audit-range-since");
+    let session = fixture.authenticate().await;
+    let alpha = "a1".repeat(32);
+    let at = |offset: u64| START_MS + offset;
+    // The file starts an hour after the requested start: a rotation, or a console started later.
+    let file_start = at(3_600_000);
+    seed_audit_file(
+        &fixture,
+        "audit.jsonl",
+        &[
+            seeded_call(file_start, &alpha, "first"),
+            seeded_call(file_start + 1_000, &alpha, "second"),
+        ],
+    );
+
+    let (status, body) = send(
+        fixture.app(),
+        get(
+            &format!("/audit?from={}&to={}", at(0), at(7_200_000)),
+            Some(&session),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(range_times(&body), vec![file_start + 1_000, file_start]);
+    assert_eq!(
+        body["since_ms"],
+        json!(file_start),
+        "the sentence can say since the file's oldest line: {body}"
+    );
+
+    // A range entirely before the file: no lines can be served, and the same start is stated
+    // rather than a zero with no explanation.
+    let (status, body) = send(
+        fixture.app(),
+        get(
+            &format!("/audit?from={}&to={}", at(0), at(1_000)),
+            Some(&session),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(range_times(&body), Vec::<u64>::new());
+    assert_eq!(
+        body["since_ms"],
+        json!(file_start),
+        "an empty old range says where the file begins: {body}"
+    );
+}
+
+/// **THE SCAN BOUND IS STATED, NOT HIDDEN.** More than 50,000 lines sit after `from`, so the
+/// backwards scan stops at its bound before proving the range's start: the answer says `bounded`
+/// and names the line its coverage begins at. The HTTP limit then takes the newest slice, and
+/// `at_limit` says the range held more than the window asked for.
+#[tokio::test]
+async fn a_range_the_scan_bound_cut_says_so() {
+    let fixture = Fixture::new("audit-range-bound");
+    let session = fixture.authenticate().await;
+    let alpha = "a1".repeat(32);
+    let count = 50_001u64;
+    let lines: Vec<Value> = (0..count)
+        .map(|index| seeded_call(START_MS + index * 1_000, &alpha, "files.read"))
+        .collect();
+    seed_audit_file(&fixture, "audit.jsonl", &lines);
+
+    let (status, body) = send(
+        fixture.app(),
+        get(
+            &format!(
+                "/audit?from={START_MS}&to={}&limit=1000",
+                START_MS + 100_000_000
+            ),
+            Some(&session),
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body.get("bounded").and_then(Value::as_bool),
+        Some(true),
+        "the bound stopped the scan before `from` was proven"
+    );
+    assert_eq!(body["scan_limit"], json!(50_000));
+    assert_eq!(body["lines_read"], json!(50_000));
+    assert_eq!(
+        body["since_ms"],
+        json!(START_MS + 1_000),
+        "coverage starts at the oldest line the bound let the scan read"
+    );
+    assert_eq!(
+        body.get("at_limit").and_then(Value::as_bool),
+        Some(true),
+        "the range held more lines than the 1,000-line window"
+    );
+    let times = range_times(&body);
+    assert_eq!(times.len(), 1_000, "the HTTP limit is the drawn window");
+    assert_eq!(times[0], START_MS + (count - 1) * 1_000);
+    assert_eq!(times[999], START_MS + (count - 1_000) * 1_000);
+}
+
+/// A malformed range is the console's JSON refusal: one endpoint is not a range, a start at or
+/// after the end is not one either, and a value that is not a moment names no range.
+#[tokio::test]
+async fn a_malformed_range_is_a_json_refusal() {
+    let fixture = Fixture::new("audit-range-bad");
+    let session = fixture.authenticate().await;
+
+    for query in [
+        "from=1000",
+        "to=2000",
+        "from=2000&to=1000",
+        "from=abc&to=1000",
+        "from=1000&to=abc",
+    ] {
+        let (status, body) = send(
+            fixture.app(),
+            get(&format!("/audit?{query}"), Some(&session)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{query}: {body}");
+        assert_eq!(body, json!({ "error": "invalid_range" }), "{query}");
+    }
+}
+
+/// **A RANGE LEAVES AS A FILE, NOT AS A PAGE.** `GET /audit/export` answers the range's own lines as
+/// JSON Lines, oldest first, with a filename that names both bounds and the headers that state what
+/// the read actually covered. There is no header line in the body: every line is an audit line.
+#[tokio::test]
+async fn the_audit_export_is_chronological_ndjson_with_its_bounds_in_the_filename() {
+    let fixture = Fixture::new("audit-export");
+    let session = fixture.authenticate().await;
+    let alpha = "a1".repeat(32);
+    let beta = "b2".repeat(32);
+    let at = |offset: u64| START_MS + offset;
+    let lines = vec![
+        seeded_call(at(999), &alpha, "before-range"),
+        seeded_call(at(1_000), &alpha, "at-from"),
+        seeded_call(at(1_999), &beta, "other-machine"),
+        seeded_call(at(2_999), &alpha, "inside-range"),
+        seeded_call(at(4_000), &alpha, "at-to"),
+    ];
+    seed_audit_file(&fixture, "audit.jsonl", &lines);
+
+    let (status, headers, bytes) = send_bytes(
+        fixture.app(),
+        get(
+            &format!(
+                "/audit/export?from={}&to={}&device={alpha}",
+                at(1_000),
+                at(4_000)
+            ),
+            Some(&session),
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        headers
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("application/x-ndjson"),
+        "the export is JSON Lines, not JSON and not text/plain"
+    );
+    assert_eq!(
+        headers
+            .get(header::CONTENT_DISPOSITION)
+            .and_then(|value| value.to_str().ok()),
+        Some(
+            "attachment; filename=\"summrise-audit-19700101T001641.000Z_to_\
+             19700101T001644.000Z_a1a1a1a1a1a1.ndjson\""
+        ),
+        "the filename names the requested bounds and the machine's short id"
+    );
+    assert_eq!(
+        headers
+            .get("x-audit-range")
+            .and_then(|value| value.to_str().ok()),
+        Some("from=1001000; to=1004000"),
+        "the header states the bounds the read was asked for"
+    );
+    assert!(
+        headers.get("x-audit-since").is_none(),
+        "the file starts before `from`, so there is no late start to report"
+    );
+    assert!(
+        headers.get("x-audit-bounded").is_none(),
+        "the scan reached `from`, so the bound did not cut this answer"
+    );
+
+    let text = String::from_utf8(bytes.clone()).expect("the export is UTF-8");
+    assert!(
+        text.ends_with('\n'),
+        "every line, including the last, ends with a newline"
+    );
+    let exported: Vec<Value> = text
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("every body line is a JSON audit line"))
+        .collect();
+    assert_eq!(
+        exported
+            .iter()
+            .filter_map(|line| line["ts_ms"].as_u64())
+            .collect::<Vec<_>>(),
+        vec![at(1_000), at(2_999)],
+        "oldest first, and the other machine's in-range line is filtered out: {text}"
+    );
+    assert!(
+        exported.iter().all(|line| line.get("sentence").is_some()),
+        "the file carries the same human sentence the range query serves: {text}"
+    );
+
+    // THE SAME LINES THE RANGE QUERY RETURNS. The export is not a second selection: reverse the
+    // query's newest-first answer and it must equal the file's chronological one object for object.
+    let (status, range) = send(
+        fixture.app(),
+        get(
+            &format!(
+                "/audit?from={}&to={}&device={alpha}&limit=1000",
+                at(1_000),
+                at(4_000)
+            ),
+            Some(&session),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let mut newest_first = range["lines"]
+        .as_array()
+        .expect("the range's lines")
+        .clone();
+    newest_first.reverse();
+    assert_eq!(
+        exported, newest_first,
+        "the file is the range query's lines, chronological"
+    );
+
+    // The device's short id is in the name; a fleet export has no device suffix.
+    let (status, headers, _) = send_bytes(
+        fixture.app(),
+        get(
+            &format!("/audit/export?from={}&to={}", at(1_000), at(4_000)),
+            Some(&session),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        headers
+            .get(header::CONTENT_DISPOSITION)
+            .and_then(|value| value.to_str().ok()),
+        Some(
+            "attachment; filename=\"summrise-audit-19700101T001641.000Z_to_\
+             19700101T001644.000Z.ndjson\""
+        ),
+        "a fleet export names no machine"
+    );
+}
+
+/// **A FILE THAT STARTS LATE SAYS WHERE IT STARTS.** The range's start is older than the current
+/// file (a rotation), so the export carries the lines the file proves and `X-Audit-Since` names the
+/// moment coverage begins. The filename still names the bounds that were asked for.
+#[tokio::test]
+async fn an_audit_export_that_starts_before_the_file_names_its_since() {
+    let fixture = Fixture::new("audit-export-since");
+    let session = fixture.authenticate().await;
+    let alpha = "a1".repeat(32);
+    let at = |offset: u64| START_MS + offset;
+    let file_start = at(3_600_000);
+    seed_audit_file(
+        &fixture,
+        "audit.jsonl",
+        &[
+            seeded_call(file_start, &alpha, "first"),
+            seeded_call(file_start + 1_000, &alpha, "second"),
+        ],
+    );
+
+    let (status, headers, bytes) = send_bytes(
+        fixture.app(),
+        get(
+            &format!("/audit/export?from={}&to={}", at(0), at(7_200_000)),
+            Some(&session),
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        headers
+            .get("x-audit-range")
+            .and_then(|value| value.to_str().ok()),
+        Some("from=1000000; to=8200000")
+    );
+    assert_eq!(
+        headers
+            .get("x-audit-since")
+            .and_then(|value| value.to_str().ok()),
+        Some(file_start.to_string().as_str()),
+        "the header states the oldest moment the current file proves"
+    );
+    assert!(headers.get("x-audit-bounded").is_none());
+    let text = String::from_utf8(bytes).expect("the export is UTF-8");
+    let times: Vec<u64> = text
+        .lines()
+        .map(|line| {
+            serde_json::from_str::<Value>(line).expect("a JSON line")["ts_ms"]
+                .as_u64()
+                .expect("a moment")
+        })
+        .collect();
+    assert_eq!(
+        times,
+        vec![file_start, file_start + 1_000],
+        "what the file holds, in chronological order"
+    );
+}
+
+/// **A RANGE THE BOUND CANNOT COVER IS REFUSED, NOT SILENTLY SHORTENED.** The scan stops at 50,000
+/// lines before proving the range's start, so the route answers 413 and names the bound; a file that
+/// begins in the middle of the range would be a partial history wearing the range's name.
+#[tokio::test]
+async fn an_audit_export_the_scan_bound_cut_is_refused_and_names_the_bound() {
+    let fixture = Fixture::new("audit-export-bound");
+    let session = fixture.authenticate().await;
+    let alpha = "a1".repeat(32);
+    let count = 50_001u64;
+    let lines: Vec<Value> = (0..count)
+        .map(|index| seeded_call(START_MS + index * 1_000, &alpha, "files.read"))
+        .collect();
+    seed_audit_file(&fixture, "audit.jsonl", &lines);
+
+    let (status, headers, bytes) = send_bytes(
+        fixture.app(),
+        get(
+            &format!(
+                "/audit/export?from={START_MS}&to={}",
+                START_MS + 100_000_000
+            ),
+            Some(&session),
+        ),
+    )
+    .await;
+
+    assert_eq!(
+        status,
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "a range the scan bound cannot prove is refused"
+    );
+    assert_eq!(
+        headers
+            .get("x-audit-bounded")
+            .and_then(|value| value.to_str().ok()),
+        Some("50000"),
+        "the refusal names the line bound it hit"
+    );
+    assert_eq!(
+        headers
+            .get("x-audit-range")
+            .and_then(|value| value.to_str().ok()),
+        Some("from=1000000; to=101000000")
+    );
+    assert!(
+        headers.get(header::CONTENT_DISPOSITION).is_none(),
+        "a refusal is not a downloadable file"
+    );
+    let refusal: Value =
+        serde_json::from_slice(&bytes).expect("the refusal is the console's JSON error");
+    assert_eq!(refusal["error"], json!("range_too_large"));
+    assert!(
+        refusal["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("50,000-line scan bound")),
+        "the sentence names the bound: {refusal}"
+    );
+}
+
+/// The export parses its range exactly as `/audit` does: one endpoint is not a range, and a start at
+/// or after the end is not one either.
+#[tokio::test]
+async fn a_malformed_export_range_is_a_json_refusal() {
+    let fixture = Fixture::new("audit-export-bad");
+    let session = fixture.authenticate().await;
+
+    for query in [
+        "from=1000",
+        "to=2000",
+        "from=2000&to=1000",
+        "from=abc&to=1000",
+    ] {
+        let (status, _, bytes) = send_bytes(
+            fixture.app(),
+            get(&format!("/audit/export?{query}"), Some(&session)),
+        )
+        .await;
+        let body: Value = serde_json::from_slice(&bytes).expect("a JSON refusal");
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{query}: {body}");
+        assert_eq!(body, json!({ "error": "invalid_range" }), "{query}");
+    }
+}
+
+/// Write `count` denial lines to the current file, oldest first, without going through the writer.
+fn seed_denials(fixture: &Fixture, count: usize) {
+    let lines: Vec<Value> = (0..count)
+        .map(|index| {
+            json!({
+                "ts_ms": START_MS + index as u64,
+                "kind": "denied",
+                "status": 401,
+                "detail": format!("seeded-{index}"),
+            })
+        })
+        .collect();
+    seed_audit_file(fixture, "denials.jsonl", &lines);
+}
+
+#[tokio::test]
+async fn the_denials_route_requires_an_operator_session() {
+    let fixture = Fixture::new("denials-no-session");
+
+    let (status, body) = send(fixture.app(), get("/denials", None)).await;
+
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(body, json!({ "error": "unauthorized" }));
+    let denied = denial_lines(&fixture)
+        .pop()
+        .expect("the refused read is itself a denial line");
+    assert_eq!(denied["kind"], json!("denied"));
+    assert_eq!(denied["status"], json!(401));
+    assert_eq!(denied["detail"], json!("unauthorized"));
+    assert!(
+        audit_lines(&fixture).is_empty(),
+        "an unauthenticated read never reaches the authenticated audit"
+    );
+}
+
+#[tokio::test]
+async fn the_denials_list_the_newest_lines_first() {
+    let fixture = Fixture::new("denials-newest-first");
+
+    let (status, _) = send(
+        fixture.app(),
+        post_json("/auth", json!({ "token": "00".repeat(32) })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, _) = send(fixture.app(), get("/fleet", None)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    let session = fixture.authenticate().await;
+    let (status, body) = send(fixture.app(), get("/denials", Some(&session))).await;
+
+    assert_eq!(status, StatusCode::OK);
+    let newest = body.as_array().expect("a list of denial lines");
+    assert_eq!(newest.len(), 2);
+    assert_eq!(newest[0]["kind"], json!("denied"));
+    assert_eq!(newest[0]["detail"], json!("unauthorized"));
+    assert_eq!(newest[1]["detail"], json!("bad_operator_token"));
+    assert_eq!(newest[0]["ts_ms"], json!(START_MS));
+}
+
+#[tokio::test]
+async fn a_denials_limit_of_one_is_the_newest_line() {
+    let fixture = Fixture::new("denials-limit-one");
+    let session = fixture.authenticate().await;
+    seed_denials(&fixture, 2);
+
+    let (status, body) = send(fixture.app(), get("/denials?limit=1", Some(&session))).await;
+
+    assert_eq!(status, StatusCode::OK);
+    let lines = body.as_array().expect("a list of denial lines");
+    assert_eq!(lines.len(), 1);
+    assert_eq!(lines[0]["detail"], json!("seeded-1"));
+}
+
+#[tokio::test]
+async fn a_denials_zero_limit_is_empty() {
+    let fixture = Fixture::new("denials-limit-zero");
+    let session = fixture.authenticate().await;
+    seed_denials(&fixture, 2);
+
+    let (status, body) = send(fixture.app(), get("/denials?limit=0", Some(&session))).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, json!([]));
+}
+
+#[tokio::test]
+async fn a_malformed_denials_limit_is_a_json_refusal() {
+    let fixture = Fixture::new("denials-bad-limit");
+    let session = fixture.authenticate().await;
+
+    let (status, body) = send(fixture.app(), get("/denials?limit=abc", Some(&session))).await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        body,
+        json!({ "error": "invalid_limit" }),
+        "the console's JSON refusal, not axum's plain rejection"
+    );
+}
+
+#[tokio::test]
+async fn a_denials_limit_above_the_max_is_clamped() {
+    let fixture = Fixture::new("denials-limit-clamp");
+    let session = fixture.authenticate().await;
+    seed_denials(&fixture, 1001);
+
+    let (status, body) = send(fixture.app(), get("/denials?limit=100000", Some(&session))).await;
+
+    assert_eq!(status, StatusCode::OK);
+    let lines = body.as_array().expect("a list of denial lines");
+    assert_eq!(lines.len(), 1000, "the index is not an unbounded read");
+    assert_eq!(lines[0]["detail"], json!("seeded-1000"));
+    assert_eq!(
+        lines[999]["detail"],
+        json!("seeded-1"),
+        "the newest 1000 lines, not the oldest"
+    );
+}
+
+#[tokio::test]
+async fn a_missing_or_empty_denial_log_is_an_empty_list() {
+    let fixture = Fixture::new("denials-empty");
+    let session = fixture.authenticate().await;
+
+    let (status, body) = send(fixture.app(), get("/denials", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, json!([]), "no denial file has been written yet");
+
+    seed_audit_file(&fixture, "denials.jsonl", &[]);
+    let (status, body) = send(fixture.app(), get("/denials", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, json!([]));
 }
 
 #[tokio::test]
@@ -2200,31 +4741,66 @@ async fn the_grant_audit_line_records_the_destructive_flag() {
     assert_eq!(grants[1]["detail"], json!("allow_destructive=true"));
 }
 
-/// The audit text across the one rotation and the current file, for "no body was logged" checks.
+/// The audit lines as text, for "no body was logged" checks.
 fn audit_text(fixture: &Fixture) -> String {
     let mut text = String::new();
-    for name in ["audit.1.jsonl", "audit.jsonl"] {
-        match fs::read_to_string(fixture.config.data.join(name)) {
-            Ok(part) => text.push_str(&part),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => panic!("the audit file is readable: {error}"),
-        }
+    for line in audit_lines(fixture) {
+        text.push_str(&line.to_string());
+        text.push('\n');
     }
     text
 }
 
 /// Open a registered device's channel and wait until the upgrade callback has registered it.
+///
+/// **IT SENDS NO FRAME.** Since `online` means "a frame arrived recently", a socket alone is offline;
+/// tests about answers and replacements want exactly that one variable. Use [`present_device`] when
+/// the scenario depends on presence.
 async fn connected_device(
     fixture: &Fixture,
     server: &TestServer,
     key: &SigningKey,
 ) -> (String, String, DeviceSocket) {
     let (device_id, token) = fixture.register(key).await;
-    let device = open_channel(server, &device_id, &token)
+    let mut device = open_channel(server, &device_id, &token)
         .await
         .expect("the device channel");
     // The upgrade callback registers the channel in a spawned task; give it one turn.
     tokio::task::yield_now().await;
+    // The console subscribes to the device's journal as soon as the channel opens (S1). Consume that
+    // first frame here so a test's next read is the traffic it is about — and a test that asserts
+    // nothing reached the device is not defeated by the subscription itself.
+    let first = tokio::time::timeout(Duration::from_secs(2), device.next())
+        .await
+        .expect("the channel subscribes to the journal")
+        .expect("the socket stays open")
+        .expect("a websocket message");
+    match &first {
+        WsMessage::Text(text) if text.as_str().contains("\"events\"") => {}
+        other => panic!("the first frame is the journal subscription: {other:?}"),
+    }
+    (device_id, token, device)
+}
+
+/// Open a registered device's channel, send the host frame a real device sends on connect, and wait
+/// until the console calls it online.
+///
+/// The wait reads `/fleet` as an operator, so this helper creates a session; the auth line it writes
+/// is why a test that counts the audit's every line keeps using [`connected_device`] instead.
+async fn present_device(
+    fixture: &Fixture,
+    server: &TestServer,
+    key: &SigningKey,
+) -> (String, String, DeviceSocket) {
+    let (device_id, token, mut device) = connected_device(fixture, server, key).await;
+    device
+        .send(WsMessage::Text(
+            json!({ "host": { "machine": "workshop", "caps": [] } }).to_string(),
+        ))
+        .await
+        .expect("the first host frame is sent");
+    let session = fixture.authenticate().await;
+    wait_until_online(fixture.app(), &session, &device_id).await;
     (device_id, token, device)
 }
 
@@ -2275,12 +4851,16 @@ async fn an_operator_mcp_call_is_one_audit_line_without_its_payload() {
     assert_eq!(
         kinds,
         vec![
+            json!("auth"),
             json!("enroll"),
             json!("register"),
+            // The channel's own join: a console fact, not a call, and not what this test counts.
+            json!("device"),
+            json!("auth"),
             json!("grant"),
             json!("mcp")
         ],
-        "one line per operator action"
+        "one line per operator action, plus the channel boundary"
     );
     let mcp = lines.last().expect("the mcp line");
     assert_eq!(mcp["status"], json!(200));
@@ -2295,6 +4875,10 @@ async fn an_operator_mcp_call_is_one_audit_line_without_its_payload() {
         mcp.get("detail").is_none(),
         "a result needs no detail: {mcp}"
     );
+    assert!(
+        mcp.get("token_id").is_none(),
+        "the operator route names no token: {mcp}"
+    );
 
     let text = audit_text(&fixture);
     for marker in ["request-body-marker-7c1f", "response-body-marker-9d2e"] {
@@ -2305,8 +4889,12 @@ async fn an_operator_mcp_call_is_one_audit_line_without_its_payload() {
     }
 }
 
+/// **A TOOL-CALL ERROR ENVELOPE IS ALSO A REFUSAL.** A device that predates MCP's `isError` answers
+/// a refused `tools/call` with a JSON-RPC error envelope. The caller still reads it unchanged (HTTP
+/// 200), but the audit must not draw it green: the envelope's message is the bounded reason, and its
+/// `data` is still not the audit's.
 #[tokio::test]
-async fn a_device_json_rpc_error_is_audited_by_code_not_by_body() {
+async fn a_tool_call_error_envelope_is_a_refusal_in_the_audit() {
     let fixture = Fixture::new("audit-mcp-error");
     let server = TestServer::start(&fixture.console).await;
     let (device_id, _token, mut device) =
@@ -2328,7 +4916,7 @@ async fn a_device_json_rpc_error_is_audited_by_code_not_by_body() {
         "id": 7,
         "error": {
             "code": -32601,
-            "message": "error-message-marker-6b3c",
+            "message": "files.read: no such file",
             "data": { "detail": "error-data-marker-2e5d" },
         },
     });
@@ -2357,25 +4945,434 @@ async fn a_device_json_rpc_error_is_audited_by_code_not_by_body() {
     let lines = audit_lines(&fixture);
     let mcp = lines.last().expect("the mcp line");
     assert_eq!(mcp["kind"], json!("mcp"));
-    assert_eq!(mcp["status"], json!(200));
+    assert_eq!(
+        mcp["status"],
+        json!(424),
+        "a refused tool call is refused: {mcp}"
+    );
     assert_eq!(mcp["tool"], json!("files.read"));
     assert_eq!(
         mcp["detail"],
-        json!("jsonrpc error -32601"),
-        "the numeric error code is allowed; the message and data are not"
+        json!("files.read: no such file"),
+        "the envelope's message is the bounded reason: {mcp}"
     );
 
     let text = audit_text(&fixture);
-    for marker in [
-        "error-request-marker-4f8a",
-        "error-message-marker-6b3c",
-        "error-data-marker-2e5d",
-    ] {
+    for marker in ["error-request-marker-4f8a", "error-data-marker-2e5d"] {
         assert!(
             !text.contains(marker),
             "the audit must never carry a payload body, found {marker}: {text}"
         );
     }
+}
+
+/// A JSON-RPC error envelope on a method that is not a `tools/call` is an answer the caller reads,
+/// not a tool refusal: `ping`, `initialize` and `tools/list` keep their 200 line and their code.
+#[tokio::test]
+async fn a_non_tool_error_envelope_keeps_a_200_audit_line() {
+    let fixture = Fixture::new("audit-mcp-protocol-error");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xa4)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+
+    for (id, method) in [(21u64, "ping"), (22, "initialize"), (23, "tools/list")] {
+        let request = json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": method,
+            "params": {},
+        });
+        let error = json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "error": { "code": -32601, "message": "no such method" },
+        });
+        let proxy = send(
+            fixture.app(),
+            post_json_bearer(
+                "/mcp",
+                &session,
+                json!({ "device_id": device_id, "grant": grant.clone(), "request": request }),
+            ),
+        );
+        let device_side = async {
+            let frame = next_json(&mut device).await;
+            let reply = json!({ "id": frame["id"].clone(), "error": error.clone() });
+            device
+                .send(WsMessage::Text(reply.to_string()))
+                .await
+                .expect("the device answers with an error envelope");
+        };
+        let ((status, body), ()) = tokio::join!(proxy, device_side);
+        assert_eq!(status, StatusCode::OK, "{method}: {body}");
+
+        let lines = audit_lines(&fixture);
+        let mcp = lines.last().expect("the mcp line");
+        assert_eq!(mcp["kind"], json!("mcp"), "{method}: {mcp}");
+        assert_eq!(
+            mcp["status"],
+            json!(200),
+            "{method} is not a tool call: {mcp}"
+        );
+        assert_eq!(
+            mcp["detail"],
+            json!("jsonrpc error -32601"),
+            "{method}: {mcp}"
+        );
+        assert!(mcp.get("tool").is_none(), "{method}: {mcp}");
+    }
+}
+
+/// **A TOOL-LEVEL FAILURE IS NOT A GREEN ROW.** MCP carries it inside a successful exchange —
+/// `isError: true` in a 200 result, with the reason in the text — so the old "a result is ok" rule
+/// recorded a program that never started as a success. The audit must name the call as failed and
+/// keep the device's reason, bounded like every other detail.
+#[tokio::test]
+async fn a_run_that_cannot_start_is_a_failed_audit_line_with_its_reason() {
+    let fixture = Fixture::new("audit-run-missing-program");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x5a)).await;
+    let session = fixture.authenticate().await;
+
+    let app = fixture.app();
+    let request_session = session.clone();
+    let call = tokio::spawn(async move {
+        send(
+            app,
+            post_json_bearer(
+                "/mcp",
+                &request_session,
+                json!({
+                    "device_id": device_id,
+                    "request": {
+                        "jsonrpc": "2.0",
+                        "id": 9,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "runs.exec",
+                            "arguments": { "command": "audit5-no-such-program" },
+                        },
+                    },
+                }),
+            ),
+        )
+        .await
+    });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("runs.exec"),
+        "{frame}"
+    );
+    let reason = "runs.exec: program not found";
+    // The device's actual answer to a missing program: a tool-level `isError` result inside the
+    // JSON-RPC response, not an error envelope.
+    answer(
+        &mut device,
+        &frame,
+        tools_call_answer(json!(9), reason, true),
+    )
+    .await;
+
+    let (status, body) = call.await.expect("the call finishes");
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "a tool refusal is still an MCP result: {body}"
+    );
+    assert_eq!(body["result"]["isError"], json!(true), "{body}");
+    assert_eq!(
+        body["result"]["content"][0]["text"],
+        json!(reason),
+        "{body}"
+    );
+
+    let lines = audit_lines(&fixture);
+    let mcp = lines.last().expect("the mcp line");
+    assert_eq!(mcp["kind"], json!("mcp"));
+    assert_eq!(mcp["tool"], json!("runs.exec"));
+    assert_eq!(mcp["status"], json!(424), "not a green row: {mcp}");
+    assert_eq!(
+        mcp["detail"],
+        json!(reason),
+        "the audit keeps the device's own reason: {mcp}"
+    );
+    assert_eq!(
+        body["result"]["content"][0]["text"], mcp["detail"],
+        "the form shows the reason the audit keeps: the same text, prefixed by the same sentence"
+    );
+}
+
+/// The device's actual answer for a run that exits 2: a tool-level `isError` whose text is the
+/// device's own exited sentence. The audit must record the same verdict and the same reason.
+#[tokio::test]
+async fn a_run_that_exits_non_zero_is_a_failed_audit_line_from_the_device_iserror() {
+    let fixture = Fixture::new("audit-run-exit-2-device");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x5e)).await;
+    let session = fixture.authenticate().await;
+
+    let app = fixture.app();
+    let request_session = session.clone();
+    let call = tokio::spawn(async move {
+        send(
+            app,
+            post_json_bearer(
+                "/mcp",
+                &request_session,
+                json!({
+                    "device_id": device_id,
+                    "request": {
+                        "jsonrpc": "2.0",
+                        "id": 13,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "runs.exec",
+                            "arguments": { "command": "sh", "args": ["-c", "exit 2"] },
+                        },
+                    },
+                }),
+            ),
+        )
+        .await
+    });
+
+    let frame = next_json(&mut device).await;
+    let reason = "runs.exec: run run-2 exited 2 in 7 ms";
+    answer(
+        &mut device,
+        &frame,
+        tools_call_answer(json!(13), reason, true),
+    )
+    .await;
+
+    let (status, body) = call.await.expect("the call finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["result"]["isError"], json!(true), "{body}");
+    assert_eq!(
+        body["result"]["content"][0]["text"],
+        json!(reason),
+        "{body}"
+    );
+
+    let lines = audit_lines(&fixture);
+    let mcp = lines.last().expect("the mcp line");
+    assert_eq!(mcp["tool"], json!("runs.exec"));
+    assert_eq!(mcp["status"], json!(424), "exit 2 is not a success: {mcp}");
+    assert_eq!(
+        mcp["detail"],
+        json!(reason),
+        "the audit keeps the device's exited sentence: {mcp}"
+    );
+}
+
+/// A device older than the `isError` rule answers a failed run as an ordinary value; the console
+/// reads the exit code itself, so the record is right before the fleet upgrades.
+#[tokio::test]
+async fn a_run_that_exits_non_zero_is_a_failed_audit_line_even_without_iserror() {
+    let fixture = Fixture::new("audit-run-exit-2");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x5b)).await;
+    let session = fixture.authenticate().await;
+
+    let app = fixture.app();
+    let request_session = session.clone();
+    let call = tokio::spawn(async move {
+        send(
+            app,
+            post_json_bearer(
+                "/mcp",
+                &request_session,
+                json!({
+                    "device_id": device_id,
+                    "request": {
+                        "jsonrpc": "2.0",
+                        "id": 10,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "runs.exec",
+                            "arguments": { "command": "false" },
+                        },
+                    },
+                }),
+            ),
+        )
+        .await
+    });
+
+    let frame = next_json(&mut device).await;
+    let run = json!({
+        "id": "run-2",
+        "exit_code": 2,
+        "timed_out": false,
+        "duration_ms": 7,
+        "stdout": "",
+        "stderr": "",
+        "truncated": false,
+        "history_recorded": true,
+    });
+    answer(
+        &mut device,
+        &frame,
+        tools_call_answer(json!(10), &run.to_string(), false),
+    )
+    .await;
+
+    let (status, body) = call.await.expect("the call finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["result"]["isError"],
+        json!(false),
+        "the old device did not mark it: {body}"
+    );
+
+    let lines = audit_lines(&fixture);
+    let mcp = lines.last().expect("the mcp line");
+    assert_eq!(mcp["tool"], json!("runs.exec"));
+    assert_eq!(mcp["status"], json!(424), "exit 2 is not a success: {mcp}");
+    assert_eq!(
+        mcp["detail"],
+        json!("run run-2 exited 2 in 7 ms"),
+        "the reason names the exit status: {mcp}"
+    );
+}
+
+/// A run that exits zero is the one success a run can report: 200, its own sentence, and its exit
+/// fact as the detail.
+#[tokio::test]
+async fn a_run_that_exits_zero_stays_a_successful_line() {
+    let fixture = Fixture::new("audit-run-exit-0");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x5c)).await;
+    let session = fixture.authenticate().await;
+
+    let app = fixture.app();
+    let request_session = session.clone();
+    let call = tokio::spawn(async move {
+        send(
+            app,
+            post_json_bearer(
+                "/mcp",
+                &request_session,
+                json!({
+                    "device_id": device_id,
+                    "request": {
+                        "jsonrpc": "2.0",
+                        "id": 11,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "runs.exec",
+                            "arguments": { "command": "true" },
+                        },
+                    },
+                }),
+            ),
+        )
+        .await
+    });
+
+    let frame = next_json(&mut device).await;
+    let run = json!({
+        "id": "run-0",
+        "exit_code": 0,
+        "timed_out": false,
+        "duration_ms": 3,
+        "stdout": "",
+        "stderr": "",
+        "truncated": false,
+        "history_recorded": true,
+    });
+    answer(
+        &mut device,
+        &frame,
+        tools_call_answer(json!(11), &run.to_string(), false),
+    )
+    .await;
+
+    let (status, body) = call.await.expect("the call finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["result"]["isError"], json!(false), "{body}");
+
+    let lines = audit_lines(&fixture);
+    let mcp = lines.last().expect("the mcp line");
+    assert_eq!(mcp["status"], json!(200), "a zero exit is a success: {mcp}");
+    assert_eq!(mcp["detail"], json!("run run-0 exited 0 in 3 ms"));
+}
+
+/// The live row says the same thing the audit file will: the failure sentence, the failed flag and
+/// the reason. The form prefixes the same reason with the same sentence.
+#[tokio::test]
+async fn a_failed_run_reaches_the_stream_as_a_failure_with_its_reason() {
+    let fixture = Fixture::new("activity-run-failure");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x5d)).await;
+    let session = fixture.authenticate().await;
+
+    let mut socket = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut socket, &mut seen, "event: snapshot").await;
+
+    let app = fixture.app();
+    let request_session = session.clone();
+    let call = tokio::spawn(async move {
+        send(
+            app,
+            post_json_bearer(
+                "/mcp",
+                &request_session,
+                json!({
+                    "device_id": device_id,
+                    "request": {
+                        "jsonrpc": "2.0",
+                        "id": 12,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "runs.exec",
+                            "arguments": { "command": "audit5-no-such-program" },
+                        },
+                    },
+                }),
+            ),
+        )
+        .await
+    });
+
+    let frame = next_json(&mut device).await;
+    let reason = "runs.exec: program not found";
+    answer(
+        &mut device,
+        &frame,
+        tools_call_answer(json!(12), reason, true),
+    )
+    .await;
+    let (status, _) = call.await.expect("the call finishes");
+    assert_eq!(status, StatusCode::OK);
+
+    read_until(&mut socket, &mut seen, "Could not run the command").await;
+    assert!(
+        seen.contains("\"sentence\":\"Could not run the command\""),
+        "the row says the same thing the form does: {seen}"
+    );
+    assert!(
+        seen.contains("\"ok\":false"),
+        "a tool refusal is a failure: {seen}"
+    );
+    assert!(
+        seen.contains("\"status\":424"),
+        "the live row carries the audit's status: {seen}"
+    );
+    assert!(
+        seen.contains(&format!("\"detail\":\"{reason}\"")),
+        "the reason reaches the page: {seen}"
+    );
 }
 
 #[tokio::test]
@@ -2457,7 +5454,11 @@ async fn a_spent_enrollment_code_is_a_denial_with_the_device_id() {
     // is a denial.
     let audit = audit_lines(&fixture);
     let kinds: Vec<Value> = audit.iter().map(|line| line["kind"].clone()).collect();
-    assert_eq!(kinds, vec![json!("enroll"), json!("register")]);
+    assert_eq!(
+        kinds,
+        vec![json!("auth"), json!("enroll"), json!("register")],
+        "the sign-in, then the actions it bought"
+    );
 
     let denied = denial_lines(&fixture).pop().expect("the denial line");
     assert_eq!(denied["kind"], json!("denied"));
@@ -2485,7 +5486,7 @@ async fn an_expired_grant_is_audited_as_denied_with_its_reason() {
             &session,
             json!({
                 "device_id": device_id,
-                "grant": grant,
+            "grant": grant,
                 "request": { "jsonrpc": "2.0", "id": 1, "method": "tools/list" },
             }),
         ),
@@ -2520,18 +5521,16 @@ async fn a_channel_with_a_bad_device_token_is_a_denial_line() {
     assert_eq!(denied["device_id"], json!(device_id));
     assert_eq!(
         audit_lines(&fixture).len(),
-        2,
-        "the registration's enroll and register lines are the only audit lines"
+        3,
+        "the registration's sign-in, enroll and register lines are the audit lines"
     );
 }
 
 #[tokio::test]
-async fn the_audit_cap_rotates_to_one_generation_and_discards_the_older_one() {
+async fn the_audit_cap_prunes_the_oldest_lines_and_keeps_the_newest() {
     const CAP: u64 = 200;
-    let fixture = Fixture::with_audit_cap("audit-rotation", CAP);
+    let fixture = Fixture::with_audit_cap("audit-retention", CAP);
     let session = fixture.authenticate().await;
-    // An authenticated refusal for an unknown device is one audit line: forty of them are forty
-    // actions without spending enrollment codes or waiting for a device.
     for _ in 0..40 {
         let (status, _) = send(
             fixture.app(),
@@ -2549,42 +5548,129 @@ async fn the_audit_cap_rotates_to_one_generation_and_discards_the_older_one() {
         assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
-    let current = fixture.config.data.join("audit.jsonl");
-    let rotated = fixture.config.data.join("audit.1.jsonl");
-    let current_text = fs::read_to_string(&current).expect("the current audit file exists");
-    let rotated_text = fs::read_to_string(&rotated).expect("the previous generation exists");
+    let record = summrise_record::Record::open_file(fixture.config.data.join("audit.db"), u64::MAX)
+        .expect("the audit record opens");
     assert!(
-        !fixture.config.data.join("audit.2.jsonl").exists(),
-        "one rotation keeps exactly one older generation"
+        record.last_seq() >= 40,
+        "every action was recorded: {}",
+        record.last_seq()
+    );
+    assert!(
+        record.oldest_seq() > 1,
+        "the cap pruned the oldest lines: {}",
+        record.oldest_seq()
+    );
+    assert!(
+        !fixture.config.data.join("audit.1.jsonl").exists(),
+        "a record has no rotated generation"
     );
 
-    for text in [&rotated_text, &current_text] {
-        assert!(!text.is_empty(), "no generation is empty");
-        assert!(
-            (text.len() as u64) <= CAP,
-            "a generation must not grow past the cap: {} > {CAP}",
-            text.len()
-        );
-        for line in text.lines() {
-            let value: Value =
-                serde_json::from_str(line).expect("rotation never splits a line from its JSON");
-            assert_eq!(value["kind"], json!("denied"));
-        }
-    }
-
-    // Forty actions were written, but the cap keeps only the newest generations. `/audit` reads the
-    // current file first and stitches the rotated generation behind it.
-    let session = fixture.authenticate().await;
     let (status, body) = send(fixture.app(), get("/audit?limit=1000", Some(&session))).await;
     assert_eq!(status, StatusCode::OK);
     let lines = body.as_array().expect("a list of audit lines");
     assert!(!lines.is_empty());
     assert!(
         lines.len() < 40,
-        "the older generations are discarded, not accumulated: {} lines",
+        "the pruned lines are not accumulated: {} lines",
         lines.len()
     );
-    assert_eq!(lines[0]["kind"], json!("denied"));
+    let newest = record.newest(1).expect("the newest row");
+    let newest: Value = serde_json::from_str(&newest[0].json).expect("the newest row is JSON");
+    assert_eq!(
+        lines[0]["ts_ms"], newest["ts_ms"],
+        "the answer starts at the record's newest row"
+    );
+    assert_eq!(lines[0]["kind"], newest["kind"]);
+}
+
+// ---- the audit source -------------------------------------------------------------------------
+
+/// `/audit/source` names the file it reads, its size and the moments of its first and last lines,
+/// and the retention rule as the fixture configured it. With no `audit.1.jsonl`, the rotated
+/// predecessor is omitted: a page must not draw an older generation the disk does not have.
+#[tokio::test]
+async fn the_audit_source_reports_the_record_and_omits_a_rotation() {
+    const CAP: u64 = 4096;
+    let fixture = Fixture::with_audit_cap("audit-source-current", CAP);
+    let session = fixture.authenticate().await;
+    let lines = vec![
+        json!({ "ts_ms": START_MS + 1_000, "kind": "auth", "status": 200 }),
+        json!({ "ts_ms": START_MS + 2_000, "kind": "auth", "status": 200 }),
+    ];
+    seed_audit_file(&fixture, "audit.jsonl", &lines);
+
+    let (status, body) = send(fixture.app(), get("/audit/source", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "the source read: {body}");
+    assert_eq!(body["file"], json!("audit.db"));
+    assert!(
+        body["bytes"].as_u64().is_some_and(|bytes| bytes > 0),
+        "the record has a size: {body}"
+    );
+    assert_eq!(body["oldest_ts_ms"], json!(START_MS + 1_000));
+    assert_eq!(body["newest_ts_ms"], json!(START_MS + 2_000));
+    assert_eq!(
+        body["max_bytes"],
+        json!(CAP),
+        "the cap is the fixture's configured one, not the 8 MiB default: {body}"
+    );
+    assert_eq!(
+        body["rotations"],
+        json!(0),
+        "a record has no generations: {body}"
+    );
+    assert!(
+        body.get("rotated").is_none(),
+        "no predecessor exists, so the answer must omit it: {body}"
+    );
+}
+
+/// The record's span is its own oldest and newest row, not a generation's: the page states one
+/// history, and there is no older file to name.
+#[tokio::test]
+async fn the_audit_source_reports_the_records_span() {
+    let fixture = Fixture::new("audit-source-span");
+    let session = fixture.authenticate().await;
+    seed_audit_file(
+        &fixture,
+        "audit.1.jsonl",
+        &[
+            json!({ "ts_ms": START_MS - 5_000, "kind": "auth", "status": 200 }),
+            json!({ "ts_ms": START_MS - 4_000, "kind": "auth", "status": 200 }),
+        ],
+    );
+    seed_audit_file(
+        &fixture,
+        "audit.jsonl",
+        &[json!({ "ts_ms": START_MS + 1_000, "kind": "auth", "status": 200 })],
+    );
+
+    let (status, body) = send(fixture.app(), get("/audit/source", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "the source read: {body}");
+    assert_eq!(
+        body["oldest_ts_ms"],
+        json!(START_MS - 5_000),
+        "the record's oldest row, across both old names: {body}"
+    );
+    assert_eq!(body["newest_ts_ms"], json!(START_MS + 1_000));
+    assert!(body.get("rotated").is_none(), "there is one record: {body}");
+}
+
+/// A record with rows reports its file; there is no "unreadable generation" to omit, because the
+/// record is opened once and its facts come from the handle.
+#[tokio::test]
+async fn the_audit_source_reports_the_record_it_reads() {
+    let fixture = Fixture::new("audit-source-fresh");
+    let session = fixture.authenticate().await;
+
+    let (status, body) = send(fixture.app(), get("/audit/source", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "the source read: {body}");
+    assert_eq!(body["file"], json!("audit.db"));
+    assert_eq!(
+        body["max_bytes"],
+        json!(8 * 1024 * 1024),
+        "the retention rule is configured, not read from the record: {body}"
+    );
+    assert_eq!(body["rotations"], json!(0));
 }
 
 #[tokio::test]
@@ -2593,7 +5679,6 @@ async fn a_request_that_arrives_between_channels_waits_for_the_next_one() {
     let server = TestServer::start(&fixture.console).await;
     let (device_id, token) = fixture.register(&signing_key(0xb1)).await;
     let session = fixture.authenticate().await;
-    let grant = fixture.create_grant(&session, &device_id, 60).await;
 
     let app = fixture.app();
     let request = post_json_bearer(
@@ -2601,7 +5686,6 @@ async fn a_request_that_arrives_between_channels_waits_for_the_next_one() {
         &session,
         json!({
             "device_id": device_id.clone(),
-            "grant": grant,
             "request": { "jsonrpc": "2.0", "id": 7, "method": "tools/list" },
         }),
     );
@@ -2639,7 +5723,6 @@ async fn a_replaced_channel_fails_an_in_flight_request_as_502_without_retry_afte
     let (device_id, token, mut device) =
         connected_device(&fixture, &server, &signing_key(0xb2)).await;
     let session = fixture.authenticate().await;
-    let grant = fixture.create_grant(&session, &device_id, 60).await;
 
     let app = fixture.app();
     let request = post_json_bearer(
@@ -2647,7 +5730,6 @@ async fn a_replaced_channel_fails_an_in_flight_request_as_502_without_retry_afte
         &session,
         json!({
             "device_id": device_id.clone(),
-            "grant": grant,
             "request": { "jsonrpc": "2.0", "id": 7, "method": "tools/list" },
         }),
     );
@@ -2700,7 +5782,6 @@ async fn a_channel_that_dies_mid_request_is_502() {
     let (device_id, _token, mut device) =
         connected_device(&fixture, &server, &signing_key(0xb3)).await;
     let session = fixture.authenticate().await;
-    let grant = fixture.create_grant(&session, &device_id, 60).await;
 
     let app = fixture.app();
     let request = post_json_bearer(
@@ -2708,7 +5789,6 @@ async fn a_channel_that_dies_mid_request_is_502() {
         &session,
         json!({
             "device_id": device_id,
-            "grant": grant,
             "request": { "jsonrpc": "2.0", "id": 7, "method": "tools/list" },
         }),
     );
@@ -2741,14 +5821,19 @@ async fn unauthenticated_denials_are_rated_and_cannot_rotate_the_audit() {
     fixture.enroll(&session).await;
 
     for _ in 0..200 {
-        let (status, _) = send(fixture.app(), get("/devices", None)).await;
+        let (status, _) = send(fixture.app(), get("/fleet", None)).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
     }
 
     // The authenticated index is untouched: one enroll line, no rotation, no denial text.
     let audit = audit_lines(&fixture);
-    assert_eq!(audit.len(), 1, "one authenticated action, one audit line");
-    assert_eq!(audit[0]["kind"], json!("enroll"));
+    assert_eq!(
+        audit.len(),
+        2,
+        "the sign-in and the enroll: authenticated actions, no denial"
+    );
+    assert_eq!(audit[0]["kind"], json!("auth"));
+    assert_eq!(audit[1]["kind"], json!("enroll"));
     assert!(
         !fixture.config.data.join("audit.1.jsonl").exists(),
         "unauthenticated traffic must not rotate the audit"
@@ -2771,7 +5856,7 @@ async fn unauthenticated_denials_are_rated_and_cannot_rotate_the_audit() {
     // The window rolls on the injected clock: one summary accounts for the 100 suppressed, then the
     // new window's first line is written.
     fixture.advance_ms(60_000);
-    let (status, _) = send(fixture.app(), get("/devices", None)).await;
+    let (status, _) = send(fixture.app(), get("/fleet", None)).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 
     let denials = denial_lines(&fixture);
@@ -2784,157 +5869,9142 @@ async fn unauthenticated_denials_are_rated_and_cannot_rotate_the_audit() {
     assert_eq!(denials[101]["status"], json!(401));
 }
 
-// ---- the operator page ------------------------------------------------------------------------
+// ---- the root and the login link ----------------------------------------------------------------
 
 #[tokio::test]
-async fn the_operator_page_is_served_as_html() {
-    let fixture = Fixture::new("page-served");
+async fn the_root_is_the_react_workspace_unless_a_login_code_is_riding_on_it() {
+    let fixture = Fixture::new("root-react");
 
-    let (status, headers, page) = send_text(fixture.app(), get("/", None)).await;
-
-    assert_eq!(status, StatusCode::OK);
-    assert!(
-        headers
-            .get(header::CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok())
-            .is_some_and(|value| value.starts_with("text/html")),
-        "the operator page is HTML, not JSON: {headers:?}"
-    );
-    assert!(
-        page.contains("<!doctype html>") && page.contains("<html"),
-        "the response is the page itself: {page}"
-    );
-}
-
-/// The tool names the page declares, parsed from its `const TOOLS` array.
-///
-/// The array is valid JSON on purpose: the page builds its checkboxes from it, and this test reads
-/// exactly the bytes the console serves.
-fn page_tools(page: &str) -> Vec<String> {
-    let marker = "const TOOLS = [";
-    let start = page.find(marker).expect("the page declares its tool list") + marker.len();
-    let rest = &page[start..];
-    let end = rest.find("];").expect("the tool list closes");
-    serde_json::from_str(&format!("[{}]", &rest[..end]))
-        .expect("the page's tool list is a JSON array of strings")
-}
-
-#[tokio::test]
-async fn the_page_tool_list_is_the_registry() {
-    let fixture = Fixture::new("page-tools");
     let (status, _, page) = send_text(fixture.app(), get("/", None)).await;
     assert_eq!(status, StatusCode::OK);
-
-    let declared: BTreeSet<String> = page_tools(&page).into_iter().collect();
-    let registry: BTreeSet<String> = summrise_core::registry::CAPABILITIES
-        .iter()
-        .flat_map(|capability| capability.tools)
-        .map(|tool| tool.name.to_owned())
-        .collect();
-
-    assert_eq!(
-        declared.len(),
-        28,
-        "the page builds a checkbox for every tool"
+    assert!(
+        page.contains("id=\"root\""),
+        "the root is the React workspace"
     );
+
+    // `--login-link` puts a one-time code in the query; the `/next` shim redeems it, so that
+    // request must keep going there with the query intact.
+    let (status, headers, _) = send_text(fixture.app(), get("/?code=one-time", None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
     assert_eq!(
-        declared, registry,
-        "the page's hardcoded list has drifted from summrise_core::registry"
+        headers
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some("/next?code=one-time")
     );
 }
 
-/// The API paths the page declares, parsed from its `const ROUTES` object.
-fn page_routes(page: &str) -> BTreeSet<String> {
-    let marker = "const ROUTES = ";
-    let start = page.find(marker).expect("the page declares its routes") + marker.len();
-    let rest = &page[start..];
-    // The object's own braces are part of the JSON, so the slice includes the closing one.
-    let end = rest.find("};").expect("the route table closes") + 1;
-    let table: Value =
-        serde_json::from_str(&rest[..end]).expect("the page's route table is a JSON object");
-    table
+#[tokio::test]
+async fn the_served_tool_catalogue_is_the_registry() {
+    // The page fetches /tools instead of carrying a copy; this is the route it fetches. The list must be
+    // the device's own registry — 38 tools, same order, same sentences — or the grant form would offer
+    // a surface the device does not have (or miss one it does).
+    let fixture = Fixture::new("page-tools");
+    let session = fixture.authenticate().await;
+    let (status, tools) = send(fixture.app(), get("/tools", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK);
+    let served: Vec<&str> = tools
+        .as_array()
+        .expect("a list")
+        .iter()
+        .map(|tool| tool["name"].as_str().expect("a name"))
+        .collect();
+    let declared: Vec<&str> = summrise_core::registry::CAPABILITIES
+        .iter()
+        .flat_map(|capability| capability.tools)
+        .map(|tool| tool.name)
+        .collect();
+    assert_eq!(served, declared, "the console serves the device's registry");
+    for tool in tools.as_array().expect("a list") {
+        let name = tool["name"].as_str().expect("a name");
+        let expected = summrise_core::registry::tool(name).expect("the tool is in the registry");
+        assert_eq!(tool["description"], expected.description, "{name}");
+        assert_eq!(tool["destructive"], expected.destructive, "{name}");
+    }
+
+    // The React page fetches this route; there is no second copy of the registry in the console.
+}
+
+#[tokio::test]
+async fn the_tool_catalogue_is_not_served_without_an_operator() {
+    let fixture = Fixture::new("page-tools-gate");
+    let (status, _) = send(fixture.app(), get("/tools", None)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn the_react_page_is_served_as_one_embedded_html_file() {
+    let fixture = Fixture::new("page-react");
+    // `/app` is the React page during the migration; it is one file and carries no data of its own.
+    let (status, _, page) = send_text(fixture.app(), get("/app", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(page.contains("id=\"root\""));
+    assert!(page.contains("<title>Summrise console"));
+}
+
+#[tokio::test]
+async fn the_session_probe_says_what_it_made_of_the_access_header() {
+    let fixture = Fixture::new("session-access-report");
+
+    let (status, body) = send(fixture.app(), get("/session", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["authenticated"], false);
+    assert_eq!(body["access"]["configured"], false);
+    assert_eq!(body["access"]["header"], false);
+
+    // A header that is present but cannot be verified must not read as "no header": the page's
+    // sentence differs, and so does the thing the operator should do about it.
+    let request = Request::builder()
+        .method("GET")
+        .uri("/session")
+        .header("cf-access-jwt-assertion", "not-a-jwt")
+        .body(Body::empty())
+        .expect("the request builds");
+    let (status, body) = send(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["access"]["configured"], false);
+    assert_eq!(body["access"]["header"], true);
+}
+
+/// Cloudflare Access is the identity in front of the console. An operator the edge already
+/// authenticated was never given a token to type, so a verified header on the login-link shim must
+/// mint the same session cookie the React page reads.
+#[tokio::test]
+async fn a_verified_access_request_signs_in_without_a_token() {
+    let fixture = Fixture::with_access("access-sign-in");
+    let request = Request::builder()
+        .method("GET")
+        .uri("/next")
+        .header(ACCESS_HEADER, access_token(60))
+        .body(Body::empty())
+        .expect("the request builds");
+
+    let (status, headers, _) = send_text(fixture.app(), request).await;
+
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let cookie = headers
+        .get(header::SET_COOKIE)
+        .and_then(|value| value.to_str().ok())
+        .expect("the answer sets the session it just minted");
+    assert!(cookie.starts_with("summrise_session="), "{cookie}");
+    assert!(cookie.contains("HttpOnly"), "{cookie}");
+}
+
+/// Signing out behind Access has to end the edge's session too: the page cannot, so a request that
+/// carried an Access assertion is answered with the edge's logout URL. A token-or-cookie-only
+/// sign-out gets `null` even on an Access-configured console: the edge never owned that session, and
+/// Cloudflare's logout would be a dead end. Without Access there is no edge session at all.
+#[tokio::test]
+async fn signing_out_names_the_edge_logout_only_when_the_request_carried_access() {
+    let with_edge = Fixture::with_access("sign-out-edge");
+    let cookie = sign_in_cookie(&with_edge).await;
+    let request = Request::builder()
+        .method("POST")
+        .uri("/logout")
+        .header(header::COOKIE, &cookie)
+        .header(ACCESS_HEADER, access_token(60))
+        .body(Body::empty())
+        .expect("the request builds");
+    let (status, _, body) = send_text(with_edge.app(), request).await;
+    assert_eq!(status, StatusCode::OK);
+    let body: Value = serde_json::from_str(&body).expect("the answer is JSON");
+    let url = body["access_logout"]
+        .as_str()
+        .expect("the edge logout is named");
+    assert!(url.ends_with("/cdn-cgi/access/logout"), "{url}");
+
+    // The same console, the same Access configuration, but this sign-out carries a session alone: it
+    // never came through the edge, so the answer must not name an edge session to end.
+    let cookie = sign_in_cookie(&with_edge).await;
+    let request = Request::builder()
+        .method("POST")
+        .uri("/logout")
+        .header(header::COOKIE, &cookie)
+        .body(Body::empty())
+        .expect("the request builds");
+    let (status, _, body) = send_text(with_edge.app(), request).await;
+    assert_eq!(status, StatusCode::OK);
+    let body: Value = serde_json::from_str(&body).expect("the answer is JSON");
+    assert!(body["access_logout"].is_null(), "{body}");
+
+    let plain = Fixture::new("sign-out-plain");
+    let cookie = sign_in_cookie(&plain).await;
+    let request = Request::builder()
+        .method("POST")
+        .uri("/logout")
+        .header(header::COOKIE, &cookie)
+        .body(Body::empty())
+        .expect("the request builds");
+    let (status, _, body) = send_text(plain.app(), request).await;
+    assert_eq!(status, StatusCode::OK);
+    let body: Value = serde_json::from_str(&body).expect("the answer is JSON");
+    assert!(body["access_logout"].is_null(), "{body}");
+}
+
+/// The middleware mints only for GET `/next`; a POST carrying a verified Access header is not an
+/// identity. The old page's test for this died with the page, and the guard it proved is still live.
+#[tokio::test]
+async fn a_post_carrying_only_an_access_header_mints_nothing() {
+    let fixture = Fixture::with_access("access-post");
+    let request = Request::builder()
+        .method("POST")
+        .uri("/next")
+        .header(ACCESS_HEADER, access_token(60))
+        .body(Body::empty())
+        .expect("the request builds");
+
+    let (_, headers, _) = send_text(fixture.app(), request).await;
+
+    assert!(
+        headers.get(header::SET_COOKIE).is_none(),
+        "a POST must not mint a session"
+    );
+}
+
+/// A header that does not verify is not an identity: the request goes to the React page signed out,
+/// and nothing is minted for whoever sent it.
+#[tokio::test]
+async fn an_access_header_that_does_not_verify_signs_nothing_in() {
+    let fixture = Fixture::with_access("access-refused");
+    let request = Request::builder()
+        .method("GET")
+        .uri("/next")
+        .header(ACCESS_HEADER, "not-a-jwt")
+        .body(Body::empty())
+        .expect("the request builds");
+
+    let (status, headers, _) = send_text(fixture.app(), request).await;
+
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        headers
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some("/")
+    );
+    assert!(
+        headers.get(header::SET_COOKIE).is_none(),
+        "a refused identity mints nothing"
+    );
+}
+
+/// `--login-link` prints `<page>?code=…` and promises two minutes' way in. The page has to spend
+/// that code, or the only recovery left when Access misbehaves is a secret in a file on the host.
+#[tokio::test]
+async fn an_unknown_path_is_a_plain_404() {
+    let fixture = Fixture::new("not-found");
+    // Unauthenticated: the 404 is the same answer whoever asks, so a typo never becomes a login wall.
+    let (status, headers, body) = send_text(fixture.app(), get("/next/no-such-page", None)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(
+        headers
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok()),
+        None,
+        "there is no fallback page: {body}"
+    );
+    assert!(body.is_empty(), "the path is not echoed: {body}");
+}
+
+#[tokio::test]
+async fn a_login_link_code_signs_in_exactly_once() {
+    let fixture = Fixture::new("login-link");
+    let code = LoginCode {
+        code: "a".repeat(64),
+        expires_at_ms: fixture.now_ms() + MINUTE_MS,
+    };
+    summrise_console::write_login_code(&fixture.config.data, &code).expect("the code is written");
+    let uri = format!("/next?code={}", code.code);
+
+    let (status, headers, _) = send_text(fixture.app(), get(&uri, None)).await;
+
+    assert_eq!(
+        status,
+        StatusCode::SEE_OTHER,
+        "a link signs in and redirects"
+    );
+    assert_eq!(
+        headers
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some("/"),
+        "the code leaves the URL with the redirect, and the React page is where it lands"
+    );
+    let cookie = headers
+        .get(header::SET_COOKIE)
+        .and_then(|value| value.to_str().ok())
+        .expect("the link mints a session");
+    assert!(cookie.starts_with("summrise_session="), "{cookie}");
+    let pair = cookie.split(';').next().expect("the name=value pair");
+
+    // The session the link bought is an operator session, not just a cookie: the probe says so.
+    let (status, _, body) = send_text(fixture.app(), get_with_cookie("/session", pair)).await;
+    assert_eq!(status, StatusCode::OK);
+    let probe: Value = serde_json::from_str(&body).expect("the probe is JSON");
+    assert_eq!(probe["authenticated"], json!(true), "{body}");
+
+    // A link is one use: a second visit says so instead of minting another session.
+    let (status, headers, _) = send_text(fixture.app(), get(&uri, None)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert!(headers.get(header::SET_COOKIE).is_none());
+}
+
+/// A code that does not match is refused like an expired one, and no session is minted.
+#[tokio::test]
+async fn a_login_link_that_does_not_match_is_refused() {
+    let fixture = Fixture::new("login-link-refused");
+    let code = LoginCode {
+        code: "b".repeat(64),
+        expires_at_ms: fixture.now_ms() + MINUTE_MS,
+    };
+    summrise_console::write_login_code(&fixture.config.data, &code).expect("the code is written");
+
+    let (status, headers, body) =
+        send_text(fixture.app(), get("/next?code=not-the-code", None)).await;
+
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert!(body.contains("not accepted"), "{body}");
+    assert!(headers.get(header::SET_COOKIE).is_none());
+}
+
+/// `/session` is a probe a client can call with the sign-in cookie; before this it could only see a
+/// bearer token, so `via: "session"` was unreachable and a signed-in browser read as signed out.
+#[tokio::test]
+async fn the_session_probe_sees_a_sign_in_cookie() {
+    let fixture = Fixture::new("session-probe-cookie");
+    let cookie = sign_in_cookie(&fixture).await;
+    let request = Request::builder()
+        .method("GET")
+        .uri("/session")
+        .header(header::COOKIE, cookie)
+        .body(Body::empty())
+        .expect("the request builds");
+
+    let (status, body) = send(fixture.app(), request).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["authenticated"], true);
+    assert_eq!(body["via"], "session");
+}
+
+/// Every way in leaves an audit line naming the way, and nothing about the credential. The console
+/// could not previously answer "did the edge deliver the header?" from its own record — a question
+/// that cost an operator an hour when the old page fell back to the token box.
+#[tokio::test]
+async fn each_way_in_writes_an_auth_line() {
+    let fixture = Fixture::with_access("auth-audit");
+
+    // 1. Cloudflare Access: a verified assertion and no cookie.
+    let request = Request::builder()
+        .method("GET")
+        .uri("/next")
+        .header(ACCESS_HEADER, access_token(60))
+        .body(Body::empty())
+        .expect("the request builds");
+    send_text(fixture.app(), request).await;
+
+    // 2. The API's token exchange, whose session then reads the log.
+    let session = fixture.authenticate().await;
+
+    // 3. A `--login-link` code.
+    let code = LoginCode {
+        code: "f".repeat(64),
+        expires_at_ms: fixture.now_ms() + MINUTE_MS,
+    };
+    summrise_console::write_login_code(&fixture.config.data, &code).expect("the code is written");
+    send_text(
+        fixture.app(),
+        get(&format!("/next?code={}", code.code), None),
+    )
+    .await;
+
+    let (status, rows) = send(fixture.app(), get("/audit", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "{rows}");
+    let details: Vec<&str> = rows
+        .as_array()
+        .expect("the audit is a list")
+        .iter()
+        .filter(|row| row["kind"] == "auth")
+        .filter_map(|row| row["detail"].as_str())
+        .collect();
+
+    for way in ["access", "token", "login-link"] {
+        assert!(
+            details.contains(&way),
+            "a {way} sign-in is in the audit: {details:?}"
+        );
+    }
+    // The row names the way in, never the secret it came with.
+    let text = rows.to_string();
+    assert!(!text.contains(&hex(&OPERATOR_TOKEN)), "{text}");
+    assert!(!text.contains(&code.code), "{text}");
+}
+
+/// `/health` is what a supervisor and a human check first; whether Access is configured is the fact
+/// that explains why the page behaves the way it does, and it is not a secret.
+#[tokio::test]
+async fn health_says_whether_access_is_configured() {
+    let plain = Fixture::new("health-no-access");
+    let (status, body) = send(plain.app(), get("/health", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["access_configured"], false);
+
+    let trusted = Fixture::with_access("health-access");
+    let (status, body) = send(trusted.app(), get("/health", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["access_configured"], true);
+}
+
+/// A browser that signs in repeatedly must not grow the file without bound: the store keeps the
+/// newest few, not everything since the first deploy.
+#[tokio::test]
+async fn the_session_store_keeps_at_most_thirty_two_sessions() {
+    let fixture = Fixture::new("session-cap");
+    let mut newest = String::new();
+    for _ in 0..=32 {
+        let (status, headers, _) = send_text(
+            fixture.app(),
+            post_json("/auth", json!({ "token": hex(&OPERATOR_TOKEN) })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        newest = headers
+            .get(header::SET_COOKIE)
+            .expect("a session cookie")
+            .to_str()
+            .expect("a cookie is ASCII")
+            .to_owned();
+    }
+
+    let text = fs::read_to_string(fixture.config.data.join("sessions.json"))
+        .expect("the sessions file is written");
+    let rows: Vec<Value> = serde_json::from_str(&text).expect("the file is JSON");
+    assert_eq!(rows.len(), 32, "the store is bounded");
+
+    let cookie = newest.split(';').next().expect("the name=value pair");
+    let (status, _, body) = send_text(fixture.app(), get_with_cookie("/session", cookie)).await;
+    assert_eq!(status, StatusCode::OK);
+    let probe: Value = serde_json::from_str(&body).expect("the probe is JSON");
+    assert_eq!(
+        probe["authenticated"],
+        json!(true),
+        "the newest session is the one kept: {body}"
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn the_session_file_is_readable_only_by_its_owner() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fixture = Fixture::new("session-mode");
+    let _ = sign_in_cookie(&fixture).await;
+
+    let mode = fs::metadata(fixture.config.data.join("sessions.json"))
+        .expect("the sessions file exists")
+        .permissions()
+        .mode()
+        & 0o777;
+    assert_eq!(mode, 0o600, "a session hash is credential-grade");
+}
+
+/// A one-time code must not outlive itself in the recovery copy: minting a second link must not
+/// leave the first code on disk, and spending one must clear a leftover copy from an older build.
+#[tokio::test]
+async fn a_login_code_leaves_no_recovery_copy() {
+    let fixture = Fixture::new("login-code-backup");
+    let data = &fixture.config.data;
+    let first = LoginCode {
+        code: "d".repeat(64),
+        expires_at_ms: fixture.now_ms() + MINUTE_MS,
+    };
+    let second = LoginCode {
+        code: "e".repeat(64),
+        expires_at_ms: fixture.now_ms() + MINUTE_MS,
+    };
+    summrise_console::write_login_code(data, &first).expect("the first code is written");
+    summrise_console::write_login_code(data, &second).expect("the second code is written");
+
+    let backup = data.join("login.json.bak");
+    assert!(
+        !backup.exists(),
+        "the previous code must not survive in a copy"
+    );
+
+    fs::write(&backup, "a leftover from an older build").expect("the leftover exists");
+    let (status, _, _) = send_text(
+        fixture.app(),
+        get(&format!("/next?code={}", second.code), None),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(!backup.exists(), "spending the code removes the copy too");
+}
+
+#[tokio::test]
+async fn no_console_answer_is_cacheable() {
+    // A cached page outlives a deploy and a cached `/session` outlives a login: both were possible
+    // while these routes carried no `Cache-Control`.
+    let fixture = Fixture::new("no-store");
+
+    // The page is HTML, so it is read off the response rather than through the JSON helper.
+    let response = fixture
+        .app()
+        .oneshot(get("/", None))
+        .await
+        .expect("the page is served");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get(header::CACHE_CONTROL)
+            .and_then(|value| value.to_str().ok()),
+        Some("no-store"),
+        "the page is the build, and a cached copy outlives a deploy"
+    );
+
+    // The login-link shim is an answer too, and a cached redirect outlives the code it spends.
+    let shim = fixture
+        .app()
+        .oneshot(get("/next", None))
+        .await
+        .expect("the shim is served");
+    assert_eq!(shim.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        shim.headers()
+            .get(header::CACHE_CONTROL)
+            .and_then(|value| value.to_str().ok()),
+        Some("no-store")
+    );
+
+    for (uri, request) in [
+        ("/session", get("/session", None)),
+        ("/health", get("/health", None)),
+    ] {
+        let (status, headers, _) = send_with_headers(fixture.app(), request).await;
+        assert_eq!(status, StatusCode::OK, "{uri}");
+        assert_eq!(
+            headers
+                .get(header::CACHE_CONTROL)
+                .and_then(|value| value.to_str().ok()),
+            Some("no-store"),
+            "{uri} is an answer for one request"
+        );
+    }
+}
+
+#[tokio::test]
+async fn the_fleet_namespace_is_the_operators_and_the_device_namespace_is_not() {
+    let fixture = Fixture::new("fleet-split");
+    let key = signing_key(0x11);
+    let (id, _token) = fixture.register(&key).await;
+    let session = fixture.authenticate().await;
+
+    let (status, list) = send(fixture.app(), get("/fleet", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        list.as_array()
+            .expect("a list")
+            .iter()
+            .any(|device| device["id"] == json!(id)),
+        "the operator's list is under /fleet: {list}"
+    );
+
+    // `/devices` is the device namespace: a registration POST and a channel. An operator GET there
+    // is not a route — and, more to the point, it is inside Cloudflare Access's bypass prefix, so
+    // the page must never call it with an operator identity.
+    let (status, _) = send(fixture.app(), get("/devices", Some(&session))).await;
+    assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED);
+
+    let (status, renamed) = send(
+        fixture.app(),
+        post_json_bearer(
+            &format!("/fleet/{id}/name"),
+            &session,
+            json!({ "name": "the renamed canary" }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "rename: {renamed}");
+    assert_eq!(renamed["name"], json!("the renamed canary"));
+
+    let request = Request::builder()
+        .method("DELETE")
+        .uri(format!("/fleet/{id}"))
+        .header(header::AUTHORIZATION, format!("Bearer {session}"))
+        .body(Body::empty())
+        .expect("the request builds");
+    let (status, _) = send(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (_, list) = send(fixture.app(), get("/fleet", Some(&session))).await;
+    assert!(
+        list.as_array()
+            .expect("a list")
+            .iter()
+            .all(|device| device["id"] != json!(id)),
+        "the removed device is gone from the fleet list"
+    );
+}
+
+#[tokio::test]
+async fn a_saved_connection_is_per_device_and_carries_no_credential() {
+    let fixture = Fixture::new("saved-connections");
+    let key = signing_key(0x21);
+    let (id, _token) = fixture.register(&key).await;
+    let session = fixture.authenticate().await;
+
+    let (status, saved) = send(
+        fixture.app(),
+        post_json_bearer(
+            &format!("/fleet/{id}/connections"),
+            &session,
+            json!({
+                "name": "the db host",
+                "kind": "ssh",
+                "host": "db.internal",
+                "port": 22,
+                "user": "operator"
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "save: {saved}");
+    let connection_id = saved["id"].as_str().expect("an id").to_owned();
+    assert_eq!(saved["host"], json!("db.internal"));
+
+    // A preset that cannot become a session is refused now, not when the operator is waiting for a
+    // prompt: an ssh preset with no host is the shape the device would reject later.
+    let (status, body) = send(
+        fixture.app(),
+        post_json_bearer(
+            &format!("/fleet/{id}/connections"),
+            &session,
+            json!({ "name": "no host", "kind": "ssh", "port": 22, "user": "operator" }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+
+    // A device that does not exist has no list to read or write.
+    let (status, _) = send(
+        fixture.app(),
+        get("/fleet/not-a-device/connections", Some(&session)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let (status, list) = send(
+        fixture.app(),
+        get(&format!("/fleet/{id}/connections"), Some(&session)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(list.as_array().expect("a list").len(), 1, "{list}");
+
+    let request = Request::builder()
+        .method("DELETE")
+        .uri(format!("/fleet/{id}/connections/{connection_id}"))
+        .header(header::AUTHORIZATION, format!("Bearer {session}"))
+        .body(Body::empty())
+        .expect("the request builds");
+    let (status, _) = send(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (_, list) = send(
+        fixture.app(),
+        get(&format!("/fleet/{id}/connections"), Some(&session)),
+    )
+    .await;
+    assert!(list.as_array().expect("a list").is_empty(), "{list}");
+}
+
+/// A real mesh broker on an ephemeral loopback port, for the readiness route.
+struct TestBroker {
+    url: String,
+}
+
+async fn start_broker() -> TestBroker {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("a broker listener");
+    let address = listener.local_addr().expect("the broker's address");
+    tokio::spawn(async move {
+        axum::serve(listener, summrise_mesh::Broker::new().router())
+            .await
+            .expect("the test broker serves");
+    });
+    TestBroker {
+        url: format!("http://{address}"),
+    }
+}
+
+#[tokio::test]
+async fn the_mesh_view_is_absent_without_a_broker() {
+    let fixture = Fixture::new("mesh-absent");
+    let session = fixture.authenticate().await;
+    let (status, body) = send(fixture.app(), get("/mesh", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["configured"], json!(false));
+    assert_eq!(body["broker"], Value::Null);
+}
+
+#[tokio::test]
+async fn the_readiness_route_asks_the_broker_about_a_registered_device() {
+    let broker = start_broker().await;
+    let fixture = Fixture::with_mesh_broker("mesh-ready", &broker.url);
+    let key = SigningKey::from_bytes(&[0x33; 32]);
+    let (device_id, _token) = fixture.register(&key).await;
+
+    // The device id IS the mesh peer id: register the same key at the broker.
+    let peer = summrise_mesh::Identity::from_private_bytes(key.to_bytes());
+    summrise_mesh::Rendezvous::new(peer, Vec::new(), 30_000)
+        .register(&broker.url)
+        .await
+        .expect("the device registers at the broker");
+
+    let session = fixture.authenticate().await;
+    let (status, body) = send(
+        fixture.app(),
+        get(&format!("/fleet/{device_id}/mesh"), Some(&session)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["configured"], json!(true));
+    assert_eq!(body["reachable"], json!(true), "{body}");
+}
+
+#[tokio::test]
+async fn the_readiness_route_refuses_an_unregistered_device() {
+    let broker = start_broker().await;
+    let fixture = Fixture::with_mesh_broker("mesh-unregistered", &broker.url);
+    let session = fixture.authenticate().await;
+    let (status, _) = send(
+        fixture.app(),
+        get(&format!("/fleet/{}/mesh", "ab".repeat(32)), Some(&session)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // And without an operator session the route is not a public probe.
+    let (status, _) = send(
+        fixture.app(),
+        get(&format!("/fleet/{}/mesh", "ab".repeat(32)), None),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+// ---- the standard MCP endpoint -------------------------------------------------------------------
+
+/// Lowercase hex, as the grant header carries it.
+fn hex_encode(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push_str(&format!("{byte:02x}"));
+    }
+    out
+}
+
+fn standard_request(
+    device_id: &str,
+    authorization: Option<&str>,
+    content_type: Option<&str>,
+    accept: Option<&str>,
+    body: Body,
+) -> Request<Body> {
+    let mut builder = Request::builder()
+        .method("POST")
+        .uri(format!("/mcp/{device_id}"));
+    if let Some(value) = authorization {
+        builder = builder.header(header::AUTHORIZATION, value);
+    }
+    if let Some(value) = content_type {
+        builder = builder.header(header::CONTENT_TYPE, value);
+    }
+    if let Some(value) = accept {
+        builder = builder.header(header::ACCEPT, value);
+    }
+    builder.body(body).expect("the request builds")
+}
+
+/// One standard MCP request with the grant in the header and the JSON-RPC body the endpoint reads.
+fn post_standard(device_id: &str, grant: &Value, body: Value) -> Request<Body> {
+    let bytes = serde_json::to_vec(grant).expect("the grant serializes");
+    let authorization = format!("Bearer {}", hex_encode(&bytes));
+    standard_request(
+        device_id,
+        Some(&authorization),
+        Some("application/json"),
+        Some("application/json, text/event-stream"),
+        Body::from(body.to_string()),
+    )
+}
+
+/// One standard MCP request with a permanent token in the header.
+fn post_token(device_id: &str, token: &str, body: Value) -> Request<Body> {
+    standard_request(
+        device_id,
+        Some(&format!("Bearer {token}")),
+        Some("application/json"),
+        Some("application/json, text/event-stream"),
+        Body::from(body.to_string()),
+    )
+}
+
+fn aggregate_request(token: &str, body: Value) -> Request<Body> {
+    Request::builder()
+        .method("POST")
+        .uri("/mcp/all")
+        .header(header::AUTHORIZATION, format!("Bearer {token}"))
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::ACCEPT, "application/json")
+        .body(Body::from(body.to_string()))
+        .expect("the aggregate request builds")
+}
+
+async fn aggregate_token_for(
+    fixture: &Fixture,
+    session: &str,
+    ids: &[String],
+    tools: &[&str],
+) -> (String, String) {
+    let (status, created) = fixture
+        .create_aggregate_token(session, "aggregate", ids, tools)
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    (
+        created["id"].as_str().expect("a token id").to_owned(),
+        created["token"]
+            .as_str()
+            .expect("the one-time secret")
+            .to_owned(),
+    )
+}
+
+fn ping_request() -> Value {
+    json!({ "jsonrpc": "2.0", "id": 1, "method": "ping" })
+}
+
+async fn answer_error(socket: &mut DeviceSocket, frame: &Value, error: Value) {
+    let reply = json!({ "id": frame["id"].clone(), "error": error });
+    socket
+        .send(WsMessage::Text(reply.to_string()))
+        .await
+        .expect("the device answers");
+}
+
+#[tokio::test]
+async fn a_standard_client_initializes_with_a_grant() {
+    let fixture = Fixture::new("standard-initialize");
+    let (device_id, _token) = fixture.register(&signing_key(0xd1)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+
+    let (status, body) = send(
+        fixture.app(),
+        post_standard(
+            &device_id,
+            &grant,
+            json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": { "name": "test", "version": "0" },
+                },
+            }),
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["result"]["protocolVersion"], json!("2025-06-18"));
+    assert_eq!(
+        body["result"]["serverInfo"]["name"],
+        json!("summrise-console")
+    );
+    assert_eq!(
+        body["result"]["serverInfo"]["version"],
+        json!(env!("CARGO_PKG_VERSION"))
+    );
+    assert_eq!(
+        body["result"]["capabilities"]["tools"]["listChanged"],
+        json!(false)
+    );
+    assert!(
+        body["result"]["instructions"]
+            .as_str()
+            .expect("instructions")
+            .contains(device_id.as_str()),
+        "{body}"
+    );
+}
+
+#[tokio::test]
+async fn an_initialize_is_not_an_audited_action() {
+    let fixture = Fixture::new("standard-initialize-audit");
+    let (device_id, _token) = fixture.register(&signing_key(0xd4)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+    let before = audit_lines(&fixture).len();
+
+    let (status, _) = send(
+        fixture.app(),
+        post_standard(
+            &device_id,
+            &grant,
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {} }),
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        audit_lines(&fixture).len(),
+        before,
+        "initialize is a local transport fact, not an operator action"
+    );
+}
+
+#[tokio::test]
+async fn an_initialized_notification_is_accepted_without_a_device_frame() {
+    let fixture = Fixture::new("standard-initialized");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xd2)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+
+    let (status, body) = send(
+        fixture.app(),
+        post_standard(
+            &device_id,
+            &grant,
+            json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }),
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    assert_eq!(body, Value::Null);
+    let frame = tokio::time::timeout(Duration::from_millis(100), device.next()).await;
+    assert!(frame.is_err(), "a notification must not reach the device");
+}
+
+#[tokio::test]
+async fn a_missing_or_malformed_grant_is_unauthorized_and_denied() {
+    let fixture = Fixture::new("standard-unauthorized");
+    let (device_id, _token) = fixture.register(&signing_key(0xd3)).await;
+
+    for authorization in [None, Some("Bearer zz"), Some("Basic abcd")] {
+        let (status, body) = send(
+            fixture.app(),
+            standard_request(
+                &device_id,
+                authorization,
+                Some("application/json"),
+                Some("application/json"),
+                Body::from(ping_request().to_string()),
+            ),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::UNAUTHORIZED,
+            "{authorization:?}: {body}"
+        );
+        assert_eq!(body["error"], json!("unauthorized"));
+    }
+
+    let denials = denial_lines(&fixture);
+    assert_eq!(denials.len(), 3, "{denials:?}");
+    assert!(denials.iter().all(|line| line["kind"] == json!("denied")));
+    let audit = audit_lines(&fixture);
+    assert!(
+        audit.iter().all(|line| line["kind"] != json!("denied")),
+        "a missing credential is a denial, not an audited action: {audit:?}"
+    );
+}
+
+#[tokio::test]
+async fn an_unknown_device_without_a_grant_is_unauthorized_not_not_found() {
+    let fixture = Fixture::new("standard-unknown-unauthenticated");
+    let unknown = "ab".repeat(32);
+
+    let (status, body) = send(
+        fixture.app(),
+        standard_request(
+            &unknown,
+            None,
+            Some("application/json"),
+            Some("application/json"),
+            Body::from(ping_request().to_string()),
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+    assert_eq!(
+        body["error"],
+        json!("unauthorized"),
+        "the route must not confirm which ids are registered"
+    );
+}
+
+#[tokio::test]
+async fn a_valid_grant_for_a_removed_device_is_not_found_and_audited() {
+    let fixture = Fixture::new("standard-removed-device");
+    let (device_id, _token) = fixture.register(&signing_key(0xd5)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+
+    let (status, _) = send(
+        fixture.app(),
+        Request::builder()
+            .method("DELETE")
+            .uri(format!("/fleet/{device_id}"))
+            .header(header::AUTHORIZATION, format!("Bearer {session}"))
+            .body(Body::empty())
+            .expect("the request builds"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (status, body) = send(
+        fixture.app(),
+        post_standard(&device_id, &grant, ping_request()),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert_eq!(body["error"], json!("unknown_device"));
+    let audit = audit_lines(&fixture);
+    assert!(
+        audit.iter().any(
+            |line| line["kind"] == json!("denied") && line["detail"] == json!("unknown_device")
+        ),
+        "the caller held a valid grant, so the missing device is an audited action: {audit:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_bad_expired_or_mismatched_grant_is_forbidden_and_denied() {
+    let fixture = Fixture::new("standard-grant-refusals");
+    let (device_a, _token_a) = fixture.register(&signing_key(0xd6)).await;
+    let (device_b, _token_b) = fixture.register(&signing_key(0xd7)).await;
+    let session = fixture.authenticate().await;
+    let grant_a = fixture.create_grant(&session, &device_a, 60).await;
+    let grant_b = fixture.create_grant(&session, &device_b, 60).await;
+
+    let mut tampered = grant_a.clone();
+    tampered["signature"] = json!("00".repeat(64));
+    let (status, body) = send(
+        fixture.app(),
+        post_standard(&device_a, &tampered, ping_request()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(body["error"], json!("invalid_grant_signature"));
+
+    let (status, body) = send(
+        fixture.app(),
+        post_standard(&device_a, &grant_b, ping_request()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(body["error"], json!("grant_device_mismatch"));
+
+    fixture.advance_ms(61_000);
+    let (status, body) = send(
+        fixture.app(),
+        post_standard(&device_a, &grant_a, ping_request()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(body["error"], json!("grant_expired"));
+
+    let denials = denial_lines(&fixture);
+    for code in [
+        "invalid_grant_signature",
+        "grant_device_mismatch",
+        "grant_expired",
+    ] {
+        assert!(
+            denials.iter().any(|line| line["detail"] == json!(code)),
+            "{code} is missing from {denials:?}"
+        );
+    }
+    let audit = audit_lines(&fixture);
+    for code in [
+        "invalid_grant_signature",
+        "grant_device_mismatch",
+        "grant_expired",
+    ] {
+        assert!(
+            audit.iter().all(|line| line["detail"] != json!(code)),
+            "{code} must not be in the audit: {audit:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn tools_list_is_filtered_to_the_grants_tools() {
+    let fixture = Fixture::new("standard-tools-list");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xd8)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+    let request = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" });
+    let response = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": { "tools": [
+            { "name": "files.read", "description": "read" },
+            { "name": "files.write", "description": "write" },
+        ]},
+    });
+
+    let http = send(
+        fixture.app(),
+        post_standard(&device_id, &grant, request.clone()),
+    );
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"], request);
+        answer(&mut device, &frame, response.clone()).await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["result"]["tools"],
+        json!([{ "name": "files.read", "description": "read" }])
+    );
+}
+
+#[tokio::test]
+async fn a_tool_call_round_trips_through_the_channel() {
+    let fixture = Fixture::new("standard-tool-call");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xd9)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "tools/call",
+        "params": { "name": "files.read", "arguments": { "path": "notes.txt" } },
+    });
+    let response = json!({
+        "jsonrpc": "2.0",
+        "id": 9,
+        "result": { "content": [{ "type": "text", "text": "hello" }] },
+    });
+
+    let http = send(
+        fixture.app(),
+        post_standard(&device_id, &grant, request.clone()),
+    );
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"], request);
+        answer(&mut device, &frame, response.clone()).await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body, response);
+}
+
+#[tokio::test]
+async fn a_tool_outside_the_grant_is_refused_and_the_device_sees_nothing() {
+    let fixture = Fixture::new("standard-tool-denied");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xda)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "tools/call",
+        "params": { "name": "files.write", "arguments": { "path": "denied" } },
+    });
+
+    let (status, body) = send(fixture.app(), post_standard(&device_id, &grant, request)).await;
+
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(body["error"]["code"], json!(-32001));
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .expect("a message")
+            .contains("not permitted"),
+        "{body}"
+    );
+    let frame = tokio::time::timeout(Duration::from_millis(100), device.next()).await;
+    assert!(frame.is_err(), "a refused call must not reach the device");
+
+    let audit = audit_lines(&fixture);
+    assert!(
+        audit.iter().any(|line| line["kind"] == json!("denied")
+            && line["tool"] == json!("files.write")
+            && line["detail"] == json!("tool_not_permitted")),
+        "{audit:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_device_error_envelope_is_a_json_rpc_answer_at_http_200() {
+    let fixture = Fixture::new("standard-device-error");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xdb)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 11,
+        "method": "tools/call",
+        "params": { "name": "files.read", "arguments": { "path": "notes.txt" } },
+    });
+    let error = json!({
+        "jsonrpc": "2.0",
+        "id": 11,
+        "error": { "code": -32000, "message": "the device said no" },
+    });
+
+    let http = send(
+        fixture.app(),
+        post_standard(&device_id, &grant, request.clone()),
+    );
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"], request);
+        answer_error(&mut device, &frame, error.clone()).await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body, error,
+        "a JSON-RPC error is an answer, not a transport failure"
+    );
+}
+
+#[tokio::test]
+async fn a_standard_call_is_one_audit_line_without_its_payload() {
+    let fixture = Fixture::new("standard-audit");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xdc)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+    let marker = "marker-standard-audit-7f3a";
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 12,
+        "method": "tools/call",
+        "params": { "name": "files.read", "arguments": { "path": marker } },
+    });
+    let response = json!({
+        "jsonrpc": "2.0",
+        "id": 12,
+        "result": { "content": [{ "type": "text", "text": "ok" }] },
+    });
+
+    let http = send(
+        fixture.app(),
+        post_standard(&device_id, &grant, request.clone()),
+    );
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        answer(&mut device, &frame, response.clone()).await;
+    };
+    let ((status, _body), ()) = tokio::join!(http, device_side);
+    assert_eq!(status, StatusCode::OK);
+
+    let audit = audit_lines(&fixture);
+    let rows: Vec<_> = audit
+        .iter()
+        .filter(|line| line["kind"] == json!("mcp") && line["tool"] == json!("files.read"))
+        .collect();
+    assert_eq!(rows.len(), 1, "{audit:?}");
+    let text = serde_json::to_string(&audit).expect("the audit serializes");
+    assert!(
+        !text.contains(marker),
+        "the audit must not carry the argument"
+    );
+}
+
+#[tokio::test]
+async fn a_wrong_content_type_is_refused() {
+    let fixture = Fixture::new("standard-content-type");
+    let (device_id, _token) = fixture.register(&signing_key(0xdd)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+    let bytes = serde_json::to_vec(&grant).expect("the grant serializes");
+    let authorization = format!("Bearer {}", hex_encode(&bytes));
+
+    let (status, body) = send(
+        fixture.app(),
+        standard_request(
+            &device_id,
+            Some(&authorization),
+            Some("text/plain"),
+            Some("application/json"),
+            Body::from(ping_request().to_string()),
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE, "{body}");
+    assert_eq!(body["error"], json!("unsupported_media_type"));
+
+    // The media type is checked before the credential: without a grant the answer is still 415,
+    // and no denial is written for a request that never presented one.
+    let (status, _) = send(
+        fixture.app(),
+        standard_request(
+            &device_id,
+            None,
+            Some("text/plain"),
+            Some("application/json"),
+            Body::from(ping_request().to_string()),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    assert!(denial_lines(&fixture).is_empty());
+}
+
+#[tokio::test]
+async fn a_get_on_the_standard_endpoint_is_method_not_allowed() {
+    let fixture = Fixture::new("standard-get");
+    let (device_id, _token) = fixture.register(&signing_key(0xe5)).await;
+
+    let (status, _) = send(
+        fixture.app(),
+        Request::builder()
+            .method("GET")
+            .uri(format!("/mcp/{device_id}"))
+            .header(header::ACCEPT, "text/event-stream")
+            .body(Body::empty())
+            .expect("the request builds"),
+    )
+    .await;
+
+    // The official client opens a standalone SSE stream after initialize and tolerates this; the
+    // endpoint has nothing to say on such a stream.
+    assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED);
+}
+
+#[tokio::test]
+async fn an_accept_header_without_json_is_not_acceptable() {
+    let fixture = Fixture::new("standard-accept");
+    let (device_id, _token) = fixture.register(&signing_key(0xde)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+    let bytes = serde_json::to_vec(&grant).expect("the grant serializes");
+    let authorization = format!("Bearer {}", hex_encode(&bytes));
+
+    let (status, body) = send(
+        fixture.app(),
+        standard_request(
+            &device_id,
+            Some(&authorization),
+            Some("application/json"),
+            Some("text/event-stream"),
+            Body::from(ping_request().to_string()),
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::NOT_ACCEPTABLE, "{body}");
+    assert_eq!(body["error"], json!("not_acceptable"));
+}
+
+#[tokio::test]
+async fn a_malformed_body_is_a_parse_error() {
+    let fixture = Fixture::new("standard-parse-error");
+    let (device_id, _token) = fixture.register(&signing_key(0xdf)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+    let bytes = serde_json::to_vec(&grant).expect("the grant serializes");
+    let authorization = format!("Bearer {}", hex_encode(&bytes));
+
+    let (status, body) = send(
+        fixture.app(),
+        standard_request(
+            &device_id,
+            Some(&authorization),
+            Some("application/json"),
+            Some("application/json"),
+            Body::from("{"),
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"]["code"], json!(-32700));
+    assert_eq!(body["id"], Value::Null);
+}
+
+#[tokio::test]
+async fn a_batch_is_an_invalid_request() {
+    let fixture = Fixture::new("standard-batch");
+    let (device_id, _token) = fixture.register(&signing_key(0xe0)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+    let bytes = serde_json::to_vec(&grant).expect("the grant serializes");
+    let authorization = format!("Bearer {}", hex_encode(&bytes));
+
+    let (status, body) = send(
+        fixture.app(),
+        standard_request(
+            &device_id,
+            Some(&authorization),
+            Some("application/json"),
+            Some("application/json"),
+            Body::from("[]"),
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"]["code"], json!(-32600));
+}
+
+#[tokio::test]
+async fn an_unknown_method_is_method_not_found() {
+    let fixture = Fixture::new("standard-unknown-method");
+    let (device_id, _token) = fixture.register(&signing_key(0xe1)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+
+    let (status, body) = send(
+        fixture.app(),
+        post_standard(
+            &device_id,
+            &grant,
+            json!({ "jsonrpc": "2.0", "id": 5, "method": "resources/list" }),
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["error"]["code"], json!(-32601));
+    assert_eq!(body["id"], json!(5));
+}
+
+#[tokio::test]
+async fn a_body_over_the_cap_is_refused() {
+    let fixture = Fixture::new("standard-body-cap");
+    let (device_id, _token) = fixture.register(&signing_key(0xe2)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+    let bytes = serde_json::to_vec(&grant).expect("the grant serializes");
+    let authorization = format!("Bearer {}", hex_encode(&bytes));
+    let body = Body::from(vec![b' '; 9 * 1024 * 1024]);
+
+    let (status, answer) = send(
+        fixture.app(),
+        standard_request(
+            &device_id,
+            Some(&authorization),
+            Some("application/json"),
+            Some("application/json"),
+            body,
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE, "{answer}");
+    assert_eq!(answer["error"], json!("payload_too_large"));
+}
+
+#[tokio::test]
+async fn an_offline_device_is_a_retryable_503() {
+    let fixture = Fixture::new("standard-offline");
+    let (device_id, _token) = fixture.register(&signing_key(0xe3)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+
+    let (status, body) = send(
+        fixture.app(),
+        post_standard(
+            &device_id,
+            &grant,
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }),
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert_eq!(body["error"], json!("device reconnecting"));
+    assert_eq!(body["retry_after_ms"], json!(1_000));
+    let audit = audit_lines(&fixture);
+    assert!(
+        audit.iter().any(|line| line["kind"] == json!("denied")
+            && line["detail"] == json!("device reconnecting")),
+        "{audit:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_tool_call_without_a_name_is_a_json_rpc_error_at_http_200() {
+    let fixture = Fixture::new("standard-invalid-tool-call");
+    let (device_id, _token) = fixture.register(&signing_key(0xe4)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+
+    let (status, body) = send(
+        fixture.app(),
+        post_standard(
+            &device_id,
+            &grant,
+            json!({ "jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {} }),
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["error"]["code"], json!(-32602));
+    let audit = audit_lines(&fixture);
+    assert!(
+        audit
+            .iter()
+            .any(|line| line["kind"] == json!("denied")
+                && line["detail"] == json!("invalid_tool_call")),
+        "{audit:?}"
+    );
+}
+
+// ---- permanent API tokens -------------------------------------------------------------------------
+
+/// The create response is the only plaintext; the list and the audit never carry it, and the file
+/// keeps only its hash.
+#[tokio::test]
+async fn an_aggregate_token_is_created_and_listed_without_a_secret() {
+    let fixture = Fixture::new("aggregate-token-create");
+    let session = fixture.authenticate().await;
+    let (a, _) = fixture.register(&signing_key(0x70)).await;
+    let (b, _) = fixture.register(&signing_key(0x71)).await;
+    let (status, created) = fixture
+        .create_aggregate_token(&session, "all", &[a.clone(), b.clone()], &["files.read"])
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    assert_eq!(
+        created["kind"],
+        json!("fleet"),
+        "the metadata names the fleet door"
+    );
+    assert_eq!(created["device_ids"], json!([a.clone(), b.clone()]));
+    assert_eq!(created["device_id"], json!(""));
+    assert!(created["token"].as_str().unwrap().starts_with("srm_"));
+
+    let (_, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert_eq!(list[0]["kind"], json!("fleet"));
+    assert_eq!(list[0]["device_ids"], json!([a, b]));
+    assert!(list[0].get("token").is_none());
+}
+
+/// Removing a device takes the tokens that could reach it — including an aggregate token that
+/// merely LISTS it, which its per-device page never shows, so nobody could revoke it by hand.
+#[tokio::test]
+async fn removing_a_device_revokes_the_aggregate_tokens_that_list_it() {
+    let fixture = Fixture::new("aggregate-token-device-removal");
+    let session = fixture.authenticate().await;
+    let (a, _) = fixture.register(&signing_key(0x73)).await;
+    let (b, _) = fixture.register(&signing_key(0x74)).await;
+    let (status, created) = fixture
+        .create_aggregate_token(&session, "all", &[a.clone(), b.clone()], &["files.read"])
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+
+    let request = Request::builder()
+        .method("DELETE")
+        .uri(format!("/fleet/{a}"))
+        .header(header::AUTHORIZATION, format!("Bearer {session}"))
+        .body(Body::empty())
+        .expect("the request builds");
+    let (status, _) = send(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (_, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert!(
+        list.as_array().expect("a list").is_empty(),
+        "the aggregate token went with the device it could reach: {list}"
+    );
+}
+
+#[tokio::test]
+async fn a_token_create_requires_exactly_one_scope() {
+    let fixture = Fixture::new("aggregate-token-scope");
+    let session = fixture.authenticate().await;
+    let (device, _) = fixture.register(&signing_key(0x72)).await;
+    let body = json!({ "name": "x", "tools": ["files.read"] });
+    let (status, _) = send(fixture.app(), post_json_bearer("/tokens", &session, body)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let body = json!({
+        "name": "x", "device_id": device, "device_ids": [device], "tools": ["files.read"]
+    });
+    let (status, _) = send(fixture.app(), post_json_bearer("/tokens", &session, body)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn an_aggregate_token_validates_every_device_in_its_scope() {
+    let fixture = Fixture::new("aggregate-token-validate");
+    let session = fixture.authenticate().await;
+    let (device, _) = fixture.register(&signing_key(0x73)).await;
+    let (status, _) = send(
+        fixture.app(),
+        post_json_bearer(
+            "/tokens",
+            &session,
+            json!({ "name": "x", "device_ids": [], "tools": ["files.read"] }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "an empty scope is refused");
+
+    let (status, _) = send(
+        fixture.app(),
+        post_json_bearer(
+            "/tokens",
+            &session,
+            json!({ "name": "x", "device_ids": [device.clone(), device], "tools": ["files.read"] }),
+        ),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "a duplicate device is refused"
+    );
+
+    let (status, _) = send(
+        fixture.app(),
+        post_json_bearer(
+            "/tokens",
+            &session,
+            json!({ "name": "x", "device_ids": ["ff".repeat(32)], "tools": ["files.read"] }),
+        ),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "an unknown device is refused"
+    );
+}
+
+#[tokio::test]
+async fn an_aggregate_token_lists_tools_with_a_required_device() {
+    let fixture = Fixture::new("aggregate-list");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _device_token, mut device) =
+        present_device(&fixture, &server, &signing_key(0xa7)).await;
+    let session = fixture.authenticate().await;
+    let (_id, token) = aggregate_token_for(&fixture, &session, &[device_id], &["files.read"]).await;
+
+    let http = send(
+        fixture.app(),
+        aggregate_request(
+            &token,
+            json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}),
+        ),
+    );
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"]["method"], json!("tools/list"));
+        answer(
+            &mut device,
+            &frame,
+            json!({"jsonrpc": "2.0", "id": 1, "result": {"tools": [{
+                "name": "files.read",
+                "inputSchema": {"type": "object", "properties": {}, "required": []}
+            }]}}),
+        )
+        .await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let tool = &body["result"]["tools"][0];
+    assert_eq!(tool["name"], "files.read");
+    assert!(tool["inputSchema"]["required"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|value| value == "device"));
+}
+
+#[tokio::test]
+async fn an_aggregate_call_reaches_the_named_device_and_audits_it() {
+    let fixture = Fixture::new("aggregate-call");
+    let server = TestServer::start(&fixture.console).await;
+    let (a, _ta, _da) = connected_device(&fixture, &server, &signing_key(0xa8)).await;
+    let (b, _tb, mut db) = connected_device(&fixture, &server, &signing_key(0xa9)).await;
+    let session = fixture.authenticate().await;
+    let (token_id, token) =
+        aggregate_token_for(&fixture, &session, &[a.clone(), b.clone()], &["files.read"]).await;
+
+    let http = send(
+        fixture.app(),
+        aggregate_request(
+            &token,
+            json!({
+                "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                "params": {"name": "files.read", "arguments": {"path": "C:\\x", "device": b.clone()}}
+            }),
+        ),
+    );
+    let device_side = async {
+        let frame = next_json(&mut db).await;
+        assert!(frame["mcp"]["params"]["arguments"].get("device").is_none());
+        assert_eq!(frame["mcp"]["params"]["arguments"]["path"], json!("C:\\x"));
+        answer(
+            &mut db,
+            &frame,
+            json!({"jsonrpc": "2.0", "id": 2, "result": {"content": [{"type": "text", "text": "ok"}]}}),
+        )
+        .await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let audit = audit_lines(&fixture);
+    assert!(
+        audit.iter().any(|line| line["kind"] == json!("mcp")
+            && line["device_id"] == json!(b)
+            && line["token_id"] == json!(token_id)),
+        "{audit:?}"
+    );
+}
+
+/// **A READ'S WAIT IS THE CLIENT'S WAIT.** A `terminal.read` long poll with a legal `wait_ms` must
+/// not be cut by the console's general `/mcp` bound: the device spends its own wait and the client
+/// sees that answer. The fixture's general bound is 300 ms, well under the 1.5 s wait this call
+/// asks for, so the general bound is what would answer if the read were not given its own.
+#[tokio::test]
+async fn a_read_long_poll_waits_past_the_general_bound_for_its_wait_ms() {
+    let fixture = Fixture::with_timeout("aggregate-read-wait", Duration::from_millis(300));
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _device_token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xb2)).await;
+    let session = fixture.authenticate().await;
+    let (_id, token) = aggregate_token_for(
+        &fixture,
+        &session,
+        std::slice::from_ref(&device_id),
+        &["terminal.read"],
+    )
+    .await;
+
+    let started = std::time::Instant::now();
+    let http = send(
+        fixture.app(),
+        aggregate_request(
+            &token,
+            json!({
+                "jsonrpc": "2.0", "id": 12, "method": "tools/call",
+                "params": {
+                    "name": "terminal.read",
+                    "arguments": {
+                        "device": device_id,
+                        "id": "session-1",
+                        "cursor": 4,
+                        "wait_ms": 1_500,
+                    },
+                },
+            }),
+        ),
+    );
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"]["params"]["name"], json!("terminal.read"));
+        assert_eq!(frame["mcp"]["params"]["arguments"]["wait_ms"], json!(1_500));
+        // The device spends part of its legal wait, then answers.
+        tokio::time::sleep(Duration::from_millis(700)).await;
+        answer(
+            &mut device,
+            &frame,
+            json!({
+                "jsonrpc": "2.0", "id": 12,
+                "result": tool_result(json!({
+                    "data": "answered-after-its-wait", "cursor": 9, "alive": true
+                })),
+            }),
+        )
+        .await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let text = body["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or_else(|| panic!("the device's read text: {body}"));
+    assert!(text.contains("answered-after-its-wait"), "{text}");
+    assert!(
+        started.elapsed() >= Duration::from_millis(600),
+        "the console answered before the device's wait ended: {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn an_aggregate_call_resolves_a_unique_name_and_strips_it() {
+    let fixture = Fixture::new("aggregate-name");
+    let server = TestServer::start(&fixture.console).await;
+    let (a, _ta, _da) = connected_device(&fixture, &server, &signing_key(0xae)).await;
+    let (b, _tb, mut db) = connected_device(&fixture, &server, &signing_key(0xaf)).await;
+    let session = fixture.authenticate().await;
+    let (status, renamed) = send(
+        fixture.app(),
+        post_json_bearer(
+            &format!("/fleet/{b}/name"),
+            &session,
+            json!({ "name": "bench" }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "rename: {renamed}");
+    let (token_id, token) =
+        aggregate_token_for(&fixture, &session, &[a, b.clone()], &["files.read"]).await;
+
+    let http = send(
+        fixture.app(),
+        aggregate_request(
+            &token,
+            json!({
+                "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                "params": {"name": "files.read", "arguments": {"path": "C:\\x", "device": "bench"}}
+            }),
+        ),
+    );
+    let device_side = async {
+        let frame = next_json(&mut db).await;
+        assert!(frame["mcp"]["params"]["arguments"].get("device").is_none());
+        assert_eq!(frame["mcp"]["params"]["arguments"]["path"], json!("C:\\x"));
+        answer(
+            &mut db,
+            &frame,
+            json!({"jsonrpc": "2.0", "id": 2, "result": {"content": [{"type": "text", "text": "ok"}]}}),
+        )
+        .await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let audit = audit_lines(&fixture);
+    assert!(
+        audit.iter().any(|line| line["kind"] == json!("mcp")
+            && line["device_id"] == json!(b)
+            && line["token_id"] == json!(token_id)),
+        "{audit:?}"
+    );
+}
+
+#[tokio::test]
+async fn an_out_of_scope_name_is_audited_as_requested() {
+    let fixture = Fixture::new("aggregate-name-scope");
+    let server = TestServer::start(&fixture.console).await;
+    let (a, _ta, _da) = connected_device(&fixture, &server, &signing_key(0xb0)).await;
+    let (c, _tc, _dc) = connected_device(&fixture, &server, &signing_key(0xb1)).await;
+    let session = fixture.authenticate().await;
+    let (status, renamed) = send(
+        fixture.app(),
+        post_json_bearer(
+            &format!("/fleet/{c}/name"),
+            &session,
+            json!({ "name": "attic" }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "rename: {renamed}");
+    let (token_id, token) = aggregate_token_for(&fixture, &session, &[a], &["files.read"]).await;
+
+    let (status, body) = send(
+        fixture.app(),
+        aggregate_request(
+            &token,
+            json!({
+                "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                "params": {"name": "files.read", "arguments": {"path": "C:\\x", "device": "attic"}}
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(body["error"]["code"], json!(-32001));
+    let audit = audit_lines(&fixture);
+    assert!(
+        audit.iter().any(|line| line["kind"] == json!("denied")
+            && line["device_id"] == json!("attic")
+            && line["detail"] == json!("device_not_permitted")
+            && line["token_id"] == json!(token_id)),
+        "{audit:?}"
+    );
+}
+
+#[tokio::test]
+async fn an_ambiguous_name_is_refused_with_the_scope_error_and_audited_as_requested() {
+    let fixture = Fixture::new("aggregate-name-ambiguous");
+    let server = TestServer::start(&fixture.console).await;
+    let (a, _ta, _da) = connected_device(&fixture, &server, &signing_key(0xb2)).await;
+    let (b, _tb, _db) = connected_device(&fixture, &server, &signing_key(0xb3)).await;
+    let session = fixture.authenticate().await;
+    for id in [&a, &b] {
+        let (status, renamed) = send(
+            fixture.app(),
+            post_json_bearer(
+                &format!("/fleet/{id}/name"),
+                &session,
+                json!({ "name": "bench" }),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "rename: {renamed}");
+    }
+    let (token_id, token) = aggregate_token_for(&fixture, &session, &[a, b], &["files.read"]).await;
+
+    let (status, body) = send(
+        fixture.app(),
+        aggregate_request(
+            &token,
+            json!({
+                "jsonrpc": "2.0", "id": 4, "method": "tools/call",
+                "params": {"name": "files.read", "arguments": {"path": "C:\\x", "device": "bench"}}
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(body["error"]["code"], json!(-32001));
+    let message = body["error"]["message"].as_str().expect("a reason");
+    assert!(
+        message.contains("ambiguous") && message.contains("use the machine id"),
+        "an ambiguous name says how to disambiguate: {message}"
+    );
+    let audit = audit_lines(&fixture);
+    assert!(
+        audit.iter().any(|line| line["kind"] == json!("denied")
+            && line["device_id"] == json!("bench")
+            && line["detail"] == json!("device_not_permitted")
+            && line["token_id"] == json!(token_id)),
+        "{audit:?}"
+    );
+}
+
+#[tokio::test]
+async fn an_aggregate_token_cannot_reach_another_device() {
+    let fixture = Fixture::new("aggregate-scope");
+    let server = TestServer::start(&fixture.console).await;
+    let (a, _ta, _da) = connected_device(&fixture, &server, &signing_key(0xaa)).await;
+    let (b, _tb, _db) = connected_device(&fixture, &server, &signing_key(0xab)).await;
+    let (c, _tc, _dc) = connected_device(&fixture, &server, &signing_key(0xac)).await;
+    let session = fixture.authenticate().await;
+    let (token_id, token) = aggregate_token_for(&fixture, &session, &[a, b], &["files.read"]).await;
+
+    let (status, body) = send(
+        fixture.app(),
+        aggregate_request(
+            &token,
+            json!({
+                "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                "params": {"name": "files.read", "arguments": {"path": "C:\\x", "device": c.clone()}}
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(body["error"]["code"], json!(-32001));
+    let message = body["error"]["message"].as_str().expect("a reason");
+    assert!(message.contains("not permitted by this token"), "{message}");
+    assert!(message.contains("not in the token's fleet"), "{message}");
+    assert!(message.contains("Mint a token"), "{message}");
+    assert_eq!(body["error"]["data"]["device"], json!(c));
+    let audit = audit_lines(&fixture);
+    assert!(
+        audit.iter().any(|line| line["kind"] == json!("denied")
+            && line["device_id"] == json!(c)
+            && line["detail"] == json!("device_not_permitted")
+            && line["token_id"] == json!(token_id)),
+        "{audit:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_device_token_is_refused_on_the_aggregate_route() {
+    let fixture = Fixture::new("aggregate-device-token");
+    let session = fixture.authenticate().await;
+    let (device_id, _) = fixture.register(&signing_key(0xad)).await;
+    let (_, created) = fixture
+        .create_token(&session, &device_id, "one", &["files.read"], false)
+        .await;
+    let token = created["token"].as_str().expect("the secret").to_owned();
+
+    let (status, headers, body) = send_with_headers(
+        fixture.app(),
+        aggregate_request(&token, json!({"jsonrpc": "2.0", "id": 4, "method": "ping"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+    assert_eq!(body["error"], json!("unauthorized"));
+    assert_eq!(
+        headers
+            .get(header::WWW_AUTHENTICATE)
+            .and_then(|value| value.to_str().ok()),
+        Some("Bearer realm=\"summrise-console\", error=\"invalid_token\""),
+        "a live token at the wrong door is still a bearer challenge"
+    );
+    let door = format!("/mcp/{}…", &device_id[..12]);
+    let message = body["message"]
+        .as_str()
+        .expect("a live token's refusal names the door it opens");
+    assert!(
+        message.contains(&door),
+        "the 401 named {message:?}, not the device door {door:?}"
+    );
+    assert!(
+        message.contains("/mcp/all takes a fleet token"),
+        "the 401 did not name the fleet door that accepts a fleet token: {message:?}"
+    );
+
+    let (status, body) = send(
+        fixture.app(),
+        post_token(&device_id, &token, ping_request()),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "the same token still opens its own door: {body}"
+    );
+}
+
+#[tokio::test]
+async fn an_aggregate_token_is_refused_on_a_device_route() {
+    let fixture = Fixture::new("aggregate-on-device");
+    let session = fixture.authenticate().await;
+    let (device_id, _) = fixture.register(&signing_key(0xae)).await;
+    let (_id, token) = aggregate_token_for(
+        &fixture,
+        &session,
+        std::slice::from_ref(&device_id),
+        &["files.read"],
+    )
+    .await;
+
+    let (status, headers, body) = send_with_headers(
+        fixture.app(),
+        post_token(
+            &device_id,
+            &token,
+            json!({"jsonrpc": "2.0", "id": 5, "method": "ping"}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+    assert_eq!(body["error"], json!("unauthorized"));
+    assert_eq!(
+        headers
+            .get(header::WWW_AUTHENTICATE)
+            .and_then(|value| value.to_str().ok()),
+        Some("Bearer realm=\"summrise-console\", error=\"invalid_token\"")
+    );
+    let message = body["message"]
+        .as_str()
+        .expect("a live token's refusal names the door it opens");
+    assert!(
+        message.contains("this token is for /mcp/all"),
+        "the 401 did not name the fleet door the token opens: {message:?}"
+    );
+    assert!(
+        message.contains("device endpoint takes a device token"),
+        "the 401 did not say what this endpoint takes: {message:?}"
+    );
+
+    let (status, body) = send(fixture.app(), aggregate_request(&token, ping_request())).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "the same token still opens the fleet door: {body}"
+    );
+}
+
+#[tokio::test]
+async fn an_empty_aggregate_list_is_a_retryable_503() {
+    let fixture = Fixture::new("aggregate-offline");
+    let session = fixture.authenticate().await;
+    let (device_id, _) = fixture.register(&signing_key(0xaf)).await;
+    let (_id, token) = aggregate_token_for(&fixture, &session, &[device_id], &["files.read"]).await;
+
+    let (status, _) = send(
+        fixture.app(),
+        aggregate_request(
+            &token,
+            json!({"jsonrpc": "2.0", "id": 6, "method": "tools/list"}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+}
+
+#[tokio::test]
+async fn an_aggregate_token_initializes_without_a_device() {
+    let fixture = Fixture::new("aggregate-initialize");
+    let session = fixture.authenticate().await;
+    let (device_id, _) = fixture.register(&signing_key(0xb1)).await;
+    let (_id, token) = aggregate_token_for(
+        &fixture,
+        &session,
+        std::slice::from_ref(&device_id),
+        &["files.read"],
+    )
+    .await;
+
+    let (status, body) = send(
+        fixture.app(),
+        aggregate_request(
+            &token,
+            json!({"jsonrpc": "2.0", "id": 7, "method": "initialize", "params": {}}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["result"]["serverInfo"]["name"],
+        json!("summrise-console")
+    );
+    assert!(body["result"]["instructions"]
+        .as_str()
+        .unwrap()
+        .contains(&device_id));
+}
+
+#[tokio::test]
+async fn a_created_token_is_shown_once_and_only_its_hash_is_stored() {
+    let fixture = Fixture::new("token-create");
+    let (device_id, _token) = fixture.register(&signing_key(0xb0)).await;
+    let session = fixture.authenticate().await;
+    let now = fixture.now_ms();
+
+    let (status, created) = fixture
+        .create_token(
+            &session,
+            &device_id,
+            "  laptop-dsh  ",
+            &["files.read", "memory.search"],
+            false,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let plaintext = created["token"]
+        .as_str()
+        .expect("the create response carries the token")
+        .to_owned();
+    assert!(plaintext.starts_with("srm_"), "{plaintext}");
+    assert_eq!(plaintext.len(), 68, "srm_ plus 64 hex: {plaintext}");
+    assert!(
+        plaintext[4..]
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+        "the body is 64 lowercase hex: {plaintext}"
+    );
+    assert_eq!(created["name"], json!("laptop-dsh"), "the name is trimmed");
+    assert_eq!(
+        created["kind"],
+        json!("device"),
+        "the metadata names the door the token opens"
+    );
+    assert_eq!(created["device_id"], json!(device_id));
+    assert_eq!(created["tools"], json!(["files.read", "memory.search"]));
+    assert_eq!(created["allow_destructive"], json!(false));
+    assert_eq!(created["created_at_ms"], json!(now));
+    let id = created["id"].as_str().expect("an id").to_owned();
+
+    let (status, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "{list}");
+    let list = list.as_array().expect("a list");
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0]["id"], json!(id));
+    assert_eq!(list[0]["name"], json!("laptop-dsh"));
+    assert_eq!(list[0]["kind"], json!("device"));
+    assert_eq!(list[0]["device_id"], json!(device_id));
+    assert_eq!(list[0]["tools"], json!(["files.read", "memory.search"]));
+    assert!(
+        list[0].get("token").is_none(),
+        "the list never repeats the secret: {}",
+        list[0]
+    );
+    assert!(
+        list[0].get("hash").is_none(),
+        "the list carries no hash: {}",
+        list[0]
+    );
+
+    let on_disk = fs::read_to_string(fixture.config.data.join("tokens.json"))
+        .expect("the tokens file is readable");
+    let hash = hex_encode(&Sha256::digest(plaintext.as_bytes()));
+    assert!(
+        on_disk.contains(&hash),
+        "the file keeps the hash: {on_disk}"
+    );
+    assert!(
+        on_disk.contains("\"kind\":\"device\""),
+        "the file writes the door it opens: {on_disk}"
+    );
+    assert!(
+        !on_disk.contains(&plaintext),
+        "the file must never hold the token: {on_disk}"
+    );
+    let audit_on_disk =
+        serde_json::to_string(&audit_lines(&fixture)).expect("the audit serializes");
+    assert!(
+        !audit_on_disk.contains(&plaintext),
+        "no audit line carries the token: {audit_on_disk}"
+    );
+    assert!(
+        audit_lines(&fixture)
+            .iter()
+            .any(|line| line["kind"] == json!("token") && line["device_id"] == json!(device_id)),
+        "the mint is an audited operator action"
+    );
+
+    // Newest first, and it survives a restart.
+    fixture.advance_ms(1_000);
+    let (status, second) = fixture
+        .create_token(&session, &device_id, "desktop", &["files.read"], true)
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{second}");
+    let (_, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert_eq!(list[0]["id"], second["id"], "newest first: {list}");
+    assert_eq!(list[1]["id"], json!(id));
+
+    let restarted = fixture.restart();
+    let session = authenticate_on(&restarted).await;
+    let (status, list) = send(restarted.router(), get("/tokens", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "{list}");
+    assert_eq!(
+        list.as_array().expect("a list").len(),
+        2,
+        "a restart still lists the tokens: {list}"
+    );
+}
+
+/// Rotation is one replacement: the old secret is refused at once, the new one reaches the same
+/// device with the same scope, and the answer is the only place the new secret appears.
+#[tokio::test]
+async fn a_rotated_token_kills_the_old_one_and_keeps_the_scope() {
+    let fixture = Fixture::new("token-rotate");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xb8)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(
+            &session,
+            &device_id,
+            "laptop-dsh",
+            &["files.read", "memory.search"],
+            true,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let old_plaintext = created["token"]
+        .as_str()
+        .expect("the create response carries the token")
+        .to_owned();
+    let old_id = created["id"].as_str().expect("an id").to_owned();
+
+    fixture.advance_ms(5_000);
+    let rotated_at = fixture.now_ms();
+    let (status, rotated) = fixture.rotate_token(&session, &old_id).await;
+
+    assert_eq!(status, StatusCode::CREATED, "{rotated}");
+    let plaintext = rotated["token"]
+        .as_str()
+        .expect("the rotate response carries the new token")
+        .to_owned();
+    let id = rotated["id"].as_str().expect("the new id").to_owned();
+    assert!(plaintext.starts_with("srm_"), "{plaintext}");
+    assert_eq!(plaintext.len(), 68, "srm_ plus 64 hex: {plaintext}");
+    assert_ne!(plaintext, old_plaintext, "a rotation mints a new secret");
+    assert_ne!(id, old_id, "a rotation mints a new id");
+    assert_eq!(rotated["name"], created["name"], "the name is kept");
+    assert_eq!(
+        rotated["device_id"], created["device_id"],
+        "the device is kept"
+    );
+    assert_eq!(rotated["tools"], created["tools"], "the tools are kept");
+    assert_eq!(
+        rotated["allow_destructive"], created["allow_destructive"],
+        "the destructive consent is kept"
+    );
+    assert_eq!(
+        rotated["created_at_ms"],
+        json!(rotated_at),
+        "the new record is created now"
+    );
+    assert!(
+        rotated.get("last_used_ms").is_none(),
+        "the new record has never been used: {rotated}"
+    );
+    let mut rotated_fields: Vec<&String> = rotated
         .as_object()
-        .expect("the route table is an object")
-        .values()
-        .map(|path| path.as_str().expect("a route is a string").to_owned())
+        .expect("the rotate answer is an object")
+        .keys()
+        .collect();
+    let mut created_fields: Vec<&String> = created
+        .as_object()
+        .expect("the create answer is an object")
+        .keys()
+        .collect();
+    rotated_fields.sort();
+    created_fields.sort();
+    assert_eq!(
+        rotated_fields, created_fields,
+        "rotation answers in the create shape"
+    );
+
+    let (status, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "{list}");
+    let list = list.as_array().expect("a list");
+    assert_eq!(
+        list.len(),
+        1,
+        "rotation replaced the record instead of adding one: {list:?}"
+    );
+    assert_eq!(list[0]["id"], json!(id));
+    assert!(
+        list[0].get("token").is_none() && list[0].get("hash").is_none(),
+        "the list stays metadata only: {}",
+        list[0]
+    );
+
+    let (status, body) = send(
+        fixture.app(),
+        post_token(&device_id, &old_plaintext, ping_request()),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "the old token is dead at once: {body}"
+    );
+    assert_eq!(body["error"], json!("unauthorized"));
+    assert!(
+        body["message"]
+            .as_str()
+            .expect("a reason")
+            .contains("not one this console issued, or it was revoked"),
+        "the old secret reads as a revoked token: {body}"
+    );
+
+    let request = json!({ "jsonrpc": "2.0", "id": 31, "method": "tools/list" });
+    let http = send(
+        fixture.app(),
+        post_token(&device_id, &plaintext, request.clone()),
+    );
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"], request);
+        let token = &frame["token"];
+        assert!(
+            token["token_id"].as_str().is_some(),
+            "the frame carries a token scope"
+        );
+        assert_eq!(
+            token["scopes"],
+            json!(["files.read", "memory.search"]),
+            "the new token keeps the same tools"
+        );
+        assert_eq!(
+            token["allow_destructive"],
+            json!(true),
+            "the new token keeps the destructive consent"
+        );
+        answer(
+            &mut device,
+            &frame,
+            json!({ "jsonrpc": "2.0", "id": 31, "result": { "tools": [] } }),
+        )
+        .await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+    assert_eq!(status, StatusCode::OK, "the new token works: {body}");
+
+    let on_disk = fs::read_to_string(fixture.config.data.join("tokens.json"))
+        .expect("the tokens file is readable");
+    let old_hash = hex_encode(&Sha256::digest(old_plaintext.as_bytes()));
+    let new_hash = hex_encode(&Sha256::digest(plaintext.as_bytes()));
+    assert!(
+        !on_disk.contains(&old_hash),
+        "the old hash is gone from the file: {on_disk}"
+    );
+    assert!(
+        on_disk.contains(&new_hash),
+        "the new hash is on disk: {on_disk}"
+    );
+    assert!(
+        !on_disk.contains(&plaintext) && !on_disk.contains(&old_plaintext),
+        "the file never holds a secret: {on_disk}"
+    );
+    let records: Vec<Value> = serde_json::from_str(&on_disk).expect("the file is a JSON list");
+    assert_eq!(records.len(), 1, "one record after rotation: {records:?}");
+    assert_eq!(records[0]["id"], json!(id));
+
+    let audit = audit_text(&fixture);
+    assert!(
+        !audit.contains(&plaintext) && !audit.contains(&old_plaintext),
+        "no audit line carries either secret: {audit}"
+    );
+}
+
+/// A rotation reads as a creation and a revocation in the audit: the replacement's consent and the
+/// old record's withdrawal, both naming the device.
+#[tokio::test]
+async fn a_rotation_is_audited_as_a_creation_and_a_revocation() {
+    let fixture = Fixture::new("token-rotate-audit");
+    let (device_id, _token) = fixture.register(&signing_key(0xb9)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(&session, &device_id, "laptop-dsh", &["files.write"], true)
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let id = created["id"].as_str().expect("an id").to_owned();
+
+    fixture.advance_ms(1_000);
+    let (status, rotated) = fixture.rotate_token(&session, &id).await;
+    assert_eq!(status, StatusCode::CREATED, "{rotated}");
+
+    let lines = audit_lines(&fixture);
+    let token_lines: Vec<&Value> = lines
+        .iter()
+        .filter(|line| line["kind"] == json!("token"))
+        .collect();
+    assert_eq!(
+        token_lines.len(),
+        2,
+        "the mint and the rotation are both creations: {lines:?}"
+    );
+    let replacement = token_lines[1];
+    assert_eq!(replacement["device_id"], json!(device_id));
+    assert_eq!(
+        replacement["detail"],
+        json!("allow_destructive=true"),
+        "the replacement's consent is recorded: {replacement}"
+    );
+    assert_eq!(replacement["status"], json!(201));
+
+    let revocations: Vec<&Value> = lines
+        .iter()
+        .filter(|line| line["kind"] == json!("token_revoke"))
+        .collect();
+    assert_eq!(
+        revocations.len(),
+        1,
+        "the old record is revoked in the same story: {lines:?}"
+    );
+    assert_eq!(revocations[0]["device_id"], json!(device_id));
+    assert_eq!(revocations[0]["detail"], json!("rotated"));
+    assert_eq!(revocations[0]["status"], json!(201));
+    assert!(
+        !audit_text(&fixture).contains("srm_"),
+        "the audit never carries the secret"
+    );
+}
+
+/// Rotating an id the console does not hold is the same typed 404 as revoking one.
+#[tokio::test]
+async fn rotating_an_unknown_token_is_404() {
+    let fixture = Fixture::new("token-rotate-404");
+    let session = fixture.authenticate().await;
+
+    let (status, body) = fixture.rotate_token(&session, &"ee".repeat(32)).await;
+
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert_eq!(body, json!({ "error": "no_such_token" }));
+}
+
+/// A token request reaches the device as a grant with exactly the token's tools and consent, a
+/// sixty-second life and the console's signature — the device verifies it as any grant.
+#[tokio::test]
+async fn a_token_mints_a_sixty_second_grant_with_the_tokens_tools_and_consent() {
+    let fixture = Fixture::new("token-mint");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xb1)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(
+            &session,
+            &device_id,
+            "laptop-dsh",
+            &["files.read", "memory.search"],
+            true,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let token = created["token"].as_str().expect("the token").to_owned();
+
+    let request = json!({ "jsonrpc": "2.0", "id": 11, "method": "tools/list" });
+    let http = send(
+        fixture.app(),
+        post_token(&device_id, &token, request.clone()),
+    );
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"], request);
+        let token = &frame["token"];
+        assert!(
+            token["token_id"].as_str().is_some(),
+            "the frame carries a token scope"
+        );
+        assert_eq!(token["device_id"], json!(device_id));
+        assert_eq!(
+            token["scopes"],
+            json!(["files.read", "memory.search"]),
+            "the scope names exactly the token's tools"
+        );
+        assert_eq!(
+            token["allow_destructive"],
+            json!(true),
+            "the consent is the token's, not the caller's"
+        );
+        answer(
+            &mut device,
+            &frame,
+            json!({ "jsonrpc": "2.0", "id": 11, "result": { "tools": [
+                { "name": "files.read", "description": "read" },
+                { "name": "files.write", "description": "write" },
+            ]}}),
+        )
+        .await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["result"]["tools"],
+        json!([{ "name": "files.read", "description": "read" }]),
+        "the device's list is filtered to the token's tools: {body}"
+    );
+}
+
+/// The token's tools are the grant's tools: a call outside them never reaches the device.
+#[tokio::test]
+async fn a_tool_outside_the_token_never_reaches_the_device() {
+    let fixture = Fixture::new("token-tool-denied");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xb2)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(&session, &device_id, "reader", &["files.read"], false)
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let token = created["token"].as_str().expect("the token").to_owned();
+
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 12,
+        "method": "tools/call",
+        "params": { "name": "files.write", "arguments": { "path": "denied.txt" } },
+    });
+    let (status, body) = send(fixture.app(), post_token(&device_id, &token, request)).await;
+
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(body["error"]["code"], json!(-32001));
+    let frame = tokio::time::timeout(Duration::from_millis(100), device.next()).await;
+    assert!(frame.is_err(), "a refused call must not reach the device");
+    assert!(
+        audit_lines(&fixture)
+            .iter()
+            .any(|line| line["kind"] == json!("denied")
+                && line["tool"] == json!("files.write")
+                && line["detail"] == json!("tool_not_permitted")),
+        "the refusal is audited"
+    );
+}
+
+/// **THE CONTROL PLANE IS NEVER WITHHELD.** A token minted before `txn.*` existed names only a
+/// capability; it can still begin, work and commit through the console, because the gate groups
+/// work and a record cannot be asked to name what did not exist when it was minted.
+#[tokio::test]
+async fn an_old_shaped_token_begins_works_and_commits_through_the_console() {
+    let fixture = Fixture::new("old-token-control-plane");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xb8)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(&session, &device_id, "dsh-old", &["files.write"], false)
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let token = created["token"].as_str().expect("the token").to_owned();
+
+    let begin = json!({ "jsonrpc": "2.0", "id": 21, "method": "tools/call",
+        "params": { "name": "txn.begin", "arguments": { "purpose": "a record that predates txn" } } });
+    let http = send(fixture.app(), post_token(&device_id, &token, begin));
+    let device_side = async {
+        let frame = next_json_raw(&mut device).await;
+        assert_eq!(frame_tool(&frame), Some("txn.begin"), "{frame}");
+        assert_eq!(
+            frame_arguments(&frame)["purpose"],
+            json!("a record that predates txn"),
+            "{frame}"
+        );
+        assert_eq!(
+            frame["token"]["scopes"],
+            json!(["files.write"]),
+            "the frame carries the old record's list"
+        );
+        answer(
+            &mut device,
+            &frame,
+            with_structured(
+                tools_call_answer(
+                    frame["id"].clone(),
+                    &json!({ "txn": "txn-old", "started_at_ms": START_MS }).to_string(),
+                    false,
+                ),
+                json!({ "txn": "txn-old", "started_at_ms": START_MS }),
+            ),
+        )
+        .await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "the control plane reaches the device: {body}"
+    );
+    assert_eq!(
+        body["result"]["structuredContent"]["txn"], "txn-old",
+        "{body}"
+    );
+
+    // The capability the record does name still works, forwarded as before: the control plane is
+    // not a licence to reach anything else.
+    let work = json!({ "jsonrpc": "2.0", "id": 22, "method": "tools/call",
+        "params": { "name": "files.write", "arguments": { "path": "old.txt", "content": "ok" } } });
+    let http = send(fixture.app(), post_token(&device_id, &token, work));
+    let device_side = async {
+        let frame = next_json_raw(&mut device).await;
+        assert_eq!(frame_tool(&frame), Some("files.write"), "{frame}");
+        answer_tool(&mut device, &frame, json!({ "path": "old.txt" })).await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["result"]["isError"], json!(false), "{body}");
+
+    let commit = json!({ "jsonrpc": "2.0", "id": 23, "method": "tools/call",
+        "params": { "name": "txn.commit", "arguments": { "txn": "txn-old" } } });
+    let http = send(fixture.app(), post_token(&device_id, &token, commit));
+    let device_side = async {
+        let frame = next_json_raw(&mut device).await;
+        assert_eq!(frame_tool(&frame), Some("txn.commit"), "{frame}");
+        assert_eq!(frame_arguments(&frame)["txn"], json!("txn-old"), "{frame}");
+        let receipt = json!({ "txn": "txn-old", "state": "committed",
+            "observed": { "calls": 1, "failures": 0, "refusals": 0, "duration_ms": 5 } });
+        answer(
+            &mut device,
+            &frame,
+            with_structured(
+                tools_call_answer(frame["id"].clone(), &receipt.to_string(), false),
+                receipt,
+            ),
+        )
+        .await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["result"]["structuredContent"]["state"], "committed",
+        "{body}"
+    );
+}
+
+/// A revoked record is not a credential: it cannot begin a transaction either.
+#[tokio::test]
+async fn a_revoked_token_cannot_begin_a_transaction() {
+    let fixture = Fixture::new("revoked-token-control-plane");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xb9)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(&session, &device_id, "dsh-revoked", &["files.write"], false)
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let token = created["token"].as_str().expect("the token").to_owned();
+    let id = created["id"].as_str().expect("an id").to_owned();
+    let (status, _) = send(
+        fixture.app(),
+        delete(&format!("/tokens/{id}"), Some(&session)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let begin = json!({ "jsonrpc": "2.0", "id": 31, "method": "tools/call",
+        "params": { "name": "txn.begin", "arguments": { "purpose": "revoked" } } });
+    let (status, body) = send(fixture.app(), post_token(&device_id, &token, begin)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+    assert_eq!(body["error"], json!("unauthorized"), "{body}");
+    let frame = tokio::time::timeout(Duration::from_millis(100), device.next()).await;
+    assert!(
+        frame.is_err(),
+        "a revoked record must not reach the device: {frame:?}"
+    );
+}
+
+/// A made-up token is refused before the control plane is considered.
+#[tokio::test]
+async fn an_unknown_token_cannot_begin_a_transaction() {
+    let fixture = Fixture::new("unknown-token-control-plane");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xba)).await;
+    let unknown = format!("srm_{}", "11".repeat(32));
+    let begin = json!({ "jsonrpc": "2.0", "id": 32, "method": "tools/call",
+        "params": { "name": "txn.begin", "arguments": { "purpose": "unknown" } } });
+    let (status, body) = send(fixture.app(), post_token(&device_id, &unknown, begin)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+    assert_eq!(body["error"], json!("unauthorized"), "{body}");
+    assert!(
+        denial_lines(&fixture)
+            .iter()
+            .any(|line| line["detail"] == json!("unknown_api_token")),
+        "the refusal names the credential, not the tool"
+    );
+    let frame = tokio::time::timeout(Duration::from_millis(100), device.next()).await;
+    assert!(
+        frame.is_err(),
+        "an unissued record must not reach the device: {frame:?}"
+    );
+}
+
+/// **THE TOOLS/LIST CONTRACT NAMES THE CONTROL PLANE.** A record that predates `txn.*` is shown
+/// the three verbs its client must call to group work, and nothing else it was not granted.
+#[tokio::test]
+async fn a_tokens_tool_list_names_the_transaction_tools() {
+    let fixture = Fixture::new("token-tool-list-control-plane");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xbb)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(&session, &device_id, "reader", &["files.read"], false)
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let token = created["token"].as_str().expect("the token").to_owned();
+
+    let request = json!({ "jsonrpc": "2.0", "id": 41, "method": "tools/list" });
+    let http = send(
+        fixture.app(),
+        post_token(&device_id, &token, request.clone()),
+    );
+    let device_side = async {
+        let frame = next_json_raw(&mut device).await;
+        assert_eq!(frame["mcp"], request, "{frame}");
+        assert_eq!(
+            frame["token"]["scopes"],
+            json!(["files.read"]),
+            "the device is asked with the record's own list"
+        );
+        answer(
+            &mut device,
+            &frame,
+            json!({ "jsonrpc": "2.0", "id": 41, "result": { "tools": [
+                { "name": "files.read", "description": "read" },
+                { "name": "files.write", "description": "write" },
+                { "name": "txn.begin", "description": "begin" },
+                { "name": "txn.commit", "description": "commit" },
+                { "name": "txn.abort", "description": "abort" },
+            ]}}),
+        )
+        .await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let names: Vec<&str> = body["result"]["tools"]
+        .as_array()
+        .expect("a tools array")
+        .iter()
+        .map(|tool| tool["name"].as_str().expect("a tool name"))
+        .collect();
+    assert_eq!(
+        names,
+        ["files.read", "txn.begin", "txn.commit", "txn.abort"],
+        "the list names the record's tool and the control plane: {body}"
+    );
+    assert!(
+        !names.contains(&"files.write"),
+        "a capability the record does not name stays withheld: {body}"
+    );
+}
+
+/// A token-authenticated call is attributed to the record — the id, never the secret — and moves the
+/// token's last use, which the operator's list shows.
+#[tokio::test]
+async fn a_token_call_moves_last_used_and_names_the_token_in_the_audit() {
+    let fixture = Fixture::new("token-last-used");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xb6)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(
+            &session,
+            &device_id,
+            "laptop-dsh",
+            &["files.read", "memory.search"],
+            false,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let plaintext = created["token"].as_str().expect("the token").to_owned();
+    let id = created["id"].as_str().expect("an id").to_owned();
+
+    fixture.advance_ms(5_000);
+    let listed_at = fixture.now_ms();
+    let list_request = json!({ "jsonrpc": "2.0", "id": 21, "method": "tools/list" });
+    let http = send(
+        fixture.app(),
+        post_token(&device_id, &plaintext, list_request.clone()),
+    );
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"], list_request);
+        answer(
+            &mut device,
+            &frame,
+            json!({ "jsonrpc": "2.0", "id": 21, "result": { "tools": [] } }),
+        )
+        .await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let (status, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "{list}");
+    assert_eq!(
+        list[0]["last_used_ms"],
+        json!(listed_at),
+        "the list shows when the token was used: {list}"
+    );
+
+    // A tools/call carries the tool as well as the token.
+    fixture.advance_ms(1_000);
+    let call_at = fixture.now_ms();
+    let call = json!({
+        "jsonrpc": "2.0",
+        "id": 22,
+        "method": "tools/call",
+        "params": { "name": "files.read", "arguments": { "path": "notes.txt" } },
+    });
+    let http = send(
+        fixture.app(),
+        post_token(&device_id, &plaintext, call.clone()),
+    );
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"], call);
+        answer(
+            &mut device,
+            &frame,
+            json!({ "jsonrpc": "2.0", "id": 22, "result": { "content": [] } }),
+        )
+        .await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let lines = audit_lines(&fixture);
+    let mcp: Vec<&Value> = lines
+        .iter()
+        .filter(|line| line["kind"] == json!("mcp"))
+        .collect();
+    assert_eq!(mcp.len(), 2, "one line per call: {lines:?}");
+    assert_eq!(
+        mcp[0]["token_id"],
+        json!(id),
+        "the tools/list line names the token: {}",
+        mcp[0]
+    );
+    assert!(
+        mcp[0].get("tool").is_none(),
+        "tools/list names no tool: {}",
+        mcp[0]
+    );
+    assert_eq!(
+        mcp[1]["token_id"],
+        json!(id),
+        "the tools/call line names the token too: {}",
+        mcp[1]
+    );
+    assert_eq!(mcp[1]["tool"], json!("files.read"));
+
+    let (_, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert_eq!(
+        list[0]["last_used_ms"],
+        json!(call_at),
+        "a second call moves the use even inside the save window: {list}"
+    );
+
+    let audit = audit_text(&fixture);
+    assert!(
+        !audit.contains("srm_") && !audit.contains(&plaintext),
+        "the audit must never carry the secret: {audit}"
+    );
+}
+
+/// A grant-authenticated call has no token record to name, so its audit line carries no token_id.
+#[tokio::test]
+async fn a_grant_call_has_no_token_id() {
+    let fixture = Fixture::new("grant-no-token-id");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xb7)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+    let request = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" });
+
+    let http = send(
+        fixture.app(),
+        post_standard(&device_id, &grant, request.clone()),
+    );
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"], request);
+        answer(
+            &mut device,
+            &frame,
+            json!({ "jsonrpc": "2.0", "id": 1, "result": { "tools": [] } }),
+        )
+        .await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let lines = audit_lines(&fixture);
+    let mcp = lines
+        .iter()
+        .find(|line| line["kind"] == json!("mcp"))
+        .expect("the mcp line");
+    assert!(
+        mcp.get("token_id").is_none(),
+        "a grant has no token record to name: {mcp}"
+    );
+}
+
+/// A grant on the standard route is a client's call with no token record. `token_id` cannot tell a
+/// client from the console — the operator's own `/mcp` carries none either — so the caller is a
+/// separate fact, and this is the case that proves it.
+#[tokio::test]
+async fn a_grant_authenticated_call_is_still_a_client() {
+    let fixture = Fixture::new("grant-caller");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xb8)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+    let request = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" });
+
+    let http = send(
+        fixture.app(),
+        post_standard(&device_id, &grant, request.clone()),
+    );
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"], request);
+        answer(
+            &mut device,
+            &frame,
+            json!({ "jsonrpc": "2.0", "id": 1, "result": { "tools": [] } }),
+        )
+        .await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let lines = audit_lines(&fixture);
+    let line = lines
+        .iter()
+        .find(|line| line["kind"] == json!("mcp"))
+        .expect("the mcp line");
+    assert!(
+        line.get("token_id").is_none(),
+        "a grant has no token record to name: {line}"
+    );
+    assert_eq!(
+        line["caller"],
+        json!("client"),
+        "the audience is the route, not the credential's token record: {line}"
+    );
+}
+
+/// The console's own page calls `/mcp` on the operator session. That call is the console's, not the
+/// AI's, and both the line and the live event say so.
+#[tokio::test]
+async fn a_console_call_names_the_console_on_its_line_and_event() {
+    let fixture = Fixture::new("caller-console");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xb9)).await;
+    let session = fixture.authenticate().await;
+
+    let mut socket = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut socket, &mut seen, "event: snapshot").await;
+
+    let app = fixture.app();
+    let call = tokio::spawn(async move {
+        send(
+            app,
+            post_json_bearer(
+                "/mcp",
+                &session,
+                json!({
+                    "device_id": device_id,
+                    "request": {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "tools/call",
+                        "params": { "name": "terminal.list", "arguments": {} },
+                    },
+                }),
+            ),
+        )
+        .await
+    });
+
+    let frame = next_json(&mut device).await;
+    answer(&mut device, &frame, tool_result(json!({ "content": [] }))).await;
+    let (status, _) = call.await.expect("the call finished");
+    assert_eq!(status, StatusCode::OK);
+
+    read_until(&mut socket, &mut seen, "\"caller\":\"console\"").await;
+    assert!(
+        seen.contains("\"caller\":\"console\""),
+        "the live event names the console: {seen}"
+    );
+
+    let lines = audit_lines(&fixture);
+    let line = lines
+        .iter()
+        .find(|line| line["kind"] == json!("mcp"))
+        .expect("the mcp line");
+    assert_eq!(line["caller"], json!("console"), "{line}");
+}
+
+/// An AI client's call through `/mcp/:id` is the client's, on the line and on the event.
+#[tokio::test]
+async fn a_client_call_names_the_client_on_its_line_and_event() {
+    let fixture = Fixture::new("caller-client");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xba)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(&session, &device_id, "laptop-dsh", &["files.read"], false)
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let plaintext = created["token"].as_str().expect("the token").to_owned();
+
+    let mut socket = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut socket, &mut seen, "event: snapshot").await;
+
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": { "name": "files.read", "arguments": { "path": "notes.txt" } },
+    });
+    let http = send(
+        fixture.app(),
+        post_token(&device_id, &plaintext, request.clone()),
+    );
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"], request);
+        answer(&mut device, &frame, tool_result(json!({ "content": "hi" }))).await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    read_until(&mut socket, &mut seen, "\"caller\":\"client\"").await;
+    assert!(
+        seen.contains("\"caller\":\"client\""),
+        "the live event names the client: {seen}"
+    );
+
+    let lines = audit_lines(&fixture);
+    let line = lines
+        .iter()
+        .find(|line| line["kind"] == json!("mcp"))
+        .expect("the mcp line");
+    assert_eq!(line["caller"], json!("client"), "{line}");
+}
+
+/// The live event names the token record that made a client's call, not only the line read back from
+/// `/audit`: the newest rows are the live ones, so a tokenless event would hide the token behind the
+/// call exactly where the page looks first.
+#[tokio::test]
+async fn a_token_call_publishes_its_token_on_the_live_event() {
+    let fixture = Fixture::new("token-live-event");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xc3)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(&session, &device_id, "laptop-dsh", &["files.read"], false)
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let token_id = created["id"]
+        .as_str()
+        .expect("the token's record id")
+        .to_owned();
+    let plaintext = created["token"].as_str().expect("the token").to_owned();
+
+    let mut socket = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut socket, &mut seen, "event: snapshot").await;
+
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": { "name": "files.read", "arguments": { "path": "notes.txt" } },
+    });
+    let http = send(
+        fixture.app(),
+        post_token(&device_id, &plaintext, request.clone()),
+    );
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"], request);
+        answer(&mut device, &frame, tool_result(json!({ "content": "hi" }))).await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let needle = format!("\"token_id\":\"{token_id}\"");
+    read_until(&mut socket, &mut seen, &needle).await;
+    assert!(
+        seen.contains(&needle),
+        "the live event carries the token record that made the call: {seen}"
+    );
+    assert!(
+        seen.contains("\"caller\":\"client\""),
+        "the event still names the audience: {seen}"
+    );
+}
+
+/// The operator's own `/mcp` call has no token record, and the live event must not invent one: a
+/// `token_id` on a console row would name a credential that did not make the call.
+#[tokio::test]
+async fn a_console_call_publishes_no_token_on_the_live_event() {
+    let fixture = Fixture::new("console-live-event");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xc4)).await;
+    let session = fixture.authenticate().await;
+
+    let mut socket = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut socket, &mut seen, "event: snapshot").await;
+
+    let app = fixture.app();
+    let call = tokio::spawn(async move {
+        send(
+            app,
+            post_json_bearer(
+                "/mcp",
+                &session,
+                json!({
+                    "device_id": device_id,
+                    "request": {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "tools/call",
+                        "params": { "name": "terminal.list", "arguments": {} },
+                    },
+                }),
+            ),
+        )
+        .await
+    });
+
+    let frame = next_json(&mut device).await;
+    answer(&mut device, &frame, tool_result(json!({ "content": [] }))).await;
+    let (status, _) = call.await.expect("the call finished");
+    assert_eq!(status, StatusCode::OK);
+
+    read_until(&mut socket, &mut seen, "\"caller\":\"console\"").await;
+    assert!(
+        seen.contains("\"caller\":\"console\""),
+        "the live event names the console: {seen}"
+    );
+    assert!(
+        !seen.contains("\"token_id\""),
+        "the console's own call carries no token record: {seen}"
+    );
+}
+
+/// An unknown token, a revoked one and one used against another device are all 401; the live
+/// mismatch names the door it opens (the caller proved that credential), while an unknown or
+/// withdrawn one stays bare. The denial log keeps the difference, and none of them can rotate the
+/// audit.
+#[tokio::test]
+async fn an_unknown_revoked_or_mismatched_token_is_unauthorized() {
+    let fixture = Fixture::new("token-unauthorized");
+    let (device_a, _token_a) = fixture.register(&signing_key(0xb3)).await;
+    let (device_b, _token_b) = fixture.register(&signing_key(0xb4)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(&session, &device_a, "laptop-dsh", &["files.read"], false)
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let token = created["token"].as_str().expect("the token").to_owned();
+    let id = created["id"].as_str().expect("an id").to_owned();
+
+    let (status, body) = send(fixture.app(), post_token(&device_b, &token, ping_request())).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+    assert_eq!(body["error"], json!("unauthorized"));
+    let door = format!("/mcp/{}…", &device_a[..12]);
+    let message = body["message"]
+        .as_str()
+        .expect("the live token's refusal names the door it opens");
+    assert!(
+        message.contains(&door),
+        "the 401 named {message:?}, not the token's own door {door:?}"
+    );
+    let (_, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert!(
+        list[0].get("last_used_ms").is_none(),
+        "a foreign-device attempt is not a use: {list}"
+    );
+
+    let unknown = format!("srm_{}", "00".repeat(32));
+    let (status, headers, body) = send_with_headers(
+        fixture.app(),
+        post_token(&device_a, &unknown, ping_request()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+    assert_eq!(body["error"], json!("unauthorized"));
+    assert_eq!(
+        headers
+            .get(header::WWW_AUTHENTICATE)
+            .and_then(|value| value.to_str().ok()),
+        Some("Bearer realm=\"summrise-console\", error=\"invalid_token\""),
+        "an unissued bearer gets the challenge, not a bare 401"
+    );
+    assert!(
+        body["message"]
+            .as_str()
+            .expect("a reason")
+            .contains("not one this console issued, or it was revoked"),
+        "{body}"
+    );
+
+    let (status, _) = send(
+        fixture.app(),
+        delete(&format!("/tokens/{id}"), Some(&session)),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::NO_CONTENT,
+        "the operator revokes the token"
+    );
+    let (status, body) = send(fixture.app(), post_token(&device_a, &token, ping_request())).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+    assert_eq!(body["error"], json!("unauthorized"));
+    assert!(
+        body["message"]
+            .as_str()
+            .expect("a reason")
+            .contains("not one this console issued, or it was revoked"),
+        "a revoked token is not distinguished from an unissued one on the wire: {body}"
+    );
+
+    let denials = denial_lines(&fixture);
+    assert!(
+        denials.iter().any(
+            |line| line["detail"] == json!("unknown_api_token") && line["status"] == json!(401)
+        ),
+        "the unknown/revoked credential is a denial line: {denials:?}"
+    );
+    assert!(
+        denials
+            .iter()
+            .all(|line| line["detail"] != json!("api_token_device_mismatch")),
+        "a live token used elsewhere is authenticated, so it is not a denial line"
+    );
+    let audit = audit_lines(&fixture);
+    assert!(
+        audit.iter().any(|line| line["kind"] == json!("denied")
+            && line["detail"] == json!("api_token_device_mismatch")
+            && line["device_id"] == json!(device_b)
+            && line.get("token_id").is_none()),
+        "the foreign-device attempt is in the operator's audit and names no token: {audit:?}"
+    );
+
+    for request in [
+        get("/tokens", None),
+        post_json("/tokens", json!({})),
+        post_json(&format!("/tokens/{id}/rotate"), json!({})),
+        delete(&format!("/tokens/{id}"), None),
+    ] {
+        let (status, _) = send(fixture.app(), request).await;
+        assert_eq!(
+            status,
+            StatusCode::UNAUTHORIZED,
+            "management needs the operator"
+        );
+    }
+}
+
+/// **A 401 TELLS THE CLIENT WHICH DOOR AND WHY.** Missing, non-bearer and unreadable credentials all
+/// name the endpoint and carry the HTTP challenge; the body keeps the stable `unauthorized` code.
+#[tokio::test]
+async fn a_refused_bearer_names_the_door_and_the_challenge() {
+    let fixture = Fixture::new("mcp-401-shape");
+    let (device_id, _token) = fixture.register(&signing_key(0xc1)).await;
+    let door = format!("/mcp/{}…", &device_id[..12]);
+
+    for (authorization, reason) in [
+        (None, "carried no bearer token"),
+        (Some("Basic abcd"), "is not a Bearer token"),
+    ] {
+        let (status, headers, body) = send_with_headers(
+            fixture.app(),
+            standard_request(
+                &device_id,
+                authorization,
+                Some("application/json"),
+                Some("application/json"),
+                Body::from(ping_request().to_string()),
+            ),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::UNAUTHORIZED,
+            "{authorization:?}: {body}"
+        );
+        assert_eq!(body["error"], json!("unauthorized"));
+        let message = body["message"].as_str().expect("a reason");
+        assert!(message.contains(&door), "{authorization:?}: {message}");
+        assert!(message.contains(reason), "{authorization:?}: {message}");
+        assert!(
+            message.contains("Authorization: Bearer"),
+            "the sentence names the header to send: {message}"
+        );
+        assert_eq!(
+            headers
+                .get(header::WWW_AUTHENTICATE)
+                .and_then(|value| value.to_str().ok()),
+            Some("Bearer realm=\"summrise-console\""),
+            "no credential at all gets the bare challenge"
+        );
+    }
+
+    // A Bearer value that is not a token or a grant is a presented-but-invalid credential, and the
+    // challenge says so.
+    let (status, headers, body) = send_with_headers(
+        fixture.app(),
+        standard_request(
+            &device_id,
+            Some("Bearer zz"),
+            Some("application/json"),
+            Some("application/json"),
+            Body::from(ping_request().to_string()),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+    assert!(
+        body["message"]
+            .as_str()
+            .expect("a reason")
+            .contains("neither a grant nor a token this console issued"),
+        "{body}"
+    );
+    assert_eq!(
+        headers
+            .get(header::WWW_AUTHENTICATE)
+            .and_then(|value| value.to_str().ok()),
+        Some("Bearer realm=\"summrise-console\", error=\"invalid_token\"")
+    );
+
+    // The fleet door names itself too, and says which credential it takes.
+    let (status, _, body) = send_with_headers(
+        fixture.app(),
+        Request::builder()
+            .method("POST")
+            .uri("/mcp/all")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::ACCEPT, "application/json")
+            .body(Body::from(ping_request().to_string()))
+            .expect("the request builds"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+    let message = body["message"].as_str().expect("a reason");
+    assert!(message.contains("/mcp/all"), "{message}");
+    assert!(message.contains("fleet token"), "{message}");
+}
+
+/// A valid token at a machine that does not exist names the missing machine; it is not blamed on
+/// another machine's door, because minting a new token would not help.
+#[tokio::test]
+async fn a_valid_token_at_an_unknown_machine_is_a_404() {
+    let fixture = Fixture::new("token-unknown-machine");
+    let (device_id, _token) = fixture.register(&signing_key(0xc2)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(&session, &device_id, "reader", &["files.read"], false)
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let token = created["token"].as_str().expect("the token").to_owned();
+
+    let (status, body) = send(
+        fixture.app(),
+        post_token("deadbeef", &token, ping_request()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert_eq!(body["error"], json!("unknown_device"));
+    let message = body["message"].as_str().expect("a reason");
+    assert!(message.contains("no machine deadbeef"), "{message}");
+    assert!(message.contains("Machines page"), "{message}");
+    assert!(
+        !message.contains("another machine's endpoint"),
+        "the token was not the problem: {message}"
+    );
+}
+
+/// An unknown `device` in an aggregate call is a bad argument, not a token-scope refusal: the
+/// operator is sent to check the id, not to mint another token.
+#[tokio::test]
+async fn an_unknown_device_in_an_aggregate_call_is_not_a_scope_refusal() {
+    let fixture = Fixture::new("aggregate-unknown-machine");
+    let (device_id, _token) = fixture.register(&signing_key(0xc3)).await;
+    let session = fixture.authenticate().await;
+    let (_token_id, fleet) =
+        aggregate_token_for(&fixture, &session, &[device_id], &["state.get"]).await;
+
+    let (status, body) = send(
+        fixture.app(),
+        aggregate_request(
+            &fleet,
+            json!({
+                "jsonrpc": "2.0", "id": 7, "method": "tools/call",
+                "params": {
+                    "name": "state.get",
+                    "arguments": { "device": "deadbeefdeadbeef" }
+                }
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert_eq!(
+        body["error"]["code"],
+        json!(-32602),
+        "an unknown machine is invalid params, not the token's -32001: {body}"
+    );
+    let message = body["error"]["message"].as_str().expect("a reason");
+    assert!(message.contains("unknown device"), "{message}");
+    assert!(message.contains("deadbeefdeadbeef"), "{message}");
+    assert!(message.contains("Machines page"), "{message}");
+    assert_eq!(body["error"]["data"]["device"], json!("deadbeefdeadbeef"));
+    let audit = audit_lines(&fixture);
+    assert!(
+        audit.iter().any(|line| line["kind"] == json!("denied")
+            && line["device_id"] == json!("deadbeefdeadbeef")
+            && line["detail"] == json!("unknown_device")),
+        "{audit:?}"
+    );
+}
+
+/// Removing a device removes its tokens with it: no token outlives the machine it was scoped to.
+#[tokio::test]
+async fn removing_a_device_revokes_its_tokens() {
+    let fixture = Fixture::new("token-device-removed");
+    let (device_id, _channel) = fixture.register(&signing_key(0xb5)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(&session, &device_id, "laptop-dsh", &["files.read"], false)
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+
+    let request = Request::builder()
+        .method("DELETE")
+        .uri(format!("/fleet/{device_id}"))
+        .header(header::AUTHORIZATION, format!("Bearer {session}"))
+        .body(Body::empty())
+        .expect("the request builds");
+    let (status, _) = send(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (status, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(list, json!([]), "the device's token is gone: {list}");
+    assert!(
+        audit_lines(&fixture)
+            .iter()
+            .any(|line| line["kind"] == json!("token_revoke")
+                && line["device_id"] == json!(device_id)
+                && line["detail"] == json!("device_removed")),
+        "the removal is audited with the device"
+    );
+}
+
+/// Every refusal is the console's typed code, not a prose error.
+#[tokio::test]
+async fn token_management_refusals_are_typed() {
+    let fixture = Fixture::new("token-refusals");
+    let (device_id, _token) = fixture.register(&signing_key(0xb5)).await;
+    let session = fixture.authenticate().await;
+
+    let long = "n".repeat(81);
+    let cases = [
+        ("   ", StatusCode::BAD_REQUEST, "name_empty"),
+        (long.as_str(), StatusCode::BAD_REQUEST, "invalid_name"),
+    ];
+    for (name, expected, code) in cases {
+        let (status, body) = fixture
+            .create_token(&session, &device_id, name, &["files.read"], false)
+            .await;
+        assert_eq!(status, expected, "{code}: {body}");
+        assert_eq!(body["error"], json!(code));
+    }
+
+    let (status, body) = fixture
+        .create_token(&session, &device_id, "no-tools", &[], false)
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"], json!("empty_tools"));
+
+    let (status, body) = fixture
+        .create_token(
+            &session,
+            &device_id,
+            "unknown-tool",
+            &["no.such.tool"],
+            false,
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"], json!("unknown_tool"));
+
+    let unknown_device = "cd".repeat(32);
+    let (status, body) = fixture
+        .create_token(&session, &unknown_device, "ghost", &["files.read"], false)
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert_eq!(body["error"], json!("unknown_device"));
+
+    let (status, body) = send(
+        fixture.app(),
+        delete(&format!("/tokens/{}", "ee".repeat(32)), Some(&session)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert_eq!(body["error"], json!("no_such_token"));
+
+    for index in 0..64 {
+        let (status, body) = fixture
+            .create_token(
+                &session,
+                &device_id,
+                &format!("client-{index}"),
+                &["files.read"],
+                false,
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED, "token {index}: {body}");
+    }
+    let (status, body) = fixture
+        .create_token(&session, &device_id, "one-too-many", &["files.read"], false)
+        .await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+    assert_eq!(body["error"], json!("too_many_tokens"));
+}
+
+/// A token minted with a lifetime reports the absolute date in its answer, in the list and after a
+/// restart: the operator can see when it will stop working.
+#[tokio::test]
+async fn a_token_created_with_a_lifetime_reports_when_it_expires() {
+    let fixture = Fixture::new("token-expiry-create");
+    let (device_id, _token) = fixture.register(&signing_key(0xba)).await;
+    let session = fixture.authenticate().await;
+    let now = fixture.now_ms();
+    let thirty_days_s = 30 * 24 * 3_600;
+    let thirty_days_ms = thirty_days_s * 1_000;
+
+    let (status, created) = fixture
+        .create_token_with_expiry(
+            &session,
+            &device_id,
+            "laptop-dsh",
+            &["files.read"],
+            false,
+            Some(thirty_days_s),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    assert_eq!(
+        created["expires_at_ms"],
+        json!(now + thirty_days_ms),
+        "the create answer carries the date"
+    );
+
+    let (status, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "{list}");
+    assert_eq!(
+        list[0]["expires_at_ms"],
+        json!(now + thirty_days_ms),
+        "the list shows the date: {list}"
+    );
+
+    let restarted = fixture.restart();
+    let session = authenticate_on(&restarted).await;
+    let (status, list) = send(restarted.router(), get("/tokens", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "{list}");
+    assert_eq!(
+        list[0]["expires_at_ms"],
+        json!(now + thirty_days_ms),
+        "a restart keeps the date: {list}"
+    );
+}
+
+/// Absent is permanent and stays absent: a create without the field, its list row, and a rotation
+/// all carry no expiry fact.
+#[tokio::test]
+async fn a_token_created_without_a_lifetime_is_permanent() {
+    let fixture = Fixture::new("token-expiry-default");
+    let (device_id, _token) = fixture.register(&signing_key(0xbb)).await;
+    let session = fixture.authenticate().await;
+
+    let (status, created) = fixture
+        .create_token(&session, &device_id, "laptop-dsh", &["files.read"], false)
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    assert!(
+        created.get("expires_at_ms").is_none(),
+        "an absent lifetime is no fact: {created}"
+    );
+
+    let (_, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert!(
+        list[0].get("expires_at_ms").is_none(),
+        "the list omits the absent fact: {list}"
+    );
+
+    let id = created["id"].as_str().expect("an id").to_owned();
+    fixture.advance_ms(1_000);
+    let (status, rotated) = fixture.rotate_token(&session, &id).await;
+    assert_eq!(status, StatusCode::CREATED, "{rotated}");
+    assert!(
+        rotated.get("expires_at_ms").is_none(),
+        "rotation keeps a permanent token permanent: {rotated}"
+    );
+}
+
+/// At `now == expires_at_ms` the token is expired: 401, a denial detail naming expiry, no grant, no
+/// last use and no audit line. The check comes before the scope check, so a foreign device sees the
+/// same expiry refusal rather than a device mismatch.
+#[tokio::test]
+async fn an_expired_token_is_refused_as_expired_without_a_grant_or_an_audit() {
+    // A short `/mcp` wait, so the pre-implementation run fails fast instead of waiting for a device
+    // that was never meant to answer.
+    let fixture = Fixture::with_timeout("token-expired", Duration::from_millis(200));
+    let server = TestServer::start(&fixture.console).await;
+    let (device_a, _token_a, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xbc)).await;
+    let (device_b, _token_b) = fixture.register(&signing_key(0xbd)).await;
+    let session = fixture.authenticate().await;
+    let created_at = fixture.now_ms();
+    let one_hour_s = 3_600;
+    let one_hour_ms = one_hour_s * 1_000;
+
+    let (status, created) = fixture
+        .create_token_with_expiry(
+            &session,
+            &device_a,
+            "laptop-dsh",
+            &["files.read"],
+            false,
+            Some(one_hour_s),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let token = created["token"].as_str().expect("the token").to_owned();
+    let expires_at_ms = created_at + one_hour_ms;
+    assert_eq!(created["expires_at_ms"], json!(expires_at_ms));
+
+    fixture.advance_ms(one_hour_ms);
+    assert_eq!(fixture.now_ms(), expires_at_ms, "the clock is at the edge");
+    let audit_before = audit_lines(&fixture).len();
+    let denials_before = denial_lines(&fixture).len();
+
+    let (status, body) = send(fixture.app(), post_token(&device_a, &token, ping_request())).await;
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "an expired token is a credential failure: {body}"
+    );
+    assert_eq!(body["error"], json!("unauthorized"));
+    assert!(
+        body["message"]
+            .as_str()
+            .expect("a reason")
+            .contains("bearer token has expired"),
+        "{body}"
+    );
+
+    let (status, body) = send(fixture.app(), post_token(&device_b, &token, ping_request())).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+    assert_eq!(
+        body["error"],
+        json!("unauthorized"),
+        "the wire code does not distinguish the reasons"
+    );
+    assert!(
+        body["message"]
+            .as_str()
+            .expect("a reason")
+            .contains("bearer token has expired"),
+        "the sentence names expiry even on the foreign device: {body}"
+    );
+
+    let frame = tokio::time::timeout(Duration::from_millis(100), device.next()).await;
+    assert!(frame.is_err(), "an expired token must not mint a grant");
+
+    let denials: Vec<Value> = denial_lines(&fixture)
+        .into_iter()
+        .skip(denials_before)
+        .collect();
+    assert_eq!(
+        denials.len(),
+        2,
+        "each attempt is a denial line: {denials:?}"
+    );
+    assert!(
+        denials.iter().all(
+            |line| line["detail"] == json!("expired_api_token") && line["status"] == json!(401)
+        ),
+        "the detail names expiry, even on the foreign device: {denials:?}"
+    );
+    assert_eq!(
+        audit_lines(&fixture).len(),
+        audit_before,
+        "neither attempt touches the operator's audit"
+    );
+
+    let (_, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert!(
+        list[0].get("last_used_ms").is_none(),
+        "an expired token is not marked used: {list}"
+    );
+    assert_eq!(
+        list[0]["expires_at_ms"],
+        json!(expires_at_ms),
+        "the list still shows the date: {list}"
+    );
+}
+
+/// One millisecond before expiry the token still mints a grant: the boundary belongs to the refusal.
+#[tokio::test]
+async fn a_token_works_one_millisecond_before_it_expires() {
+    let fixture = Fixture::new("token-almost-expired");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xbe)).await;
+    let session = fixture.authenticate().await;
+    let created_at = fixture.now_ms();
+    let one_hour_s = 3_600;
+    let one_hour_ms = one_hour_s * 1_000;
+
+    let (status, created) = fixture
+        .create_token_with_expiry(
+            &session,
+            &device_id,
+            "laptop-dsh",
+            &["files.read"],
+            false,
+            Some(one_hour_s),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let token = created["token"].as_str().expect("the token").to_owned();
+
+    fixture.advance_ms(one_hour_ms - 1);
+    assert_eq!(fixture.now_ms(), created_at + one_hour_ms - 1);
+    let request = json!({ "jsonrpc": "2.0", "id": 41, "method": "tools/list" });
+    let http = send(
+        fixture.app(),
+        post_token(&device_id, &token, request.clone()),
+    );
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"], request);
+        let token = &frame["token"];
+        assert!(
+            token["token_id"].as_str().is_some(),
+            "the frame carries a token scope"
+        );
+        assert_eq!(
+            token["expires_at_ms"],
+            json!(created_at + one_hour_ms),
+            "the scope carries the token's own expiry"
+        );
+        answer(
+            &mut device,
+            &frame,
+            json!({ "jsonrpc": "2.0", "id": 41, "result": { "tools": [] } }),
+        )
+        .await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "one millisecond before expiry is valid: {body}"
+    );
+    assert_eq!(body["result"]["tools"], json!([]));
+}
+
+/// Rotation starts a fresh version of the old policy: a thirty-day token rotates to now plus thirty
+/// days, not the old absolute date, and a permanent one stays permanent.
+#[tokio::test]
+async fn rotation_carries_the_tokens_lifetime() {
+    let fixture = Fixture::new("token-rotate-expiry");
+    let (device_id, _token) = fixture.register(&signing_key(0xbf)).await;
+    let session = fixture.authenticate().await;
+    let created_at = fixture.now_ms();
+    let thirty_days_s = 30 * 24 * 3_600;
+    let thirty_days_ms = thirty_days_s * 1_000;
+
+    let (status, created) = fixture
+        .create_token_with_expiry(
+            &session,
+            &device_id,
+            "laptop-dsh",
+            &["files.read"],
+            false,
+            Some(thirty_days_s),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let id = created["id"].as_str().expect("an id").to_owned();
+    assert_eq!(created["expires_at_ms"], json!(created_at + thirty_days_ms));
+
+    fixture.advance_ms(5_000);
+    let rotated_at = fixture.now_ms();
+    let (status, rotated) = fixture.rotate_token(&session, &id).await;
+    assert_eq!(status, StatusCode::CREATED, "{rotated}");
+    assert_eq!(rotated["created_at_ms"], json!(rotated_at));
+    assert_eq!(
+        rotated["expires_at_ms"],
+        json!(rotated_at + thirty_days_ms),
+        "the policy is thirty days from the rotation, not the old date"
+    );
+
+    let (_, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert_eq!(
+        list[0]["expires_at_ms"],
+        json!(rotated_at + thirty_days_ms),
+        "the list shows the new date: {list}"
+    );
+
+    let (status, permanent) = fixture
+        .create_token(&session, &device_id, "permanent", &["files.read"], false)
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{permanent}");
+    let permanent_id = permanent["id"].as_str().expect("an id").to_owned();
+    let (status, rotated_permanent) = fixture.rotate_token(&session, &permanent_id).await;
+    assert_eq!(status, StatusCode::CREATED, "{rotated_permanent}");
+    assert!(
+        rotated_permanent.get("expires_at_ms").is_none(),
+        "a permanent token stays permanent: {rotated_permanent}"
+    );
+}
+
+/// A lifetime outside one hour to one year is the console's typed 400, and mints nothing.
+#[tokio::test]
+async fn a_token_expiry_outside_the_window_is_a_typed_400() {
+    let fixture = Fixture::new("token-expiry-bounds");
+    let (device_id, _token) = fixture.register(&signing_key(0xc0)).await;
+    let session = fixture.authenticate().await;
+
+    for (expires_in_s, code) in [(3_599, "expiry_too_short"), (31_536_001, "expiry_too_long")] {
+        let (status, body) = fixture
+            .create_token_with_expiry(
+                &session,
+                &device_id,
+                "bounds",
+                &["files.read"],
+                false,
+                Some(expires_in_s),
+            )
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{code}: {body}");
+        assert_eq!(body["error"], json!(code));
+    }
+
+    let (_, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert_eq!(list, json!([]), "a refused expiry mints nothing: {list}");
+}
+
+// ---- the live catalogue and plugin-tool token scopes (capability hub B1/B2) --------------------
+
+/// `GET /fleet/:id/tools` is a real `tools/list` over the device channel, under the operator's own
+/// scope. The console adds only the source/capability classification; the device's list is the
+/// list.
+#[tokio::test]
+async fn the_live_catalogue_reads_the_devices_own_tools_list() {
+    let fixture = Fixture::new("live-catalogue");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        present_device(&fixture, &server, &signing_key(0xb6)).await;
+    let session = fixture.authenticate().await;
+
+    let app = fixture.app();
+    let uri = format!("/fleet/{device_id}/tools");
+    let session_for_read = session.clone();
+    let read = tokio::spawn(async move { send(app, get(&uri, Some(&session_for_read))).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(frame["mcp"]["method"], json!("tools/list"), "{frame}");
+    assert_eq!(
+        frame["token"]["token_id"],
+        json!("operator"),
+        "the live read uses the operator's existing scope, not a second credential"
+    );
+    assert_eq!(frame["token"]["device_id"], json!(device_id));
+    assert_eq!(frame["token"]["scopes"], json!(["*"]));
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": { "tools": [
+                {
+                    "name": "terminal.create",
+                    "description": "Start a session.",
+                    "inputSchema": { "type": "object", "properties": {} },
+                },
+                {
+                    "name": "hello.greet",
+                    "description": "Greet someone.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": { "who": { "type": "string" } },
+                        "required": ["who"],
+                    },
+                    "annotations": { "destructiveHint": false },
+                },
+            ]},
+        }),
+    )
+    .await;
+
+    let (status, body) = read.await.expect("the read finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body,
+        json!({ "tools": [
+            {
+                "name": "terminal.create",
+                "description": "Start a session.",
+                "inputSchema": { "type": "object", "properties": {} },
+                "source": "builtin",
+                "capability": "terminal",
+                "destructive": true,
+            },
+            {
+                "name": "hello.greet",
+                "description": "Greet someone.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": { "who": { "type": "string" } },
+                    "required": ["who"],
+                },
+                "source": "plugin:hello",
+                "capability": "hello",
+                "destructive": false,
+            },
+        ]}),
+        "the page's contract is name/description/inputSchema/source/capability/destructive"
+    );
+}
+
+/// An empty advertisement is a 200 with `[]`: the page uses the empty list to detect an older
+/// build, so it must not be an error.
+#[tokio::test]
+async fn the_live_catalogue_serves_an_empty_device_list_as_200() {
+    let fixture = Fixture::new("live-catalogue-empty");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        present_device(&fixture, &server, &signing_key(0xb7)).await;
+    let session = fixture.authenticate().await;
+
+    let app = fixture.app();
+    let uri = format!("/fleet/{device_id}/tools");
+    let session_for_read = session.clone();
+    let read = tokio::spawn(async move { send(app, get(&uri, Some(&session_for_read))).await });
+    let frame = next_json(&mut device).await;
+    answer(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 1, "result": { "tools": [] } }),
+    )
+    .await;
+
+    let (status, body) = read.await.expect("the read finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body, json!({ "tools": [] }));
+}
+
+/// A device with no channel is 503 with a sentence, never a cached or static list.
+#[tokio::test]
+async fn the_live_catalogue_is_503_when_the_device_is_offline() {
+    let fixture = Fixture::new("live-catalogue-offline");
+    let (device_id, _token) = fixture.register(&signing_key(0xb8)).await;
+    let session = fixture.authenticate().await;
+    // The device was registered 5 h 21 m ago and never opened a channel: the age is the silence
+    // since the console's last evidence, not a reconnect it cannot observe.
+    fixture.advance_ms((5 * 60 + 21) * 60_000);
+
+    let (status, body) = send(
+        fixture.app(),
+        get(&format!("/fleet/{device_id}/tools"), Some(&session)),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert_eq!(body["error"], json!("device not connected"));
+    assert_eq!(
+        body["message"],
+        json!("this machine is not connected since 5h 21m ago; connect it, then try again")
+    );
+    assert!(
+        body.get("retry_after_ms").is_none(),
+        "a five-hour silence is not a retry-in-a-second: {body}"
+    );
+    assert!(
+        body["message"]
+            .as_str()
+            .expect("a sentence")
+            .contains("connect"),
+        "the sentence names the action"
+    );
+}
+
+/// **ONE SILENCE, ONE SENTENCE.** The tool read and both MCP doors derive the same state from the
+/// same last frame: five hours after the machine was heard, none of them promises a reconnect.
+#[tokio::test]
+async fn the_mcp_door_and_the_tool_read_state_the_same_silence() {
+    let fixture = Fixture::new("silence-one-sentence");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, device) = present_device(&fixture, &server, &signing_key(0xbf)).await;
+    let session = fixture.authenticate().await;
+    drop(device);
+    wait_until_offline(fixture.app(), &session, &device_id).await;
+    fixture.advance_ms((5 * 60 + 21) * 60_000);
+
+    let grant = fixture.create_grant(&session, &device_id, 24 * 3_600).await;
+    let (status, headers, body) = send_with_headers(
+        fixture.app(),
+        post_standard(
+            &device_id,
+            &grant,
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert_eq!(body["error"], json!("device not connected"));
+    assert_eq!(
+        body["message"],
+        json!("this machine is not connected since 5h 21m ago; connect it, then try again")
+    );
+    assert!(
+        body.get("retry_after_ms").is_none(),
+        "a five-hour silence is not a retry-in-a-second: {body}"
+    );
+    assert!(
+        !headers.contains_key(header::RETRY_AFTER),
+        "the HTTP half must not promise a retry either"
+    );
+
+    let (read_status, read_body) = send(
+        fixture.app(),
+        get(&format!("/fleet/{device_id}/tools"), Some(&session)),
+    )
+    .await;
+    assert_eq!(read_status, status);
+    let mut expected_read_body = body.clone();
+    assert_eq!(
+        expected_read_body
+            .as_object_mut()
+            .expect("the MCP transport error is an object")
+            .remove("delivery"),
+        Some(json!("not_sent")),
+        "the MCP request separately proves it was not sent"
+    );
+    assert_eq!(
+        read_body, expected_read_body,
+        "the operator's read and the MCP door say the same thing about the same silence"
+    );
+
+    let (_token_id, fleet) = aggregate_token_for(
+        &fixture,
+        &session,
+        std::slice::from_ref(&device_id),
+        &["state.get"],
+    )
+    .await;
+    let (status, headers, aggregate_body) = send_with_headers(
+        fixture.app(),
+        aggregate_request(
+            &fleet,
+            json!({
+                "jsonrpc": "2.0", "id": 7, "method": "tools/call",
+                "params": {"name": "state.get", "arguments": {"device": device_id}}
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{aggregate_body}");
+    assert_eq!(
+        aggregate_body, body,
+        "/mcp/all's state.get repeats the tool read's sentence for the same machine"
+    );
+    assert!(!headers.contains_key(header::RETRY_AFTER));
+}
+
+/// **"RECONNECTING" IS ONLY FOR A RECENT ATTEMPT.** A channel that closed a moment ago is between
+/// connections; the same facts, read by both doors, still say reconnecting and still invite a retry.
+#[tokio::test]
+async fn a_device_heard_moments_ago_is_reconnecting_on_both_doors() {
+    let fixture = Fixture::new("reconnect-recent");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, device) = present_device(&fixture, &server, &signing_key(0xc0)).await;
+    let session = fixture.authenticate().await;
+    drop(device);
+    wait_until_offline(fixture.app(), &session, &device_id).await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+
+    let (status, headers, body) = send_with_headers(
+        fixture.app(),
+        post_standard(
+            &device_id,
+            &grant,
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert_eq!(body["error"], json!("device reconnecting"));
+    assert_eq!(
+        body["message"],
+        json!("this machine is reconnecting; try again in a moment")
+    );
+    assert_eq!(body["retry_after_ms"], json!(1_000));
+    assert_eq!(
+        headers
+            .get(header::RETRY_AFTER)
+            .and_then(|value| value.to_str().ok()),
+        Some("1")
+    );
+
+    let (read_status, read_body) = send(
+        fixture.app(),
+        get(&format!("/fleet/{device_id}/tools"), Some(&session)),
+    )
+    .await;
+    assert_eq!(read_status, status);
+    let mut expected_read_body = body.clone();
+    assert_eq!(
+        expected_read_body
+            .as_object_mut()
+            .expect("the MCP transport error is an object")
+            .remove("delivery"),
+        Some(json!("not_sent")),
+        "the MCP request separately proves it was not sent"
+    );
+    assert_eq!(read_body, expected_read_body);
+}
+
+/// A device that takes the frame and does not answer inside the console's bound is 504.
+#[tokio::test]
+async fn the_live_catalogue_is_504_when_the_device_does_not_answer() {
+    let fixture = Fixture::with_timeout("live-catalogue-timeout", Duration::from_millis(50));
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, _device) = present_device(&fixture, &server, &signing_key(0xb9)).await;
+    let session = fixture.authenticate().await;
+
+    let (status, body) = send(
+        fixture.app(),
+        get(&format!("/fleet/{device_id}/tools"), Some(&session)),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::GATEWAY_TIMEOUT, "{body}");
+    assert_eq!(body["error"], json!("device timeout"));
+    assert!(
+        body["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("did not answer")),
+        "the refusal says what happened: {body}"
+    );
+}
+
+/// An answer that is not a tool list is a 500 upstream fault, not an empty catalogue.
+#[tokio::test]
+async fn the_live_catalogue_is_500_when_the_device_answers_malformed() {
+    let fixture = Fixture::new("live-catalogue-malformed");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        present_device(&fixture, &server, &signing_key(0xba)).await;
+    let session = fixture.authenticate().await;
+
+    let app = fixture.app();
+    let uri = format!("/fleet/{device_id}/tools");
+    let session_for_read = session.clone();
+    let read = tokio::spawn(async move { send(app, get(&uri, Some(&session_for_read))).await });
+    let frame = next_json(&mut device).await;
+    answer(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 1, "result": { "tools": "not a list" } }),
+    )
+    .await;
+
+    let (status, body) = read.await.expect("the read finishes");
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{body}");
+    assert_eq!(body["error"], json!("malformed_tools"));
+}
+
+/// A token may name a plugin tool only when the target device's live `tools/list` advertises it.
+/// The stored record is the existing shape; the plugin name is just another tool string.
+#[tokio::test]
+async fn a_token_can_scope_a_plugin_tool_the_device_advertises() {
+    let fixture = Fixture::new("plugin-token-online");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _device_token, mut device) =
+        present_device(&fixture, &server, &signing_key(0xd0)).await;
+    let session = fixture.authenticate().await;
+
+    let app = fixture.app();
+    let session_for_create = session.clone();
+    let device_for_create = device_id.clone();
+    let create = tokio::spawn(async move {
+        send(
+            app,
+            post_json_bearer(
+                "/tokens",
+                &session_for_create,
+                json!({
+                    "name": "hello",
+                    "device_id": device_for_create,
+                    "tools": ["files.read", "hello.greet"],
+                    "allow_destructive": false,
+                }),
+            ),
+        )
+        .await
+    });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(frame["mcp"]["method"], json!("tools/list"), "{frame}");
+    assert_eq!(frame["token"]["token_id"], json!("operator"));
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": { "tools": [{
+                "name": "hello.greet",
+                "description": "Greet someone.",
+                "inputSchema": { "type": "object", "properties": {} },
+            }]},
+        }),
+    )
+    .await;
+
+    let (status, created) = create.await.expect("the create finishes");
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    assert_eq!(created["tools"], json!(["files.read", "hello.greet"]));
+    assert!(created["token"]
+        .as_str()
+        .expect("the plaintext is returned once")
+        .starts_with("srm_"));
+
+    let (_, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert_eq!(list[0]["tools"], json!(["files.read", "hello.greet"]));
+
+    // The plugin name is a string in the existing `tools` list; the only field a plugin token adds
+    // to the record is the door every token now carries.
+    let text = fs::read_to_string(fixture.config.data.join("tokens.json"))
+        .expect("the token file is written");
+    let stored: Value = serde_json::from_str(&text).expect("the token file is JSON");
+    let mut keys: Vec<&str> = stored[0]
+        .as_object()
+        .expect("a stored record")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        [
+            "allow_destructive",
+            "created_at_ms",
+            "device_id",
+            "hash",
+            "id",
+            "kind",
+            "name",
+            "tools"
+        ],
+        "a plugin tool adds no field to the record: {stored}"
+    );
+}
+
+/// Offline with a plugin tool is a 400 that names the action, not a token minted against a list
+/// the console never read.
+#[tokio::test]
+async fn a_plugin_tool_is_refused_while_the_device_is_offline() {
+    let fixture = Fixture::new("plugin-token-offline");
+    let (device_id, _token) = fixture.register(&signing_key(0xd1)).await;
+    let session = fixture.authenticate().await;
+
+    let (status, body) = fixture
+        .create_token(&session, &device_id, "hello", &["hello.greet"], false)
+        .await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"], json!("unknown_tool"));
+    let message = body["message"]
+        .as_str()
+        .expect("the refusal has a sentence");
+    assert!(message.contains("hello.greet"), "{message}");
+    assert!(
+        message.contains("connect the machine, then mint the token"),
+        "the sentence names the action: {message}"
+    );
+
+    let (_, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert_eq!(list, json!([]), "a refused mint writes nothing: {list}");
+}
+
+/// Online but not advertising the name is still a 400: the live list is the authority, so a typo
+/// cannot become a token scope.
+#[tokio::test]
+async fn a_plugin_tool_the_device_does_not_advertise_is_refused() {
+    let fixture = Fixture::new("plugin-token-unknown");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        present_device(&fixture, &server, &signing_key(0xd2)).await;
+    let session = fixture.authenticate().await;
+
+    let app = fixture.app();
+    let session_for_create = session.clone();
+    let device_for_create = device_id.clone();
+    let create = tokio::spawn(async move {
+        send(
+            app,
+            post_json_bearer(
+                "/tokens",
+                &session_for_create,
+                json!({
+                    "name": "typo",
+                    "device_id": device_for_create,
+                    "tools": ["hello.nope"],
+                    "allow_destructive": false,
+                }),
+            ),
+        )
+        .await
+    });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(frame["mcp"]["method"], json!("tools/list"), "{frame}");
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": { "tools": [{
+                "name": "hello.greet",
+                "inputSchema": { "type": "object", "properties": {} },
+            }]},
+        }),
+    )
+    .await;
+
+    let (status, body) = create.await.expect("the create finishes");
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"], json!("unknown_tool"));
+    assert_eq!(
+        body["message"],
+        json!("the device does not advertise hello.nope; connect it and try again")
+    );
+
+    let (_, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert_eq!(list, json!([]), "a refused mint writes nothing: {list}");
+}
+
+/// An aggregate token's scope is one list for every device, so v1 keeps it registry-only and says
+/// plugin tools are per-device rather than minting a scope most of the fleet cannot honour.
+#[tokio::test]
+async fn an_aggregate_token_cannot_scope_a_plugin_tool() {
+    let fixture = Fixture::new("plugin-token-aggregate");
+    let (device_id, _token) = fixture.register(&signing_key(0xd3)).await;
+    let session = fixture.authenticate().await;
+
+    let (status, body) = fixture
+        .create_aggregate_token(&session, "all", &[device_id], &["hello.greet"])
+        .await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"], json!("unknown_tool"));
+    let message = body["message"]
+        .as_str()
+        .expect("the refusal has a sentence");
+    assert!(
+        message.contains("per-device"),
+        "the sentence names the v1 rule: {message}"
+    );
+}
+
+/// The manual canary for the design's real-client claim.
+///
+/// It is `#[ignore]`d because it waits for a process outside this test (an official MCP client) and
+/// prints the endpoint and a short-lived grant for that process to use. Run it with
+/// `--ignored --nocapture`, copy the two `CANARY ...` lines, point the client at them, then stop the
+/// test. CI's `cargo test` skips it.
+#[tokio::test]
+#[ignore = "manual canary: waits for an external MCP client"]
+async fn the_official_mcp_client_can_connect() {
+    let fixture = Fixture::new("official-client-canary");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xf0)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture
+        .create_grant_with_tools(&session, &device_id, &["files.read"], 300)
+        .await;
+    let grant_hex = hex_encode(&serde_json::to_vec(&grant).expect("the grant serializes"));
+
+    println!(
+        "CANARY URL http://127.0.0.1:{}/mcp/{device_id}",
+        server.addr.port()
+    );
+    println!("CANARY GRANT {grant_hex}");
+
+    let deadline = tokio::time::sleep(Duration::from_secs(120));
+    tokio::pin!(deadline);
+    loop {
+        tokio::select! {
+            _ = &mut deadline => break,
+            message = device.next() => {
+                let Some(Ok(WsMessage::Text(text))) = message else { break };
+                let frame: Value = serde_json::from_str(&text).expect("a device frame");
+                let id = frame["mcp"]["id"].clone();
+                let result = match frame["mcp"]["method"].as_str() {
+                    Some("tools/list") => json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": { "tools": [{
+                            "name": "files.read",
+                            "description": "Read a file.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": { "path": { "type": "string" } },
+                                "required": ["path"],
+                            },
+                        }]},
+                    }),
+                    Some("tools/call") => json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": { "content": [{ "type": "text", "text": "canary-ok" }] },
+                    }),
+                    _ => json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": { "code": -32601, "message": "method not found" },
+                    }),
+                };
+                let reply = json!({ "id": frame["id"].clone(), "result": result });
+                device
+                    .send(WsMessage::Text(reply.to_string()))
+                    .await
+                    .expect("the canary device answers");
+            }
+        }
+    }
+}
+
+/// The manual UI canary: serves the real page with one registered device and prints the URL and the
+/// operator token for a browser to sign in with. It is `#[ignore]`d because it waits for a process
+/// outside this test; CI skips it.
+#[tokio::test]
+#[ignore = "manual UI canary: waits for a browser"]
+async fn the_console_page_canary() {
+    let fixture = Fixture::new("console-page-canary");
+    // A real clock, so the card's expiry sentence is the one an operator would see rather than the
+    // fixture's 1970 epoch.
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("a clock after the epoch")
+        .as_millis() as u64;
+    fixture.clock.store(now, Ordering::Relaxed);
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token) = fixture.register(&signing_key(0xf1)).await;
+
+    println!("UI CANARY URL http://127.0.0.1:{}/", server.addr.port());
+    println!("UI CANARY DEVICE {device_id}");
+    println!("UI CANARY TOKEN {}", hex(&OPERATOR_TOKEN));
+
+    tokio::time::sleep(Duration::from_secs(300)).await;
+}
+
+fn get_with_cookie(uri: &str, cookie: &str) -> Request<Body> {
+    Request::builder()
+        .method("GET")
+        .uri(uri)
+        .header(header::COOKIE, cookie)
+        .body(Body::empty())
+        .expect("the request builds")
+}
+
+/// A real Access assertion for the fixture team, expiring `seconds` from now. Signed with the same
+/// throwaway key the pinned JWKS publishes, so `Access::verify` is what accepts it.
+fn access_token(seconds: u64) -> String {
+    let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::RS256);
+    header.kid = Some("test-key".to_owned());
+    let key = jsonwebtoken::EncodingKey::from_rsa_pem(ACCESS_KEY_PEM.as_bytes())
+        .expect("the fixture key loads");
+    let exp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("a clock after the epoch")
+        .as_secs()
+        + seconds;
+    let claims = json!({
+        "aud": ACCESS_AUDIENCE,
+        "iss": ACCESS_ISSUER,
+        "exp": exp,
+        "email": "operator@example.test",
+    });
+    jsonwebtoken::encode(&header, &claims, &key).expect("the token is signed")
+}
+
+/// The JSON sign-in is the page's door too: it sets the same page cookie, and a request carrying only
+/// that cookie is an operator session. This is what keeps a bearer out of the page's JavaScript and a
+/// reload from asking for the 64-character operator token again.
+#[tokio::test]
+async fn the_api_sign_in_sets_the_session_cookie_and_a_cookie_alone_is_a_session() {
+    let fixture = Fixture::new("api-signin-cookie");
+    let (status, headers, _) = send_text(
+        fixture.app(),
+        post_json("/auth", json!({ "token": hex(&OPERATOR_TOKEN) })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let cookie = headers
+        .get(header::SET_COOKIE)
+        .expect("the sign-in sets the page cookie")
+        .to_str()
+        .expect("a cookie is ASCII")
+        .to_owned();
+    assert!(cookie.contains("HttpOnly"), "{cookie}");
+    assert!(cookie.contains("SameSite=Lax"), "{cookie}");
+    assert!(
+        cookie.contains("Path=/"),
+        "the page and its JSON API share one cookie: {cookie}"
+    );
+    let pair = cookie
+        .split(';')
+        .next()
+        .expect("the name=value pair")
+        .to_owned();
+
+    // No Authorization header in anything below: the cookie is the credential.
+    let (status, _, body) = send_text(fixture.app(), get_with_cookie("/session", &pair)).await;
+    assert_eq!(status, StatusCode::OK);
+    let probe: Value = serde_json::from_str(&body).expect("the probe is JSON");
+    assert_eq!(probe["authenticated"], json!(true), "{body}");
+
+    let (status, _, _) = send_text(fixture.app(), get_with_cookie("/fleet", &pair)).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "an operator route accepts the cookie alone"
+    );
+
+    let logout = Request::builder()
+        .method("POST")
+        .uri("/logout")
+        .header(header::COOKIE, pair.as_str())
+        .body(Body::empty())
+        .expect("the request builds");
+    let (status, headers, _) = send_text(fixture.app(), logout).await;
+    assert_eq!(status, StatusCode::OK);
+    let cleared = headers
+        .get(header::SET_COOKIE)
+        .expect("the sign-out clears the cookie")
+        .to_str()
+        .expect("a cookie is ASCII")
+        .to_owned();
+    assert!(cleared.contains("Max-Age=0"), "{cleared}");
+    let (status, _, _) = send_text(fixture.app(), get_with_cookie("/fleet", &pair)).await;
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "the ended session is not a session"
+    );
+}
+
+/// The session cookie a JSON sign-in sets; the cookie is the credential every operator route takes.
+async fn sign_in_cookie(fixture: &Fixture) -> String {
+    let (status, headers, _) = send_text(
+        fixture.app(),
+        post_json("/auth", json!({ "token": hex(&OPERATOR_TOKEN) })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    headers
+        .get(header::SET_COOKIE)
+        .expect("a session cookie")
+        .to_str()
+        .expect("a cookie is ASCII")
+        .split(';')
+        .next()
+        .expect("the name=value pair")
+        .to_owned()
+}
+
+#[tokio::test]
+async fn the_session_cookie_is_secure_only_behind_https() {
+    let fixture = Fixture::new("session-cookie-secure");
+    let mut request = post_json("/auth", json!({ "token": hex(&OPERATOR_TOKEN) }));
+    request.headers_mut().insert(
+        axum::http::HeaderName::from_static("x-forwarded-proto"),
+        axum::http::HeaderValue::from_static("https"),
+    );
+    let (status, headers, _) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::OK);
+    let cookie = headers
+        .get(header::SET_COOKIE)
+        .expect("a cookie")
+        .to_str()
+        .expect("ASCII");
+    assert!(cookie.contains("Secure"), "{cookie}");
+
+    let (status, headers, _) = send_text(
+        fixture.app(),
+        post_json("/auth", json!({ "token": hex(&OPERATOR_TOKEN) })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let cookie = headers
+        .get(header::SET_COOKIE)
+        .expect("a cookie")
+        .to_str()
+        .expect("ASCII");
+    assert!(
+        !cookie.contains("Secure"),
+        "plain HTTP must not set Secure: {cookie}"
+    );
+}
+
+#[tokio::test]
+async fn the_console_refuses_framing_on_the_page_and_the_sign_in() {
+    let fixture = Fixture::new("rust-page-frame");
+    for uri in ["/", "/next"] {
+        let (status, headers, _) = send_text(fixture.app(), get(uri, None)).await;
+        assert!(
+            status == StatusCode::OK || status == StatusCode::SEE_OTHER,
+            "{uri}: {status}"
+        );
+        assert_eq!(
+            headers
+                .get("x-frame-options")
+                .expect("the header")
+                .to_str()
+                .expect("ASCII"),
+            "DENY",
+            "{uri}"
+        );
+    }
+}
+
+/// The operator's own scope is `["*"]`, and the proxy must read that as a wildcard: an exact
+/// comparison here silently refused every grantless `tools/call` while the page had already stopped
+/// signing grants.
+#[tokio::test]
+async fn an_operator_mcp_call_without_a_grant_reaches_the_device() {
+    let fixture = Fixture::new("mcp-operator-scope");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xe4)).await;
+    let session = fixture.authenticate().await;
+
+    let app = fixture.app();
+    let request = post_json_bearer(
+        "/mcp",
+        &session,
+        json!({
+            "device_id": device_id,
+            "request": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": { "name": "files.read", "arguments": { "path": "notes.txt" } }
+            }
+        }),
+    );
+    let call = tokio::spawn(async move { send_with_headers(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("files.read"),
+        "the frame carries the call, not a refusal: {frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "content": [{ "type": "text", "text": "hello" }],
+            "isError": false,
+        }),
+    )
+    .await;
+
+    let (status, _, body) = call.await.expect("the call finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["content"][0]["text"], json!("hello"));
+}
+
+/// A token that already consents is never asked again: a device answering -32002 to it is refusing
+/// for its own reasons, and the console must not stall the caller for the whole deadline.
+#[tokio::test]
+async fn a_consenting_token_is_not_asked_for_approval() {
+    let fixture = Fixture::new("approval-consenting");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xca)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(&session, &device_id, "trusted", &["terminal.create"], true)
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let plaintext = created["token"].as_str().expect("the token").to_owned();
+    let call = json!({
+        "jsonrpc": "2.0",
+        "id": 65,
+        "method": "tools/call",
+        "params": { "name": "terminal.create", "arguments": { "kind": "pty" } },
+    });
+    let app = fixture.app();
+    let request = post_token(&device_id, &plaintext, call.clone());
+    let client = tokio::spawn(async move { send(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(frame["mcp"], call, "{frame}");
+    answer_error(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 65, "error": { "code": -32002, "message": "the device refuses this one" } }),
+    )
+    .await;
+
+    let (status, body) = client.await.expect("the client finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["error"]["code"], json!(-32002), "{body}");
+}
+
+/// A token that did not consent to destruction is refused immediately, with a sentence that says
+/// how to authorize it. There is no ninety-second hold for the operator to answer.
+#[tokio::test]
+async fn a_destructive_call_without_token_consent_is_refused_immediately() {
+    let fixture = Fixture::new("approval-no-consent");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xcb)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(
+            &session,
+            &device_id,
+            "cautious",
+            &["terminal.create"],
+            false,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let plaintext = created["token"].as_str().expect("the token").to_owned();
+    let call = json!({
+        "jsonrpc": "2.0",
+        "id": 66,
+        "method": "tools/call",
+        "params": { "name": "terminal.create", "arguments": { "kind": "pty" } },
+    });
+    let app = fixture.app();
+    let request = post_token(&device_id, &plaintext, call.clone());
+    let client = tokio::spawn(async move { send(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    answer_error(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 66, "error": { "code": -32002, "message": "'terminal.create' is destructive and needs approval" } }),
+    )
+    .await;
+
+    let (status, body) = client.await.expect("the client finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["error"]["code"], json!(-32002), "{body}");
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("does not allow destructive calls")),
+        "{body}"
+    );
+}
+
+/// A refused Access token leaves a line. "Was the edge's header there, and did the console accept
+/// it?" must be answerable from the audit, not only from the sign-in page.
+#[tokio::test]
+async fn a_refused_access_token_is_audited() {
+    let fixture = Fixture::with_access("access-refusal-audited");
+    let mut request = get("/next", None);
+    request.headers_mut().insert(
+        "cf-access-jwt-assertion",
+        "not-a-jwt".parse().expect("a header value"),
+    );
+    let (status, _, _) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    let lines = audit_lines(&fixture);
+    let refused = lines
+        .iter()
+        .find(|line| line["kind"] == "auth" && line["status"] == 401)
+        .unwrap_or_else(|| panic!("a refusal line: {lines:#?}"));
+    assert_eq!(refused["detail"], "access refused");
+}
+
+#[tokio::test]
+async fn the_conventional_favicon_path_answers_with_the_icon() {
+    // A browser asks for /favicon.ico on every page it opens; a 404 there is a console error on
+    // every page that does not declare an icon.
+    let fixture = Fixture::new("favicon");
+    let response = fixture
+        .app()
+        .oneshot(get("/favicon.ico", None))
+        .await
+        .expect("the icon is served");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("image/png")
+    );
+}
+
+#[tokio::test]
+async fn a_session_survives_a_console_restart() {
+    // Every deploy used to sign the operator out, because sessions were memory only. A session is
+    // written to `<data>/sessions.json` now, and the token itself never is.
+    let fixture = Fixture::new("session-restart");
+    let cookie = sign_in_cookie(&fixture).await;
+
+    let restarted = fixture.restart();
+    let (status, _, body) =
+        send_text(restarted.router(), get_with_cookie("/session", &cookie)).await;
+    assert_eq!(status, StatusCode::OK);
+    let probe: Value = serde_json::from_str(&body).expect("the probe is JSON");
+    assert_eq!(
+        probe["authenticated"],
+        json!(true),
+        "the restarted console accepts the cookie: {body}"
+    );
+
+    // The session file holds hashes, not tokens.
+    let file =
+        std::fs::read_to_string(fixture.config.data.join("sessions.json")).expect("the file");
+    assert!(
+        !file.contains(&cookie["summrise_session=".len()..]),
+        "{file}"
+    );
+    assert!(file.contains("token_hash"), "{file}");
+}
+
+#[tokio::test]
+async fn a_session_expires_after_its_lifetime() {
+    let fixture = Fixture::new("session-expiry");
+    let cookie = sign_in_cookie(&fixture).await;
+
+    // One minute short of the month: the session still works.
+    fixture.advance_ms(30 * 24 * 60 * 60 * 1000 - 60_000);
+    let (_, _, body) = send_text(fixture.app(), get_with_cookie("/session", &cookie)).await;
+    let probe: Value = serde_json::from_str(&body).expect("the probe is JSON");
+    assert_eq!(probe["authenticated"], json!(true), "{body}");
+
+    // A minute past it: the session is no longer an identity.
+    fixture.advance_ms(120_000);
+    let (_, _, body) = send_text(fixture.app(), get_with_cookie("/session", &cookie)).await;
+    let probe: Value = serde_json::from_str(&body).expect("the probe is JSON");
+    assert_eq!(probe["authenticated"], json!(false), "{body}");
+}
+
+/// A tailnet deployment trusts one address to say who the operator is. The same header from any
+/// other peer is only a string, and the token is still the way in: the flag removes a password,
+/// not the identity check.
+#[tokio::test]
+async fn a_trusted_proxy_names_the_operator_and_only_from_its_own_address() {
+    const PROXY: Ipv4Addr = Ipv4Addr::new(100, 85, 163, 159);
+    const ELSEWHERE: Ipv4Addr = Ipv4Addr::new(100, 79, 123, 140);
+    let fixture = Fixture::with_trusted_proxy("proxy-identity", PROXY);
+
+    // Through the proxy: no token, and the page is already signed in as the name it sent.
+    let (status, body) = send(
+        fixture.app(),
+        from_peer(
+            forwarded_user(get("/session", None), "operator@example.com"),
+            PROXY,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["authenticated"], json!(true));
+    assert_eq!(body["via"], json!("proxy"));
+    assert_eq!(body["email"], json!("operator@example.com"));
+
+    // A real route opens on the same word, not only the probe the page asks first.
+    let (status, devices) = send(
+        fixture.app(),
+        from_peer(
+            forwarded_user(get("/fleet", None), "operator@example.com"),
+            PROXY,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        devices.as_array().map(Vec::is_empty),
+        Some(true),
+        "the proxy's identity passed the extractor, not just the probe"
+    );
+
+    // The same header from another peer proves nothing, even on a console that trusts a proxy.
+    let (status, body) = send(
+        fixture.app(),
+        from_peer(
+            forwarded_user(get("/session", None), "operator@example.com"),
+            ELSEWHERE,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body["authenticated"],
+        json!(false),
+        "the address is what makes the claim, not the header"
+    );
+
+    let (status, _) = send(
+        fixture.app(),
+        from_peer(
+            forwarded_user(get("/fleet", None), "operator@example.com"),
+            ELSEWHERE,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+/// Without the flag the header is an ordinary string: a console that was never told to trust one
+/// cannot be talked into trusting one.
+#[tokio::test]
+async fn a_console_without_a_trusted_proxy_does_not_believe_the_header() {
+    const PROXY: Ipv4Addr = Ipv4Addr::new(100, 85, 163, 159);
+    let fixture = Fixture::new("proxy-unconfigured");
+
+    let (status, body) = send(
+        fixture.app(),
+        from_peer(
+            forwarded_user(get("/session", None), "operator@example.com"),
+            PROXY,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["authenticated"], json!(false));
+
+    let (status, _) = send(
+        fixture.app(),
+        from_peer(
+            forwarded_user(get("/fleet", None), "operator@example.com"),
+            PROXY,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+/// An empty name is not a person: a proxy that authenticated nobody says so by sending nothing.
+#[tokio::test]
+async fn an_empty_forwarded_user_is_not_an_identity() {
+    const PROXY: Ipv4Addr = Ipv4Addr::new(100, 85, 163, 159);
+    let fixture = Fixture::with_trusted_proxy("proxy-empty", PROXY);
+
+    let (status, body) = send(
+        fixture.app(),
+        from_peer(forwarded_user(get("/session", None), "   "), PROXY),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["authenticated"], json!(false));
+}
+
+// ---- the join across the two records ----------------------------------------------------------
+
+/// `GET /audit/join` asks the device's own `journal.get` over the channel: one proxied call is a
+/// console line and a machine journal pair, and only the machine can say which of those pairs it
+/// still holds. The route relays the device's arrays unchanged; the only fact it adds is the moment
+/// it read them.
+#[tokio::test]
+async fn the_join_route_names_the_traces_the_machine_still_holds() {
+    let fixture = Fixture::new("join-held");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        present_device(&fixture, &server, &signing_key(0x8c)).await;
+    let session = fixture.authenticate().await;
+
+    let app = fixture.app();
+    let uri = format!("/audit/join?device={device_id}&traces=a,b");
+    let session_for_read = session.clone();
+    let read = tokio::spawn(async move { send(app, get(&uri, Some(&session_for_read))).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(frame["mcp"]["method"], json!("tools/call"), "{frame}");
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("journal.get"),
+        "{frame}"
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["traces"],
+        json!(["a", "b"]),
+        "the traces leave in the order the caller asked them: {frame}"
+    );
+    assert!(
+        frame["trace"]
+            .as_str()
+            .is_some_and(|trace| !trace.is_empty()),
+        "the frame carries a minted trace, so the relay drops the pair it provokes: {frame}"
+    );
+
+    answer(
+        &mut device,
+        &frame,
+        tools_call_answer(
+            json!(5),
+            &json!({
+                "journal": true,
+                "oldest_seq": 4,
+                "last_seq": 9,
+                "scanned": 9,
+                "bounded": false,
+                "traces": ["a"],
+                "missing": ["b"],
+            })
+            .to_string(),
+            false,
+        ),
+    )
+    .await;
+
+    let (status, body) = read.await.expect("the read finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["device"], json!(device_id), "the canonical id: {body}");
+    assert_eq!(body["asked"], json!(2));
+    assert_eq!(body["joined"], json!(["a"]));
+    assert_eq!(body["missing"], json!(["b"]));
+    assert_eq!(body["journal"], json!(true));
+    assert_eq!(body["bounded"], json!(false));
+    assert_eq!(body["oldest_seq"], json!(4));
+    assert_eq!(body["last_seq"], json!(9));
+    assert_eq!(body["unknown"], json!(false));
+    assert!(
+        body["read_at_ms"].as_u64().is_some(),
+        "the answer names when it was read: {body}"
+    );
+    assert!(
+        body.get("reason").is_none(),
+        "an answered join carries no reason: {body}"
+    );
+}
+
+/// A device too old to offer `journal.get` is unknown, never missing: the page must not mark a row
+/// as gone when the machine was never asked a question it could answer.
+#[tokio::test]
+async fn a_machine_that_does_not_offer_the_join_is_unknown_rather_than_missing() {
+    let fixture = Fixture::new("join-unknown-tool");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        present_device(&fixture, &server, &signing_key(0x8d)).await;
+    let session = fixture.authenticate().await;
+
+    let app = fixture.app();
+    let uri = format!("/audit/join?device={device_id}&traces=a,b");
+    let session_for_read = session.clone();
+    let read = tokio::spawn(async move { send(app, get(&uri, Some(&session_for_read))).await });
+
+    let frame = next_json(&mut device).await;
+    answer_error(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": { "code": -32602, "message": "unknown tool: journal.get" },
+        }),
+    )
+    .await;
+
+    let (status, body) = read.await.expect("the read finishes");
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "an older device is a fact about the join, not a refusal: {body}"
+    );
+    assert_eq!(body["unknown"], json!(true), "{body}");
+    assert_eq!(body["reason"], json!("unknown_tool"), "{body}");
+    assert_eq!(body["asked"], json!(2), "what was asked is still stated");
+    assert_eq!(body["joined"], json!([]));
+    assert_eq!(body["missing"], json!([]));
+    assert_eq!(body["journal"], json!(false));
+    assert_eq!(body["bounded"], json!(false));
+    assert_eq!(body["oldest_seq"], json!(0));
+    assert_eq!(body["last_seq"], json!(0));
+}
+
+/// A device that carries a tool-level failure inside a 200 result is refusing the read, not sending a
+/// body this console could not parse: MCP puts the sentence in `isError`, and the page still reads
+/// `unknown` without accusing any row.
+#[tokio::test]
+async fn a_join_the_device_refuses_in_a_result_is_unknown_too() {
+    let fixture = Fixture::new("join-refused");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        present_device(&fixture, &server, &signing_key(0xed)).await;
+    let session = fixture.authenticate().await;
+
+    let app = fixture.app();
+    let uri = format!("/audit/join?device={device_id}&traces=a");
+    let session_for_read = session.clone();
+    let read = tokio::spawn(async move { send(app, get(&uri, Some(&session_for_read))).await });
+
+    let frame = next_json(&mut device).await;
+    answer(
+        &mut device,
+        &frame,
+        tools_call_answer(
+            json!(8),
+            "this machine's journal is switched off in its configuration",
+            true,
+        ),
+    )
+    .await;
+
+    let (status, body) = read.await.expect("the read finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["unknown"], json!(true), "{body}");
+    assert_eq!(body["reason"], json!("refused"), "{body}");
+    assert_eq!(body["joined"], json!([]));
+    assert_eq!(body["missing"], json!([]));
+}
+
+/// An answer that is not the join object is unknown too: a console that read half an answer must
+/// not mark every row as rotated away on the strength of it.
+#[tokio::test]
+async fn a_join_answer_this_console_cannot_read_is_unknown_rather_than_missing() {
+    let fixture = Fixture::new("join-malformed");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        present_device(&fixture, &server, &signing_key(0xea)).await;
+    let session = fixture.authenticate().await;
+
+    let app = fixture.app();
+    let uri = format!("/audit/join?device={device_id}&traces=a");
+    let session_for_read = session.clone();
+    let read = tokio::spawn(async move { send(app, get(&uri, Some(&session_for_read))).await });
+
+    let frame = next_json(&mut device).await;
+    answer(
+        &mut device,
+        &frame,
+        tools_call_answer(json!(7), "not the join object", false),
+    )
+    .await;
+
+    let (status, body) = read.await.expect("the read finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["unknown"], json!(true), "{body}");
+    assert_eq!(body["reason"], json!("malformed"), "{body}");
+    assert_eq!(body["joined"], json!([]));
+    assert_eq!(body["missing"], json!([]));
+}
+
+/// A device that takes the frame and does not answer inside the console's bound is the same 504 the
+/// tool catalogue answers, with the same sentence: one silence reads one way everywhere.
+#[tokio::test]
+async fn a_join_that_waits_out_the_console_bound_is_a_504() {
+    let fixture = Fixture::with_timeout("join-timeout", Duration::from_millis(50));
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, _device) = present_device(&fixture, &server, &signing_key(0xeb)).await;
+    let session = fixture.authenticate().await;
+
+    let (status, body) = send(
+        fixture.app(),
+        get(
+            &format!("/audit/join?device={device_id}&traces=a"),
+            Some(&session),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::GATEWAY_TIMEOUT, "{body}");
+    assert_eq!(body["error"], json!("device timeout"));
+    assert_eq!(
+        body["message"],
+        json!("the device did not answer; it may still be working, so try again")
+    );
+}
+
+/// **THE JOIN IS NOT AN OPERATOR ACT.** It asks the machine what its journal holds so the page can
+/// mark the deviation; a read that audited itself would grow the very window it describes, and one
+/// Activity row per window would be noise about the console reading itself.
+#[tokio::test]
+async fn a_join_read_writes_no_audit_line() {
+    let fixture = Fixture::new("join-no-audit");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        present_device(&fixture, &server, &signing_key(0x8e)).await;
+    let session = fixture.authenticate().await;
+
+    let (status, before) = send(fixture.app(), get("/audit", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK);
+    let before_count = before.as_array().expect("the audit window").len();
+
+    let app = fixture.app();
+    let uri = format!("/audit/join?device={device_id}&traces=join-a,join-b");
+    let session_for_read = session.clone();
+    let read = tokio::spawn(async move { send(app, get(&uri, Some(&session_for_read))).await });
+    let frame = next_json(&mut device).await;
+    let trace = frame["trace"]
+        .as_str()
+        .expect("the frame carries a trace")
+        .to_owned();
+    answer(
+        &mut device,
+        &frame,
+        tools_call_answer(
+            json!(6),
+            &json!({
+                "journal": true,
+                "oldest_seq": 1,
+                "last_seq": 6,
+                "scanned": 6,
+                "bounded": false,
+                "traces": ["join-a"],
+                "missing": ["join-b"],
+            })
+            .to_string(),
+            false,
+        ),
+    )
+    .await;
+    let (status, body) = read.await.expect("the read finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let (status, after) = send(fixture.app(), get("/audit", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        after.as_array().expect("the audit window").len(),
+        before_count,
+        "the join adds no line: {after}"
+    );
+    let text = audit_text(&fixture);
+    assert!(
+        !text.contains("journal.get"),
+        "no line names the tool the join called: {text}"
+    );
+    assert!(
+        !text.contains(&trace),
+        "no line carries the trace the join minted: {text}"
+    );
+}
+
+#[tokio::test]
+async fn a_join_of_an_empty_trace_set_is_refused() {
+    let fixture = Fixture::new("join-empty");
+    let (device_id, _token) = fixture.register(&signing_key(0x8f)).await;
+    let session = fixture.authenticate().await;
+
+    // Absent, empty, only commas, and a list with a hole in it: each names no complete trace, and
+    // the route's sentence says so rather than forwarding a set the device would read as empty.
+    for traces in ["", ",", "a,,b"] {
+        let (status, body) = send(
+            fixture.app(),
+            get(
+                &format!("/audit/join?device={device_id}&traces={traces}"),
+                Some(&session),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "traces={traces}: {body}");
+        assert_eq!(body["error"], json!("invalid_traces"), "{body}");
+        assert!(
+            body["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("trace")),
+            "the sentence names the rule: {body}"
+        );
+    }
+
+    let (status, body) = send(
+        fixture.app(),
+        get(&format!("/audit/join?device={device_id}"), Some(&session)),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "a join with no traces parameter asks about nothing: {body}"
+    );
+    assert_eq!(body["error"], json!("invalid_traces"), "{body}");
+}
+
+/// One trace is bounded like a trace the console mints: a longer string is not a call this console
+/// recorded, so it is the caller's mistake to name rather than a device scan to run.
+#[tokio::test]
+async fn a_join_of_a_trace_longer_than_a_hundred_and_twenty_eight_characters_is_refused() {
+    let fixture = Fixture::new("join-long-trace");
+    let (device_id, _token) = fixture.register(&signing_key(0xec)).await;
+    let session = fixture.authenticate().await;
+    let long = "t".repeat(129);
+
+    let (status, body) = send(
+        fixture.app(),
+        get(
+            &format!("/audit/join?device={device_id}&traces={long}"),
+            Some(&session),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"], json!("invalid_traces"));
+    assert!(
+        body["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("128")),
+        "the sentence names the bound: {body}"
+    );
+}
+
+#[tokio::test]
+async fn a_join_of_more_than_a_hundred_and_twenty_eight_traces_is_refused() {
+    let fixture = Fixture::new("join-oversized");
+    let (device_id, _token) = fixture.register(&signing_key(0x89)).await;
+    let session = fixture.authenticate().await;
+    let traces: Vec<String> = (0..129).map(|index| format!("trace-{index}")).collect();
+
+    let (status, body) = send(
+        fixture.app(),
+        get(
+            &format!("/audit/join?device={device_id}&traces={}", traces.join(",")),
+            Some(&session),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"], json!("invalid_traces"));
+    assert!(
+        body["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("128")),
+        "the sentence names the bound: {body}"
+    );
+}
+
+#[tokio::test]
+async fn a_join_names_an_unknown_device() {
+    let fixture = Fixture::new("join-unknown-device");
+    let session = fixture.authenticate().await;
+
+    let (status, body) = send(
+        fixture.app(),
+        get(
+            &format!("/audit/join?device={}&traces=a", "ab".repeat(32)),
+            Some(&session),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert_eq!(body["error"], json!("unknown_device"));
+    let message = body["message"].as_str().expect("a reason");
+    assert!(message.contains("no machine"), "{message}");
+    assert!(message.contains("Machines page"), "{message}");
+}
+
+/// The join reads one machine, so a device with no open channel is the link refusal every other
+/// per-device read answers with, in the same words.
+#[tokio::test]
+async fn an_offline_machine_cannot_be_joined() {
+    let fixture = Fixture::new("join-offline");
+    let (device_id, _token) = fixture.register(&signing_key(0x8a)).await;
+    let session = fixture.authenticate().await;
+
+    let (status, body) = send(
+        fixture.app(),
+        get(
+            &format!("/audit/join?device={device_id}&traces=a"),
+            Some(&session),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert_eq!(body["error"], json!("device reconnecting"), "{body}");
+    assert_eq!(
+        body["message"],
+        json!("this machine is reconnecting; try again in a moment")
+    );
+    assert_eq!(body["retry_after_ms"], json!(1_000));
+}
+
+#[tokio::test]
+async fn the_join_route_requires_an_operator_session() {
+    let fixture = Fixture::new("join-no-session");
+    let (device_id, _token) = fixture.register(&signing_key(0x8b)).await;
+
+    let (status, body) = send(
+        fixture.app(),
+        get(&format!("/audit/join?device={device_id}&traces=a"), None),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(body, json!({ "error": "unauthorized" }));
+}
+
+// ---- the machine's own record, and the window the page draws of it ------------------------------
+
+/// One `journal.read` answer as the device sends it: both ends of the retained journal, the window's
+/// rows, and whether an older retained row exists.
+fn journal_read_answer(oldest_seq: u64, last_seq: u64, rows: Value, more: bool) -> Value {
+    json!({
+        "journal": true,
+        "oldest_seq": oldest_seq,
+        "last_seq": last_seq,
+        "rows": rows,
+        "more": more,
+    })
+}
+
+/// The names one row carries, sorted: the route relays named fields, never the device's own blob.
+fn row_keys(row: &Value) -> Vec<&str> {
+    let mut keys: Vec<&str> = row
+        .as_object()
+        .expect("a row")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    keys
+}
+
+/// `GET /journal/read` asks the machine's own `journal.read` over the channel and relays its window
+/// row by row: a summary field the console cannot read as the type it names is left out, and a row
+/// with no identity is dropped rather than drawn as blanks.
+#[tokio::test]
+async fn the_journal_read_route_relays_the_machine_s_window_field_by_field() {
+    let fixture = Fixture::new("journal-read-window");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        present_device(&fixture, &server, &signing_key(0xf2)).await;
+    let session = fixture.authenticate().await;
+
+    let app = fixture.app();
+    let uri = format!("/journal/read?device={device_id}");
+    let session_for_read = session.clone();
+    let read = tokio::spawn(async move { send(app, get(&uri, Some(&session_for_read))).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(frame["mcp"]["method"], json!("tools/call"), "{frame}");
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("journal.read"),
+        "{frame}"
+    );
+    assert_eq!(
+        untagged_arguments(&frame),
+        json!({ "limit": 200 }),
+        "an absent limit asks for the newest page, and a read from the newest row names no before: \
+         {frame}"
+    );
+    assert!(
+        frame_txn(&frame).is_some(),
+        "the window read rides the console's device transaction: {frame}"
+    );
+    assert!(
+        frame["trace"]
+            .as_str()
+            .is_some_and(|trace| !trace.is_empty()),
+        "the frame carries a minted trace, so the relay drops the pair it provokes: {frame}"
+    );
+
+    answer(
+        &mut device,
+        &frame,
+        tools_call_answer(
+            json!(5),
+            &journal_read_answer(
+                41,
+                52,
+                json!([
+                    {
+                        "seq": 52,
+                        "ts": "2026-11-13T08:00:00.000Z",
+                        "type": "call.finished",
+                        "trace": "52-0",
+                        "tool": "files.write",
+                        "ok": true,
+                        "door": "panel",
+                        "payload_bytes": 210,
+                        "payload": { "path": "payload-marker-6c1d" },
+                    },
+                    {
+                        "seq": 51,
+                        "ts": "2026-11-13T07:59:00.000Z",
+                        "type": "call.denied",
+                        "trace": "51-0",
+                        "tool": "files.read",
+                        "ok": "yes",
+                        "reason": "the grant does not cover it",
+                        "door": "mesh",
+                        "payload_bytes": 90,
+                    },
+                    // A row on a device that logged no payload size: the summary keeps the facts it
+                    // was given, and zero would be the claim that the payload was empty.
+                    { "seq": 50, "ts": "2026-11-13T07:58:00.000Z", "type": "call.started" },
+                    // Neither of these identifies a row the page could draw.
+                    { "seq": 49, "type": "call.started", "payload_bytes": 12 },
+                    "not a row",
+                ]),
+                true,
+            )
+            .to_string(),
+            false,
+        ),
+    )
+    .await;
+
+    let (status, body) = read.await.expect("the read finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["device"], json!(device_id), "the canonical id: {body}");
+    assert_eq!(body["journal"], json!(true));
+    assert_eq!(body["oldest_seq"], json!(41));
+    assert_eq!(body["last_seq"], json!(52));
+    assert_eq!(body["more"], json!(true));
+    assert_eq!(body["unknown"], json!(false));
+    assert!(body.get("reason").is_none(), "{body}");
+    assert!(body["read_at_ms"].as_u64().is_some(), "{body}");
+
+    let rows = body["rows"].as_array().expect("the window's rows");
+    assert_eq!(
+        rows.iter()
+            .map(|row| row["seq"].clone())
+            .collect::<Vec<Value>>(),
+        vec![json!(52), json!(51), json!(50)],
+        "the device's order is the page's order, and the row without a ts is not drawn: {body}"
+    );
+    assert_eq!(
+        row_keys(&rows[0]),
+        [
+            "door",
+            "ok",
+            "payload_bytes",
+            "seq",
+            "tool",
+            "trace",
+            "ts",
+            "type"
+        ],
+        "a summary field by field, never the device's payload blob: {body}"
+    );
+    assert_eq!(rows[0]["ok"], json!(true));
+    assert_eq!(rows[0]["payload_bytes"], json!(210));
+    assert_eq!(rows[0]["door"], json!("panel"));
+    assert_eq!(rows[0]["type"], json!("call.finished"));
+
+    assert_eq!(
+        row_keys(&rows[1]),
+        [
+            "door",
+            "payload_bytes",
+            "reason",
+            "seq",
+            "tool",
+            "trace",
+            "ts",
+            "type"
+        ],
+        "an `ok` that is a string is left out rather than relayed: {body}"
+    );
+    assert_eq!(rows[1]["reason"], json!("the grant does not cover it"));
+    assert_eq!(rows[1]["door"], json!("mesh"));
+
+    assert_eq!(
+        row_keys(&rows[2]),
+        ["seq", "ts", "type"],
+        "a device that logged no payload size says nothing rather than zero: {body}"
+    );
+    assert!(
+        !body.to_string().contains("payload-marker-6c1d"),
+        "the read relays summaries, never payload bodies: {body}"
+    );
+}
+
+/// `before` pages backwards from a row the page already drew: the frame names the sequence, and the
+/// answer is only the older window the machine sends back.
+#[tokio::test]
+async fn a_journal_read_before_a_sequence_pages_older_than_it() {
+    let fixture = Fixture::new("journal-read-before");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        present_device(&fixture, &server, &signing_key(0xf3)).await;
+    let session = fixture.authenticate().await;
+
+    let app = fixture.app();
+    let uri = format!("/journal/read?device={device_id}&before=48&limit=2");
+    let session_for_read = session.clone();
+    let read = tokio::spawn(async move { send(app, get(&uri, Some(&session_for_read))).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        untagged_arguments(&frame),
+        json!({ "limit": 2, "before_seq": 48 }),
+        "the page's page-forward is the device's before_seq: {frame}"
+    );
+    assert!(
+        frame_txn(&frame).is_some(),
+        "the read rides the console's device transaction: {frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        tools_call_answer(
+            json!(2),
+            &journal_read_answer(
+                41,
+                52,
+                json!([
+                    { "seq": 47, "ts": "2026-11-13T07:57:00.000Z", "type": "call.started" },
+                    { "seq": 46, "ts": "2026-11-13T07:56:00.000Z", "type": "call.started" },
+                ]),
+                false,
+            )
+            .to_string(),
+            false,
+        ),
+    )
+    .await;
+
+    let (status, body) = read.await.expect("the read finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["rows"]
+            .as_array()
+            .expect("the older window")
+            .iter()
+            .map(|row| row["seq"].clone())
+            .collect::<Vec<Value>>(),
+        vec![json!(47), json!(46)],
+        "the answer is the window the device sent: {body}"
+    );
+    assert_eq!(body["more"], json!(false));
+}
+
+/// The page draws one bounded window, so the read defaults to the newest 200 rows, accepts both
+/// edges of the bound, and refuses a limit outside it with the rule in the sentence.
+#[tokio::test]
+async fn a_journal_read_defaults_to_two_hundred_rows_and_refuses_a_limit_outside_the_bound() {
+    let fixture = Fixture::new("journal-read-limit");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        present_device(&fixture, &server, &signing_key(0xf4)).await;
+    let session = fixture.authenticate().await;
+
+    for limit in [None, Some(1_usize), Some(200_usize)] {
+        let requested = limit.unwrap_or(200);
+        let uri = match limit {
+            None => format!("/journal/read?device={device_id}"),
+            Some(limit) => format!("/journal/read?device={device_id}&limit={limit}"),
+        };
+        let app = fixture.app();
+        let session_for_read = session.clone();
+        let read = tokio::spawn(async move { send(app, get(&uri, Some(&session_for_read))).await });
+
+        let frame = next_json(&mut device).await;
+        assert_eq!(
+            untagged_arguments(&frame),
+            json!({ "limit": requested }),
+            "limit={limit:?}: {frame}"
+        );
+        assert!(
+            frame_txn(&frame).is_some(),
+            "limit={limit:?} rides the console's device transaction: {frame}"
+        );
+        answer(
+            &mut device,
+            &frame,
+            tools_call_answer(
+                json!(1),
+                &journal_read_answer(4, 9, json!([]), false).to_string(),
+                false,
+            ),
+        )
+        .await;
+
+        let (status, body) = read.await.expect("the read finishes");
+        assert_eq!(status, StatusCode::OK, "limit={limit:?}: {body}");
+        assert_eq!(body["rows"], json!([]), "limit={limit:?}: {body}");
+        assert_eq!(
+            body["unknown"],
+            json!(false),
+            "a machine with no retained rows answers that fact, not an unknown: {body}"
+        );
+        assert_eq!(body["oldest_seq"], json!(4), "limit={limit:?}");
+        assert_eq!(body["last_seq"], json!(9), "limit={limit:?}");
+    }
+
+    for limit in ["0", "201", "-1", "many", ""] {
+        let (status, body) = send(
+            fixture.app(),
+            get(
+                &format!("/journal/read?device={device_id}&limit={limit}"),
+                Some(&session),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "limit={limit}: {body}");
+        assert_eq!(body["error"], json!("invalid_limit"), "{body}");
+        assert!(
+            body["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("1 to 200")),
+            "the sentence names the rule: {body}"
+        );
+    }
+}
+
+/// `before` is the seq of the last row already drawn, so it is a positive sequence number: zero,
+/// a negative number and a word all name no row and are refused before anything is asked.
+#[tokio::test]
+async fn a_journal_read_refuses_a_before_that_is_not_a_positive_sequence() {
+    let fixture = Fixture::new("journal-read-before-invalid");
+    let (device_id, _token) = fixture.register(&signing_key(0xf5)).await;
+    let session = fixture.authenticate().await;
+
+    for before in ["0", "-3", "half", ""] {
+        let (status, body) = send(
+            fixture.app(),
+            get(
+                &format!("/journal/read?device={device_id}&before={before}"),
+                Some(&session),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "before={before}: {body}");
+        assert_eq!(body["error"], json!("invalid_before"), "{body}");
+        assert!(
+            body["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("positive")),
+            "the sentence names the rule: {body}"
+        );
+    }
+}
+
+/// One `journal.day` answer as the device sends it: five doors, the retained bounds, and whether the
+/// scan was cut. The extra `payload` field is the device's own and must not be relayed.
+fn journal_day_answer() -> Value {
+    json!({
+        "journal": true,
+        "day_start_ms": 1_000,
+        "day_end_ms": 2_000,
+        "oldest_seq": 3,
+        "last_seq": 9,
+        "oldest_ts": "1970-01-01T00:00:03Z",
+        "scanned": 6,
+        "more": true,
+        "calls": {
+            "console": { "calls": 1, "failed": 0 },
+            "panel": { "calls": 2, "failed": 1 },
+            "mesh": { "calls": 0, "failed": 0 },
+            "loopback": { "calls": 3, "failed": 1 },
+            "unknown": { "calls": 0, "failed": 0 },
+        },
+        "payload": "not relayed",
+    })
+}
+
+/// `GET /journal/day` asks the machine's own `journal.day` for the two instants the page counts and
+/// relays the five doors' counts, the retained bounds and the read's own cut — never the device's
+/// other fields, and never an audit line of its own.
+#[tokio::test]
+async fn the_journal_day_route_relays_the_day_it_asked_for() {
+    let fixture = Fixture::new("journal-day-relay");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        present_device(&fixture, &server, &signing_key(0xf7)).await;
+    let session = fixture.authenticate().await;
+    let before = audit_lines(&fixture).len();
+
+    let uri = format!("/journal/day?device={device_id}&from=1000&to=2000");
+    let app = fixture.app();
+    let session_for_read = session.clone();
+    let read = tokio::spawn(async move { send(app, get(&uri, Some(&session_for_read))).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("journal.day"),
+        "{frame}"
+    );
+    assert_eq!(
+        untagged_arguments(&frame),
+        json!({ "day_start_ms": 1000, "day_end_ms": 2000 }),
+        "the two instants are relayed as whole milliseconds: {frame}"
+    );
+    assert!(
+        frame_txn(&frame).is_some(),
+        "the day read rides the console's device transaction: {frame}"
+    );
+    assert!(
+        frame["trace"]
+            .as_str()
+            .is_some_and(|trace| !trace.is_empty()),
+        "the frame carries a minted trace, so the relay drops the pair it provokes: {frame}"
+    );
+
+    answer(
+        &mut device,
+        &frame,
+        tools_call_answer(json!(7), &journal_day_answer().to_string(), false),
+    )
+    .await;
+
+    let (status, body) = read.await.expect("the read finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["device"], json!(device_id));
+    assert_eq!(body["journal"], json!(true), "{body}");
+    assert_eq!(body["day_start_ms"], json!(1_000));
+    assert_eq!(body["day_end_ms"], json!(2_000));
+    assert_eq!(body["oldest_seq"], json!(3));
+    assert_eq!(body["oldest_ts"], json!("1970-01-01T00:00:03Z"));
+    assert_eq!(body["last_seq"], json!(9));
+    assert_eq!(body["scanned"], json!(6));
+    assert_eq!(body["more"], json!(true));
+    assert_eq!(
+        body["calls"]["loopback"],
+        json!({ "calls": 3, "failed": 1 })
+    );
+    assert_eq!(body["calls"]["panel"], json!({ "calls": 2, "failed": 1 }));
+    assert_eq!(body["unknown"], json!(false));
+    assert!(
+        body.get("payload").is_none(),
+        "the device's extra fields are not relayed: {body}"
+    );
+    assert_eq!(
+        audit_lines(&fixture).len(),
+        before,
+        "a day read is a read: it writes no audit line"
+    );
+}
+
+/// A range the console cannot ask about is refused before the machine is asked: each end is a whole
+/// millisecond, the range is half-open and ordered, and it is no longer than a day can be.
+#[tokio::test]
+async fn a_journal_day_range_that_is_not_a_day_is_refused() {
+    let fixture = Fixture::new("journal-day-range");
+    let (device_id, _token) = fixture.register(&signing_key(0xf8)).await;
+    let session = fixture.authenticate().await;
+
+    for (query, code, needle) in [
+        (
+            format!("device={device_id}&from=1000"),
+            "invalid_day_to",
+            "to is required",
+        ),
+        (
+            format!("device={device_id}&to=2000"),
+            "invalid_day_from",
+            "from is required",
+        ),
+        (
+            format!("device={device_id}&from=abc&to=2000"),
+            "invalid_day_from",
+            "from is required",
+        ),
+        (
+            format!("device={device_id}&from=2000&to=2000"),
+            "invalid_day_range",
+            "to must be after from",
+        ),
+        (
+            format!("device={device_id}&from=0&to={}", 27_u64 * 3_600_000),
+            "invalid_day_span",
+            "26 hours",
+        ),
+    ] {
+        let (status, body) = send(
+            fixture.app(),
+            get(&format!("/journal/day?{query}"), Some(&session)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{query}: {body}");
+        assert_eq!(body["error"], json!(code), "{query}: {body}");
+        assert!(
+            body["message"]
+                .as_str()
+                .is_some_and(|message| message.contains(needle)),
+            "{query}: the sentence names the rule: {body}"
+        );
+    }
+}
+
+/// A machine that answers the day question with a refusal leaves the day unknown, not empty: the
+/// page must not print a precise zero it did not measure.
+#[tokio::test]
+async fn a_journal_day_a_machine_cannot_answer_is_unknown_not_zero() {
+    let fixture = Fixture::new("journal-day-unknown");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        present_device(&fixture, &server, &signing_key(0xf9)).await;
+    let session = fixture.authenticate().await;
+
+    let uri = format!("/journal/day?device={device_id}&from=1000&to=2000");
+    let app = fixture.app();
+    let session_for_read = session.clone();
+    let read = tokio::spawn(async move { send(app, get(&uri, Some(&session_for_read))).await });
+
+    let frame = next_json(&mut device).await;
+    answer(
+        &mut device,
+        &frame,
+        tools_call_answer(json!(7), "not a day", true),
+    )
+    .await;
+
+    let (status, body) = read.await.expect("the read finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["unknown"], json!(true), "{body}");
+    assert_eq!(body["journal"], json!(false));
+    assert_eq!(body["day_start_ms"], json!(1_000));
+    assert_eq!(
+        body["calls"]["loopback"],
+        json!({ "calls": 0, "failed": 0 })
+    );
+}
+
+/// The route reads one machine, and both refusals happen before the machine is asked: an absent
+/// `device` names the parameter, and an id this console does not hold is the shared 404.
+#[tokio::test]
+async fn a_journal_read_requires_a_device_and_names_an_unknown_one() {
+    let fixture = Fixture::new("journal-read-device");
+    let session = fixture.authenticate().await;
+
+    let (status, body) = send(fixture.app(), get("/journal/read", Some(&session))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"], json!("device_required"), "{body}");
+    assert!(
+        body["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("?device=")),
+        "the sentence names the parameter: {body}"
+    );
+
+    let absent = "ab".repeat(32);
+    for presented in [absent.as_str(), "not-a-device"] {
+        let (status, body) = send(
+            fixture.app(),
+            get(&format!("/journal/read?device={presented}"), Some(&session)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{presented}: {body}");
+        assert_eq!(body["error"], json!("unknown_device"), "{body}");
+        let message = body["message"].as_str().expect("a reason");
+        assert!(message.contains("no machine"), "{message}");
+        assert!(message.contains("Machines page"), "{message}");
+    }
+}
+
+/// A machine too old to offer `journal.read` is unknown, never empty: the page must not read a tool
+/// that was never there as a machine that recorded nothing.
+#[tokio::test]
+async fn a_machine_that_does_not_offer_the_journal_read_is_unknown_rather_than_empty() {
+    let fixture = Fixture::new("journal-read-unknown-tool");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        present_device(&fixture, &server, &signing_key(0xf6)).await;
+    let session = fixture.authenticate().await;
+
+    let app = fixture.app();
+    let uri = format!("/journal/read?device={device_id}");
+    let session_for_read = session.clone();
+    let read = tokio::spawn(async move { send(app, get(&uri, Some(&session_for_read))).await });
+
+    let frame = next_json(&mut device).await;
+    answer_error(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": { "code": -32602, "message": "unknown tool: journal.read" },
+        }),
+    )
+    .await;
+
+    let (status, body) = read.await.expect("the read finishes");
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "an older device is a fact about the window, not a refusal: {body}"
+    );
+    assert_eq!(body["device"], json!(device_id), "{body}");
+    assert_eq!(body["unknown"], json!(true), "{body}");
+    assert_eq!(body["reason"], json!("unknown_tool"), "{body}");
+    assert_eq!(body["rows"], json!([]));
+    assert_eq!(body["journal"], json!(false));
+    assert_eq!(body["oldest_seq"], json!(0));
+    assert_eq!(body["last_seq"], json!(0));
+    assert_eq!(body["more"], json!(false));
+    assert!(body["read_at_ms"].as_u64().is_some(), "{body}");
+}
+
+/// A device that carries a tool-level failure inside a 200 result is refusing the read, not sending a
+/// body this console could not parse: MCP puts the sentence in `isError`, and the page still reads
+/// `unknown` rather than an empty record.
+#[tokio::test]
+async fn a_journal_read_the_device_refuses_in_a_result_is_unknown_too() {
+    let fixture = Fixture::new("journal-read-refused");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        present_device(&fixture, &server, &signing_key(0xf7)).await;
+    let session = fixture.authenticate().await;
+
+    let app = fixture.app();
+    let uri = format!("/journal/read?device={device_id}");
+    let session_for_read = session.clone();
+    let read = tokio::spawn(async move { send(app, get(&uri, Some(&session_for_read))).await });
+
+    let frame = next_json(&mut device).await;
+    answer(
+        &mut device,
+        &frame,
+        tools_call_answer(
+            json!(8),
+            "this machine's journal is switched off in its configuration",
+            true,
+        ),
+    )
+    .await;
+
+    let (status, body) = read.await.expect("the read finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["unknown"], json!(true), "{body}");
+    assert_eq!(body["reason"], json!("refused"), "{body}");
+    assert_eq!(body["rows"], json!([]));
+    assert_eq!(body["journal"], json!(false));
+    assert_eq!(body["more"], json!(false));
+}
+
+/// An answer that is not a journal window is unknown too: never an empty one. That includes the
+/// right envelope with the wrong `rows` type and one missing an end of the journal, because a console
+/// that read half an answer must not draw it as a machine with nothing retained.
+#[tokio::test]
+async fn a_journal_answer_this_console_cannot_read_is_unknown_rather_than_empty() {
+    let fixture = Fixture::new("journal-read-malformed");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        present_device(&fixture, &server, &signing_key(0xf8)).await;
+    let session = fixture.authenticate().await;
+
+    let answers = [
+        "not the journal object".to_owned(),
+        json!({
+            "journal": true,
+            "oldest_seq": 1,
+            "last_seq": 2,
+            "rows": "none",
+            "more": false,
+        })
+        .to_string(),
+        json!({ "journal": true, "oldest_seq": 1, "rows": [], "more": false }).to_string(),
+    ];
+    for (index, text) in answers.into_iter().enumerate() {
+        let app = fixture.app();
+        let uri = format!("/journal/read?device={device_id}");
+        let session_for_read = session.clone();
+        let read = tokio::spawn(async move { send(app, get(&uri, Some(&session_for_read))).await });
+
+        let frame = next_json(&mut device).await;
+        answer(
+            &mut device,
+            &frame,
+            tools_call_answer(json!(index + 1), &text, false),
+        )
+        .await;
+
+        let (status, body) = read.await.expect("the read finishes");
+        assert_eq!(status, StatusCode::OK, "answer {index}: {body}");
+        assert_eq!(body["unknown"], json!(true), "answer {index}: {body}");
+        assert_eq!(body["reason"], json!("malformed"), "answer {index}: {body}");
+        assert_eq!(body["rows"], json!([]), "answer {index}: {body}");
+        assert_eq!(body["journal"], json!(false), "answer {index}: {body}");
+        assert_eq!(body["oldest_seq"], json!(0), "answer {index}: {body}");
+        assert_eq!(body["last_seq"], json!(0), "answer {index}: {body}");
+        assert_eq!(body["more"], json!(false), "answer {index}: {body}");
+    }
+}
+
+/// The read goes to one machine, so a device with no open channel is the link refusal every other
+/// per-device read answers with, in the same words.
+#[tokio::test]
+async fn an_offline_machine_cannot_be_read() {
+    let fixture = Fixture::new("journal-read-offline");
+    let (device_id, _token) = fixture.register(&signing_key(0xf9)).await;
+    let session = fixture.authenticate().await;
+
+    let (status, body) = send(
+        fixture.app(),
+        get(&format!("/journal/read?device={device_id}"), Some(&session)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert_eq!(body["error"], json!("device reconnecting"), "{body}");
+    assert_eq!(
+        body["message"],
+        json!("this machine is reconnecting; try again in a moment")
+    );
+    assert_eq!(body["retry_after_ms"], json!(1_000));
+}
+
+/// A device that takes the frame and does not answer inside the console's bound is the same 504 the
+/// tool catalogue and the join answer, with the same sentence: one silence reads one way everywhere.
+#[tokio::test]
+async fn a_journal_read_that_waits_out_the_console_bound_is_a_504() {
+    let fixture = Fixture::with_timeout("journal-read-timeout", Duration::from_millis(50));
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, _device) = present_device(&fixture, &server, &signing_key(0xfa)).await;
+    let session = fixture.authenticate().await;
+
+    let (status, body) = send(
+        fixture.app(),
+        get(&format!("/journal/read?device={device_id}"), Some(&session)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::GATEWAY_TIMEOUT, "{body}");
+    assert_eq!(body["error"], json!("device timeout"));
+    assert_eq!(
+        body["message"],
+        json!("the device did not answer; it may still be working, so try again")
+    );
+}
+
+#[tokio::test]
+async fn the_journal_read_route_requires_an_operator_session() {
+    let fixture = Fixture::new("journal-read-no-session");
+    let (device_id, _token) = fixture.register(&signing_key(0xfb)).await;
+
+    let (status, body) = send(
+        fixture.app(),
+        get(&format!("/journal/read?device={device_id}"), None),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(body, json!({ "error": "unauthorized" }));
+}
+
+/// **THE READ IS NOT AN OPERATOR ACT.** It asks the machine what its journal holds so the page can
+/// draw the rows the console never saw; a read that audited itself would grow the very window it
+/// describes, and one Activity row per page would be noise about the console reading itself.
+#[tokio::test]
+async fn a_journal_read_writes_no_audit_line() {
+    let fixture = Fixture::new("journal-read-no-audit");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        present_device(&fixture, &server, &signing_key(0xfc)).await;
+    let session = fixture.authenticate().await;
+
+    let (status, before) = send(fixture.app(), get("/audit", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK);
+    let before_count = before.as_array().expect("the audit window").len();
+
+    let app = fixture.app();
+    let uri = format!("/journal/read?device={device_id}&limit=20");
+    let session_for_read = session.clone();
+    let read = tokio::spawn(async move { send(app, get(&uri, Some(&session_for_read))).await });
+    let frame = next_json(&mut device).await;
+    let trace = frame["trace"]
+        .as_str()
+        .expect("the frame carries a trace")
+        .to_owned();
+    answer(
+        &mut device,
+        &frame,
+        tools_call_answer(
+            json!(6),
+            &journal_read_answer(
+                1,
+                6,
+                json!([{ "seq": 6, "ts": "2026-11-13T08:00:00.000Z", "type": "call.started" }]),
+                false,
+            )
+            .to_string(),
+            false,
+        ),
+    )
+    .await;
+    let (status, body) = read.await.expect("the read finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let (status, after) = send(fixture.app(), get("/audit", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        after.as_array().expect("the audit window").len(),
+        before_count,
+        "the read adds no line: {after}"
+    );
+    let text = audit_text(&fixture);
+    assert!(
+        !text.contains("journal.read"),
+        "no line names the tool the read called: {text}"
+    );
+    assert!(
+        !text.contains(&trace),
+        "no line carries the trace the read minted: {text}"
+    );
+}
+
+// ---- the terminal stream: the page's one open connection per session --------------------------
+
+/// A raw HTTP/1.1 GET whose body is read as it arrives.
+///
+/// The SSE route never ends on its own while a session is live, so a tower `oneshot` (which waits
+/// for the whole body) cannot see it; this is the smallest client that can, and it reads the same
+/// socket the browser does.
+async fn raw_get(server: &TestServer, path: &str, headers: &str, until: &str) -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut socket = tokio::net::TcpStream::connect(server.addr)
+        .await
+        .expect("a connection to the test server");
+    let request = format!(
+        "GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nAccept: text/event-stream\r\nConnection: close\r\n{headers}\r\n"
+    );
+    socket
+        .write_all(request.as_bytes())
+        .await
+        .expect("the request is written");
+    let mut seen: Vec<u8> = Vec::new();
+    let mut chunk = [0u8; 4096];
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        match tokio::time::timeout_at(deadline, socket.read(&mut chunk)).await {
+            Ok(Ok(0)) | Err(_) | Ok(Err(_)) => break,
+            Ok(Ok(read)) => {
+                seen.extend_from_slice(&chunk[..read]);
+                if String::from_utf8_lossy(&seen).contains(until) {
+                    break;
+                }
+            }
+        }
+    }
+    String::from_utf8_lossy(&seen).into_owned()
+}
+
+fn bearer(session: &str) -> String {
+    format!("Authorization: Bearer {session}\r\n")
+}
+
+/// One tool's text answer, as a device sends it: the MCP content envelope around JSON.
+fn tool_result(value: Value) -> Value {
+    json!({ "content": [{ "type": "text", "text": value.to_string() }], "isError": false })
+}
+
+/// The page subscribes once and each read's bytes arrive on that connection; the device sees the
+/// same `terminal.read` it would have answered for a poll.
+#[tokio::test]
+async fn a_terminal_stream_pushes_each_read_down_one_connection() {
+    let fixture = Fixture::new("terminal-stream-output");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x31)).await;
+    let session = fixture.authenticate().await;
+
+    let path = format!("/terminal/{device_id}/session-1/stream?from=7");
+    let auth = bearer(&session);
+    let stream = raw_get(&server, &path, &auth, "hello-stream");
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"]["params"]["name"], json!("terminal.read"));
+        assert_eq!(frame["mcp"]["params"]["arguments"]["cursor"], json!(7));
+        assert_eq!(
+            frame["mcp"]["params"]["arguments"]["wait_ms"],
+            json!(20_000)
+        );
+        answer(
+            &mut device,
+            &frame,
+            tool_result(json!({ "data": "hello-stream", "cursor": 19, "alive": true })),
+        )
+        .await;
+        // The stream reads again at once; leaving it parked is what a quiet session looks like.
+        let _ = tokio::time::timeout(Duration::from_secs(2), next_json(&mut device)).await;
+    };
+    let (body, ()) = tokio::join!(stream, device_side);
+
+    assert!(body.contains("event: output"), "{body}");
+    assert!(body.contains("hello-stream"), "{body}");
+    assert!(body.contains("\"cursor\":19"), "{body}");
+}
+
+/// A device from before `wait_ms` refuses the field once; the stream drops it and keeps going, and
+/// a read with no wait is paced so the console does not spin against it.
+#[tokio::test]
+async fn a_stream_drops_wait_ms_for_a_device_that_refuses_it() {
+    let fixture = Fixture::new("terminal-stream-nowait");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x32)).await;
+    let session = fixture.authenticate().await;
+
+    let path = format!("/terminal/{device_id}/session-1/stream");
+    let auth = bearer(&session);
+    let stream = raw_get(&server, &path, &auth, "after-the-refusal");
+    let device_side = async {
+        let first = next_json(&mut device).await;
+        assert!(first["mcp"]["params"]["arguments"]["wait_ms"].is_number());
+        device
+            .send(WsMessage::Text(
+                json!({
+                    "id": first["id"].clone(),
+                    "error": { "code": -32602, "message": "unknown field `wait_ms`" },
+                })
+                .to_string(),
+            ))
+            .await
+            .expect("the refusal is sent");
+        let second = next_json(&mut device).await;
+        assert!(
+            second["mcp"]["params"]["arguments"]["wait_ms"].is_null(),
+            "a refusal must not be followed by the same field: {second}"
+        );
+        answer(
+            &mut device,
+            &second,
+            tool_result(json!({ "data": "after-the-refusal", "cursor": 17, "alive": true })),
+        )
+        .await;
+        let _ = tokio::time::timeout(Duration::from_secs(2), next_json(&mut device)).await;
+    };
+    let (body, ()) = tokio::join!(stream, device_side);
+
+    assert!(body.contains("event: output"), "{body}");
+    assert!(body.contains("after-the-refusal"), "{body}");
+}
+
+/// The session's end is a fact the stream carries, with the device's own exit facts.
+#[tokio::test]
+async fn a_stream_reports_the_end_of_a_session() {
+    let fixture = Fixture::new("terminal-stream-end");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x33)).await;
+    let session = fixture.authenticate().await;
+
+    let path = format!("/terminal/{device_id}/session-1/stream");
+    let auth = bearer(&session);
+    let stream = raw_get(&server, &path, &auth, "event: end");
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        answer(
+            &mut device,
+            &frame,
+            tool_result(json!({ "data": "", "cursor": 3, "alive": false, "exit_code": 3 })),
+        )
+        .await;
+    };
+    let (body, ()) = tokio::join!(stream, device_side);
+
+    assert!(body.contains("event: end"), "{body}");
+    assert!(body.contains("\"exit_code\":3"), "{body}");
+}
+
+/// A refused read is the page's fault sentence, on the same connection.
+#[tokio::test]
+async fn a_stream_carries_a_refused_read_as_a_fault() {
+    let fixture = Fixture::new("terminal-stream-fault");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x34)).await;
+    let session = fixture.authenticate().await;
+
+    let path = format!("/terminal/{device_id}/session-1/stream");
+    let auth = bearer(&session);
+    let stream = raw_get(&server, &path, &auth, "no such session");
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        device
+            .send(WsMessage::Text(
+                json!({
+                    "id": frame["id"].clone(),
+                    "error": { "code": -32000, "message": "no such session" },
+                })
+                .to_string(),
+            ))
+            .await
+            .expect("the refusal is sent");
+    };
+    let (body, ()) = tokio::join!(stream, device_side);
+
+    assert!(body.contains("event: fault"), "{body}");
+    assert!(body.contains("no such session"), "{body}");
+}
+
+/// The stream is an operator route: no session is no stream.
+#[tokio::test]
+async fn a_terminal_stream_needs_an_operator_session() {
+    let fixture = Fixture::new("terminal-stream-auth");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token) = fixture.register(&signing_key(0x35)).await;
+
+    let path = format!("/terminal/{device_id}/session-1/stream");
+    let body = raw_get(&server, &path, "", "401").await;
+    assert!(body.starts_with("HTTP/1.1 401"), "{body}");
+}
+
+/// A device that names the stream capability is followed, not polled: the console sends one
+/// subscribe frame, the ack is the first read, and every later chunk arrives unprompted.
+#[tokio::test]
+async fn a_stream_follows_a_device_that_advertises_it() {
+    let fixture = Fixture::new("terminal-stream-follow");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x36)).await;
+    // The capability arrives in the host frame, the same way a new build announces it.
+    device
+        .send(WsMessage::Text(
+            json!({ "host": { "machine": "workshop", "caps": ["terminal.stream"] } }).to_string(),
+        ))
+        .await
+        .expect("the host frame is sent");
+    tokio::task::yield_now().await;
+
+    let session = fixture.authenticate().await;
+    let path = format!("/terminal/{device_id}/session-1/stream?from=4");
+    let auth = bearer(&session);
+    let body = raw_get(&server, &path, &auth, "pushed-chunk");
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["subscribe"]["session_id"], json!("session-1"));
+        assert_eq!(frame["subscribe"]["from"], json!(4));
+        assert_eq!(frame["mcp"]["params"]["name"], json!("terminal.read"));
+        assert_eq!(frame["mcp"]["params"]["arguments"]["cursor"], json!(4));
+        let sub = frame["id"].clone();
+        answer(
+            &mut device,
+            &frame,
+            tool_result(json!({ "data": "hello-ack", "cursor": 9, "alive": true })),
+        )
+        .await;
+        device
+            .send(WsMessage::Text(
+                json!({
+                    "term": { "sub": sub, "data": "pushed-chunk", "cursor": 21, "alive": true }
+                })
+                .to_string(),
+            ))
+            .await
+            .expect("the pushed frame is sent");
+        // The client leaves after reading; the console's unsubscribe is the next thing it hears.
+        let _ = tokio::time::timeout(Duration::from_secs(2), next_json(&mut device)).await;
+    };
+    let (body, ()) = tokio::join!(body, device_side);
+
+    assert!(body.contains("event: output"), "{body}");
+    assert!(body.contains("hello-ack"), "{body}");
+    assert!(body.contains("pushed-chunk"), "{body}");
+}
+
+/// **A TOOL ANSWER IS NOT QUEUED BEHIND A LIVE STREAM.** With a terminal subscription open and
+/// pushing, a read through `/mcp/all` is written and answered on the same device channel; the
+/// console's pending map routes it by its own envelope id, so the client sees the read's answer
+/// while the stream's bytes are still crossing the connection.
+#[tokio::test]
+async fn a_read_answer_resolves_while_a_terminal_stream_is_open() {
+    let fixture = Fixture::new("terminal-stream-and-read");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x3d)).await;
+    device
+        .send(WsMessage::Text(
+            json!({ "host": { "machine": "workshop", "caps": ["terminal.stream"] } }).to_string(),
+        ))
+        .await
+        .expect("the host frame is sent");
+    tokio::task::yield_now().await;
+
+    let session = fixture.authenticate().await;
+    let (_id, token) = aggregate_token_for(
+        &fixture,
+        &session,
+        std::slice::from_ref(&device_id),
+        &["terminal.read"],
+    )
+    .await;
+    let path = format!("/terminal/{device_id}/session-1/stream?from=4");
+    let auth = bearer(&session);
+    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+
+    let stream = raw_get(&server, &path, &auth, "stream-still-open");
+    let device_side = async {
+        // The stream's subscribe is the first frame; its ack is an empty, still-alive read.
+        let subscribe = next_json(&mut device).await;
+        assert_eq!(subscribe["subscribe"]["session_id"], json!("session-1"));
+        let sub = subscribe["id"].clone();
+        answer(
+            &mut device,
+            &subscribe,
+            tool_result(json!({ "data": "", "cursor": 4, "alive": true })),
+        )
+        .await;
+        device
+            .send(WsMessage::Text(
+                json!({
+                    "term": { "sub": sub, "data": "stream-open", "cursor": 9, "alive": true }
+                })
+                .to_string(),
+            ))
+            .await
+            .expect("the pushed frame is sent");
+        // The read is a second request on the same channel; the stream stays open across it.
+        let _ = ready_tx.send(());
+        let read = next_json(&mut device).await;
+        assert_eq!(read["mcp"]["params"]["name"], json!("terminal.read"));
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        answer(
+            &mut device,
+            &read,
+            json!({
+                "jsonrpc": "2.0", "id": 13,
+                "result": tool_result(json!({
+                    "data": "answered-while-streaming", "cursor": 9, "alive": true
+                })),
+            }),
+        )
+        .await;
+        // The final marker exists only if the subscription survived the interleaved tool exchange.
+        device
+            .send(WsMessage::Text(
+                json!({
+                    "term": { "sub": sub, "data": "stream-still-open", "cursor": 10, "alive": true }
+                })
+                .to_string(),
+            ))
+            .await
+            .expect("the final pushed frame is sent");
+    };
+    let http = async {
+        ready_rx
+            .await
+            .expect("the stream is subscribed before the read is sent");
+        send(
+            fixture.app(),
+            aggregate_request(
+                &token,
+                json!({
+                    "jsonrpc": "2.0", "id": 13, "method": "tools/call",
+                    "params": {
+                        "name": "terminal.read",
+                        "arguments": {
+                            "device": device_id,
+                            "id": "session-1",
+                            "cursor": 4,
+                            "wait_ms": 1_000,
+                        },
+                    },
+                }),
+            ),
+        )
+        .await
+    };
+    let (stream_body, (), (status, body)) = tokio::join!(stream, device_side, http);
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let text = body["result"]["content"][0]["text"]
+        .as_str()
+        .expect("the device's read text");
+    assert!(text.contains("answered-while-streaming"), "{text}");
+    assert!(stream_body.contains("stream-open"), "{stream_body}");
+    assert!(stream_body.contains("stream-still-open"), "{stream_body}");
+}
+
+/// The subscription's ack for an up-to-date cursor is an empty, still-alive read. It is not the
+/// stream's end: the output the device pushes next must arrive on the same connection.
+#[tokio::test]
+async fn a_stream_does_not_end_on_an_empty_ack() {
+    let fixture = Fixture::new("terminal-stream-empty-ack");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x3c)).await;
+    device
+        .send(WsMessage::Text(
+            json!({ "host": { "machine": "workshop", "caps": ["terminal.stream"] } }).to_string(),
+        ))
+        .await
+        .expect("the host frame is sent");
+    tokio::task::yield_now().await;
+
+    let session = fixture.authenticate().await;
+    let path = format!("/terminal/{device_id}/session-1/stream?from=4");
+    let auth = bearer(&session);
+    let stream = raw_get(&server, &path, &auth, "after-the-empty-ack");
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        let sub = frame["id"].clone();
+        answer(
+            &mut device,
+            &frame,
+            tool_result(json!({ "data": "", "cursor": 4, "alive": true })),
+        )
+        .await;
+        device
+            .send(WsMessage::Text(
+                json!({
+                    "term": {
+                        "sub": sub,
+                        "data": "after-the-empty-ack",
+                        "cursor": 22,
+                        "alive": true,
+                    }
+                })
+                .to_string(),
+            ))
+            .await
+            .expect("the pushed frame is sent");
+        // The client leaves after reading; the console's unsubscribe is the next thing it hears.
+        let _ = tokio::time::timeout(Duration::from_secs(2), next_json(&mut device)).await;
+    };
+    let (body, ()) = tokio::join!(stream, device_side);
+
+    assert!(
+        body.contains("event: output"),
+        "an empty ack must not end the stream: {body}"
+    );
+    assert!(body.contains("after-the-empty-ack"), "{body}");
+}
+
+/// An empty read that is still alive can also be pushed between two chunks: it is skipped, and the
+/// second chunk still arrives.
+#[tokio::test]
+async fn a_stream_skips_an_empty_alive_frame_between_outputs() {
+    let fixture = Fixture::new("terminal-stream-empty-middle");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x3d)).await;
+    device
+        .send(WsMessage::Text(
+            json!({ "host": { "machine": "workshop", "caps": ["terminal.stream"] } }).to_string(),
+        ))
+        .await
+        .expect("the host frame is sent");
+    tokio::task::yield_now().await;
+
+    let session = fixture.authenticate().await;
+    let path = format!("/terminal/{device_id}/session-1/stream?from=0");
+    let auth = bearer(&session);
+    let stream = raw_get(&server, &path, &auth, "second-chunk");
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        let sub = frame["id"].clone();
+        answer(
+            &mut device,
+            &frame,
+            tool_result(json!({ "data": "first-chunk", "cursor": 11, "alive": true })),
+        )
+        .await;
+        for term in [
+            json!({ "sub": sub.clone(), "data": "", "cursor": 11, "alive": true }),
+            json!({ "sub": sub, "data": "second-chunk", "cursor": 23, "alive": true }),
+        ] {
+            device
+                .send(WsMessage::Text(json!({ "term": term }).to_string()))
+                .await
+                .expect("the pushed frame is sent");
+        }
+        let _ = tokio::time::timeout(Duration::from_secs(2), next_json(&mut device)).await;
+    };
+    let (body, ()) = tokio::join!(stream, device_side);
+
+    assert!(body.contains("first-chunk"), "{body}");
+    assert!(
+        body.contains("second-chunk"),
+        "an empty alive frame must be skipped, not end the stream: {body}"
+    );
+}
+
+/// A pushed `alive:false` frame is the session's end, with the device's exit facts.
+#[tokio::test]
+async fn a_pushed_end_frame_yields_end() {
+    let fixture = Fixture::new("terminal-stream-pushed-end");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x3e)).await;
+    device
+        .send(WsMessage::Text(
+            json!({ "host": { "machine": "workshop", "caps": ["terminal.stream"] } }).to_string(),
+        ))
+        .await
+        .expect("the host frame is sent");
+    tokio::task::yield_now().await;
+
+    let session = fixture.authenticate().await;
+    let path = format!("/terminal/{device_id}/session-1/stream?from=0");
+    let auth = bearer(&session);
+    let stream = raw_get(&server, &path, &auth, "event: end");
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        let sub = frame["id"].clone();
+        answer(
+            &mut device,
+            &frame,
+            tool_result(json!({ "data": "", "cursor": 7, "alive": true })),
+        )
+        .await;
+        device
+            .send(WsMessage::Text(
+                json!({
+                    "term": {
+                        "sub": sub,
+                        "alive": false,
+                        "cursor": 7,
+                        "exit_code": 9,
+                    }
+                })
+                .to_string(),
+            ))
+            .await
+            .expect("the pushed end is sent");
+        let _ = tokio::time::timeout(Duration::from_secs(2), next_json(&mut device)).await;
+    };
+    let (body, ()) = tokio::join!(stream, device_side);
+
+    assert!(body.contains("event: end"), "{body}");
+    assert!(body.contains("\"exit_code\":9"), "{body}");
+}
+
+/// A follow failure is a pushed `error` frame; the stream carries it as `fault`.
+#[tokio::test]
+async fn a_pushed_fault_frame_yields_fault() {
+    let fixture = Fixture::new("terminal-stream-pushed-fault");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x3f)).await;
+    device
+        .send(WsMessage::Text(
+            json!({ "host": { "machine": "workshop", "caps": ["terminal.stream"] } }).to_string(),
+        ))
+        .await
+        .expect("the host frame is sent");
+    tokio::task::yield_now().await;
+
+    let session = fixture.authenticate().await;
+    let path = format!("/terminal/{device_id}/session-1/stream?from=0");
+    let auth = bearer(&session);
+    let stream = raw_get(&server, &path, &auth, "the follow failed");
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        let sub = frame["id"].clone();
+        answer(
+            &mut device,
+            &frame,
+            tool_result(json!({ "data": "", "cursor": 7, "alive": true })),
+        )
+        .await;
+        device
+            .send(WsMessage::Text(
+                json!({
+                    "term": { "sub": sub, "error": "the follow failed" }
+                })
+                .to_string(),
+            ))
+            .await
+            .expect("the pushed fault is sent");
+        let _ = tokio::time::timeout(Duration::from_secs(2), next_json(&mut device)).await;
+    };
+    let (body, ()) = tokio::join!(stream, device_side);
+
+    assert!(body.contains("event: fault"), "{body}");
+    assert!(body.contains("the follow failed"), "{body}");
+}
+
+/// Without the capability the console keeps the parked-read pump: the page cannot tell the
+/// difference, and an old device never sees a frame it cannot parse.
+#[tokio::test]
+async fn a_stream_polls_a_device_that_does_not_advertise_it() {
+    let fixture = Fixture::new("terminal-stream-polls");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x37)).await;
+    let session = fixture.authenticate().await;
+
+    let path = format!("/terminal/{device_id}/session-1/stream?from=0");
+    let auth = bearer(&session);
+    let body = raw_get(&server, &path, &auth, "polled-chunk");
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert!(
+            frame["subscribe"].is_null(),
+            "a device without the capability must not be sent a subscribe frame: {frame}"
+        );
+        assert_eq!(frame["mcp"]["params"]["name"], json!("terminal.read"));
+        answer(
+            &mut device,
+            &frame,
+            tool_result(json!({ "data": "polled-chunk", "cursor": 12, "alive": true })),
+        )
+        .await;
+        let _ = tokio::time::timeout(Duration::from_secs(1), next_json(&mut device)).await;
+    };
+    let (body, ()) = tokio::join!(body, device_side);
+
+    assert!(body.contains("event: output"), "{body}");
+    assert!(body.contains("polled-chunk"), "{body}");
+}
+
+/// **A POLLING READ IS NOT THE RECORD.** The page's parked `terminal.read` is the console showing
+/// the screen it already shows; it leaves no audit line and no live event. The same tool at a
+/// person's action is recorded, which is the rule this pair pins from both sides.
+#[tokio::test]
+async fn a_polling_terminal_read_is_not_audited_and_does_not_reach_the_live_stream() {
+    let fixture = Fixture::new("terminal-poll-not-audited");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x38)).await;
+    let session = fixture.authenticate().await;
+
+    let mut events = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut events, &mut seen, "event: snapshot").await;
+
+    let path = format!("/terminal/{device_id}/session-1/stream?from=0");
+    let auth = bearer(&session);
+    let stream = raw_get(&server, &path, &auth, "quiet-read");
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        answer(
+            &mut device,
+            &frame,
+            tool_result(json!({ "data": "quiet-read", "cursor": 10, "alive": true })),
+        )
+        .await;
+        let _ = tokio::time::timeout(Duration::from_secs(1), next_json(&mut device)).await;
+    };
+    let (body, ()) = tokio::join!(stream, device_side);
+    assert!(body.contains("quiet-read"), "{body}");
+
+    let mut live = String::new();
+    read_for(&mut events, &mut live, Duration::from_millis(400)).await;
+    assert!(
+        !live.contains("terminal.read"),
+        "a polling read must not publish a live event: {live}"
+    );
+
+    let lines = audit_lines(&fixture);
+    assert!(
+        lines
+            .iter()
+            .all(|line| line["tool"] != json!("terminal.read")),
+        "a polling read must not write an audit line: {lines:?}"
+    );
+}
+
+/// The other half of the pair: the same `terminal.read` from the UI — the operator route, no poll
+/// marker — is the AI page's own call and is recorded on both the file and the stream.
+#[tokio::test]
+async fn the_same_terminal_read_from_the_ui_is_recorded() {
+    let fixture = Fixture::new("terminal-ui-audited");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x39)).await;
+    let session = fixture.authenticate().await;
+
+    let mut events = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut events, &mut seen, "event: snapshot").await;
+
+    let app = fixture.app();
+    let call = tokio::spawn(async move {
+        send(
+            app,
+            post_json_bearer(
+                "/mcp",
+                &session,
+                json!({
+                    "device_id": device_id,
+                    "request": {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "tools/call",
+                        "params": { "name": "terminal.read", "arguments": { "id": "s-1", "cursor": 0 } },
+                    },
+                }),
+            ),
+        )
+        .await
+    });
+    let frame = next_json(&mut device).await;
+    answer(
+        &mut device,
+        &frame,
+        tool_result(json!({ "data": "ui-read", "cursor": 6, "alive": true })),
+    )
+    .await;
+    let (status, _) = call.await.expect("the call finished");
+    assert_eq!(status, StatusCode::OK);
+
+    read_until(&mut events, &mut seen, "\"tool\":\"terminal.read\"").await;
+    assert!(
+        seen.contains("\"tool\":\"terminal.read\""),
+        "the UI's read reaches the live stream: {seen}"
+    );
+
+    let lines = audit_lines(&fixture);
+    let line = lines
+        .iter()
+        .find(|line| line["tool"] == json!("terminal.read"))
+        .expect("the UI's read is in the audit");
+    assert_eq!(line["kind"], json!("mcp"), "{line}");
+    assert_eq!(line["caller"], json!("console"), "{line}");
+}
+
+/// The page's automatic list read sends `poll: true`; that read is not the record either.
+#[tokio::test]
+async fn a_poll_marked_read_is_not_audited() {
+    let fixture = Fixture::new("mcp-poll-success");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x3a)).await;
+    let session = fixture.authenticate().await;
+
+    let mut events = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut events, &mut seen, "event: snapshot").await;
+
+    let app = fixture.app();
+    let call = tokio::spawn(async move {
+        send(
+            app,
+            post_json_bearer(
+                "/mcp",
+                &session,
+                json!({
+                    "device_id": device_id,
+                    "poll": true,
+                    "request": {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "tools/call",
+                        "params": { "name": "terminal.list", "arguments": {} },
+                    },
+                }),
+            ),
+        )
+        .await
+    });
+    let frame = next_json(&mut device).await;
+    answer(&mut device, &frame, tool_result(json!({ "content": [] }))).await;
+    let (status, _) = call.await.expect("the call finished");
+    assert_eq!(status, StatusCode::OK);
+
+    let mut live = String::new();
+    read_for(&mut events, &mut live, Duration::from_millis(400)).await;
+    assert!(
+        !live.contains("terminal.list"),
+        "a polled read must not publish a live event: {live}"
+    );
+    let lines = audit_lines(&fixture);
+    assert!(
+        lines
+            .iter()
+            .all(|line| line["tool"] != json!("terminal.list")),
+        "a polled read must not write an audit line: {lines:?}"
+    );
+}
+
+/// A poll that cannot reach the device is a `poll` line: the machine's silence is not the AI's
+/// failure and must not read as a refusal of its call. The line keeps the status and the reason.
+#[tokio::test]
+async fn a_failed_poll_is_a_poll_line_and_not_a_denial() {
+    let fixture = Fixture::new("mcp-poll-failure");
+    let (device_id, _token) = fixture.register(&signing_key(0x3b)).await;
+    let session = fixture.authenticate().await;
+
+    let (status, body) = send(
+        fixture.app(),
+        post_json_bearer(
+            "/mcp",
+            &session,
+            json!({
+                "device_id": device_id,
+                "poll": true,
+                "request": {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": { "name": "terminal.read", "arguments": { "id": "s-1", "cursor": 0 } },
+                },
+            }),
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    let lines = audit_lines(&fixture);
+    let line = lines.last().expect("the poll line");
+    assert_eq!(line["kind"], json!("poll"), "{line}");
+    assert_eq!(line["status"], json!(503), "{line}");
+    assert_eq!(line["detail"], json!("device reconnecting"), "{line}");
+    assert_eq!(line["tool"], json!("terminal.read"), "{line}");
+    assert_eq!(line["caller"], json!("console"), "{line}");
+}
+
+// ---- the live activity stream: a person reads what the AI did --------------------------------
+
+/// Read an open SSE connection until `needle` appears (or five seconds pass).
+async fn read_until(socket: &mut tokio::net::TcpStream, seen: &mut String, needle: &str) {
+    use tokio::io::AsyncReadExt;
+    let mut chunk = [0u8; 4096];
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        if seen.contains(needle) {
+            return;
+        }
+        match tokio::time::timeout_at(deadline, socket.read(&mut chunk)).await {
+            Ok(Ok(0)) | Err(_) | Ok(Err(_)) => return,
+            Ok(Ok(read)) => seen.push_str(&String::from_utf8_lossy(&chunk[..read])),
+        }
+    }
+}
+
+/// Read whatever arrives for `window`, without waiting for a needle: the negative half of
+/// [`read_until`], for proving a stream stayed quiet.
+async fn read_for(socket: &mut tokio::net::TcpStream, seen: &mut String, window: Duration) {
+    use tokio::io::AsyncReadExt;
+    let mut chunk = [0u8; 4096];
+    let deadline = tokio::time::Instant::now() + window;
+    loop {
+        match tokio::time::timeout_at(deadline, socket.read(&mut chunk)).await {
+            Ok(Ok(0)) | Err(_) | Ok(Err(_)) => return,
+            Ok(Ok(read)) => seen.push_str(&String::from_utf8_lossy(&chunk[..read])),
+        }
+    }
+}
+
+/// Like [`read_until`], but only after `from`: one capture's event, not the previous capture's.
+///
+/// The stream is one connection for the page's life, so a needle that was already consumed once
+/// would otherwise satisfy every later wait.
+async fn read_until_after(
+    socket: &mut tokio::net::TcpStream,
+    seen: &mut String,
+    needle: &str,
+    from: usize,
+) {
+    use tokio::io::AsyncReadExt;
+    let mut chunk = [0u8; 4096];
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        if seen.get(from..).is_some_and(|tail| tail.contains(needle)) {
+            return;
+        }
+        match tokio::time::timeout_at(deadline, socket.read(&mut chunk)).await {
+            Ok(Ok(0)) | Err(_) | Ok(Err(_)) => return,
+            Ok(Ok(read)) => seen.push_str(&String::from_utf8_lossy(&chunk[..read])),
+        }
+    }
+}
+
+/// One SSE event's JSON body by name: the last one in the buffer.
+///
+/// The stream carries `event: <name>\ndata: <json>\n\n`; a test that needs the started frame's id
+/// parses the body rather than matching a field inside a buffer that also holds the snapshot.
+fn last_event(seen: &str, name: &str) -> Value {
+    // The stream carries an `id:` line between the event name and its data (S1). Older buffers in
+    // this file predate it, so find the data line rather than assuming it directly follows.
+    let marker = format!("event: {name}\n");
+    let start = seen
+        .rfind(&marker)
+        .unwrap_or_else(|| panic!("the buffer holds a {name} event: {seen}"))
+        + marker.len();
+    let rest = &seen[start..];
+    let data_at = rest
+        .find("data: ")
+        .unwrap_or_else(|| panic!("the {name} event carries data: {seen}"));
+    let after = &rest[data_at + "data: ".len()..];
+    let end = after.find('\n').unwrap_or(after.len());
+    serde_json::from_str(&after[..end])
+        .unwrap_or_else(|error| panic!("the {name} event's data is JSON: {error}: {seen}"))
+}
+
+/// The newest `evidence.shot` path in an SSE buffer, without pulling a JSON parser into a test that
+/// only needs the one string.
+fn last_shot(seen: &str) -> Option<String> {
+    let marker = "\"shot\":\"";
+    let start = seen.rfind(marker)? + marker.len();
+    let rest = &seen[start..];
+    let end = rest.find('"')?;
+    Some(rest[..end].to_owned())
+}
+
+/// A response that is not JSON: an image's exact bytes and headers.
+async fn send_bytes(
+    app: Router,
+    request: Request<Body>,
+) -> (StatusCode, axum::http::HeaderMap, Vec<u8>) {
+    let response = app.oneshot(request).await.expect("the router answers");
+    let status = response.status();
+    let headers = response.headers().clone();
+    let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+        .await
+        .expect("the body is readable")
+        .to_vec();
+    (status, headers, bytes)
+}
+
+/// A 1×1 PNG, as the device's `screen.capture` answers: 68 bytes, valid chunks, a real signature.
+const ONE_PIXEL_PNG: &str =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+
+/// The bytes behind [`ONE_PIXEL_PNG`], for byte-for-byte comparisons without a base64 dependency.
+fn one_pixel_png() -> Vec<u8> {
+    let text = "89504e470d0a1a0a0000000d4948445200000001000000010804000000b51c0c020000000b4944415478da6364f80f00010501012718e3660000000049454e44ae426082";
+    (0..text.len())
+        .step_by(2)
+        .map(|index| {
+            u8::from_str_radix(&text[index..index + 2], 16).expect("the fixture is lowercase hex")
+        })
         .collect()
 }
 
+/// One successful `screen.capture` from the fake device: the real channel carries the JSON-RPC
+/// envelope, whose `result` is the MCP content list.
+fn screen_capture_result(id: u64) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": {
+            "content": [{
+                "type": "text",
+                "text": json!({
+                    "format": "png",
+                    "data": ONE_PIXEL_PNG,
+                    "width": 1,
+                    "height": 1,
+                }).to_string()
+            }],
+            "isError": false
+        }
+    })
+}
+
+async fn open_events(server: &TestServer, session: &str) -> tokio::net::TcpStream {
+    use tokio::io::AsyncWriteExt;
+    let mut socket = tokio::net::TcpStream::connect(server.addr)
+        .await
+        .expect("a connection to the test server");
+    let request = format!(
+        "GET /events HTTP/1.1\r\nHost: 127.0.0.1\r\nAccept: text/event-stream\r\n{}\r\n",
+        bearer(session)
+    );
+    socket
+        .write_all(request.as_bytes())
+        .await
+        .expect("the request is written");
+    socket
+}
+
 #[tokio::test]
-async fn the_page_names_only_routes_the_router_serves() {
-    let fixture = Fixture::new("page-routes");
-    let (status, _, page) = send_text(fixture.app(), get("/", None)).await;
+async fn the_activity_stream_opens_with_a_humanised_snapshot() {
+    let fixture = Fixture::new("activity-snapshot");
+    let server = TestServer::start(&fixture.console).await;
+    let session = fixture.authenticate().await;
+    fixture.enroll(&session).await;
+    register_fixture_device(&fixture, &signing_key(0x51)).await;
+
+    let mut socket = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut socket, &mut seen, "event: snapshot").await;
+
+    assert!(seen.contains("event: snapshot"), "{seen}");
+    assert!(
+        seen.contains("A machine registered"),
+        "the snapshot is sentences, not codes: {seen}"
+    );
+    assert!(seen.contains("\"sentence\""), "{seen}");
+}
+
+#[tokio::test]
+async fn a_line_written_after_the_connection_arrives_live() {
+    let fixture = Fixture::new("activity-live");
+    let server = TestServer::start(&fixture.console).await;
+    let session = fixture.authenticate().await;
+    let device_id = register_fixture_device(&fixture, &signing_key(0x52)).await;
+
+    let mut socket = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut socket, &mut seen, "event: snapshot").await;
+    assert!(
+        !seen.contains("Issued a grant"),
+        "the grant is not written yet: {seen}"
+    );
+
+    fixture.create_grant(&session, &device_id, 60).await;
+    read_until(&mut socket, &mut seen, "Issued a grant").await;
+
+    assert!(seen.contains("event: activity"), "{seen}");
+    assert!(seen.contains("Issued a grant"), "{seen}");
+}
+
+#[tokio::test]
+async fn a_proxied_call_reaches_the_stream_as_a_sentence() {
+    let fixture = Fixture::new("activity-call");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x53)).await;
+    let session = fixture.authenticate().await;
+
+    let mut socket = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut socket, &mut seen, "event: snapshot").await;
+
+    let app = fixture.app();
+    let call = tokio::spawn(async move {
+        send(
+            app,
+            post_json_bearer(
+                "/mcp",
+                &session,
+                json!({
+                    "device_id": device_id,
+                    "request": {
+                        "jsonrpc": "2.0",
+                        "id": 3,
+                        "method": "tools/call",
+                        "params": { "name": "files.read", "arguments": { "path": "notes.txt" } },
+                    },
+                }),
+            ),
+        )
+        .await
+    });
+
+    let frame = next_json(&mut device).await;
+    answer(&mut device, &frame, tool_result(json!({ "content": "hi" }))).await;
+    let (status, _) = call.await.expect("the call finished");
     assert_eq!(status, StatusCode::OK);
 
-    let routes = page_routes(&page);
+    read_until(&mut socket, &mut seen, "Read `notes.txt`").await;
+    assert!(seen.contains("Read `notes.txt`"), "{seen}");
+    assert!(seen.contains("\"ok\":true"), "{seen}");
+}
+
+/// **THE LIVE EVENT CARRIES THE JOIN KEY.** The page's merge keeps the live copy of a row over the
+/// audit line it replaces, so a live event without `trace` would erase the one value that joins the
+/// row to the machine's journal exactly where the page reads first.
+#[tokio::test]
+async fn a_proxied_calls_live_event_carries_the_trace() {
+    let fixture = Fixture::new("activity-call-trace");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x5f)).await;
+    let session = fixture.authenticate().await;
+
+    let mut socket = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut socket, &mut seen, "event: snapshot").await;
+
+    let app = fixture.app();
+    let call = tokio::spawn(async move {
+        send(
+            app,
+            post_json_bearer(
+                "/mcp",
+                &session,
+                json!({
+                    "device_id": device_id,
+                    "request": {
+                        "jsonrpc": "2.0",
+                        "id": 21,
+                        "method": "tools/call",
+                        "params": { "name": "files.read", "arguments": { "path": "traced.txt" } },
+                    },
+                }),
+            ),
+        )
+        .await
+    });
+
+    let frame = next_json(&mut device).await;
+    let sent_trace = frame["trace"]
+        .as_str()
+        .expect("the frame carries a trace")
+        .to_owned();
+    answer(&mut device, &frame, tool_result(json!({ "content": "hi" }))).await;
+    let (status, _) = call.await.expect("the call finished");
+    assert_eq!(status, StatusCode::OK);
+
+    read_until(&mut socket, &mut seen, "traced.txt").await;
+    let activity = last_event(&seen, "activity");
+    let live_trace = activity["trace"]
+        .as_str()
+        .expect("the live copy of the row carries the trace");
+    assert!(!live_trace.is_empty(), "{activity}");
+
+    let lines = audit_lines(&fixture);
+    let line = lines
+        .iter()
+        .rev()
+        .find(|line| line["kind"] == json!("mcp"))
+        .expect("the call's audit line");
     assert_eq!(
-        routes,
-        BTreeSet::from([
-            "/auth".to_owned(),
-            "/devices".to_owned(),
-            "/grants".to_owned(),
-            "/mcp".to_owned(),
-            "/audit".to_owned(),
-        ]),
-        "the page names the five operator routes and no other API path"
+        line["trace"],
+        json!(live_trace),
+        "the live event and the line name the same exchange: {line}"
+    );
+    assert_eq!(
+        live_trace, sent_trace,
+        "and it is the trace the frame carried to the machine"
+    );
+}
+
+/// **THE AUDIT LINE NAMES THE MACHINE'S OWN POSITION (round 9).** The device's answer frame carries
+/// the outcome half's journal `seq` beside the JSON-RPC body; the console writes it on the audit line
+/// and the live event, and the body the client received is unchanged. That sequence is what lets the
+/// page read the machine's own row back instead of guessing from two clocks.
+#[tokio::test]
+async fn a_proxied_calls_line_carries_the_machines_sequence() {
+    let fixture = Fixture::new("activity-call-machine-seq");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x61)).await;
+    let session = fixture.authenticate().await;
+
+    let mut socket = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut socket, &mut seen, "event: snapshot").await;
+
+    let app = fixture.app();
+    let call = tokio::spawn(async move {
+        send(
+            app,
+            post_json_bearer(
+                "/mcp",
+                &session,
+                json!({
+                    "device_id": device_id,
+                    "request": {
+                        "jsonrpc": "2.0",
+                        "id": 31,
+                        "method": "tools/call",
+                        "params": { "name": "files.read", "arguments": { "path": "positioned.txt" } },
+                    },
+                }),
+            ),
+        )
+        .await
+    });
+
+    let frame = next_json(&mut device).await;
+    // The real device puts this beside the body (`summrise-device`, console.rs), never inside it.
+    let reply = json!({
+        "id": frame["id"].clone(),
+        "result": tools_call_answer(json!(31), "positioned", false),
+        "journal_seq": 814,
+    });
+    device
+        .send(WsMessage::Text(reply.to_string()))
+        .await
+        .expect("the device answers with its position");
+
+    let (status, body) = call.await.expect("the call finished");
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body.get("journal_seq").is_none(),
+        "the client's body carries no Summrise field: {body}"
     );
 
-    // The probe distinguishes a missing route from a protected one, so a page naming a path the
-    // router never registered fails here rather than in a browser.
-    let (missing, _) = send(fixture.app(), get("/no-such-route", None)).await;
+    read_until(&mut socket, &mut seen, "814").await;
+    let activity = last_event(&seen, "activity");
     assert_eq!(
-        missing,
-        StatusCode::NOT_FOUND,
-        "the probe can see a route that does not exist"
+        activity["machine_seq"],
+        json!(814),
+        "the live copy names the machine's position: {activity}"
     );
 
-    for route in routes {
-        let (status, _) = send(fixture.app(), get(&route, None)).await;
-        assert_ne!(
-            status,
-            StatusCode::NOT_FOUND,
-            "the page names {route}, but the router does not serve it"
+    let lines = audit_lines(&fixture);
+    let line = lines
+        .iter()
+        .rev()
+        .find(|line| line["kind"] == json!("mcp"))
+        .expect("the call's audit line");
+    assert_eq!(
+        line["machine_seq"],
+        json!(814),
+        "the line names the machine's position: {line}"
+    );
+}
+
+/// A call that is still waiting is announced before its answer, and the announcement is not a line
+/// in the audit: the record holds finished calls, while the band is what says one is running.
+#[tokio::test]
+async fn a_held_call_is_announced_before_its_answer_and_never_audited() {
+    let fixture = Fixture::new("activity-started");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x5a)).await;
+    let session = fixture.authenticate().await;
+    // The standard route is the AI client's: the started frame names `client`, not `console`.
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+
+    let mut socket = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut socket, &mut seen, "event: snapshot").await;
+    let audited_before = audit_lines(&fixture).len();
+
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 11,
+        "method": "tools/call",
+        "params": { "name": "files.read", "arguments": { "path": "held.txt" } },
+    });
+    let call_device = device_id.clone();
+    let call_grant = grant.clone();
+    let app = fixture.app();
+    let call =
+        tokio::spawn(
+            async move { send(app, post_standard(&call_device, &call_grant, request)).await },
         );
+
+    let frame = next_json(&mut device).await;
+    read_until(&mut socket, &mut seen, "event: started").await;
+
+    let started = last_event(&seen, "started");
+    assert_eq!(started["caller"], json!("client"), "{started}");
+    assert_eq!(started["started"]["device_id"], json!(device_id));
+    assert_eq!(started["started"]["tool"], json!("files.read"));
+    assert_eq!(started["started"]["at_ms"], json!(fixture.now_ms()));
+    let call_id = started["started"]["id"]
+        .as_str()
+        .expect("the started frame names the call")
+        .to_owned();
+    assert!(!call_id.is_empty(), "{started}");
+    assert!(
+        !seen.contains("event: activity"),
+        "the activity frame waits for the device's answer: {seen}"
+    );
+
+    // The announcement is a live frame, not an audit line: the file has not grown while the call is
+    // held, and it never gains a `started` line.
+    assert_eq!(
+        audit_lines(&fixture).len(),
+        audited_before,
+        "the started frame must never be written to the audit"
+    );
+
+    answer(&mut device, &frame, tool_result(json!({ "content": "hi" }))).await;
+    let (status, _) = call.await.expect("the call finished");
+    assert_eq!(status, StatusCode::OK);
+
+    read_until(&mut socket, &mut seen, "event: finished").await;
+    let finished = last_event(&seen, "finished");
+    assert_eq!(finished["finished"]["id"], json!(call_id));
+    let activity_at = seen
+        .find("event: activity")
+        .unwrap_or_else(|| panic!("the answer is the activity frame: {seen}"));
+    let finished_at = seen
+        .rfind("event: finished")
+        .unwrap_or_else(|| panic!("the clear follows the answer: {seen}"));
+    assert!(
+        activity_at < finished_at,
+        "the finished frame follows the reply: {seen}"
+    );
+
+    let lines = audit_lines(&fixture);
+    assert_eq!(lines.len(), audited_before + 1, "{lines:?}");
+    let text = audit_text(&fixture);
+    for word in ["started", "finished"] {
         assert!(
-            status == StatusCode::UNAUTHORIZED || status == StatusCode::METHOD_NOT_ALLOWED,
-            "{route} without a session must be 401 or 405, not {status}"
+            !text.contains(word),
+            "a {word} frame is live, never an audit line: {text}"
         );
     }
 }
 
+/// A `finished` frame that never arrives cannot leave a running call forever. The snapshot applies
+/// the proxy's own ninety-second cut, so a reconnect cannot resurrect the entry either.
 #[tokio::test]
-async fn the_page_holds_no_secret_and_says_the_token_stays_in_memory() {
-    let fixture = Fixture::new("page-secret");
-    let (status, _, page) = send_text(fixture.app(), get("/", None)).await;
+async fn a_started_entry_older_than_the_cut_is_dropped() {
+    let fixture = Fixture::new("activity-started-cut");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x5b)).await;
+    let session = fixture.authenticate().await;
+
+    let mut socket = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut socket, &mut seen, "event: snapshot").await;
+
+    let call_device = device_id.clone();
+    let call_session = session.clone();
+    let app = fixture.app();
+    let call = tokio::spawn(async move {
+        send(
+            app,
+            post_json_bearer(
+                "/mcp",
+                &call_session,
+                json!({
+                    "device_id": call_device,
+                    "request": {
+                        "jsonrpc": "2.0",
+                        "id": 12,
+                        "method": "tools/call",
+                        "params": { "name": "files.read", "arguments": { "path": "held.txt" } },
+                    },
+                }),
+            ),
+        )
+        .await
+    });
+
+    let frame = next_json(&mut device).await;
+    read_until(&mut socket, &mut seen, "event: started").await;
+    let call_id = last_event(&seen, "started")["started"]["id"]
+        .as_str()
+        .expect("the started frame names the call")
+        .to_owned();
+
+    // A page that reconnects while the call is fresh sees it in the snapshot: the registry is the
+    // in-flight call, not the audit file (which holds nothing until the answer).
+    let mut fresh = open_events(&server, &session).await;
+    let mut fresh_seen = String::new();
+    read_until(&mut fresh, &mut fresh_seen, "event: snapshot").await;
+    let snapshot = last_event(&fresh_seen, "snapshot");
+    assert!(
+        snapshot["running"]
+            .as_array()
+            .expect("the snapshot carries the calls still running")
+            .iter()
+            .any(|entry| entry["id"] == json!(call_id)),
+        "a fresh page is told the call is running: {snapshot}"
+    );
+
+    // Past the proxy's cut a dropped `finished` may not leave the entry running forever.
+    fixture.advance_ms(90_001);
+    let mut stale = open_events(&server, &session).await;
+    let mut stale_seen = String::new();
+    read_until(&mut stale, &mut stale_seen, "event: snapshot").await;
+    let snapshot = last_event(&stale_seen, "snapshot");
+    assert_eq!(
+        snapshot["running"],
+        json!([]),
+        "an entry older than the proxy's cut is dropped: {snapshot}"
+    );
+
+    answer(&mut device, &frame, tool_result(json!({ "content": "hi" }))).await;
+    let (status, _) = call.await.expect("the call finished");
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn a_proxied_call_carries_its_evidence_to_the_stream() {
+    let fixture = Fixture::new("activity-evidence");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x54)).await;
+    let session = fixture.authenticate().await;
+
+    let mut socket = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut socket, &mut seen, "event: snapshot").await;
+
+    let app = fixture.app();
+    let call = tokio::spawn(async move {
+        send(
+            app,
+            post_json_bearer(
+                "/mcp",
+                &session,
+                json!({
+                    "device_id": device_id,
+                    "request": {
+                        "jsonrpc": "2.0",
+                        "id": 4,
+                        "method": "tools/call",
+                        "params": { "name": "files.read", "arguments": { "path": "notes.txt" } },
+                    },
+                }),
+            ),
+        )
+        .await
+    });
+
+    let frame = next_json(&mut device).await;
+    answer(&mut device, &frame, tool_result(json!({ "content": "hi" }))).await;
+    let (status, _) = call.await.expect("the call finished");
     assert_eq!(status, StatusCode::OK);
 
+    // The row's proof rides on the event itself: the call's own arguments, bounded at proxy time and
+    // never written to the audit file. The path the caller sent is what the row will open to.
+    read_until(&mut socket, &mut seen, "\"evidence\"").await;
+    assert!(seen.contains("\"evidence\""), "{seen}");
     assert!(
-        page.contains("The operator token stays in memory"),
-        "the page's comment says where the token lives"
+        seen.contains("\"evidence\":{\"path\":\"notes.txt\"}"),
+        "the live event carries the arguments the caller sent: {seen}"
+    );
+}
+
+/// A screen capture is evidence, not only a sentence: the row names a path, the same operator session
+/// that reads the page can open it, and the bytes are the device's own PNG.
+#[tokio::test]
+async fn a_screen_capture_carries_a_shot_the_operator_can_open() {
+    let fixture = Fixture::new("activity-shot");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x58)).await;
+    let session = fixture.authenticate().await;
+
+    let mut socket = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut socket, &mut seen, "event: snapshot").await;
+
+    let from = seen.len();
+    let app = fixture.app();
+    let call_device = device_id.clone();
+    let call_session = session.clone();
+    let call = tokio::spawn(async move {
+        send(
+            app,
+            post_json_bearer(
+                "/mcp",
+                &call_session,
+                json!({
+                    "device_id": call_device,
+                    "request": {
+                        "jsonrpc": "2.0",
+                        "id": 5,
+                        "method": "tools/call",
+                        "params": { "name": "screen.capture", "arguments": {} },
+                    },
+                }),
+            ),
+        )
+        .await
+    });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("screen.capture"),
+        "{frame}"
+    );
+    answer(&mut device, &frame, screen_capture_result(5)).await;
+    let (status, _) = call.await.expect("the call finished");
+    assert_eq!(status, StatusCode::OK);
+
+    read_until_after(&mut socket, &mut seen, "\"shot\"", from).await;
+    let shot = last_shot(&seen).unwrap_or_else(|| panic!("the event carries a shot: {seen}"));
+    let prefix = format!("/activity/shot/{device_id}/");
+    assert!(shot.starts_with(&prefix), "{shot}");
+    assert!(
+        shot.len() > prefix.len(),
+        "the path names an image id: {shot}"
     );
     assert!(
-        page.contains("The SESSION token is kept in this tab's sessionStorage"),
-        "the page says which token may be remembered, and for how long"
+        seen.get(from..).is_some_and(
+            |event| event.contains(&format!("\"captured_at_ms\":{}", fixture.now_ms()))
+        ),
+        "the event says when the frame was taken: {seen}"
+    );
+
+    // The operator's own session is the gate: with it, the exact bytes and a private, short cache.
+    let (status, headers, bytes) = send_bytes(fixture.app(), get(&shot, Some(&session))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        headers
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("image/png")
+    );
+    assert_eq!(
+        headers
+            .get(header::CACHE_CONTROL)
+            .and_then(|value| value.to_str().ok()),
+        Some("private, max-age=60")
+    );
+    assert_eq!(bytes, one_pixel_png(), "the served image is the device's");
+
+    // Without a credential the route must not hand out the image at all.
+    let (anonymous, _, _) = send_bytes(fixture.app(), get(&shot, None)).await;
+    assert!(
+        matches!(anonymous, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN),
+        "an unauthenticated shot is refused, not a broken image: {anonymous}"
+    );
+}
+
+/// Four frames per device is the bound, and the fifth capture evicts the first one's id. The evicted
+/// id stays a 404 with a JSON error rather than a broken image.
+#[tokio::test]
+async fn five_screen_captures_keep_four_and_evict_the_first() {
+    let fixture = Fixture::new("activity-shot-eviction");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x59)).await;
+    let session = fixture.authenticate().await;
+
+    let mut socket = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut socket, &mut seen, "event: snapshot").await;
+
+    let mut shots = Vec::new();
+    for capture in 0..5u64 {
+        let from = seen.len();
+        let app = fixture.app();
+        let request = post_json_bearer(
+            "/mcp",
+            &session,
+            json!({
+                "device_id": &device_id,
+                "request": {
+                    "jsonrpc": "2.0",
+                    "id": 10 + capture,
+                    "method": "tools/call",
+                    "params": { "name": "screen.capture", "arguments": {} },
+                },
+            }),
+        );
+        let call = tokio::spawn(async move { send(app, request).await });
+
+        let frame = next_json(&mut device).await;
+        answer(&mut device, &frame, screen_capture_result(10 + capture)).await;
+        let (status, _) = call.await.expect("the call finished");
+        assert_eq!(status, StatusCode::OK);
+
+        read_until_after(&mut socket, &mut seen, "\"shot\"", from).await;
+        shots.push(last_shot(&seen).unwrap_or_else(|| panic!("capture {capture}: {seen}")));
+    }
+    assert_eq!(shots.len(), 5);
+
+    let (evicted, body) = send(fixture.app(), get(&shots[0], Some(&session))).await;
+    assert_eq!(
+        evicted,
+        StatusCode::NOT_FOUND,
+        "the first frame was evicted"
     );
     assert!(
-        !page.contains(&hex(&OPERATOR_TOKEN)),
-        "the operator token must never be embedded in the page"
+        body.get("error").and_then(Value::as_str).is_some(),
+        "an evicted id is a JSON error, never a broken image: {body}"
     );
-    // The SESSION token may be remembered in the tab (it expires and it is not the operator's
-    // secret); the operator token may not be persisted anywhere, and nothing may be written to
-    // localStorage or a cookie at all.
-    for forbidden in [
-        "localStorage.setItem",
-        "localStorage.getItem",
-        "document.cookie",
-    ] {
+    for shot in &shots[1..] {
+        let (status, _, bytes) = send_bytes(fixture.app(), get(shot, Some(&session))).await;
+        assert_eq!(status, StatusCode::OK, "{shot}");
+        assert_eq!(bytes, one_pixel_png(), "{shot}");
+    }
+}
+
+/// A device refusal is HTTP 200 with a JSON-RPC error body, so the status alone would make a refused
+/// call look green. The live event carries the device's own reason and says it was not a success.
+#[tokio::test]
+async fn a_device_refusal_reaches_the_stream_as_a_failure_with_its_reason() {
+    let fixture = Fixture::new("activity-refusal");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x57)).await;
+    let session = fixture.authenticate().await;
+
+    let mut socket = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut socket, &mut seen, "event: snapshot").await;
+
+    let app = fixture.app();
+    let call = tokio::spawn(async move {
+        send(
+            app,
+            post_json_bearer(
+                "/mcp",
+                &session,
+                json!({
+                    "device_id": device_id,
+                    "request": {
+                        "jsonrpc": "2.0",
+                        "id": 8,
+                        "method": "tools/call",
+                        "params": { "name": "files.read", "arguments": { "path": "notes.txt" } },
+                    },
+                }),
+            ),
+        )
+        .await
+    });
+
+    let frame = next_json(&mut device).await;
+    answer_error(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 8,
+            "error": { "code": -32001, "message": "tool not permitted by grant" }
+        }),
+    )
+    .await;
+    let (status, _) = call.await.expect("the call finished");
+    assert_eq!(status, StatusCode::OK, "a JSON-RPC error stays HTTP 200");
+
+    read_until(&mut socket, &mut seen, "\"ok\":false").await;
+    assert!(
+        seen.contains("\"ok\":false"),
+        "the refusal is a failure: {seen}"
+    );
+    assert!(
+        seen.contains("not permitted"),
+        "the device's own reason reaches the page: {seen}"
+    );
+    assert!(
+        seen.contains("\"live\":true"),
+        "a proxied call is a live event, not an audit row: {seen}"
+    );
+}
+
+// ---- the release installer the console was given ---------------------------------------------
+
+/// The bytes a test installer carries: not JSON, so a route that parsed them would fail loudly.
+const INSTALLER_BYTES: &[u8] = b"MZ\x90\x00summrise setup fixture";
+
+/// Place one installer in the fixture's data directory, exactly where the deployment puts it.
+fn write_installer(data: &Path, name: &str, bytes: &[u8]) -> PathBuf {
+    let directory = data.join("installer");
+    fs::create_dir_all(&directory).expect("the installer directory is creatable");
+    let path = directory.join(name);
+    fs::write(&path, bytes).expect("the fixture installer is written");
+    path
+}
+
+/// Set a fixture's modification time. The selection rule is the newest mtime, and a test that
+/// depended on the filesystem clock ticking between two writes would be a race.
+fn set_modified(path: &Path, seconds: u64) {
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .open(path)
+        .expect("the fixture opens for its mtime");
+    file.set_times(fs::FileTimes::new().set_modified(UNIX_EPOCH + Duration::from_secs(seconds)))
+        .expect("the fixture's mtime is settable");
+}
+
+/// `/installer` states the file, its version from the filename and the hash of the bytes it would
+/// serve; `/installer/download` serves exactly those bytes, as an attachment, behind the operator's
+/// session and under the console's `no-store`.
+#[tokio::test]
+async fn the_installer_routes_report_and_serve_the_file_the_console_was_given() {
+    let fixture = Fixture::new("installer-facts");
+    let session = fixture.authenticate().await;
+    write_installer(
+        &fixture.config.data,
+        "SummriseSetup-0.3.9.exe",
+        INSTALLER_BYTES,
+    );
+
+    let (status, headers, body) =
+        send_with_headers(fixture.app(), get("/installer", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "the facts: {body}");
+    assert_eq!(body["available"], json!(true), "{body}");
+    assert_eq!(body["filename"], json!("SummriseSetup-0.3.9.exe"));
+    assert_eq!(
+        body["version"],
+        json!("0.3.9"),
+        "the version is the filename's, never the bytes'"
+    );
+    assert_eq!(body["size_bytes"], json!(INSTALLER_BYTES.len()));
+    let digest = Sha256::digest(INSTALLER_BYTES);
+    assert_eq!(
+        body["sha256"],
+        json!(hex(&digest)),
+        "the hash is over the bytes the download serves"
+    );
+    assert_eq!(
+        headers
+            .get(header::CACHE_CONTROL)
+            .and_then(|value| value.to_str().ok()),
+        Some("no-store"),
+        "an installer's facts are as fresh as the directory"
+    );
+
+    let (status, headers, bytes) =
+        send_bytes(fixture.app(), get("/installer/download", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(bytes, INSTALLER_BYTES, "the download is the exact file");
+    assert_eq!(
+        headers
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("application/octet-stream")
+    );
+    assert_eq!(
+        headers
+            .get(header::CONTENT_DISPOSITION)
+            .and_then(|value| value.to_str().ok()),
+        Some("attachment; filename=\"SummriseSetup-0.3.9.exe\"")
+    );
+    assert_eq!(
+        headers
+            .get(header::CACHE_CONTROL)
+            .and_then(|value| value.to_str().ok()),
+        Some("no-store")
+    );
+    // One file was read twice: the facts and the bytes describe the same answer.
+    assert_eq!(body["size_bytes"], json!(bytes.len()));
+}
+
+/// No installer directory is the normal state of a console whose deployment has not staged one:
+/// the facts say so and the download is a JSON 404, never a 500 or an empty file.
+#[tokio::test]
+async fn with_no_installer_the_routes_say_so_instead_of_failing() {
+    let fixture = Fixture::new("installer-missing");
+    let session = fixture.authenticate().await;
+
+    let (status, _, body) =
+        send_with_headers(fixture.app(), get("/installer", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, json!({ "available": false }));
+
+    let (status, headers, body) =
+        send_with_headers(fixture.app(), get("/installer/download", Some(&session))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(body, json!({ "error": "no_installer" }));
+    assert_eq!(
+        headers
+            .get(header::CACHE_CONTROL)
+            .and_then(|value| value.to_str().ok()),
+        Some("no-store"),
+        "a refusal is never what a browser shows after the operator signs in"
+    );
+}
+
+/// Two staged releases are one answer: the newest modification time wins, even when its filename
+/// would sort or compare older, and the download serves that same file.
+#[tokio::test]
+async fn the_newest_installer_by_mtime_is_the_one_both_routes_answer_with() {
+    let fixture = Fixture::new("installer-newest");
+    let session = fixture.authenticate().await;
+    let older = write_installer(
+        &fixture.config.data,
+        "SummriseSetup-9.9.9.exe",
+        b"the older release",
+    );
+    let newer = write_installer(
+        &fixture.config.data,
+        "SummriseSetup-0.0.1.exe",
+        b"the newer release",
+    );
+    set_modified(&older, 1_000);
+    set_modified(&newer, 2_000);
+
+    let (status, _, body) =
+        send_with_headers(fixture.app(), get("/installer", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "the facts: {body}");
+    assert_eq!(body["filename"], json!("SummriseSetup-0.0.1.exe"));
+    assert_eq!(body["version"], json!("0.0.1"));
+    assert_eq!(body["size_bytes"], json!(b"the newer release".len()));
+
+    let (status, _, bytes) =
+        send_bytes(fixture.app(), get("/installer/download", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(bytes, b"the newer release");
+}
+
+/// Both routes are the operator's: an unauthenticated read of either gets no facts and no bytes.
+#[tokio::test]
+async fn the_installer_routes_need_the_operator_session() {
+    let fixture = Fixture::new("installer-auth");
+    write_installer(
+        &fixture.config.data,
+        "SummriseSetup-0.3.9.exe",
+        INSTALLER_BYTES,
+    );
+
+    let (status, _, body) = send_with_headers(fixture.app(), get("/installer", None)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(body["error"], json!("unauthorized"));
+
+    let (status, _, _) = send_bytes(fixture.app(), get("/installer/download", None)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+// ---- the console's context transaction and every forwarded call (round 22, task 5) ---------------
+
+/// One page call over the operator's own `/mcp` door: no grant, so it is the console's own action.
+async fn page_call(
+    fixture: &Fixture,
+    session: &str,
+    device_id: &str,
+    request: Value,
+) -> (StatusCode, Value) {
+    send(
+        fixture.app(),
+        post_json_bearer(
+            "/mcp",
+            session,
+            json!({ "device_id": device_id, "request": request }),
+        ),
+    )
+    .await
+}
+
+fn tools_call(id: u64, name: &str, arguments: Value) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": "tools/call",
+        "params": { "name": name, "arguments": arguments },
+    })
+}
+
+/// **ONE SESSION, ONE TRANSACTION.** A person typing in a terminal: the console opens one
+/// session-bound `by: console` transaction for that session, tags every write and the close with it,
+/// and commits it when the close succeeds. The device sees exactly one begin.
+#[tokio::test]
+async fn a_console_session_gets_one_transaction() {
+    let fixture = Fixture::new("txn-one-console-session");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xa4)).await;
+    let session = fixture.authenticate().await;
+
+    let device_side = async {
+        let (begin, purpose) = expect_begin(&mut device).await;
+        assert_eq!(
+            begin["mcp"]["params"]["arguments"]["session"],
+            json!("session-1"),
+            "a session-bound transaction names its session: {begin}"
+        );
         assert!(
-            !page.contains(forbidden),
-            "the page must not persist anything through {forbidden}"
+            purpose.contains("session-1"),
+            "the purpose says which session this is: {purpose}"
+        );
+        answer_begin(&mut device, &begin, "txn-1").await;
+
+        let first = expect_call(&mut device, "terminal.write").await;
+        assert_eq!(frame_txn(&first), Some("txn-1"), "{first}");
+        answer_tool(
+            &mut device,
+            &first,
+            json!({ "id": "session-1", "written": 8 }),
+        )
+        .await;
+
+        let second = expect_call(&mut device, "terminal.write").await;
+        assert_eq!(
+            frame_txn(&second),
+            Some("txn-1"),
+            "a second write rides the same transaction, never a second begin: {second}"
+        );
+        answer_tool(
+            &mut device,
+            &second,
+            json!({ "id": "session-1", "written": 8 }),
+        )
+        .await;
+
+        let close = expect_call(&mut device, "terminal.close").await;
+        assert_eq!(frame_txn(&close), Some("txn-1"), "{close}");
+        answer_tool(&mut device, &close, json!({ "id": "session-1" })).await;
+
+        let commit = expect_call(&mut device, "txn.commit").await;
+        assert_eq!(
+            frame_arguments(&commit)["txn"],
+            json!("txn-1"),
+            "closing the session commits the transaction it ran under: {commit}"
+        );
+        answer_tool(
+            &mut device,
+            &commit,
+            json!({ "txn": "txn-1", "state": "committed" }),
+        )
+        .await;
+    };
+
+    let page = async {
+        for (id, data) in [(1u64, "echo one\n"), (2, "echo two\n")] {
+            let (status, body) = page_call(
+                &fixture,
+                &session,
+                &device_id,
+                tools_call(
+                    id,
+                    "terminal.write",
+                    json!({ "id": "session-1", "data": data }),
+                ),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "write {id}: {body}");
+        }
+        let (status, body) = page_call(
+            &fixture,
+            &session,
+            &device_id,
+            tools_call(3, "terminal.close", json!({ "id": "session-1" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "close: {body}");
+    };
+
+    tokio::join!(page, device_side);
+}
+
+/// A second call on the same session never opens a second transaction: the working record is the
+/// session's, and replacing it would invent a boundary the person never made.
+#[tokio::test]
+async fn a_second_begin_is_never_sent_for_one_session() {
+    let fixture = Fixture::new("txn-no-second-begin");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xa5)).await;
+    let session = fixture.authenticate().await;
+
+    let device_side = async {
+        let (begin, _) = expect_begin(&mut device).await;
+        answer_begin(&mut device, &begin, "txn-1").await;
+        for index in 0..3 {
+            let call = expect_call(&mut device, "terminal.write").await;
+            assert_eq!(frame_txn(&call), Some("txn-1"), "write {index}: {call}");
+            answer_tool(
+                &mut device,
+                &call,
+                json!({ "id": "session-1", "written": 1 }),
+            )
+            .await;
+        }
+    };
+
+    let page = async {
+        for id in 0..3u64 {
+            let (status, body) = page_call(
+                &fixture,
+                &session,
+                &device_id,
+                tools_call(
+                    id,
+                    "terminal.write",
+                    json!({ "id": "session-1", "data": "x" }),
+                ),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "write {id}: {body}");
+        }
+    };
+
+    tokio::join!(page, device_side);
+}
+
+/// The terminal's stream is a `terminal.read` like any other: it carries the session's transaction,
+/// so the device admits the parked read the page opened before anyone typed.
+#[tokio::test]
+async fn the_terminal_stream_and_poll_carry_the_session_transaction() {
+    let fixture = Fixture::new("txn-stream-poll");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xa6)).await;
+    let session = fixture.authenticate().await;
+
+    let path = format!("/terminal/{device_id}/session-1/stream?from=0");
+    let auth = bearer(&session);
+    let stream = raw_get(&server, &path, &auth, "txn-stream");
+
+    let device_side = async {
+        let (begin, _) = expect_begin(&mut device).await;
+        assert_eq!(
+            begin["mcp"]["params"]["arguments"]["session"],
+            json!("session-1"),
+            "the stream's transaction is the session's: {begin}"
+        );
+        answer_begin(&mut device, &begin, "txn-1").await;
+        let read = expect_call(&mut device, "terminal.read").await;
+        assert_eq!(
+            frame_txn(&read),
+            Some("txn-1"),
+            "the parked read carries the session transaction: {read}"
+        );
+        answer_tool(
+            &mut device,
+            &read,
+            json!({ "data": "txn-stream", "cursor": 10, "alive": true }),
+        )
+        .await;
+        // Leave the next read parked: a quiet session is not an error.
+        let _ = tokio::time::timeout(Duration::from_secs(1), next_json_raw(&mut device)).await;
+    };
+
+    let (body, ()) = tokio::join!(stream, device_side);
+    assert!(body.contains("txn-stream"), "{body}");
+}
+
+/// The journal's join and window are reads the page makes about the record it already draws. They
+/// are machine calls, so they ride the one device-scope transaction — and one begin serves both.
+#[tokio::test]
+async fn the_journal_joins_carry_the_context_transaction() {
+    let fixture = Fixture::new("txn-journal-join");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        present_device(&fixture, &server, &signing_key(0xa7)).await;
+    let session = fixture.authenticate().await;
+    let short = &device_id[..12];
+
+    let device_side = async {
+        let (begin, purpose) = expect_begin(&mut device).await;
+        assert_eq!(
+            begin["mcp"]["params"]["arguments"].get("session"),
+            None,
+            "a journal read is device-scope: {begin}"
+        );
+        assert_eq!(
+            purpose,
+            format!("your console on {short}…"),
+            "the console names the machine it is acting on"
+        );
+        answer_begin(&mut device, &begin, "txn-1").await;
+
+        let join = expect_call(&mut device, "journal.get").await;
+        assert_eq!(frame_txn(&join), Some("txn-1"), "{join}");
+        answer_tool(
+            &mut device,
+            &join,
+            json!({
+                "traces": ["a"],
+                "missing": [],
+                "journal": true,
+                "bounded": false,
+                "oldest_seq": 1,
+                "last_seq": 2,
+            }),
+        )
+        .await;
+
+        let read = expect_call(&mut device, "journal.read").await;
+        assert_eq!(
+            frame_txn(&read),
+            Some("txn-1"),
+            "the same device transaction serves the window read: {read}"
+        );
+        answer_tool(
+            &mut device,
+            &read,
+            json!({
+                "journal": true,
+                "oldest_seq": 1,
+                "last_seq": 2,
+                "rows": [],
+                "more": false,
+            }),
+        )
+        .await;
+    };
+
+    let page = async {
+        let (status, body) = send(
+            fixture.app(),
+            get(
+                &format!("/audit/join?device={device_id}&traces=a"),
+                Some(&session),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "join: {body}");
+        assert_eq!(body["joined"], json!(["a"]), "{body}");
+
+        let (status, body) = send(
+            fixture.app(),
+            get(&format!("/journal/read?device={device_id}"), Some(&session)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "window: {body}");
+        assert_eq!(body["journal"], json!(true), "{body}");
+    };
+
+    tokio::join!(page, device_side);
+}
+
+/// A page call that names no session — Files, Browser, Monitor, Plugins, Forward — rides the one
+/// device-scope transaction the console opened for that machine. One begin, five calls.
+#[tokio::test]
+async fn a_session_less_page_call_rides_the_device_scope_transaction() {
+    let fixture = Fixture::new("txn-device-scope");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xa8)).await;
+    let session = fixture.authenticate().await;
+    let short = &device_id[..12];
+
+    let tools = [
+        (
+            "files.write",
+            json!({ "path": "notes.txt", "content": "hi" }),
+        ),
+        ("browser.open", json!({ "url": "https://example.test" })),
+        (
+            "monitor.add",
+            json!({ "host": "example.test", "port": 443, "kind": "tcp", "interval_ms": 5000 }),
+        ),
+        ("plugins.logs", json!({ "namespace": "hello" })),
+        (
+            "forward.add",
+            json!({
+                "name": "a-rule",
+                "listen": "127.0.0.1:9000",
+                "target": "127.0.0.1:9001",
+                "via": "user@example.test:22",
+                "auth": { "kind": "key", "path": "/tmp/key" },
+            }),
+        ),
+    ];
+
+    let device_side = async {
+        let (begin, purpose) = expect_begin(&mut device).await;
+        assert_eq!(
+            purpose,
+            format!("your console on {short}…"),
+            "the console names the machine it is acting on"
+        );
+        answer_begin(&mut device, &begin, "txn-1").await;
+        for (index, (tool, _)) in tools.iter().enumerate() {
+            let call = expect_call(&mut device, tool).await;
+            assert_eq!(
+                frame_txn(&call),
+                Some("txn-1"),
+                "{tool} ({index}) rides the device-scope transaction: {call}"
+            );
+            answer_tool(&mut device, &call, json!({ "ok": true })).await;
+        }
+    };
+
+    let page = async {
+        for (index, (tool, arguments)) in tools.iter().enumerate() {
+            let (status, body) = page_call(
+                &fixture,
+                &session,
+                &device_id,
+                tools_call(index as u64, tool, arguments.clone()),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{tool}: {body}");
+        }
+    };
+
+    tokio::join!(page, device_side);
+}
+
+/// **NO PTY IS CREATED TO SATISFY THE GATE.** A Files-only visit never calls `terminal.create`; the
+/// session list the page reads is the machine's own, unchanged by the console's bookkeeping.
+#[tokio::test]
+async fn no_pty_is_created_for_the_gate() {
+    let fixture = Fixture::new("txn-no-pty");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xa9)).await;
+    let session = fixture.authenticate().await;
+
+    let device_side = async {
+        // The page's session list: an exempt read, so it is never tagged and opens nothing.
+        let list = expect_call(&mut device, "terminal.list").await;
+        assert_eq!(
+            frame_arguments(&list).get("txn"),
+            None,
+            "the read-only catalogue is exempt: {list}"
+        );
+        answer_tool(&mut device, &list, json!({ "sessions": [] })).await;
+
+        // The Files write opens the device transaction on demand — not a PTY.
+        let (begin, _) = expect_begin(&mut device).await;
+        answer_begin(&mut device, &begin, "txn-1").await;
+        let write = expect_call(&mut device, "files.write").await;
+        assert_eq!(frame_txn(&write), Some("txn-1"), "{write}");
+        answer_tool(
+            &mut device,
+            &write,
+            json!({ "path": "notes.txt", "bytes": 2 }),
+        )
+        .await;
+
+        // Nothing a gate needed may look like a session: no create, no read.
+        let _ = tokio::time::timeout(Duration::from_secs(1), next_json_raw(&mut device)).await;
+    };
+
+    let page = async {
+        let (status, body) = page_call(
+            &fixture,
+            &session,
+            &device_id,
+            tools_call(1, "terminal.list", json!({})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let listed: Value = serde_json::from_str(
+            body["result"]["content"][0]["text"]
+                .as_str()
+                .expect("the device's list text"),
+        )
+        .expect("the list is JSON");
+        assert_eq!(
+            listed["sessions"],
+            json!([]),
+            "the machine's own list: {body}"
+        );
+
+        let (status, body) = page_call(
+            &fixture,
+            &session,
+            &device_id,
+            tools_call(
+                2,
+                "files.write",
+                json!({ "path": "notes.txt", "content": "hi" }),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+    };
+
+    tokio::join!(page, device_side);
+}
+
+/// A client token's call is the device's gate to meet, never the console's: the console forwards it
+/// untouched, with no begin of its own. The console holds no authority to open work for a token.
+#[tokio::test]
+async fn the_console_never_auto_opens_for_a_client_token() {
+    let fixture = Fixture::new("txn-client-token");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xb0)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(&session, &device_id, "a client", &["files.write"], false)
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let plaintext = created["token"].as_str().expect("the secret").to_owned();
+
+    let request = tools_call(
+        31,
+        "files.write",
+        json!({ "path": "token.txt", "content": "hi" }),
+    );
+    let device_side = async {
+        let frame = next_json_raw(&mut device).await;
+        assert_eq!(
+            frame_tool(&frame),
+            Some("files.write"),
+            "a token's call is never preceded by the console's begin: {frame}"
+        );
+        assert_eq!(
+            frame_arguments(&frame).get("txn"),
+            None,
+            "the console adds no transaction to a client's call: {frame}"
+        );
+        answer_tool(&mut device, &frame, json!({ "path": "token.txt" })).await;
+    };
+
+    let call = send(
+        fixture.app(),
+        post_token(&device_id, &plaintext, request.clone()),
+    );
+    let ((status, body), ()) = tokio::join!(call, device_side);
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["result"]["isError"],
+        json!(false),
+        "the device's answer crosses unchanged: {body}"
+    );
+}
+
+/// The exempt and bootstrap tools are read from the registry table, never tagged: `terminal.create`
+/// is what makes a transaction possible, and the catalogue, the goal and the transaction tools need
+/// none. No begin is sent for any of them.
+#[tokio::test]
+async fn an_exempt_or_bootstrap_tool_is_not_tagged() {
+    let fixture = Fixture::new("txn-exempt");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xb1)).await;
+    let session = fixture.authenticate().await;
+
+    let script = [
+        (
+            "terminal.create",
+            json!({ "kind": "pty" }),
+            json!({ "id": "session-1", "kind": "pty" }),
+        ),
+        ("terminal.list", json!({}), json!({ "sessions": [] })),
+        (
+            "txn.begin",
+            json!({ "purpose": "the page's own claim" }),
+            json!({ "txn": "txn-9", "started_at_ms": 1 }),
+        ),
+        (
+            "terminal.goal",
+            json!({ "id": "session-1", "action": "clear" }),
+            json!({ "id": "session-1", "goal": null }),
+        ),
+    ];
+
+    let device_side = async {
+        for (index, (tool, _, answer_body)) in script.iter().enumerate() {
+            let frame = next_json_raw(&mut device).await;
+            if frame_tool(&frame) == Some("txn.begin") && *tool != "txn.begin" {
+                panic!("{tool} must not be preceded by a begin: {frame}");
+            }
+            assert_eq!(frame_tool(&frame), Some(*tool), "{tool}: {frame}");
+            assert_eq!(
+                frame_arguments(&frame).get("txn"),
+                None,
+                "{tool} ({index}) is not tagged: {frame}"
+            );
+            answer_tool(&mut device, &frame, answer_body.clone()).await;
+        }
+    };
+
+    let page = async {
+        for (index, (tool, arguments, _)) in script.iter().enumerate() {
+            let (status, body) = page_call(
+                &fixture,
+                &session,
+                &device_id,
+                tools_call(index as u64, tool, arguments.clone()),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{tool}: {body}");
+        }
+    };
+
+    tokio::join!(page, device_side);
+}
+
+/// A device older than the transaction tools gets no tag and is never called a liar for it: the
+/// console asks once, reads the device's own "no such tool", and forwards the call untouched. The
+/// page's record says nothing rather than inventing a transaction — "not recorded", not a fiction.
+#[tokio::test]
+async fn a_device_without_txn_tools_gets_no_tag_and_says_not_recorded() {
+    let fixture = Fixture::new("txn-old-device");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xb2)).await;
+    let session = fixture.authenticate().await;
+
+    let device_side = async {
+        // The one probe: an old build does not offer `txn.begin`, and says so as an unknown tool.
+        let probe = next_json_raw(&mut device).await;
+        assert_eq!(frame_tool(&probe), Some("txn.begin"), "{probe}");
+        answer_error(
+            &mut device,
+            &probe,
+            json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "error": { "code": -32602, "message": "unknown tool: txn.begin" },
+            }),
+        )
+        .await;
+
+        let first = expect_call(&mut device, "files.write").await;
+        assert_eq!(
+            frame_arguments(&first).get("txn"),
+            None,
+            "an old device is forwarded untagged: {first}"
+        );
+        answer_tool(&mut device, &first, json!({ "path": "notes.txt" })).await;
+
+        // The device said it once; the console does not ask again.
+        let second = expect_call(&mut device, "files.write").await;
+        assert_eq!(
+            frame_arguments(&second).get("txn"),
+            None,
+            "no second probe, no invented tag: {second}"
+        );
+        answer_tool(&mut device, &second, json!({ "path": "notes.txt" })).await;
+    };
+
+    let page = async {
+        for id in [1u64, 2] {
+            let (status, body) = page_call(
+                &fixture,
+                &session,
+                &device_id,
+                tools_call(
+                    id,
+                    "files.write",
+                    json!({ "path": "notes.txt", "content": "hi" }),
+                ),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+        }
+    };
+
+    tokio::join!(page, device_side);
+
+    // The console's own record does not claim a transaction it never had.
+    let lines = audit_lines(&fixture);
+    let calls: Vec<&Value> = lines
+        .iter()
+        .filter(|line| line["tool"] == json!("files.write"))
+        .collect();
+    assert_eq!(calls.len(), 2, "{lines:?}");
+    for line in calls {
+        assert!(
+            line.get("txn").is_none(),
+            "a device that records no transaction leaves the console's row unrecorded: {line}"
         );
     }
-    assert!(
-        !page.contains("sessionStorage.setItem(SESSION_KEY, JSON.stringify({ token: operator"),
-        "the operator token is never written to storage"
+}
+
+/// A cached transaction the device no longer holds is re-begun **once** and the call retried once;
+/// if the retry is refused too, the device's own sentence is what the caller reads.
+#[tokio::test]
+async fn a_refused_cached_txn_re_begins_once() {
+    let fixture = Fixture::new("txn-rebegin-once");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xb3)).await;
+    let session = fixture.authenticate().await;
+
+    let device_side = async {
+        // First call: the console opens txn-1 and the call succeeds.
+        let (begin, _) = expect_begin(&mut device).await;
+        answer_begin(&mut device, &begin, "txn-1").await;
+        let first = expect_call(&mut device, "files.write").await;
+        assert_eq!(frame_txn(&first), Some("txn-1"), "{first}");
+        answer_tool(&mut device, &first, json!({ "path": "one.txt" })).await;
+
+        // Second call: the device restarted and no longer holds txn-1.
+        let stale = expect_call(&mut device, "files.write").await;
+        assert_eq!(frame_txn(&stale), Some("txn-1"), "{stale}");
+        answer_refused(
+            &mut device,
+            &stale,
+            "files.write: txn_unknown: no transaction with that id is open on this device",
+        )
+        .await;
+
+        // Exactly one re-begin, then the same call retried under the new id.
+        let (rebegun, _) = expect_begin(&mut device).await;
+        assert_eq!(
+            rebegun["mcp"]["params"]["arguments"].get("session"),
+            None,
+            "the replacement is the same scope: {rebegun}"
+        );
+        answer_begin(&mut device, &rebegun, "txn-2").await;
+        let retried = expect_call(&mut device, "files.write").await;
+        assert_eq!(
+            frame_txn(&retried),
+            Some("txn-2"),
+            "the retry rides the transaction the device just minted: {retried}"
+        );
+        answer_tool(&mut device, &retried, json!({ "path": "two.txt" })).await;
+
+        // Third call: the device is gone again, and refuses the retry too. The console stops after
+        // one re-begin and hands the device's sentence to the caller.
+        let stale_again = expect_call(&mut device, "files.write").await;
+        assert_eq!(frame_txn(&stale_again), Some("txn-2"), "{stale_again}");
+        answer_refused(
+            &mut device,
+            &stale_again,
+            "files.write: txn_unknown: no transaction with that id is open on this device",
+        )
+        .await;
+        let (last_begin, _) = expect_begin(&mut device).await;
+        answer_begin(&mut device, &last_begin, "txn-3").await;
+        let last = expect_call(&mut device, "files.write").await;
+        assert_eq!(frame_txn(&last), Some("txn-3"), "{last}");
+        answer_refused(
+            &mut device,
+            &last,
+            "files.write: txn_unknown: no transaction with that id is open on this device",
+        )
+        .await;
+
+        // No fourth begin: the refusal is surfaced, not retried forever.
+        let extra = tokio::time::timeout(Duration::from_secs(1), next_json_raw(&mut device)).await;
+        assert!(
+            extra.is_err(),
+            "the console re-begins once and then stops: {extra:?}"
+        );
+    };
+
+    let page = async {
+        for id in [1u64, 2] {
+            let (status, body) = page_call(
+                &fixture,
+                &session,
+                &device_id,
+                tools_call(
+                    id,
+                    "files.write",
+                    json!({ "path": "one.txt", "content": "hi" }),
+                ),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "call {id}: {body}");
+        }
+
+        let (status, body) = page_call(
+            &fixture,
+            &session,
+            &device_id,
+            tools_call(
+                3,
+                "files.write",
+                json!({ "path": "two.txt", "content": "hi" }),
+            ),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "the device's refusal is the answer: {body}"
+        );
+        assert_eq!(body["result"]["isError"], json!(true), "{body}");
+        let text = body["result"]["content"][0]["text"]
+            .as_str()
+            .expect("the device's sentence");
+        assert!(
+            text.contains("txn_unknown"),
+            "the sentence is the device's: {text}"
+        );
+    };
+
+    tokio::join!(page, device_side);
+}
+
+/// A transaction's own row carries what only its answer knows: the begin's minted id, and the end's
+/// receipt. Without them a begin is an orphan row and the calls under it have no purpose.
+#[tokio::test]
+async fn a_proxied_transaction_begin_carries_its_id_and_a_commit_its_receipt() {
+    let fixture = Fixture::new("txn-row-fields");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xb4)).await;
+    let session = fixture.authenticate().await;
+
+    let mut socket = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut socket, &mut seen, "event: snapshot").await;
+
+    let begin = tokio::spawn({
+        let app = fixture.app();
+        let session = session.clone();
+        let device_id = device_id.clone();
+        async move {
+            send(
+                app,
+                post_json_bearer(
+                    "/mcp",
+                    &session,
+                    json!({
+                        "device_id": device_id,
+                        "request": tools_call(1, "txn.begin", json!({ "purpose": "verify the suite" })),
+                    }),
+                ),
+            )
+            .await
+        }
+    });
+    let frame = expect_call(&mut device, "txn.begin").await;
+    assert_eq!(
+        frame_arguments(&frame).get("txn"),
+        None,
+        "the begin is the record's own tool, never tagged: {frame}"
     );
+    answer_tool(
+        &mut device,
+        &frame,
+        json!({ "txn": "txn-7", "started_at_ms": 1, "goal_at_start": Value::Null }),
+    )
+    .await;
+    let (status, body) = begin.await.expect("the begin finished");
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    // The begin's row carries the id its answer minted — not an unknown, purpose-less row.
+    let from = seen.len();
+    read_until_after(&mut socket, &mut seen, "txn.begin", from).await;
+    assert!(
+        seen.contains("\"txn\":\"txn-7\""),
+        "the begin row carries its own id: {seen}"
+    );
+    assert!(
+        seen.contains("\"purpose\":\"verify the suite\""),
+        "the begin row carries its purpose: {seen}"
+    );
+
+    let commit = tokio::spawn({
+        let app = fixture.app();
+        let session = session.clone();
+        let device_id = device_id.clone();
+        async move {
+            send(
+                app,
+                post_json_bearer(
+                    "/mcp",
+                    &session,
+                    json!({
+                        "device_id": device_id,
+                        "request": tools_call(2, "txn.commit", json!({ "txn": "txn-7" })),
+                    }),
+                ),
+            )
+            .await
+        }
+    });
+    let frame = expect_call(&mut device, "txn.commit").await;
+    answer_tool(
+        &mut device,
+        &frame,
+        json!({
+            "txn": "txn-7",
+            "state": "committed",
+            "purpose": "verify the suite",
+            "observed": { "calls": 1, "failures": 0, "refusals": 0, "duration_ms": 5 },
+        }),
+    )
+    .await;
+    let (status, body) = commit.await.expect("the commit finished");
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let from = seen.len();
+    read_until_after(&mut socket, &mut seen, "receipt", from).await;
+    assert!(
+        seen.contains("\"state\":\"committed\""),
+        "the end row carries the device's receipt: {seen}"
+    );
+
+    let lines = audit_lines(&fixture);
+    let begin_line = lines
+        .iter()
+        .find(|line| line["tool"] == json!("txn.begin"))
+        .expect("the begin's audit line");
+    assert_eq!(
+        begin_line["txn"],
+        json!("txn-7"),
+        "the console's row joins the transaction its answer minted: {begin_line}"
+    );
+    let commit_line = lines
+        .iter()
+        .find(|line| line["tool"] == json!("txn.commit"))
+        .expect("the commit's audit line");
+    assert_eq!(
+        commit_line["txn"],
+        json!("txn-7"),
+        "the end row names the record it ends: {commit_line}"
+    );
+}
+
+/// **A RESTARTED CONSOLE RECOVERS THE SLOT IT LEFT OPEN.** The device keeps the working device-scope
+/// record of `console·operator` and names it in the refusal; when the purpose is the console's own,
+/// the console adopts it and the calls continue the record instead of being locked out.
+#[tokio::test]
+async fn a_console_restart_adopts_the_open_context_transaction() {
+    let fixture = Fixture::new("txn-restart-adopts");
+    let (device_id, device_token) = fixture.register(&signing_key(0xb5)).await;
+    let session = fixture.authenticate().await;
+
+    let server = TestServer::start(&fixture.console).await;
+    let mut device = open_channel(&server, &device_id, &device_token)
+        .await
+        .expect("the first console's channel");
+    let purpose = format!("your console on {}…", &device_id[..12]);
+
+    let first = page_call(
+        &fixture,
+        &session,
+        &device_id,
+        tools_call(
+            1,
+            "files.write",
+            json!({ "path": "one.txt", "content": "hi" }),
+        ),
+    );
+    let device_side = async {
+        let (begin, seen) = expect_begin(&mut device).await;
+        assert_eq!(seen, purpose, "the first console names its own context");
+        answer_begin(&mut device, &begin, "txn-1").await;
+        let call = expect_call(&mut device, "files.write").await;
+        assert_eq!(frame_txn(&call), Some("txn-1"), "{call}");
+        answer_tool(&mut device, &call, json!({ "path": "one.txt" })).await;
+    };
+    let ((status, body), ()) = tokio::join!(first, device_side);
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    // The console process is gone; the device kept `txn-1` working for the same holder.
+    drop(server);
+    drop(device);
+    let restarted = fixture.restart();
+    let server = TestServer::start(&restarted).await;
+    let mut device = open_channel(&server, &device_id, &device_token)
+        .await
+        .expect("the restarted console's channel");
+
+    let call = send(
+        restarted.router(),
+        post_json_bearer(
+            "/mcp",
+            &session,
+            json!({
+                "device_id": device_id,
+                "request": tools_call(2, "files.write", json!({ "path": "two.txt", "content": "hi" })),
+            }),
+        ),
+    );
+    let device_side = async {
+        let (begin, seen) = expect_begin(&mut device).await;
+        assert_eq!(
+            seen, purpose,
+            "the restarted console asks for the same context"
+        );
+        answer_already_open(&mut device, &begin, "txn-1", &purpose).await;
+
+        let call = expect_call(&mut device, "files.write").await;
+        assert_eq!(
+            frame_txn(&call),
+            Some("txn-1"),
+            "the restarted console adopts the record the device named: {call}"
+        );
+        answer_tool(&mut device, &call, json!({ "path": "two.txt" })).await;
+
+        let extra = tokio::time::timeout(Duration::from_secs(1), next_json_raw(&mut device)).await;
+        assert!(
+            extra.is_err(),
+            "an adopted record is not aborted or begun again: {extra:?}"
+        );
+    };
+    let ((status, body), ()) = tokio::join!(call, device_side);
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
+/// A record left open with another purpose is ended once and replaced once: the console never
+/// aborts in a loop and never claims a context it does not recognise.
+#[tokio::test]
+async fn a_console_restart_aborts_a_foreign_open_context_and_begins_once() {
+    let fixture = Fixture::new("txn-restart-aborts");
+    let (device_id, device_token) = fixture.register(&signing_key(0xb6)).await;
+    let session = fixture.authenticate().await;
+
+    let server = TestServer::start(&fixture.console).await;
+    let mut device = open_channel(&server, &device_id, &device_token)
+        .await
+        .expect("the first console's channel");
+    let purpose = format!("your console on {}…", &device_id[..12]);
+
+    let first = page_call(
+        &fixture,
+        &session,
+        &device_id,
+        tools_call(
+            1,
+            "files.write",
+            json!({ "path": "one.txt", "content": "hi" }),
+        ),
+    );
+    let device_side = async {
+        let (begin, _) = expect_begin(&mut device).await;
+        answer_begin(&mut device, &begin, "txn-1").await;
+        let call = expect_call(&mut device, "files.write").await;
+        answer_tool(&mut device, &call, json!({ "path": "one.txt" })).await;
+    };
+    let ((status, body), ()) = tokio::join!(first, device_side);
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    drop(server);
+    drop(device);
+    let restarted = fixture.restart();
+    let server = TestServer::start(&restarted).await;
+    let mut device = open_channel(&server, &device_id, &device_token)
+        .await
+        .expect("the restarted console's channel");
+
+    let call = send(
+        restarted.router(),
+        post_json_bearer(
+            "/mcp",
+            &session,
+            json!({
+                "device_id": device_id,
+                "request": tools_call(2, "files.write", json!({ "path": "two.txt", "content": "hi" })),
+            }),
+        ),
+    );
+    let device_side = async {
+        let (begin, seen) = expect_begin(&mut device).await;
+        assert_eq!(seen, purpose);
+        answer_already_open(
+            &mut device,
+            &begin,
+            "txn-9",
+            "a record from another context",
+        )
+        .await;
+
+        let abort = expect_call(&mut device, "txn.abort").await;
+        assert_eq!(
+            frame_arguments(&abort)["txn"],
+            json!("txn-9"),
+            "the foreign record is ended by id: {abort}"
+        );
+        answer_tool(
+            &mut device,
+            &abort,
+            json!({ "txn": "txn-9", "state": "aborted" }),
+        )
+        .await;
+
+        let (begin, _) = expect_begin(&mut device).await;
+        answer_begin(&mut device, &begin, "txn-10").await;
+        let call = expect_call(&mut device, "files.write").await;
+        assert_eq!(
+            frame_txn(&call),
+            Some("txn-10"),
+            "the calls ride the record just begun: {call}"
+        );
+        answer_tool(&mut device, &call, json!({ "path": "two.txt" })).await;
+
+        let extra = tokio::time::timeout(Duration::from_secs(1), next_json_raw(&mut device)).await;
+        assert!(
+            extra.is_err(),
+            "one abort and one more begin, then the device's answer: {extra:?}"
+        );
+    };
+    let ((status, body), ()) = tokio::join!(call, device_side);
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
+/// **ONE MACHINE'S SLOWNESS IS NOT ANOTHER MACHINE'S STALL.** The transaction book is per device:
+/// the slow device holds its own begin unanswered, and the other device's forward still completes.
+/// The test asserts order, not timing — the quick page returns and only then is the slow begin
+/// answered; a global book would never reach that point.
+#[tokio::test]
+async fn a_slow_device_does_not_block_another_devices_forwarding() {
+    let fixture = Fixture::new("txn-per-device-lock");
+    let server = TestServer::start(&fixture.console).await;
+    let (slow_id, slow_token) = fixture.register(&signing_key(0xb7)).await;
+    let (quick_id, quick_token) = fixture.register(&signing_key(0xb8)).await;
+    let session = fixture.authenticate().await;
+    let mut slow = open_channel(&server, &slow_id, &slow_token)
+        .await
+        .expect("the slow device's channel");
+    let mut quick = open_channel(&server, &quick_id, &quick_token)
+        .await
+        .expect("the quick device's channel");
+
+    let (quick_page_done, wait_for_quick_page) = tokio::sync::oneshot::channel::<()>();
+
+    let slow_side = async move {
+        // The begin is read but deliberately left unanswered: this device is the one that is slow.
+        let (begin, _) = expect_begin(&mut slow).await;
+        wait_for_quick_page
+            .await
+            .expect("the other machine's page returns first");
+        answer_begin(&mut slow, &begin, "txn-slow").await;
+        let call = expect_call(&mut slow, "files.write").await;
+        assert_eq!(frame_txn(&call), Some("txn-slow"), "{call}");
+        answer_tool(&mut slow, &call, json!({ "path": "slow.txt" })).await;
+    };
+
+    let quick_side = async move {
+        let (begin, _) = expect_begin(&mut quick).await;
+        answer_begin(&mut quick, &begin, "txn-quick").await;
+        let call = expect_call(&mut quick, "files.write").await;
+        assert_eq!(frame_txn(&call), Some("txn-quick"), "{call}");
+        answer_tool(&mut quick, &call, json!({ "path": "quick.txt" })).await;
+    };
+
+    let slow_page = page_call(
+        &fixture,
+        &session,
+        &slow_id,
+        tools_call(
+            1,
+            "files.write",
+            json!({ "path": "slow.txt", "content": "hi" }),
+        ),
+    );
+    let quick_page = async {
+        let answer = page_call(
+            &fixture,
+            &session,
+            &quick_id,
+            tools_call(
+                2,
+                "files.write",
+                json!({ "path": "quick.txt", "content": "hi" }),
+            ),
+        )
+        .await;
+        // Only after the quick machine's whole forward returned may the slow begin be answered;
+        // a book that serialised the two would deadlock before this send.
+        let _ = quick_page_done.send(());
+        answer
+    };
+
+    let (slow_answer, quick_answer, (), ()) =
+        tokio::join!(slow_page, quick_page, slow_side, quick_side);
+    assert_eq!(quick_answer.0, StatusCode::OK, "{}", quick_answer.1);
+    assert_eq!(slow_answer.0, StatusCode::OK, "{}", slow_answer.1);
 }

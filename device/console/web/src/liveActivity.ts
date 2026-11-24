@@ -1,0 +1,784 @@
+/**
+ * The console's activity as one open connection.
+ *
+ * The page used to draw "Recent calls" from a fetch, so a call that happened after the last refresh
+ * was invisible until the next one — there was no sense of an AI working *now*. The console serves
+ * the same audit as server-sent events: a `snapshot` of the newest lines, then one `activity` event
+ * per line as it is written. Every line carries a `sentence` the console wrote, so two pages cannot
+ * describe one call differently.
+ *
+ * Reconnecting is safe here, unlike the terminal stream: each connection opens with a fresh snapshot,
+ * which replaces whatever the page had. That is why `EventSource`'s own retry is left in charge — a
+ * cursor would be needed only if the stream could not re-describe its history.
+ *
+ * A page can be slower than the console's broadcast buffer without dropping the connection. The
+ * console then sends one `lagged` frame carrying the number of lines the buffer discarded, and the
+ * page has a hole it cannot recover from the stream itself: the caller must read `/audit` again.
+ * This module keeps that number; filling the hole is the caller's job.
+ */
+
+/**
+ * A door as a row names it: the holder that opened a session or declared a goal.
+ *
+ * It is attribution, not identity, and never proof of a person or a model. The shape is the
+ * device's own (`{kind, token_id}`); the page prints a label for it and never treats it as an
+ * instruction.
+ */
+export type HolderRef = {
+  kind?: string;
+  token_id?: string | null;
+};
+
+/** A goal sentence and who claimed it; the device's `goal` shape when a row carries one. */
+export type GoalClaim = {
+  text: string;
+  by?: HolderRef;
+  at_ms?: number;
+};
+
+/**
+ * The device's receipt for one transaction, as its own answer carries it.
+ *
+ * The counts are the device's observation, never the page's count of the rows it can see: a page
+ * that shows them says so, and one without them says the receipt was not retained.
+ */
+export type TxnReceipt = {
+  txn?: string;
+  session?: string | null;
+  purpose?: string;
+  by?: HolderRef;
+  state?: string;
+  reason?: string | null;
+  started_at_ms?: number;
+  ended_at_ms?: number | null;
+  observed?: {
+    calls?: number;
+    failures?: number;
+    refusals?: number;
+    duration_ms?: number;
+  };
+  goal_at_start?: GoalClaim | null;
+  goal_at_end?: GoalClaim | null;
+};
+
+/** One activity line, as `/events` sends it. */
+export type LiveLine = {
+  /** The console's clock for the action, in Unix milliseconds. */
+  ts_ms: number;
+  /** `mcp`, `grant`, `token`, `register`, `enroll`, `denied`. */
+  kind: string;
+  /** The machine the action names, when it names one. */
+  device_id?: string;
+  /**
+   * The terminal session this row belongs to, when the row is the machine's own session event. A
+   * call joins a session through its `evidence.session` instead; a row with neither names no session
+   * and the rail withholds it rather than attributing it to the active one.
+   */
+  session?: string;
+  /** The HTTP status the caller saw. */
+  status: number;
+  /** Who made the call: the console's own read, or an AI client's. Absent on an older line. */
+  caller?: "console" | "client";
+  /**
+   * The permanent token record that authenticated a client's call, by id. The audit line already
+   * carries it; the live event carries it too, because the newest rows win the merge and a line that
+   * dropped it would read "—" where the record names the token.
+   */
+  token_id?: string;
+  /** The tool a `tools/call` named. */
+  tool?: string;
+  /** Why, for a refusal. */
+  detail?: string;
+  /** Whether the device's answer was a success. */
+  ok?: boolean;
+  /**
+   * Whether this line was watched live. A line in a `snapshot` was read back from the audit file and
+   * does not carry it; only an event published as it happened does.
+   */
+  live?: boolean;
+  /** How long the device took, when the console measured it. */
+  ms?: number;
+  /** The human sentence the console wrote for this event. */
+  sentence: string;
+  /**
+   * The `trace.call` this row belongs to: the id the console's own audit line for the same proxied
+   * call also carries, so one call that both records wrote can be joined rather than guessed from
+   * its timestamp. Absent on rows written before the trace existed, and on every row that is not a
+   * call's outcome.
+   */
+  trace?: string;
+  /**
+   * The machine journal's `seq` for a proxied call's outcome half (round 9). The console writes it on
+   * the audit line and the live event, so a row opened before a reload can read the machine's own
+   * copy back by its position.
+   */
+  machine_seq?: number;
+  /** What the row shows when it is opened: the call's own arguments, bounded. */
+  evidence?: Record<string, unknown>;
+  /**
+   * The record's own class of this row (`txn.started`, `goal.set`, `call.denied`, …), when the
+   * console or the device publishes one. A renderer groups by these values and never parses a
+   * call's arguments for meaning; an unrecognised value is shown neutrally and counted.
+   */
+  row_kind?: string;
+  /** The transaction this row belongs to, from the row itself. */
+  txn?: string;
+  /** A transaction's declared purpose, on its begin or end row. */
+  purpose?: string;
+  /** A goal this row records: a set sentence, or `null` when it cleared the goal. */
+  goal?: GoalClaim | null;
+  /** The device's receipt, on a transaction's end row. */
+  receipt?: TxnReceipt;
+};
+
+/**
+ * One call the console has announced and not yet cleared: a `started` frame.
+ *
+ * It is deliberately not a [`LiveLine`]: it has no sentence, no status and no place in the record.
+ * The proxy publishes it before the wait and clears it when the wait ends, so a page can say a call
+ * is running while the audit still has nothing about it.
+ */
+export type StartedCall = {
+  /** The proxy's id for this call; a `finished` frame clears exactly this one. */
+  id: string;
+  /** The tool the call named. */
+  tool: string;
+  /** The console's clock when the call began. */
+  at_ms: number;
+  /** The machine the call names, when it names one. */
+  device_id?: string;
+  /** Who made the call, so the band can count the AI and not the console's own reads. */
+  caller?: "console" | "client";
+  /**
+   * The call's own arguments, bounded by the console, as the proxy already builds them for the
+   * finished row. They are what lets a running call be scoped to a session: `evidence.session`.
+   */
+  evidence?: Record<string, unknown>;
+  /**
+   * The permanent token record that authenticated a client's call, by id. Carried on the
+   * announcement for the same reason as the finished row: a running call's actor is a fact, and
+   * the rail names the token rather than guessing an audience.
+   */
+  token_id?: string;
+  /** The transaction the call names, when its bounded evidence carries one. */
+  txn?: string;
+};
+
+/**
+ * The facts a device event's payload can carry that the page reads.
+ *
+ * The payload is the event kind's own: a session names the session it opened, and a call names the
+ * tool it ran and how it ended. Only the fields a row is drawn from are typed here, so this stays
+ * what the page can vouch for rather than one invented shape for every kind.
+ */
+export type DevicePayload = {
+  /** The session's id, on `session.opened` and `session.closed`. */
+  id?: string;
+  /** How the session reaches its machine: `pty`, `ssh` or `serial`. */
+  kind?: string;
+  /** The tool a `call.*` event named. */
+  tool?: string;
+  /** Whether the call's outcome was a success, on `call.finished` and `call.denied`. */
+  ok?: boolean;
+  /** Why a call was refused, as a machine-readable code (`denied`, `approval_required`, …). */
+  reason?: string;
+  /** The closed set's answer for this row (`txn.started`, `call`, `goal.cleared`, …). */
+  row_kind?: string;
+  /** The transaction the row belongs to, when it names one. */
+  txn?: string;
+  /** The transaction's declared purpose, on a begin row. */
+  purpose?: string;
+  /** A goal sentence the row records, when the device publishes one. */
+  goal?: GoalClaim | null;
+  /** The device's receipt, on a transaction's end row. */
+  receipt?: TxnReceipt;
+  /** The door the call arrived through, as the device spells it. */
+  door?: string;
+};
+
+/**
+ * The sentence one call's outcome earns: what ran, and how it ended.
+ *
+ * A call the machine made on its own reaches the page as a device event, and `call.denied on
+ * <machine>` would make it read as a journal kind rather than as a call. The reason is the device's
+ * own code, shown as it wrote it rather than translated into a claim the page cannot keep; without
+ * one the parenthetical is left off instead of promising a fact the device did not supply.
+ *
+ * **ONE SPELLING FOR TWO RECORDS (round 8).** A call the console proxied is drawn from the audit, and
+ * a call only the machine's journal holds is drawn from `journal.read`; a reader must not be able to
+ * tell the two apart by the wording. Both paths call this function, so the sentence is the same
+ * function's, not a second copy's.
+ */
+export function callSentence(
+  device: string,
+  type: "call.finished" | "call.denied",
+  tool: string,
+  reason: string | undefined
+): string {
+  if (type === "call.finished") return `${tool} ran on ${device}`;
+  return reason === undefined
+    ? `${tool} was refused on ${device}`
+    : `${tool} was refused on ${device} (${reason})`;
+}
+
+/**
+ * One event from a device's own journal, as the console relays it on the stream.
+ *
+ * The console does not rewrite the device's envelope: `v`, `plane`, `seq`, `ts` and `type` are the
+ * journal's own fields, `subject` is whatever the event names as its subject, and `payload` is the
+ * kind's facts. A frame that does not carry these fields is not an event the page can report.
+ */
+export type DeviceEvent = {
+  /** The envelope's schema version; additive changes stay at 1. */
+  v: number;
+  /** Which plane the event belongs to; the console's own events are `control`. */
+  plane: "control" | "data";
+  /** The device journal's monotonic sequence for this event. */
+  seq: number;
+  /** When the device recorded it, as an RFC 3339 string. */
+  ts: string;
+  /** `session.opened`, `session.closed`, `device.started`, … */
+  type: string;
+  /** What the event is about, when it names a subject. */
+  subject?: unknown;
+  /**
+   * What this event traces back to. A call's two journal halves share one `trace.call`, and a call
+   * the console proxied carries the same value on its audit line, which is the only join the two
+   * records have. Absent on events that belong to no call.
+   */
+  trace?: { call?: string };
+  /** The facts the event kind carries. */
+  payload: DevicePayload;
+};
+
+/**
+ * One reset of a device's journal: the rows this page still needs are no longer retained.
+ *
+ * The console sends it when the journal has moved past the point this page's record resumes from.
+ * `snapshot_seq` is where the journal now stands, and `lost` is the inclusive range of sequence
+ * numbers the page can no longer read. The stream cannot refill them, so the caller has to reread the
+ * record — the same answer a `lagged` frame needs.
+ */
+export type DeviceReset = {
+  /** The device whose journal reset. */
+  device: string;
+  /** The journal's sequence the snapshot resumed at. */
+  snapshot_seq: number;
+  /** The inclusive range of sequence numbers the journal no longer retains. */
+  lost: { from: number; to: number };
+};
+
+/**
+ * The sentence a device event earns on Activity.
+ *
+ * The device's journal carries no human sentence, and `session.opened on <machine>` would make the
+ * reader learn the journal's own spelling. The two session events name the terminal they are
+ * about, and a started device names itself; a call's outcome is described by [`callSentence`], which
+ * needs the tool the event named. Anything else is reported as the event's type, because the page
+ * knows nothing about that kind beyond the fact that it happened on this machine.
+ */
+function deviceSentence(device: string, event: DeviceEvent): string {
+  if (event.type === "session.opened" || event.type === "session.closed") {
+    const id = event.payload.id;
+    if (id !== undefined && id !== "") {
+      const verb = event.type === "session.opened" ? "opened" : "closed";
+      return `terminal ${id} ${verb} on ${device}`;
+    }
+  }
+  if (event.type === "device.started") return `${device} started`;
+  return `${event.type} on ${device}`;
+}
+
+/**
+ * One device event as a row, or `null` when the event is a half that earns none.
+ *
+ * A session fact is not a call: the envelope has no HTTP status, and the device's `ts` is its own
+ * clock — a body whose time cannot be read falls back to this page's, which is newer than the
+ * event, never older.
+ *
+ * A call's journal pair is one call, so only its outcome half is a row. `call.started` is the half
+ * the paired `call.finished`/`call.denied` describes, and drawing both would show one call twice —
+ * once with no outcome, once with. A started event whose outcome never comes is not worth a row
+ * either: the page must not invent a timer to guess when a call died, and an unfinished half with
+ * no answer is not a fact it can report.
+ *
+ * **A SESSION EVENT CARRIES ITS SESSION STRUCTURALLY.** The rail filters by the active device and
+ * session, so `session.opened`/`session.closed` name the terminal in `session`, from the payload's
+ * own `id`, rather than making the reader parse the sentence. A device call names no session — its
+ * journal pair carries a tool and an outcome, not arguments — so the field is absent and the rail
+ * withholds the row instead of guessing.
+ */
+export function deviceLine(device: string, event: DeviceEvent): LiveLine | null {
+  if (event.type === "call.started") return null;
+  const parsed = Date.parse(event.ts);
+  const ts_ms = Number.isFinite(parsed) ? parsed : Date.now();
+  if (event.type === "call.finished" || event.type === "call.denied") {
+    const tool = event.payload.tool;
+    // The parser refuses an outcome that names no tool, so this guard only narrows the type; a row
+    // without one would be the blank the parser already rejected before the page saw it.
+    if (tool === undefined) return null;
+    // The console records a tool-level failure as 424, so a call the machine refused reads failed
+    // with every other failed call in the list rather than as a green 200.
+    const ok = event.payload.ok === true;
+    return {
+      ts_ms,
+      kind: "mcp",
+      status: ok ? 200 : 424,
+      ok,
+      device_id: device,
+      tool,
+      ...(event.trace?.call !== undefined ? { trace: event.trace.call } : {}),
+      ...(event.payload.row_kind !== undefined ? { row_kind: event.payload.row_kind } : {}),
+      ...(event.payload.txn !== undefined ? { txn: event.payload.txn } : {}),
+      ...(event.payload.purpose !== undefined ? { purpose: event.payload.purpose } : {}),
+      ...(event.payload.goal !== undefined ? { goal: event.payload.goal } : {}),
+      ...(event.payload.receipt !== undefined ? { receipt: event.payload.receipt } : {}),
+      live: true,
+      sentence: callSentence(device, event.type, tool, event.payload.reason)
+    };
+  }
+  const sessionId = event.payload.id;
+  return {
+    ts_ms,
+    kind: "session",
+    status: 200,
+    ok: true,
+    device_id: device,
+    ...(sessionId !== undefined && sessionId !== "" ? { session: sessionId } : {}),
+    ...(event.payload.row_kind !== undefined ? { row_kind: event.payload.row_kind } : {}),
+    live: true,
+    sentence: deviceSentence(device, event)
+  };
+}
+
+/**
+ * The proxy's own cut on one call: the longest a `started` entry may stand without a `finished`.
+ *
+ * The proxy stops waiting at ninety seconds for a run and sooner for everything else. A page that
+ * never hears the clear must not keep "running" forever, so it applies the same bound itself; the
+ * console's snapshot applies it too, which is what keeps a reconnect from resurrecting the entry.
+ */
+export const RUNNING_CUT_MS = 90_000;
+
+/** The started calls that have not outlived the proxy's cut at `now`. */
+export function runningAt(calls: readonly StartedCall[], now: number): StartedCall[] {
+  return calls.filter((call) => now - call.at_ms <= RUNNING_CUT_MS);
+}
+
+export type LiveHandlers = {
+  /**
+   * The newest lines, oldest first, replacing whatever the page had, and the calls still running.
+   * A reconnect's snapshot is the registry's whole list, so it also replaces the running list.
+   */
+  snapshot: (lines: LiveLine[], running?: StartedCall[]) => void;
+  /** One line, written after the connection opened. */
+  activity: (line: LiveLine) => void;
+  /** The page fell behind: how many lines the console's buffer dropped before this event. */
+  lagged: (dropped: number) => void;
+  /** One call began: the proxy announced it before the device answered. */
+  started?: (call: StartedCall) => void;
+  /** One call's reply arrived (or its proxy stopped waiting); clear the line by id. */
+  finished?: (id: string) => void;
+  /**
+   * One event from a device's own journal. It is not an audit line and not a call: the event has a
+   * `seq` of its own and no HTTP status, so the page reads the envelope rather than the record.
+   */
+  device?: (device: string, event: DeviceEvent) => void;
+  /**
+   * A device's journal no longer retains rows this page needs. The inclusive `lost` range is a hole
+   * the stream cannot refill, so the caller must reread the record as it would after `lagged`.
+   */
+  reset?: (reset: DeviceReset) => void;
+  /** The connection dropped. `EventSource` retries on its own. */
+  error: () => void;
+  /**
+   * A snapshot arrived after the connection had dropped: the stream is re-describing its history,
+   * and whatever was written while it was down is not in the old list. Optional because a test or a
+   * runtime may not care; the snapshot itself is still delivered.
+   */
+  recovered?: () => void;
+};
+
+export type LiveFeed = {
+  close: () => void;
+};
+
+/** The slice of `EventSource` this module uses, so a test can drive it without a browser. */
+export type EventSourceLike = {
+  addEventListener: (type: string, listener: (event: MessageEvent) => void) => void;
+  close: () => void;
+  onerror: ((event: Event) => void) | null;
+};
+
+export type EventSourceFactory = (url: string) => EventSourceLike;
+
+/** The route the console serves. */
+export function liveActivityPath(): string {
+  return "/events";
+}
+
+/** `EventSource` where the page has one; jsdom has none, which is why the caller can fall back. */
+export function defaultEventSourceFactory(): EventSourceFactory | null {
+  const global = globalThis as { EventSource?: new (url: string) => EventSourceLike };
+  if (typeof global.EventSource !== "function") return null;
+  return (url) => new global.EventSource!(url);
+}
+
+/**
+ * Open the activity stream.
+ *
+ * Returns `null` when the runtime has no `EventSource`, so a caller keeps the fetch it already had
+ * instead of showing an empty stream as if nothing were happening.
+ */
+export function openLiveActivity(
+  handlers: LiveHandlers,
+  factory: EventSourceFactory | null = defaultEventSourceFactory()
+): LiveFeed | null {
+  if (!factory) return null;
+  const source = factory(liveActivityPath());
+  let closed = false;
+  // The connection failed since the last snapshot. A snapshot that follows is a reconnect, not a
+  // routine refresh: the page is told once so it can reread what the down time hid.
+  let dropped = false;
+
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    source.close();
+  };
+
+  const onSnapshot = (event: MessageEvent) => {
+    const frame = parse(event.data);
+    const lines = frame && Array.isArray(frame.lines) ? frame.lines : [];
+    const running =
+      frame && Array.isArray(frame.running)
+        ? frame.running
+            .map((entry) => asStarted(entry, undefined))
+            .filter((call): call is StartedCall => call !== null)
+        : [];
+    handlers.snapshot(
+      lines.map(asLine).filter((line): line is LiveLine => line !== null),
+      running
+    );
+    if (dropped) {
+      dropped = false;
+      handlers.recovered?.();
+    }
+  };
+  const onActivity = (event: MessageEvent) => {
+    const line = asLine(parse(event.data));
+    if (line) handlers.activity(line);
+  };
+  const onLagged = (event: MessageEvent) => {
+    // A lagged frame is always a hole, even if its body cannot be counted. Saying one rather than
+    // zero keeps a malformed body from reading as "nothing was lost".
+    const dropped = droppedCount(parse(event.data));
+    handlers.lagged(dropped);
+  };
+  const onStarted = (event: MessageEvent) => {
+    const frame = parse(event.data);
+    const call = frame ? asStarted(frame.started, frame.caller) : null;
+    if (call) handlers.started?.(call);
+  };
+  const onFinished = (event: MessageEvent) => {
+    const frame = parse(event.data);
+    const id = finishedId(frame);
+    if (id !== null) handlers.finished?.(id);
+  };
+  const onDevice = (event: MessageEvent) => {
+    const parsed = asDeviceEvent(parse(event.data));
+    if (parsed) handlers.device?.(parsed.device, parsed.event);
+  };
+  const onReset = (event: MessageEvent) => {
+    const reset = asReset(parse(event.data));
+    if (reset) handlers.reset?.(reset);
+  };
+  source.addEventListener("snapshot", onSnapshot);
+  source.addEventListener("activity", onActivity);
+  source.addEventListener("lagged", onLagged);
+  source.addEventListener("started", onStarted);
+  source.addEventListener("finished", onFinished);
+  source.addEventListener("device", onDevice);
+  source.addEventListener("reset", onReset);
+  source.onerror = () => {
+    if (closed) return;
+    dropped = true;
+    handlers.error();
+  };
+
+  return { close };
+}
+
+/** One line, or `null` when the payload is not one. A sentence is what makes it readable. */
+function asLine(value: unknown): LiveLine | null {
+  if (!value || typeof value !== "object") return null;
+  const frame = value as Record<string, unknown>;
+  const ts = typeof frame.ts_ms === "number" ? frame.ts_ms : null;
+  const sentence = typeof frame.sentence === "string" ? frame.sentence : null;
+  if (ts === null || !sentence) return null;
+  const evidence = isRecord(frame.evidence) ? frame.evidence : undefined;
+  // The row fields the console copies into the call's bounded evidence are lifted to the row, so a
+  // renderer groups by the record's own fields rather than reading a call's arguments.
+  const rowKind = textOf(frame.row_kind) ?? textOf(evidence?.row_kind);
+  const txn = textOf(frame.txn) ?? textOf(evidence?.txn);
+  const purpose = textOf(frame.purpose) ?? textOf(evidence?.purpose);
+  const goal =
+    "goal" in frame
+      ? goalOf(frame.goal)
+      : evidence !== undefined && hasOwn(evidence, "goal")
+        ? goalOf(evidence.goal)
+        : undefined;
+  const receipt = receiptOf(frame.receipt) ?? receiptOf(evidence?.receipt);
+  return {
+    ts_ms: ts,
+    kind: typeof frame.kind === "string" ? frame.kind : "mcp",
+    status: typeof frame.status === "number" ? frame.status : 0,
+    sentence,
+    ...(typeof frame.device_id === "string" ? { device_id: frame.device_id } : {}),
+    ...(typeof frame.session === "string" && frame.session !== ""
+      ? { session: frame.session }
+      : {}),
+    ...(typeof frame.tool === "string" ? { tool: frame.tool } : {}),
+    ...(typeof frame.detail === "string" ? { detail: frame.detail } : {}),
+    ...(typeof frame.ok === "boolean" ? { ok: frame.ok } : {}),
+    ...(typeof frame.live === "boolean" ? { live: frame.live } : {}),
+    ...(frame.caller === "console" || frame.caller === "client"
+      ? { caller: frame.caller }
+      : {}),
+    ...(typeof frame.token_id === "string" && frame.token_id !== ""
+      ? { token_id: frame.token_id }
+      : {}),
+    ...(typeof frame.ms === "number" ? { ms: frame.ms } : {}),
+    ...(evidence !== undefined ? { evidence } : {}),
+    ...(typeof frame.trace === "string" && frame.trace !== "" ? { trace: frame.trace } : {}),
+    ...(typeof frame.machine_seq === "number" ? { machine_seq: frame.machine_seq } : {}),
+    ...(rowKind !== undefined ? { row_kind: rowKind } : {}),
+    ...(txn !== undefined ? { txn } : {}),
+    ...(purpose !== undefined ? { purpose } : {}),
+    ...(goal !== undefined ? { goal } : {}),
+    ...(receipt !== undefined ? { receipt } : {})
+  };
+}
+
+/** Whether `value` is a plain record, the only shape the row fields are read from. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Whether the record carries the key at all, so `null` is told apart from absent. */
+function hasOwn(value: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+/** A non-empty string, or `undefined` when the field is absent or not one. */
+function textOf(value: unknown): string | undefined {
+  return typeof value === "string" && value !== "" ? value : undefined;
+}
+
+/**
+ * A goal claim, or `null` for a clear.
+ *
+ * A string is the sentence a console row's evidence carries; the device's own shape is
+ * `{text, by, at_ms}`. Anything else is not a goal the page can print, so it is `undefined` — an
+ * absent fact rather than an invented sentence.
+ */
+function goalOf(value: unknown): GoalClaim | null | undefined {
+  if (value === null) return null;
+  if (typeof value === "string") return value === "" ? undefined : { text: value };
+  if (!isRecord(value)) return undefined;
+  const text = textOf(value.text);
+  if (text === undefined) return undefined;
+  return {
+    text,
+    ...(isRecord(value.by) ? { by: value.by as HolderRef } : {}),
+    ...(typeof value.at_ms === "number" ? { at_ms: value.at_ms } : {})
+  };
+}
+
+/** A transaction's receipt, when the row carries an object one. Its counts are the device's. */
+function receiptOf(value: unknown): TxnReceipt | undefined {
+  return isRecord(value) ? (value as TxnReceipt) : undefined;
+}
+
+/**
+ * One started call, or `null` when the payload does not carry the facts the band needs.
+ *
+ * The `started` object of a live frame and an entry in a snapshot's `running` array are the same
+ * facts; the caller is top-level on the frame and inner on the snapshot entry, so the caller is a
+ * parameter rather than assumed.
+ */
+function asStarted(value: unknown, caller: unknown): StartedCall | null {
+  if (!value || typeof value !== "object") return null;
+  const frame = value as Record<string, unknown>;
+  const id = typeof frame.id === "string" && frame.id !== "" ? frame.id : null;
+  const tool = typeof frame.tool === "string" && frame.tool !== "" ? frame.tool : null;
+  const at = typeof frame.at_ms === "number" && Number.isFinite(frame.at_ms) ? frame.at_ms : null;
+  if (id === null || tool === null || at === null) return null;
+  const audience =
+    caller === "console" || caller === "client"
+      ? caller
+      : frame.caller === "console" || frame.caller === "client"
+        ? frame.caller
+        : undefined;
+  const evidence = isRecord(frame.evidence) ? frame.evidence : undefined;
+  const txn = textOf(frame.txn) ?? textOf(evidence?.txn);
+  return {
+    id,
+    tool,
+    at_ms: at,
+    ...(typeof frame.device_id === "string" ? { device_id: frame.device_id } : {}),
+    ...(evidence !== undefined ? { evidence } : {}),
+    ...(typeof frame.token_id === "string" && frame.token_id !== ""
+      ? { token_id: frame.token_id }
+      : {}),
+    ...(txn !== undefined ? { txn } : {}),
+    ...(audience ? { caller: audience } : {})
+  };
+}
+
+/**
+ * One relayed device event, or `null` when the frame does not carry an envelope the page can
+ * report.
+ *
+ * The console does not write a sentence for these — the device's event is the whole fact — so a
+ * half-read envelope is refused rather than drawn with blanks. The wrapper is `device_event`
+ * because the console answers `device` too: the device's id is outside the journal line, and the
+ * frame must not confuse which machine wrote it.
+ */
+function asDeviceEvent(
+  frame: Record<string, unknown> | null
+): { device: string; event: DeviceEvent } | null {
+  const wrapper = frame?.device_event;
+  if (!wrapper || typeof wrapper !== "object" || Array.isArray(wrapper)) return null;
+  const relayed = wrapper as Record<string, unknown>;
+  const device =
+    typeof relayed.device === "string" && relayed.device !== "" ? relayed.device : null;
+  const raw = relayed.event;
+  if (device === null || !raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const event = raw as Record<string, unknown>;
+  const v = typeof event.v === "number" && Number.isFinite(event.v) ? event.v : null;
+  const plane = event.plane === "control" || event.plane === "data" ? event.plane : null;
+  const seq = typeof event.seq === "number" && Number.isFinite(event.seq) ? event.seq : null;
+  const ts = typeof event.ts === "string" && event.ts !== "" ? event.ts : null;
+  const type = typeof event.type === "string" && event.type !== "" ? event.type : null;
+  if (v === null || plane === null || seq === null || ts === null || type === null) return null;
+  const payload = asDevicePayload(event.payload);
+  // A call's outcome is a row drawn from the tool it ran and whether it succeeded. An event that
+  // cannot name both would reach the page as a row of blanks, so it is refused here, where every
+  // other half-read envelope is — not drawn as if the device had said nothing.
+  const outcome = type === "call.finished" || type === "call.denied";
+  if (outcome && (payload.tool === undefined || payload.ok === undefined)) return null;
+  const trace = asDeviceTrace(event.trace);
+  return {
+    device,
+    event: {
+      v,
+      plane,
+      seq,
+      ts,
+      type,
+      ...(event.subject !== undefined ? { subject: event.subject } : {}),
+      ...(trace ? { trace } : {}),
+      payload
+    }
+  };
+}
+
+/**
+ * The call an event's `trace` names, or `null` when it names none the page can read.
+ *
+ * A trace is a join key, not a fact about the call: an event whose trace is unreadable is still a
+ * call the page can report, so a malformed trace is dropped and the row drawn on its own facts
+ * rather than the whole event refused.
+ */
+function asDeviceTrace(value: unknown): { call?: string } | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  return typeof raw.call === "string" && raw.call !== "" ? { call: raw.call } : null;
+}
+
+/** The payload's facts the page reads. Every other field belongs to the event kind, not to this page. */
+function asDevicePayload(value: unknown): DevicePayload {
+  if (!isRecord(value)) return {};
+  const goal = hasOwn(value, "goal") ? goalOf(value.goal) : undefined;
+  const receipt = receiptOf(value.receipt);
+  return {
+    ...(typeof value.id === "string" ? { id: value.id } : {}),
+    ...(typeof value.kind === "string" ? { kind: value.kind } : {}),
+    ...(typeof value.tool === "string" && value.tool !== "" ? { tool: value.tool } : {}),
+    ...(typeof value.ok === "boolean" ? { ok: value.ok } : {}),
+    ...(typeof value.reason === "string" && value.reason !== ""
+      ? { reason: value.reason }
+      : {}),
+    ...(textOf(value.row_kind) !== undefined ? { row_kind: textOf(value.row_kind)! } : {}),
+    ...(textOf(value.txn) !== undefined ? { txn: textOf(value.txn)! } : {}),
+    ...(textOf(value.purpose) !== undefined ? { purpose: textOf(value.purpose)! } : {}),
+    ...(goal !== undefined ? { goal } : {}),
+    ...(receipt !== undefined ? { receipt } : {}),
+    ...(textOf(value.door) !== undefined ? { door: textOf(value.door)! } : {})
+  };
+}
+
+/**
+ * One journal reset, or `null` when the frame does not name the machine, the sequence that resumed,
+ * and the range that is gone.
+ *
+ * Unlike a relayed device event, this frame is flat: the reset is the whole payload. A frame missing
+ * any of its three facts is refused, because a page cannot report a gap it cannot size.
+ */
+function asReset(frame: Record<string, unknown> | null): DeviceReset | null {
+  if (!frame) return null;
+  const device = typeof frame.device === "string" && frame.device !== "" ? frame.device : null;
+  const snapshotSeq =
+    typeof frame.snapshot_seq === "number" && Number.isFinite(frame.snapshot_seq)
+      ? frame.snapshot_seq
+      : null;
+  const lost = frame.lost;
+  if (
+    device === null ||
+    snapshotSeq === null ||
+    !lost ||
+    typeof lost !== "object" ||
+    Array.isArray(lost)
+  ) {
+    return null;
+  }
+  const range = lost as Record<string, unknown>;
+  const from = typeof range.from === "number" && Number.isFinite(range.from) ? range.from : null;
+  const to = typeof range.to === "number" && Number.isFinite(range.to) ? range.to : null;
+  if (from === null || to === null) return null;
+  return { device, snapshot_seq: snapshotSeq, lost: { from, to } };
+}
+
+/** The id a `finished` frame clears, or `null` when it names none. */
+function finishedId(frame: Record<string, unknown> | null): string | null {
+  const finished = frame?.finished;
+  if (!finished || typeof finished !== "object") return null;
+  const id = (finished as Record<string, unknown>).id;
+  return typeof id === "string" && id !== "" ? id : null;
+}
+
+/**
+ * The number of lines a `lagged` frame says the server dropped.
+ *
+ * The console always sends a positive count. A body that arrived without one still came from a lag
+ * the console announced, so the answer is one rather than zero: the page may undercount an unknown
+ * hole, but it must not report it as no hole at all.
+ */
+function droppedCount(frame: Record<string, unknown> | null): number {
+  const dropped = frame?.dropped;
+  if (typeof dropped === "number" && Number.isFinite(dropped) && dropped > 0) {
+    return Math.max(1, Math.floor(dropped));
+  }
+  return 1;
+}
+
+function parse(text: unknown): Record<string, unknown> | null {
+  if (typeof text !== "string" || text === "") return null;
+  try {
+    const value = JSON.parse(text);
+    return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
